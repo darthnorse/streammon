@@ -28,5 +28,6 @@ Thumbs.db
 .env
 
 # Claude
+.claude/
 CLAUDE.md
 docs/
