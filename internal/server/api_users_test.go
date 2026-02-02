@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,6 +10,17 @@ import (
 
 	"streammon/internal/models"
 )
+
+type stubResolver struct {
+	results map[string]*models.GeoResult
+}
+
+func (s *stubResolver) Lookup(ip net.IP) *models.GeoResult {
+	if ip == nil {
+		return nil
+	}
+	return s.results[ip.String()]
+}
 
 func TestListUsersAPI(t *testing.T) {
 	srv, st := newTestServer(t)
@@ -128,5 +140,50 @@ func TestGetUserLocationsCachedAPI(t *testing.T) {
 	}
 	if locs[0].City != "Mountain View" {
 		t.Fatalf("expected Mountain View, got %s", locs[0].City)
+	}
+}
+
+func TestGetUserLocationsResolverLookupAPI(t *testing.T) {
+	srv, st := newTestServer(t)
+	srv.geoResolver = &stubResolver{results: map[string]*models.GeoResult{
+		"8.8.8.8": {IP: "8.8.8.8", Lat: 37.386, Lng: -122.084, City: "Mountain View", Country: "US"},
+	}}
+
+	st.CreateServer(&models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k"})
+
+	now := time.Now()
+	st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: 1, UserName: "alice", MediaType: "movie", Title: "A",
+		IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now,
+	})
+
+	// First request: resolver lookup, should cache the result
+	req := httptest.NewRequest(http.MethodGet, "/api/users/alice/locations", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var locs []models.GeoResult
+	json.NewDecoder(w.Body).Decode(&locs)
+	if len(locs) != 1 {
+		t.Fatalf("expected 1 location, got %d", len(locs))
+	}
+	if locs[0].City != "Mountain View" {
+		t.Fatalf("expected Mountain View, got %s", locs[0].City)
+	}
+
+	// Verify cache was populated
+	cached, err := st.GetCachedGeo("8.8.8.8")
+	if err != nil {
+		t.Fatalf("GetCachedGeo: %v", err)
+	}
+	if cached == nil {
+		t.Fatal("expected resolver result to be cached")
+	}
+	if cached.City != "Mountain View" {
+		t.Fatalf("expected cached Mountain View, got %s", cached.City)
 	}
 }

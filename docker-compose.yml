@@ -8,5 +8,5 @@ services:
       - ./geoip:/app/geoip
     environment:
       - DB_PATH=/app/data/streammon.db
-      - GEOIP_PATH=/app/geoip/GeoLite2-City.mmdb
+      - GEOIP_DB=/app/geoip/GeoLite2-City.mmdb
     restart: unless-stopped

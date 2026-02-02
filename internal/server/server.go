@@ -6,17 +6,23 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"streammon/internal/geoip"
+	"net"
+
+	"streammon/internal/models"
 	"streammon/internal/poller"
 	"streammon/internal/store"
 )
 
+type GeoLookup interface {
+	Lookup(ip net.IP) *models.GeoResult
+}
+
 type Server struct {
-	router     chi.Router
-	store      *store.Store
-	poller     *poller.Poller
+	router      chi.Router
+	store       *store.Store
+	poller      *poller.Poller
 	corsOrigin  string
-	geoResolver *geoip.Resolver
+	geoResolver GeoLookup
 }
 
 func NewServer(s *store.Store, opts ...Option) *Server {
@@ -43,7 +49,7 @@ func WithPoller(p *poller.Poller) Option {
 	return func(s *Server) { s.poller = p }
 }
 
-func WithGeoResolver(r *geoip.Resolver) Option {
+func WithGeoResolver(r GeoLookup) Option {
 	return func(s *Server) { s.geoResolver = r }
 }
 
