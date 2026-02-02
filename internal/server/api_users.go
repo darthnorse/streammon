@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"log"
 	"net"
 	"net/http"
 
@@ -42,17 +43,24 @@ func (s *Server) handleGetUserLocations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	cached, err := s.store.GetCachedGeos(ips)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+
 	locations := []models.GeoResult{}
 	for _, ipStr := range ips {
-		cached, err := s.store.GetCachedGeo(ipStr)
-		if err == nil && cached != nil {
-			locations = append(locations, *cached)
+		if geo, ok := cached[ipStr]; ok {
+			locations = append(locations, *geo)
 			continue
 		}
 		if s.geoResolver != nil {
 			ip := net.ParseIP(ipStr)
 			if geo := s.geoResolver.Lookup(ip); geo != nil {
-				s.store.SetCachedGeo(geo)
+				if err := s.store.SetCachedGeo(geo); err != nil {
+					log.Printf("caching geo for %s: %v", ipStr, err)
+				}
 				locations = append(locations, *geo)
 			}
 		}

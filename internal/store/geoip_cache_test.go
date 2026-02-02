@@ -83,6 +83,39 @@ func TestSetCachedGeoUpsert(t *testing.T) {
 	}
 }
 
+func TestGetCachedGeoBatch(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.SetCachedGeo(&models.GeoResult{IP: "8.8.8.8", City: "Mountain View", Country: "US"})
+	s.SetCachedGeo(&models.GeoResult{IP: "1.1.1.1", City: "Sydney", Country: "AU"})
+
+	result, err := s.GetCachedGeos([]string{"8.8.8.8", "1.1.1.1", "9.9.9.9"})
+	if err != nil {
+		t.Fatalf("GetCachedGeos: %v", err)
+	}
+	if len(result) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(result))
+	}
+	if result["8.8.8.8"].City != "Mountain View" {
+		t.Fatalf("expected Mountain View, got %s", result["8.8.8.8"].City)
+	}
+	if result["1.1.1.1"].City != "Sydney" {
+		t.Fatalf("expected Sydney, got %s", result["1.1.1.1"].City)
+	}
+}
+
+func TestGetCachedGeoBatchEmpty(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	result, err := s.GetCachedGeos([]string{})
+	if err != nil {
+		t.Fatalf("GetCachedGeos: %v", err)
+	}
+	if len(result) != 0 {
+		t.Fatalf("expected 0 results, got %d", len(result))
+	}
+}
+
 func TestDistinctIPsForUser(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 

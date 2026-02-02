@@ -37,7 +37,7 @@ func main() {
 		log.Fatalf("running migrations: %v", err)
 	}
 
-	geoDBPath := envOr("GEOIP_DB", "geoip/GeoLite2-City.mmdb")
+	geoDBPath := os.Getenv("GEOIP_DB")
 	geoResolver := geoip.NewResolver(geoDBPath)
 	defer geoResolver.Close()
 
