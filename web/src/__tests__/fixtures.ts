@@ -1,4 +1,4 @@
-import type { ActiveStream, WatchHistoryEntry } from '../types'
+import type { ActiveStream, WatchHistoryEntry, DayStat, User } from '../types'
 
 export const baseStream: ActiveStream = {
   session_id: 's1',
@@ -35,4 +35,24 @@ export const baseHistoryEntry: WatchHistoryEntry = {
   started_at: '2024-06-15T12:00:00Z',
   stopped_at: '2024-06-15T14:28:00Z',
   created_at: '2024-06-15T12:00:00Z',
+}
+
+export const baseUser: User = {
+  id: 1,
+  name: 'alice',
+  email: 'alice@example.com',
+  role: 'admin',
+  thumb_url: '',
+  created_at: '2024-01-15T00:00:00Z',
+  updated_at: '2024-06-15T00:00:00Z',
+}
+
+export const emptyDayStat: DayStat = {
+  date: '2024-06-15',
+  movies: 0,
+  tv: 0,
+  livetv: 0,
+  music: 0,
+  audiobooks: 0,
+  books: 0,
 }

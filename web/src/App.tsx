@@ -2,10 +2,7 @@ import { Routes, Route } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { History } from './pages/History'
-
-function UserPlaceholder() {
-  return <div><h1 className="text-2xl font-semibold">User</h1></div>
-}
+import { UserDetail } from './pages/UserDetail'
 
 function SettingsPlaceholder() {
   return <div><h1 className="text-2xl font-semibold">Settings</h1></div>
@@ -29,7 +26,7 @@ export default function App() {
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/history" element={<History />} />
-        <Route path="/users/:name" element={<UserPlaceholder />} />
+        <Route path="/users/:name" element={<UserDetail />} />
         <Route path="/settings" element={<SettingsPlaceholder />} />
         <Route path="*" element={<NotFound />} />
       </Route>

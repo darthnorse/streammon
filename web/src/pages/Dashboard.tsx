@@ -1,5 +1,6 @@
 import { useSSE } from '../hooks/useSSE'
 import { StreamCard } from '../components/StreamCard'
+import { DailyChart } from '../components/DailyChart'
 
 export function Dashboard() {
   const { sessions, connected } = useSSE('/api/dashboard/sse')
@@ -41,6 +42,9 @@ export function Dashboard() {
           ))}
         </div>
       )}
+      <div className="mt-6">
+        <DailyChart />
+      </div>
     </div>
   )
 }

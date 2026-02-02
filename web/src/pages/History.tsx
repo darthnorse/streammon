@@ -1,14 +1,9 @@
 import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
+import { PER_PAGE } from '../lib/constants'
 import { HistoryTable } from '../components/HistoryTable'
+import { Pagination } from '../components/Pagination'
 import type { WatchHistoryEntry, PaginatedResult } from '../types'
-
-const PER_PAGE = 20
-
-const paginationBtnClass = `px-4 py-2 text-sm font-medium rounded-lg
-  bg-panel dark:bg-panel-dark border border-border dark:border-border-dark
-  disabled:opacity-40 disabled:cursor-not-allowed
-  hover:border-accent/30 transition-colors`
 
 export function History() {
   const [page, setPage] = useState(1)
@@ -43,27 +38,7 @@ export function History() {
 
       {data && <HistoryTable entries={data.items} />}
 
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-6">
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className={paginationBtnClass}
-          >
-            Previous
-          </button>
-          <span className="text-sm text-muted dark:text-muted-dark font-mono">
-            {page} / {totalPages}
-          </span>
-          <button
-            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-            className={paginationBtnClass}
-          >
-            Next
-          </button>
-        </div>
-      )}
+      <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
   )
 }

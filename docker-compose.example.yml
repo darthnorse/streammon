@@ -1,7 +1,8 @@
 services:
   streammon:
     build: .
-    network_mode: host
+    ports:
+      - "7935:7935"
     volumes:
       - streammon-data:/app/data
       - ./geoip:/app/geoip

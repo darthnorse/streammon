@@ -9,6 +9,8 @@ export const mediaTypeLabels: Record<MediaType, string> = {
   book: 'Book',
 }
 
+export const PER_PAGE = 20
+
 export const navLinks = [
   { to: '/', label: 'Dashboard', icon: '▣' },
   { to: '/history', label: 'History', icon: '☰' },
