@@ -1,11 +1,6 @@
 import { NavLink } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
-
-const links = [
-  { to: '/', label: 'Dashboard', icon: '▣' },
-  { to: '/history', label: 'History', icon: '☰' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
-]
+import { navLinks } from '../lib/constants'
 
 export function Sidebar() {
   return (
@@ -19,7 +14,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {links.map(link => (
+        {navLinks.map(link => (
           <NavLink
             key={link.to}
             to={link.to}

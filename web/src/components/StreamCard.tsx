@@ -1,26 +1,10 @@
 import { Link } from 'react-router-dom'
-import type { ActiveStream, MediaType } from '../types'
+import type { ActiveStream } from '../types'
+import { formatTimestamp } from '../lib/format'
+import { mediaTypeLabels } from '../lib/constants'
 
 interface StreamCardProps {
   stream: ActiveStream
-}
-
-function formatDuration(ms: number): string {
-  const totalSec = Math.floor(ms / 1000)
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${m}:${String(s).padStart(2, '0')}`
-}
-
-const mediaTypeLabels: Record<MediaType, string> = {
-  movie: 'Movie',
-  episode: 'TV',
-  livetv: 'Live TV',
-  track: 'Music',
-  audiobook: 'Audiobook',
-  book: 'Book',
 }
 
 function MediaTitle({ stream }: { stream: ActiveStream }) {
@@ -113,8 +97,8 @@ export function StreamCard({ stream }: StreamCardProps) {
 
       <div className="mt-3">
         <div className="flex justify-between text-xs text-muted dark:text-muted-dark font-mono mb-1">
-          <span>{formatDuration(stream.progress_ms)}</span>
-          <span>{formatDuration(stream.duration_ms)}</span>
+          <span>{formatTimestamp(stream.progress_ms)}</span>
+          <span>{formatTimestamp(stream.duration_ms)}</span>
         </div>
         <div
           role="progressbar"

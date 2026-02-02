@@ -1,19 +1,14 @@
 import { NavLink } from 'react-router-dom'
-
-const links = [
-  { to: '/', label: 'Dashboard', icon: '▣' },
-  { to: '/history', label: 'History', icon: '☰' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
-]
+import { navLinks } from '../lib/constants'
 
 export function MobileNav() {
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50
                     bg-panel dark:bg-panel-dark
                     border-t border-border dark:border-border-dark
-                    safe-area-bottom">
+                    pb-[env(safe-area-inset-bottom)]">
       <div className="flex items-center justify-around h-16">
-        {links.map(link => (
+        {navLinks.map(link => (
           <NavLink
             key={link.to}
             to={link.to}

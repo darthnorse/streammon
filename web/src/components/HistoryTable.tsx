@@ -1,36 +1,11 @@
 import { Link } from 'react-router-dom'
-import type { WatchHistoryEntry, MediaType } from '../types'
+import type { WatchHistoryEntry } from '../types'
+import { formatDuration, formatDate } from '../lib/format'
+import { mediaTypeLabels } from '../lib/constants'
 
 interface HistoryTableProps {
   entries: WatchHistoryEntry[]
   hideUser?: boolean
-}
-
-const mediaTypeLabels: Record<MediaType, string> = {
-  movie: 'Movie',
-  episode: 'TV',
-  livetv: 'Live TV',
-  track: 'Music',
-  audiobook: 'Audiobook',
-  book: 'Book',
-}
-
-function formatDuration(ms: number): string {
-  const totalMin = Math.floor(ms / 60000)
-  const h = Math.floor(totalMin / 60)
-  const m = totalMin % 60
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
 }
 
 function EntryTitle({ entry }: { entry: WatchHistoryEntry }) {

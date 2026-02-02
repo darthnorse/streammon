@@ -70,6 +70,14 @@ describe('useSSE', () => {
     expect(result.current.sessions).toEqual([stream])
   })
 
+  it('ignores malformed JSON messages without crashing', () => {
+    const { result } = renderHook(() => useSSE('/api/dashboard/sse'))
+    act(() => {
+      MockEventSource.instances[0].simulateMessage('not valid json{{{')
+    })
+    expect(result.current.sessions).toEqual([])
+  })
+
   it('closes connection on unmount', () => {
     const { unmount } = renderHook(() => useSSE('/api/dashboard/sse'))
     const es = MockEventSource.instances[0]

@@ -6,10 +6,14 @@ interface SSEState {
   connected: boolean
 }
 
+const INITIAL_RETRY_MS = 1000
+const MAX_RETRY_MS = 30000
+
 export function useSSE(url: string): SSEState {
   const [sessions, setSessions] = useState<ActiveStream[]>([])
   const [connected, setConnected] = useState(false)
   const retryTimeout = useRef<ReturnType<typeof setTimeout>>()
+  const retryDelay = useRef(INITIAL_RETRY_MS)
 
   useEffect(() => {
     let es: EventSource
@@ -20,20 +24,28 @@ export function useSSE(url: string): SSEState {
       es = new EventSource(url)
 
       es.onopen = () => {
-        if (!cancelled) setConnected(true)
+        if (!cancelled) {
+          setConnected(true)
+          retryDelay.current = INITIAL_RETRY_MS
+        }
       }
 
       es.onmessage = (event: MessageEvent) => {
         if (cancelled) return
-        const data = JSON.parse(event.data as string) as ActiveStream[]
-        setSessions(data)
+        try {
+          const data = JSON.parse(event.data as string) as ActiveStream[]
+          setSessions(data)
+        } catch {
+          // discard malformed messages
+        }
       }
 
       es.onerror = () => {
         if (cancelled) return
         setConnected(false)
         es.close()
-        retryTimeout.current = setTimeout(connect, 3000)
+        retryTimeout.current = setTimeout(connect, retryDelay.current)
+        retryDelay.current = Math.min(retryDelay.current * 2, MAX_RETRY_MS)
       }
     }
 

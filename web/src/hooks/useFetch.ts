@@ -20,18 +20,18 @@ export function useFetch<T>(url: string | null): FetchState<T> {
       return
     }
 
-    let cancelled = false
-    setState(prev => ({ ...prev, loading: true, error: null }))
+    const controller = new AbortController()
+    setState({ data: null, loading: true, error: null })
 
-    api.get<T>(url)
+    api.get<T>(url, controller.signal)
       .then(data => {
-        if (!cancelled) setState({ data, loading: false, error: null })
+        if (!controller.signal.aborted) setState({ data, loading: false, error: null })
       })
       .catch(err => {
-        if (!cancelled) setState({ data: null, loading: false, error: err as Error })
+        if (!controller.signal.aborted) setState({ data: null, loading: false, error: err as Error })
       })
 
-    return () => { cancelled = true }
+    return () => { controller.abort() }
   }, [url])
 
   return state

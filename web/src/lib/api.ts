@@ -14,12 +14,15 @@ async function request<T>(url: string, options: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({}))
     throw new ApiError(res.status, (body as Record<string, string>).error || `HTTP ${res.status}`)
   }
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T
+  }
   return res.json() as Promise<T>
 }
 
 export const api = {
-  get<T>(url: string): Promise<T> {
-    return request<T>(url, { method: 'GET' })
+  get<T>(url: string, signal?: AbortSignal): Promise<T> {
+    return request<T>(url, { method: 'GET', signal })
   },
   post<T>(url: string, body?: unknown): Promise<T> {
     return request<T>(url, { method: 'POST', body: body ? JSON.stringify(body) : undefined })

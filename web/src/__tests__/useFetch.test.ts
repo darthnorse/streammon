@@ -11,6 +11,8 @@ describe('useFetch', () => {
     const data = { items: [1, 2, 3] }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
+      status: 200,
+      headers: new Headers({ 'content-length': '15' }),
       json: () => Promise.resolve(data),
     }))
     const { result } = renderHook(() => useFetch<{ items: number[] }>('/api/test'))
@@ -32,9 +34,11 @@ describe('useFetch', () => {
     expect(result.current.error).toBeTruthy()
   })
 
-  it('refetches when deps change', async () => {
+  it('refetches when url changes', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
+      status: 200,
+      headers: new Headers({ 'content-length': '10' }),
       json: () => Promise.resolve({ v: 1 }),
     })
     vi.stubGlobal('fetch', mockFetch)
@@ -45,5 +49,27 @@ describe('useFetch', () => {
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
     rerender({ url: '/api/b' })
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+  })
+
+  it('resets data to null when url changes', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() =>
+      new Promise(resolve =>
+        setTimeout(() => resolve({
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'content-length': '10' }),
+          json: () => Promise.resolve({ page: 1 }),
+        }), 50)
+      )
+    ))
+    const { result, rerender } = renderHook(
+      ({ url }) => useFetch<{ page: number }>(url),
+      { initialProps: { url: '/api/page1' } }
+    )
+    await waitFor(() => expect(result.current.data).toEqual({ page: 1 }))
+    rerender({ url: '/api/page2' })
+    // After URL change, data should be reset to null while loading
+    expect(result.current.data).toBeNull()
+    expect(result.current.loading).toBe(true)
   })
 })
