@@ -9,10 +9,21 @@ import (
 func (s *Server) routes() {
 	s.router.Get("/api/health", s.handleHealth)
 
+	if s.authService != nil {
+		s.router.Get("/auth/login", s.authService.HandleLogin)
+		s.router.Get("/auth/callback", s.authService.HandleCallback)
+		s.router.Post("/auth/logout", s.authService.HandleLogout)
+	}
+
 	s.router.Route("/api", func(r chi.Router) {
 		r.Use(limitBody)
 		r.Use(jsonContentType)
 		r.Use(corsMiddleware(s.corsOrigin))
+		if s.authService != nil {
+			r.Use(RequireAuth(s.authService))
+		}
+
+		r.Get("/me", s.handleMe)
 
 		r.Get("/servers", s.handleListServers)
 		r.Post("/servers", s.handleCreateServer)
@@ -34,6 +45,9 @@ func (s *Server) routes() {
 
 	s.router.Group(func(r chi.Router) {
 		r.Use(corsMiddleware(s.corsOrigin))
+		if s.authService != nil {
+			r.Use(RequireAuth(s.authService))
+		}
 		r.Get("/api/dashboard/sse", s.handleDashboardSSE)
 	})
 

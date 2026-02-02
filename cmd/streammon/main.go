@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"streammon/internal/auth"
 	"streammon/internal/geoip"
 	"streammon/internal/media"
 	"streammon/internal/poller"
@@ -41,6 +42,22 @@ func main() {
 	geoResolver := geoip.NewResolver(geoDBPath)
 	defer geoResolver.Close()
 
+	oidcCfg := auth.Config{
+		Issuer:       os.Getenv("OIDC_ISSUER"),
+		ClientID:     os.Getenv("OIDC_CLIENT_ID"),
+		ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
+		RedirectURL:  os.Getenv("OIDC_REDIRECT_URL"),
+	}
+	authSvc, err := auth.NewService(oidcCfg, s)
+	if err != nil {
+		log.Fatalf("initializing auth: %v", err)
+	}
+	if authSvc.Enabled() {
+		log.Println("OIDC authentication enabled")
+	} else {
+		log.Println("OIDC not configured — authentication disabled")
+	}
+
 	p := poller.New(s, 15*time.Second)
 
 	servers, err := s.ListServers()
@@ -68,6 +85,7 @@ func main() {
 	}
 	opts = append(opts, server.WithPoller(p))
 	opts = append(opts, server.WithGeoResolver(geoResolver))
+	opts = append(opts, server.WithAuth(authSvc))
 	srv := server.NewServer(s, opts...)
 
 	httpServer := &http.Server{

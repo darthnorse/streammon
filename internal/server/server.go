@@ -8,6 +8,7 @@ import (
 
 	"net"
 
+	"streammon/internal/auth"
 	"streammon/internal/models"
 	"streammon/internal/poller"
 	"streammon/internal/store"
@@ -21,6 +22,7 @@ type Server struct {
 	router      chi.Router
 	store       *store.Store
 	poller      *poller.Poller
+	authService *auth.Service
 	corsOrigin  string
 	geoResolver GeoLookup
 }
@@ -51,6 +53,10 @@ func WithPoller(p *poller.Poller) Option {
 
 func WithGeoResolver(r GeoLookup) Option {
 	return func(s *Server) { s.geoResolver = r }
+}
+
+func WithAuth(a *auth.Service) Option {
+	return func(s *Server) { s.authService = a }
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
