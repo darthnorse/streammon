@@ -1,17 +1,20 @@
 import { Routes, Route } from 'react-router-dom'
+import { Layout } from './components/Layout'
+import { Dashboard } from './pages/Dashboard'
+import { History } from './pages/History'
 
-function Home() {
-  return (
-    <div className="flex items-center justify-center min-h-screen">
-      <h1 className="text-3xl font-bold">Hello StreamMon</h1>
-    </div>
-  )
+function SettingsPlaceholder() {
+  return <div><h1 className="text-2xl font-semibold">Settings</h1></div>
 }
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route element={<Layout />}>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/history" element={<History />} />
+        <Route path="/settings" element={<SettingsPlaceholder />} />
+      </Route>
     </Routes>
   )
 }
