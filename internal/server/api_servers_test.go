@@ -23,7 +23,9 @@ func TestCreateServerAPI(t *testing.T) {
 	}
 
 	var s models.Server
-	json.NewDecoder(w.Body).Decode(&s)
+	if err := json.NewDecoder(w.Body).Decode(&s); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if s.ID == 0 {
 		t.Fatal("expected ID")
 	}
@@ -73,7 +75,9 @@ func TestListServersAPI(t *testing.T) {
 	}
 
 	var servers []models.Server
-	json.NewDecoder(w.Body).Decode(&servers)
+	if err := json.NewDecoder(w.Body).Decode(&servers); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if len(servers) != 1 {
 		t.Fatalf("expected 1 server, got %d", len(servers))
 	}
@@ -130,9 +134,36 @@ func TestUpdateServerAPI(t *testing.T) {
 	}
 
 	var updated models.Server
-	json.NewDecoder(w.Body).Decode(&updated)
+	if err := json.NewDecoder(w.Body).Decode(&updated); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
 	if updated.Name != "New" {
 		t.Fatalf("expected New, got %s", updated.Name)
+	}
+}
+
+func TestUpdateServerPreservesAPIKeyWhenEmpty(t *testing.T) {
+	srv, st := newTestServer(t)
+	st.CreateServer(&models.Server{Name: "Old", Type: models.ServerTypePlex, URL: "http://old", APIKey: "secret", Enabled: true})
+
+	body := `{"name":"New","type":"plex","url":"http://new","api_key":"","enabled":true}`
+	req := httptest.NewRequest(http.MethodPut, "/api/servers/1", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	got, err := st.GetServer(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.APIKey != "secret" {
+		t.Fatalf("expected api_key preserved as 'secret', got %q", got.APIKey)
+	}
+	if got.Name != "New" {
+		t.Fatalf("expected name 'New', got %s", got.Name)
 	}
 }
 
@@ -158,6 +189,31 @@ func TestDeleteServerNotFoundAPI(t *testing.T) {
 
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTestServerAdHocValidationAPI(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	body := `{"name":"","type":"plex","url":"http://x","api_key":"k"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/test", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTestServerAdHocInvalidJSON(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/test", strings.NewReader(`{bad`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

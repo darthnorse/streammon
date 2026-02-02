@@ -26,6 +26,14 @@ export default {
           DEFAULT: '#ffab00',
           dim: '#ff8f00',
         },
+        emby: {
+          DEFAULT: '#4caf50',
+          dim: '#388e3c',
+        },
+        jellyfin: {
+          DEFAULT: '#aa5cc3',
+          dim: '#7c3aad',
+        },
         muted: {
           DEFAULT: '#6b7280',
           dark: '#8b95a5',

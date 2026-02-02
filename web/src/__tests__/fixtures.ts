@@ -1,4 +1,4 @@
-import type { ActiveStream, WatchHistoryEntry, DayStat, User } from '../types'
+import type { ActiveStream, WatchHistoryEntry, DayStat, User, Server } from '../types'
 
 export const baseStream: ActiveStream = {
   session_id: 's1',
@@ -55,4 +55,14 @@ export const emptyDayStat: DayStat = {
   music: 0,
   audiobooks: 0,
   books: 0,
+}
+
+export const baseServer: Server = {
+  id: 1,
+  name: 'My Plex',
+  type: 'plex',
+  url: 'http://localhost:32400',
+  enabled: true,
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-06-15T00:00:00Z',
 }

@@ -54,6 +54,22 @@
     @apply bg-warn/15 text-warn;
   }
 
+  .badge-emby {
+    @apply bg-emby/10 text-emby-dim;
+  }
+
+  .dark .badge-emby {
+    @apply bg-emby/15 text-emby;
+  }
+
+  .badge-jellyfin {
+    @apply bg-jellyfin/10 text-jellyfin-dim;
+  }
+
+  .dark .badge-jellyfin {
+    @apply bg-jellyfin/15 text-jellyfin;
+  }
+
   .badge-muted {
     @apply bg-gray-100 text-muted;
   }

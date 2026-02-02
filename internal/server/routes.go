@@ -16,9 +16,11 @@ func (s *Server) routes() {
 
 		r.Get("/servers", s.handleListServers)
 		r.Post("/servers", s.handleCreateServer)
+		r.Post("/servers/test", s.handleTestServerAdHoc)
 		r.Get("/servers/{id}", s.handleGetServer)
 		r.Put("/servers/{id}", s.handleUpdateServer)
 		r.Delete("/servers/{id}", s.handleDeleteServer)
+		r.Post("/servers/{id}/test", s.handleTestServer)
 
 		r.Get("/history", s.handleListHistory)
 		r.Get("/history/daily", s.handleDailyHistory)
@@ -26,8 +28,6 @@ func (s *Server) routes() {
 		r.Get("/users", s.handleListUsers)
 		r.Get("/users/{name}", s.handleGetUser)
 		r.Get("/users/{name}/locations", s.handleGetUserLocations)
-
-		r.Post("/servers/{id}/test", s.handleTestServer)
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
 	})

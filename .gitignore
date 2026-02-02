@@ -6,7 +6,7 @@
 *.out
 
 # Node
-web/node_modules/
+node_modules/
 internal/server/web/dist/*
 !internal/server/web/dist/.gitkeep
 

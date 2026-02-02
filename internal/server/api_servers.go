@@ -1,11 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -93,6 +96,14 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	if input.APIKey == "" {
+		existing, err := s.store.GetServer(id)
+		if err != nil {
+			writeStoreError(w, err)
+			return
+		}
+		input.APIKey = existing.APIKey
+	}
 	srv := input.ToServer()
 	srv.ID = id
 	if err := srv.Validate(); err != nil {
@@ -128,6 +139,56 @@ type testConnectionResult struct {
 	Error   string `json:"error,omitempty"`
 }
 
+func sanitizeConnError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "connection timed out"
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return "DNS lookup failed"
+	}
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return "connection refused or unreachable"
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "401") || strings.Contains(msg, "unauthorized") {
+		return "authentication failed — check your API key"
+	}
+	if strings.Contains(msg, "403") || strings.Contains(msg, "forbidden") {
+		return "access denied — check your API key"
+	}
+	return "connection failed"
+}
+
+func testConnection(w http.ResponseWriter, r *http.Request, srv models.Server) {
+	ms, err := media.NewMediaServer(srv)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := ms.TestConnection(r.Context()); err != nil {
+		log.Printf("test connection for %s failed: %v", srv.Name, err)
+		writeJSON(w, http.StatusOK, testConnectionResult{Success: false, Error: sanitizeConnError(err)})
+		return
+	}
+	writeJSON(w, http.StatusOK, testConnectionResult{Success: true})
+}
+
+func (s *Server) handleTestServerAdHoc(w http.ResponseWriter, r *http.Request) {
+	var input models.ServerInput
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	srv := input.ToServer()
+	if err := srv.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	testConnection(w, r, *srv)
+}
+
 func (s *Server) handleTestServer(w http.ResponseWriter, r *http.Request) {
 	id, err := parseServerID(r)
 	if err != nil {
@@ -139,14 +200,5 @@ func (s *Server) handleTestServer(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
-	ms, err := media.NewMediaServer(*srv)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := ms.TestConnection(r.Context()); err != nil {
-		writeJSON(w, http.StatusOK, testConnectionResult{Success: false, Error: err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusOK, testConnectionResult{Success: true})
+	testConnection(w, r, *srv)
 }

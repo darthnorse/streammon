@@ -3,10 +3,7 @@ import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { History } from './pages/History'
 import { UserDetail } from './pages/UserDetail'
-
-function SettingsPlaceholder() {
-  return <div><h1 className="text-2xl font-semibold">Settings</h1></div>
-}
+import { Settings } from './pages/Settings'
 
 function NotFound() {
   return (
@@ -27,7 +24,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/history" element={<History />} />
         <Route path="/users/:name" element={<UserDetail />} />
-        <Route path="/settings" element={<SettingsPlaceholder />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
