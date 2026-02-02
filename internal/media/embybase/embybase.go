@@ -60,7 +60,7 @@ func (c *Client) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
 	}
