@@ -6,6 +6,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"streammon/internal/geoip"
 	"streammon/internal/poller"
 	"streammon/internal/store"
 )
@@ -14,7 +15,8 @@ type Server struct {
 	router     chi.Router
 	store      *store.Store
 	poller     *poller.Poller
-	corsOrigin string
+	corsOrigin  string
+	geoResolver *geoip.Resolver
 }
 
 func NewServer(s *store.Store, opts ...Option) *Server {
@@ -39,6 +41,10 @@ func WithCORSOrigin(origin string) Option {
 
 func WithPoller(p *poller.Poller) Option {
 	return func(s *Server) { s.poller = p }
+}
+
+func WithGeoResolver(r *geoip.Resolver) Option {
+	return func(s *Server) { s.geoResolver = r }
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

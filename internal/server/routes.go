@@ -25,6 +25,7 @@ func (s *Server) routes() {
 
 		r.Get("/users", s.handleListUsers)
 		r.Get("/users/{name}", s.handleGetUser)
+		r.Get("/users/{name}/locations", s.handleGetUserLocations)
 
 		r.Post("/servers/{id}/test", s.handleTestServer)
 
