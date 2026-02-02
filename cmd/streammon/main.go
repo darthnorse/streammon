@@ -19,7 +19,7 @@ import (
 
 func main() {
 	dbPath := envOr("DB_PATH", "./data/streammon.db")
-	listenAddr := envOr("LISTEN_ADDR", ":8080")
+	listenAddr := envOr("LISTEN_ADDR", ":7935")
 	migrationsDir := envOr("MIGRATIONS_DIR", "./migrations")
 	corsOrigin := os.Getenv("CORS_ORIGIN")
 

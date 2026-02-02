@@ -19,6 +19,6 @@ RUN apt-get update && apt-get install -y ca-certificates libsqlite3-0 && rm -rf 
 WORKDIR /app
 COPY --from=backend /app/streammon .
 COPY --from=backend /app/migrations ./migrations
-EXPOSE 8080
+EXPOSE 7935
 VOLUME ["/app/data", "/app/geoip"]
 CMD ["./streammon"]
