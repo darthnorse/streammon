@@ -72,14 +72,12 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
 
   return (
     <>
-      {/* Mobile: card list */}
       <div className="md:hidden space-y-3">
         {entries.map(entry => (
           <HistoryCard key={entry.id} entry={entry} hideUser={hideUser} />
         ))}
       </div>
 
-      {/* Desktop: table */}
       <div className="hidden md:block card overflow-hidden">
         <table className="w-full text-sm">
           <thead>

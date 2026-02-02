@@ -4,6 +4,12 @@ type Theme = 'light' | 'dark' | 'system'
 
 const STORAGE_KEY = 'streammon-theme'
 
+const icons: Record<Theme, string> = {
+  system: '◐',
+  light: '☀',
+  dark: '☾',
+}
+
 function getSystemTheme(): 'light' | 'dark' {
   if (typeof window === 'undefined') return 'dark'
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -39,12 +45,6 @@ export function ThemeToggle() {
       if (prev === 'light') return 'dark'
       return 'system'
     })
-  }
-
-  const icons: Record<Theme, string> = {
-    system: '◐',
-    light: '☀',
-    dark: '☾',
   }
 
   return (

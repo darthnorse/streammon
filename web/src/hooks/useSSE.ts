@@ -36,7 +36,6 @@ export function useSSE(url: string): SSEState {
           const data = JSON.parse(event.data as string) as ActiveStream[]
           setSessions(data)
         } catch {
-          // discard malformed messages
         }
       }
 

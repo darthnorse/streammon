@@ -12,7 +12,8 @@ async function request<T>(url: string, options: RequestInit): Promise<T> {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new ApiError(res.status, (body as Record<string, string>).error || `HTTP ${res.status}`)
+    const { error: msg } = body as Record<string, string>
+    throw new ApiError(res.status, msg || `HTTP ${res.status}`)
   }
   if (res.status === 204 || res.headers.get('content-length') === '0') {
     return undefined as T

@@ -5,6 +5,11 @@ import type { WatchHistoryEntry, PaginatedResult } from '../types'
 
 const PER_PAGE = 20
 
+const paginationBtnClass = `px-4 py-2 text-sm font-medium rounded-lg
+  bg-panel dark:bg-panel-dark border border-border dark:border-border-dark
+  disabled:opacity-40 disabled:cursor-not-allowed
+  hover:border-accent/30 transition-colors`
+
 export function History() {
   const [page, setPage] = useState(1)
   const { data, loading, error } = useFetch<PaginatedResult<WatchHistoryEntry>>(
@@ -43,10 +48,7 @@ export function History() {
           <button
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="px-4 py-2 text-sm font-medium rounded-lg
-                       bg-panel dark:bg-panel-dark border border-border dark:border-border-dark
-                       disabled:opacity-40 disabled:cursor-not-allowed
-                       hover:border-accent/30 transition-colors"
+            className={paginationBtnClass}
           >
             Previous
           </button>
@@ -56,10 +58,7 @@ export function History() {
           <button
             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages}
-            className="px-4 py-2 text-sm font-medium rounded-lg
-                       bg-panel dark:bg-panel-dark border border-border dark:border-border-dark
-                       disabled:opacity-40 disabled:cursor-not-allowed
-                       hover:border-accent/30 transition-colors"
+            className={paginationBtnClass}
           >
             Next
           </button>

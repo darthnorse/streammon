@@ -2,26 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithRouter } from '../test-utils'
 import { History } from '../pages/History'
+import { baseHistoryEntry } from './fixtures'
 import type { WatchHistoryEntry, PaginatedResult } from '../types'
-
-const mockEntry: WatchHistoryEntry = {
-  id: 1,
-  server_id: 1,
-  user_name: 'alice',
-  media_type: 'movie',
-  title: 'Test Movie',
-  parent_title: '',
-  grandparent_title: '',
-  year: 2024,
-  duration_ms: 7200000,
-  watched_ms: 7200000,
-  player: 'Chrome',
-  platform: 'Web',
-  ip_address: '10.0.0.1',
-  started_at: '2024-01-01T00:00:00Z',
-  stopped_at: '2024-01-01T02:00:00Z',
-  created_at: '2024-01-01T00:00:00Z',
-}
 
 vi.mock('../hooks/useFetch', () => ({
   useFetch: vi.fn(),
@@ -44,7 +26,7 @@ describe('History', () => {
 
   it('renders history entries', () => {
     const data: PaginatedResult<WatchHistoryEntry> = {
-      items: [mockEntry],
+      items: [baseHistoryEntry],
       total: 1,
       page: 1,
       per_page: 20,
@@ -52,12 +34,12 @@ describe('History', () => {
     mockUseFetch.mockReturnValue({ data, loading: false, error: null })
     renderWithRouter(<History />)
     expect(screen.getAllByText('alice').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Test Movie').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Inception').length).toBeGreaterThan(0)
   })
 
   it('shows pagination when multiple pages', () => {
     const data: PaginatedResult<WatchHistoryEntry> = {
-      items: [mockEntry],
+      items: [baseHistoryEntry],
       total: 50,
       page: 1,
       per_page: 20,

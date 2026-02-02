@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useSSE } from '../hooks/useSSE'
-import type { ActiveStream } from '../types'
+import { baseStream } from './fixtures'
 
 class MockEventSource {
   static instances: MockEventSource[] = []
@@ -47,27 +47,10 @@ describe('useSSE', () => {
 
   it('updates sessions when message received', () => {
     const { result } = renderHook(() => useSSE('/api/dashboard/sse'))
-    const stream: ActiveStream = {
-      session_id: 's1',
-      server_id: 1,
-      server_name: 'Plex',
-      user_name: 'alice',
-      media_type: 'movie',
-      title: 'Test Movie',
-      parent_title: '',
-      grandparent_title: '',
-      year: 2024,
-      duration_ms: 7200000,
-      progress_ms: 3600000,
-      player: 'Chrome',
-      platform: 'Web',
-      ip_address: '1.2.3.4',
-      started_at: '2024-01-01T00:00:00Z',
-    }
     act(() => {
-      MockEventSource.instances[0].simulateMessage(JSON.stringify([stream]))
+      MockEventSource.instances[0].simulateMessage(JSON.stringify([baseStream]))
     })
-    expect(result.current.sessions).toEqual([stream])
+    expect(result.current.sessions).toEqual([baseStream])
   })
 
   it('ignores malformed JSON messages without crashing', () => {

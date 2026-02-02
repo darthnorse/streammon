@@ -53,7 +53,7 @@ function TranscodeInfo({ stream }: { stream: ActiveStream }) {
       {stream.audio_codec && (
         <span className="badge badge-muted">{stream.audio_codec}</span>
       )}
-      {stream.audio_channels && stream.audio_channels > 0 && (
+      {stream.audio_channels > 0 && (
         <span className="badge badge-muted">{stream.audio_channels}ch</span>
       )}
       {stream.subtitle_codec && (
@@ -114,7 +114,7 @@ export function StreamCard({ stream }: StreamCardProps) {
         </div>
       </div>
 
-      {stream.bandwidth && stream.bandwidth > 0 ? (
+      {stream.bandwidth > 0 ? (
         <div className="mt-2 text-xs text-muted dark:text-muted-dark font-mono">
           {(stream.bandwidth / 1000).toFixed(1)} Mbps
         </div>
