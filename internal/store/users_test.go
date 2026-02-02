@@ -87,3 +87,26 @@ func TestUpdateUserRole(t *testing.T) {
 		t.Fatalf("expected admin, got %s", user.Role)
 	}
 }
+
+func TestGetOrCreateUserByEmail(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	u1, err := s.GetOrCreateUserByEmail("alice@example.com", "Alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u1.Email != "alice@example.com" {
+		t.Errorf("got email %q, want alice@example.com", u1.Email)
+	}
+	if u1.Name != "Alice" {
+		t.Errorf("got name %q, want Alice", u1.Name)
+	}
+
+	u2, err := s.GetOrCreateUserByEmail("alice@example.com", "Alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u2.ID != u1.ID {
+		t.Errorf("expected same user ID, got %d and %d", u1.ID, u2.ID)
+	}
+}

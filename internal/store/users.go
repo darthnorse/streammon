@@ -77,3 +77,21 @@ func (s *Store) UpdateUserRole(name string, role models.Role) error {
 	}
 	return nil
 }
+
+func (s *Store) GetOrCreateUserByEmail(email, name string) (*models.User, error) {
+	_, err := s.db.Exec(
+		`INSERT INTO users (name, email) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET email = excluded.email`,
+		name, email,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("upserting user by email: %w", err)
+	}
+
+	u, err := scanUser(s.db.QueryRow(
+		`SELECT `+userColumns+` FROM users WHERE name = ?`, name,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("querying user: %w", err)
+	}
+	return &u, nil
+}
