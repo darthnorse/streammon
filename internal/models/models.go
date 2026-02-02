@@ -170,3 +170,11 @@ type PaginatedResult[T any] struct {
 	Page    int `json:"page"`
 	PerPage int `json:"per_page"`
 }
+
+type GeoResult struct {
+	IP      string  `json:"ip"`
+	Lat     float64 `json:"lat"`
+	Lng     float64 `json:"lng"`
+	City    string  `json:"city"`
+	Country string  `json:"country"`
+}
