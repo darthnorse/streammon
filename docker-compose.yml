@@ -2,11 +2,14 @@ services:
   streammon:
     build: .
     ports:
-      - "8080:8080"
+      - "7935:7935"
     volumes:
-      - ./data:/app/data
+      - streammon-data:/app/data
       - ./geoip:/app/geoip
     environment:
       - DB_PATH=/app/data/streammon.db
       - GEOIP_DB=/app/geoip/GeoLite2-City.mmdb
     restart: unless-stopped
+
+volumes:
+  streammon-data:
