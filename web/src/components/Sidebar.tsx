@@ -1,8 +1,11 @@
 import { NavLink } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import { navLinks } from '../lib/constants'
+import { useAuth } from '../context/AuthContext'
 
 export function Sidebar() {
+  const { user, logout } = useAuth()
+
   return (
     <aside className="hidden lg:flex flex-col w-60 h-screen sticky top-0
                       border-r border-border dark:border-border-dark
@@ -30,6 +33,19 @@ export function Sidebar() {
       </nav>
 
       <div className="px-3 py-4 border-t border-border dark:border-border-dark">
+        {user && user.name !== 'admin' && (
+          <div className="mb-3">
+            <div className="text-xs text-muted dark:text-muted-dark truncate mb-1">
+              {user.name}
+            </div>
+            <button
+              onClick={logout}
+              className="text-xs text-muted dark:text-muted-dark hover:text-foreground dark:hover:text-foreground-dark transition-colors"
+            >
+              Sign out
+            </button>
+          </div>
+        )}
         <ThemeToggle />
       </div>
     </aside>

@@ -1,4 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './context/AuthContext'
+import { AuthGuard } from './components/AuthGuard'
 import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { History } from './pages/History'
@@ -19,7 +21,9 @@ function NotFound() {
 
 export default function App() {
   return (
-    <Routes>
+    <AuthProvider>
+      <AuthGuard>
+        <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/history" element={<History />} />
@@ -27,6 +31,8 @@ export default function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<NotFound />} />
       </Route>
-    </Routes>
+        </Routes>
+      </AuthGuard>
+    </AuthProvider>
   )
 }
