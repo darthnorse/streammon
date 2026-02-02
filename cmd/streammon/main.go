@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"streammon/internal/geoip"
 	"streammon/internal/media"
 	"streammon/internal/poller"
 	"streammon/internal/server"
@@ -35,6 +36,10 @@ func main() {
 	if err := s.Migrate(migrationsDir); err != nil {
 		log.Fatalf("running migrations: %v", err)
 	}
+
+	geoDBPath := envOr("GEOIP_DB", "geoip/GeoLite2-City.mmdb")
+	geoResolver := geoip.NewResolver(geoDBPath)
+	defer geoResolver.Close()
 
 	p := poller.New(s, 15*time.Second)
 
@@ -62,6 +67,7 @@ func main() {
 		opts = append(opts, server.WithCORSOrigin(corsOrigin))
 	}
 	opts = append(opts, server.WithPoller(p))
+	opts = append(opts, server.WithGeoResolver(geoResolver))
 	srv := server.NewServer(s, opts...)
 
 	httpServer := &http.Server{
