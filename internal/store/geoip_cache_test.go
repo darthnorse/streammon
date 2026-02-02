@@ -71,13 +71,17 @@ func TestGetCachedGeoExpired(t *testing.T) {
 func TestSetCachedGeoUpsert(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	geo1 := &models.GeoResult{IP: "8.8.8.8", City: "Old"}
-	s.SetCachedGeo(geo1)
+	if err := s.SetCachedGeo(&models.GeoResult{IP: "8.8.8.8", City: "Old"}); err != nil {
+		t.Fatalf("SetCachedGeo: %v", err)
+	}
+	if err := s.SetCachedGeo(&models.GeoResult{IP: "8.8.8.8", City: "New"}); err != nil {
+		t.Fatalf("SetCachedGeo: %v", err)
+	}
 
-	geo2 := &models.GeoResult{IP: "8.8.8.8", City: "New"}
-	s.SetCachedGeo(geo2)
-
-	got, _ := s.GetCachedGeo("8.8.8.8")
+	got, err := s.GetCachedGeo("8.8.8.8")
+	if err != nil {
+		t.Fatalf("GetCachedGeo: %v", err)
+	}
 	if got.City != "New" {
 		t.Fatalf("expected New, got %s", got.City)
 	}
@@ -86,8 +90,12 @@ func TestSetCachedGeoUpsert(t *testing.T) {
 func TestGetCachedGeoBatch(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	s.SetCachedGeo(&models.GeoResult{IP: "8.8.8.8", City: "Mountain View", Country: "US"})
-	s.SetCachedGeo(&models.GeoResult{IP: "1.1.1.1", City: "Sydney", Country: "AU"})
+	if err := s.SetCachedGeo(&models.GeoResult{IP: "8.8.8.8", City: "Mountain View", Country: "US"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetCachedGeo(&models.GeoResult{IP: "1.1.1.1", City: "Sydney", Country: "AU"}); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := s.GetCachedGeos([]string{"8.8.8.8", "1.1.1.1", "9.9.9.9"})
 	if err != nil {
@@ -119,17 +127,23 @@ func TestGetCachedGeoBatchEmpty(t *testing.T) {
 func TestDistinctIPsForUser(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	s.db.Exec(`INSERT INTO servers (name, type, url, api_key) VALUES ('S','plex','http://s','k')`)
+	srv := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k"}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
 
 	now := time.Now()
-	s.db.Exec(`INSERT INTO watch_history (server_id, user_name, media_type, title, ip_address, started_at, stopped_at)
-		VALUES (1, 'alice', 'movie', 'A', '8.8.8.8', ?, ?)`, now, now)
-	s.db.Exec(`INSERT INTO watch_history (server_id, user_name, media_type, title, ip_address, started_at, stopped_at)
-		VALUES (1, 'alice', 'movie', 'B', '8.8.8.8', ?, ?)`, now, now)
-	s.db.Exec(`INSERT INTO watch_history (server_id, user_name, media_type, title, ip_address, started_at, stopped_at)
-		VALUES (1, 'alice', 'movie', 'C', '1.1.1.1', ?, ?)`, now, now)
-	s.db.Exec(`INSERT INTO watch_history (server_id, user_name, media_type, title, ip_address, started_at, stopped_at)
-		VALUES (1, 'bob', 'movie', 'D', '2.2.2.2', ?, ?)`, now, now)
+	entries := []models.WatchHistoryEntry{
+		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "A", IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now},
+		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "B", IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now},
+		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "C", IPAddress: "1.1.1.1", StartedAt: now, StoppedAt: now},
+		{ServerID: srv.ID, UserName: "bob", MediaType: "movie", Title: "D", IPAddress: "2.2.2.2", StartedAt: now, StoppedAt: now},
+	}
+	for i := range entries {
+		if err := s.InsertHistory(&entries[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	ips, err := s.DistinctIPsForUser("alice")
 	if err != nil {

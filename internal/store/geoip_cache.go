@@ -9,14 +9,22 @@ import (
 	"streammon/internal/models"
 )
 
-const geoCacheTTL = 30 * 24 * time.Hour
+const (
+	geoCacheTTL    = 30 * 24 * time.Hour
+	geoColumns     = `ip, lat, lng, city, country`
+)
+
+func scanGeoResult(scanner interface{ Scan(...any) error }) (models.GeoResult, error) {
+	var geo models.GeoResult
+	err := scanner.Scan(&geo.IP, &geo.Lat, &geo.Lng, &geo.City, &geo.Country)
+	return geo, err
+}
 
 func (s *Store) GetCachedGeo(ip string) (*models.GeoResult, error) {
-	var geo models.GeoResult
-	err := s.db.QueryRow(
-		`SELECT ip, lat, lng, city, country FROM ip_geo_cache
+	geo, err := scanGeoResult(s.db.QueryRow(
+		`SELECT `+geoColumns+` FROM ip_geo_cache
 		WHERE ip = ? AND cached_at > ?`, ip, time.Now().Add(-geoCacheTTL),
-	).Scan(&geo.IP, &geo.Lat, &geo.Lng, &geo.City, &geo.Country)
+	))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -27,13 +35,13 @@ func (s *Store) GetCachedGeo(ip string) (*models.GeoResult, error) {
 }
 
 func (s *Store) SetCachedGeo(geo *models.GeoResult) error {
-	now := time.Now()
 	_, err := s.db.Exec(
-		`INSERT INTO ip_geo_cache (ip, lat, lng, city, country, cached_at)
+		`INSERT INTO ip_geo_cache (`+geoColumns+`, cached_at)
 		VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT(ip) DO UPDATE SET lat=?, lng=?, city=?, country=?, cached_at=?`,
-		geo.IP, geo.Lat, geo.Lng, geo.City, geo.Country, now,
-		geo.Lat, geo.Lng, geo.City, geo.Country, now,
+		ON CONFLICT(ip) DO UPDATE SET
+			lat=excluded.lat, lng=excluded.lng, city=excluded.city,
+			country=excluded.country, cached_at=excluded.cached_at`,
+		geo.IP, geo.Lat, geo.Lng, geo.City, geo.Country, time.Now(),
 	)
 	if err != nil {
 		return fmt.Errorf("set cached geo: %w", err)
@@ -45,18 +53,17 @@ func (s *Store) GetCachedGeos(ips []string) (map[string]*models.GeoResult, error
 	if len(ips) == 0 {
 		return map[string]*models.GeoResult{}, nil
 	}
-	placeholders := strings.Repeat("?,", len(ips))
-	placeholders = placeholders[:len(placeholders)-1]
-
+	placeholders := make([]string, len(ips))
 	args := make([]any, 0, len(ips)+1)
-	for _, ip := range ips {
+	for i, ip := range ips {
+		placeholders[i] = "?"
 		args = append(args, ip)
 	}
 	args = append(args, time.Now().Add(-geoCacheTTL))
 
 	rows, err := s.db.Query(
-		`SELECT ip, lat, lng, city, country FROM ip_geo_cache
-		WHERE ip IN (`+placeholders+`) AND cached_at > ?`, args...,
+		`SELECT `+geoColumns+` FROM ip_geo_cache
+		WHERE ip IN (`+strings.Join(placeholders, ",")+`) AND cached_at > ?`, args...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get cached geos: %w", err)
@@ -65,8 +72,8 @@ func (s *Store) GetCachedGeos(ips []string) (map[string]*models.GeoResult, error
 
 	result := make(map[string]*models.GeoResult, len(ips))
 	for rows.Next() {
-		var geo models.GeoResult
-		if err := rows.Scan(&geo.IP, &geo.Lat, &geo.Lng, &geo.City, &geo.Country); err != nil {
+		geo, err := scanGeoResult(rows)
+		if err != nil {
 			return nil, err
 		}
 		result[geo.IP] = &geo
