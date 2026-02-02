@@ -32,7 +32,7 @@ func TestListHistoryAPI(t *testing.T) {
 
 	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
 	st.CreateServer(s)
-	now := time.Now()
+	now := time.Now().UTC()
 	st.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: s.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
 		Title: "Test", StartedAt: now, StoppedAt: now,
@@ -52,7 +52,7 @@ func TestListHistoryWithFilterAPI(t *testing.T) {
 	srv, st := newTestServer(t)
 	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
 	st.CreateServer(s)
-	now := time.Now()
+	now := time.Now().UTC()
 	st.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: s.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
 		Title: "A", StartedAt: now, StoppedAt: now,

@@ -187,7 +187,7 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 		Platform:         item.Player.Product,
 		IPAddress:        item.Player.Address,
 		Bandwidth:        atoi64(item.Session.Bandwidth),
-		StartedAt:        time.Now(),
+		StartedAt:        time.Now().UTC(),
 	}
 	if len(item.Media) > 0 {
 		m := item.Media[0]

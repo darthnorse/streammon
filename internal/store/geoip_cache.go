@@ -23,7 +23,7 @@ func scanGeoResult(scanner interface{ Scan(...any) error }) (models.GeoResult, e
 func (s *Store) GetCachedGeo(ip string) (*models.GeoResult, error) {
 	geo, err := scanGeoResult(s.db.QueryRow(
 		`SELECT `+geoColumns+` FROM ip_geo_cache
-		WHERE ip = ? AND cached_at > ?`, ip, time.Now().Add(-geoCacheTTL),
+		WHERE ip = ? AND cached_at > ?`, ip, time.Now().UTC().Add(-geoCacheTTL),
 	))
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -41,7 +41,7 @@ func (s *Store) SetCachedGeo(geo *models.GeoResult) error {
 		ON CONFLICT(ip) DO UPDATE SET
 			lat=excluded.lat, lng=excluded.lng, city=excluded.city,
 			country=excluded.country, cached_at=excluded.cached_at`,
-		geo.IP, geo.Lat, geo.Lng, geo.City, geo.Country, time.Now(),
+		geo.IP, geo.Lat, geo.Lng, geo.City, geo.Country, time.Now().UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("set cached geo: %w", err)
@@ -59,7 +59,7 @@ func (s *Store) GetCachedGeos(ips []string) (map[string]*models.GeoResult, error
 		placeholders[i] = "?"
 		args = append(args, ip)
 	}
-	args = append(args, time.Now().Add(-geoCacheTTL))
+	args = append(args, time.Now().UTC().Add(-geoCacheTTL))
 
 	rows, err := s.db.Query(
 		`SELECT `+geoColumns+` FROM ip_geo_cache

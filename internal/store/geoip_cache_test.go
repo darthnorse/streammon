@@ -54,7 +54,7 @@ func TestGetCachedGeoExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := s.db.Exec("UPDATE ip_geo_cache SET cached_at = ? WHERE ip = ?",
-		time.Now().Add(-31*24*time.Hour), "8.8.8.8")
+		time.Now().UTC().Add(-31*24*time.Hour), "8.8.8.8")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestDistinctIPsForUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	entries := []models.WatchHistoryEntry{
 		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "A", IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now},
 		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "B", IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now},

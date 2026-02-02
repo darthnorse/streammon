@@ -82,7 +82,7 @@ func TestNewSessionAppears(t *testing.T) {
 	ms := &mockServer{
 		name: "test",
 		sessions: []models.ActiveStream{
-			{SessionID: "s1", ServerID: 1, Title: "Movie", MediaType: models.MediaTypeMovie, StartedAt: time.Now()},
+			{SessionID: "s1", ServerID: 1, Title: "Movie", MediaType: models.MediaTypeMovie, StartedAt: time.Now().UTC()},
 		},
 	}
 	p.AddServer(1, ms)
@@ -117,7 +117,7 @@ func TestSessionDisappearsCreatesHistory(t *testing.T) {
 		name: "test",
 		sessions: []models.ActiveStream{
 			{SessionID: "s1", ServerID: srv.ID, Title: "Movie", MediaType: models.MediaTypeMovie,
-				DurationMs: 100000, ProgressMs: 50000, UserName: "alice", StartedAt: time.Now()},
+				DurationMs: 100000, ProgressMs: 50000, UserName: "alice", StartedAt: time.Now().UTC()},
 		},
 	}
 	p.AddServer(srv.ID, ms)
@@ -151,7 +151,7 @@ func TestSessionContinuesPreservesStartedAt(t *testing.T) {
 	s := newTestStore(t)
 	p := newTestPoller(t, s)
 
-	startTime := time.Now().Add(-10 * time.Minute)
+	startTime := time.Now().UTC().Add(-10 * time.Minute)
 	ms := &mockServer{
 		name: "test",
 		sessions: []models.ActiveStream{
@@ -166,7 +166,7 @@ func TestSessionContinuesPreservesStartedAt(t *testing.T) {
 	waitPoll(t, p)
 
 	ms.setSessions([]models.ActiveStream{
-		{SessionID: "s1", ServerID: 1, Title: "Movie", ProgressMs: 5000, StartedAt: time.Now()},
+		{SessionID: "s1", ServerID: 1, Title: "Movie", ProgressMs: 5000, StartedAt: time.Now().UTC()},
 	})
 	triggerAndWaitPoll(t, p)
 

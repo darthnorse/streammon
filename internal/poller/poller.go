@@ -202,7 +202,7 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 		Platform:         s.Platform,
 		IPAddress:        s.IPAddress,
 		StartedAt:        s.StartedAt,
-		StoppedAt:        time.Now(),
+		StoppedAt:        time.Now().UTC(),
 	}
 	if err := p.store.InsertHistory(entry); err != nil {
 		log.Printf("persisting history for %s: %v", s.Title, err)

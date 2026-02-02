@@ -77,7 +77,7 @@ func TestGetUserLocationsAPI(t *testing.T) {
 
 	st.CreateServer(&models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k"})
 
-	now := time.Now()
+	now := time.Now().UTC()
 	st.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: 1, UserName: "alice", MediaType: "movie", Title: "A",
 		IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now,
@@ -115,7 +115,7 @@ func TestGetUserLocationsCachedAPI(t *testing.T) {
 
 	st.CreateServer(&models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k"})
 
-	now := time.Now()
+	now := time.Now().UTC()
 	st.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: 1, UserName: "alice", MediaType: "movie", Title: "A",
 		IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now,
@@ -151,7 +151,7 @@ func TestGetUserLocationsResolverLookupAPI(t *testing.T) {
 
 	st.CreateServer(&models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k"})
 
-	now := time.Now()
+	now := time.Now().UTC()
 	st.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: 1, UserName: "alice", MediaType: "movie", Title: "A",
 		IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now,

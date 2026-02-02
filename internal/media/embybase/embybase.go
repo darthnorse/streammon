@@ -156,7 +156,7 @@ func parseSessions(data []byte, serverID int64, serverName string) ([]models.Act
 			Player:           s.DeviceName,
 			Platform:         s.Client,
 			IPAddress:        s.RemoteIP,
-			StartedAt:        time.Now(),
+			StartedAt:        time.Now().UTC(),
 		}
 		if len(s.NowPlaying.MediaSources) > 0 {
 			src := s.NowPlaying.MediaSources[0]

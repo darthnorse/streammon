@@ -26,8 +26,8 @@ func TestInsertAndListHistory(t *testing.T) {
 		MediaType: models.MediaTypeMovie,
 		Title:     "The Matrix",
 		Year:      1999,
-		StartedAt: time.Now().Add(-2 * time.Hour),
-		StoppedAt: time.Now().Add(-1 * time.Hour),
+		StartedAt: time.Now().UTC().Add(-2 * time.Hour),
+		StoppedAt: time.Now().UTC().Add(-1 * time.Hour),
 	}
 	err := s.InsertHistory(entry)
 	if err != nil {
@@ -53,7 +53,7 @@ func TestListHistoryWithUserFilter(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
 	serverID := seedServer(t, s)
-	now := time.Now()
+	now := time.Now().UTC()
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
 		Title: "A", StartedAt: now, StoppedAt: now,
@@ -76,7 +76,7 @@ func TestListHistoryPagination(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
 	serverID := seedServer(t, s)
-	now := time.Now()
+	now := time.Now().UTC()
 	for i := 0; i < 5; i++ {
 		s.InsertHistory(&models.WatchHistoryEntry{
 			ServerID: serverID, UserName: "u", MediaType: models.MediaTypeMovie,
