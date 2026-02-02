@@ -25,6 +25,11 @@ func (s *Server) handleDashboardSSE(w http.ResponseWriter, r *http.Request) {
 	ch := s.poller.Subscribe()
 	defer s.poller.Unsubscribe(ch)
 
+	if data, err := json.Marshal(s.poller.CurrentSessions()); err == nil {
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
 	for {
 		select {
 		case <-r.Context().Done():
