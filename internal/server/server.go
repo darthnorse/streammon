@@ -6,12 +6,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"streammon/internal/poller"
 	"streammon/internal/store"
 )
 
 type Server struct {
 	router     chi.Router
 	store      *store.Store
+	poller     *poller.Poller
 	corsOrigin string
 }
 
@@ -33,6 +35,10 @@ type Option func(*Server)
 
 func WithCORSOrigin(origin string) Option {
 	return func(s *Server) { s.corsOrigin = origin }
+}
+
+func WithPoller(p *poller.Poller) Option {
+	return func(s *Server) { s.poller = p }
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -17,18 +17,14 @@ func scanServer(scanner interface{ Scan(...any) error }) (models.Server, error) 
 }
 
 func (s *Store) CreateServer(srv *models.Server) error {
-	result, err := s.db.Exec(
-		`INSERT INTO servers (name, type, url, api_key, enabled) VALUES (?, ?, ?, ?, ?)`,
+	created, err := scanServer(s.db.QueryRow(
+		`INSERT INTO servers (name, type, url, api_key, enabled) VALUES (?, ?, ?, ?, ?) RETURNING `+serverColumns,
 		srv.Name, srv.Type, srv.URL, srv.APIKey, srv.Enabled,
-	)
+	))
 	if err != nil {
 		return fmt.Errorf("creating server: %w", err)
 	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return err
-	}
-	srv.ID = id
+	*srv = created
 	return nil
 }
 
@@ -80,7 +76,16 @@ func (s *Store) UpdateServer(srv *models.Server) error {
 }
 
 func (s *Store) DeleteServer(id int64) error {
-	result, err := s.db.Exec(`DELETE FROM servers WHERE id = ?`, id)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("deleting server: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM watch_history WHERE server_id = ?`, id); err != nil {
+		return fmt.Errorf("deleting server history: %w", err)
+	}
+	result, err := tx.Exec(`DELETE FROM servers WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("deleting server: %w", err)
 	}
@@ -88,5 +93,5 @@ func (s *Store) DeleteServer(id int64) error {
 	if n == 0 {
 		return fmt.Errorf("server %d: %w", id, models.ErrNotFound)
 	}
-	return nil
+	return tx.Commit()
 }

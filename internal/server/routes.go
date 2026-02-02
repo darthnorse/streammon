@@ -10,6 +10,7 @@ func (s *Server) routes() {
 	s.router.Get("/api/health", s.handleHealth)
 
 	s.router.Route("/api", func(r chi.Router) {
+		r.Use(limitBody)
 		r.Use(jsonContentType)
 		r.Use(corsMiddleware(s.corsOrigin))
 
@@ -24,6 +25,15 @@ func (s *Server) routes() {
 
 		r.Get("/users", s.handleListUsers)
 		r.Get("/users/{name}", s.handleGetUser)
+
+		r.Post("/servers/{id}/test", s.handleTestServer)
+
+		r.Get("/dashboard/sessions", s.handleDashboardSessions)
+	})
+
+	s.router.Group(func(r chi.Router) {
+		r.Use(corsMiddleware(s.corsOrigin))
+		r.Get("/api/dashboard/sse", s.handleDashboardSSE)
 	})
 
 	s.serveSPA()

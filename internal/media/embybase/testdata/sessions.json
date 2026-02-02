@@ -1,0 +1,75 @@
+[
+  {
+    "Id": "sess1",
+    "UserName": "alice",
+    "Client": "Emby Web",
+    "DeviceName": "Chrome",
+    "RemoteEndPoint": "10.0.0.1",
+    "NowPlayingItem": {
+      "Name": "Inception",
+      "Type": "Movie",
+      "ProductionYear": 2010,
+      "RunTimeTicks": 88800000000,
+      "SeriesName": "",
+      "SeasonName": "",
+      "MediaSources": [
+        {
+          "Container": "mkv",
+          "Bitrate": 10000000,
+          "MediaStreams": [
+            {"Type": "Video", "Codec": "h264", "Channels": 0},
+            {"Type": "Audio", "Codec": "aac", "Channels": 6},
+            {"Type": "Subtitle", "Codec": "srt", "Channels": 0}
+          ]
+        }
+      ]
+    },
+    "PlayState": {
+      "PositionTicks": 36000000000
+    },
+    "TranscodingInfo": {
+      "IsVideoDirect": false,
+      "IsAudioDirect": true,
+      "VideoCodec": "h264",
+      "AudioCodec": "aac",
+      "Container": "ts",
+      "Bitrate": 8000000,
+      "CompletionPercentage": 55.2,
+      "Width": 1920,
+      "Height": 1080,
+      "AudioChannels": 6,
+      "HardwareAccelerationType": "vaapi",
+      "TranscodeReasons": ["ContainerNotSupported"]
+    }
+  },
+  {
+    "Id": "sess2",
+    "UserName": "bob",
+    "Client": "Emby Theater",
+    "DeviceName": "Living Room",
+    "RemoteEndPoint": "10.0.0.2",
+    "NowPlayingItem": {
+      "Name": "Ozymandias",
+      "Type": "Episode",
+      "ProductionYear": 2013,
+      "RunTimeTicks": 28200000000,
+      "SeriesName": "Breaking Bad",
+      "SeasonName": "Season 5",
+      "MediaSources": []
+    },
+    "PlayState": {
+      "PositionTicks": 12000000000
+    },
+    "TranscodingInfo": null
+  },
+  {
+    "Id": "sess3",
+    "UserName": "carol",
+    "Client": "Emby Mobile",
+    "DeviceName": "iPhone",
+    "RemoteEndPoint": "10.0.0.3",
+    "NowPlayingItem": null,
+    "PlayState": null,
+    "TranscodingInfo": null
+  }
+]

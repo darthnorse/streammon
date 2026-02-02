@@ -10,11 +10,12 @@ var ErrNotFound = errors.New("not found")
 type MediaType string
 
 const (
-	MediaTypeMovie  MediaType = "movie"
-	MediaTypeTV     MediaType = "episode"
-	MediaTypeLiveTV MediaType = "livetv"
-	MediaTypeMusic     MediaType = "track"
-	MediaTypeAudiobook MediaType = "audiobook"
+	MediaTypeMovie      MediaType = "movie"
+	MediaTypeTV         MediaType = "episode"
+	MediaTypeLiveTV     MediaType = "livetv"
+	MediaTypeMusic      MediaType = "track"
+	MediaTypeAudiobook  MediaType = "audiobook"
+	MediaTypeBook       MediaType = "book"
 )
 
 type Role string
@@ -114,6 +115,14 @@ type WatchHistoryEntry struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+type TranscodeDecision string
+
+const (
+	TranscodeDecisionDirectPlay TranscodeDecision = "direct play"
+	TranscodeDecisionCopy       TranscodeDecision = "copy"
+	TranscodeDecisionTranscode  TranscodeDecision = "transcode"
+)
+
 type ActiveStream struct {
 	SessionID        string    `json:"session_id"`
 	ServerID         int64     `json:"server_id"`
@@ -130,15 +139,29 @@ type ActiveStream struct {
 	Platform         string    `json:"platform"`
 	IPAddress        string    `json:"ip_address"`
 	StartedAt        time.Time `json:"started_at"`
+
+	VideoCodec        string            `json:"video_codec,omitempty"`
+	AudioCodec        string            `json:"audio_codec,omitempty"`
+	VideoResolution   string            `json:"video_resolution,omitempty"`
+	Container         string            `json:"container,omitempty"`
+	Bitrate           int64             `json:"bitrate,omitempty"`
+	AudioChannels     int               `json:"audio_channels,omitempty"`
+	SubtitleCodec     string            `json:"subtitle_codec,omitempty"`
+	VideoDecision     TranscodeDecision `json:"video_decision,omitempty"`
+	AudioDecision     TranscodeDecision `json:"audio_decision,omitempty"`
+	TranscodeHWAccel  bool              `json:"transcode_hw_accel,omitempty"`
+	TranscodeProgress float64           `json:"transcode_progress,omitempty"`
+	Bandwidth         int64             `json:"bandwidth,omitempty"`
 }
 
 type DayStat struct {
-	Date   string `json:"date"`
-	Movies int    `json:"movies"`
-	TV     int    `json:"tv"`
-	LiveTV int    `json:"livetv"`
+	Date       string `json:"date"`
+	Movies     int    `json:"movies"`
+	TV         int    `json:"tv"`
+	LiveTV     int    `json:"livetv"`
 	Music      int    `json:"music"`
 	Audiobooks int    `json:"audiobooks"`
+	Books      int    `json:"books"`
 }
 
 type PaginatedResult[T any] struct {

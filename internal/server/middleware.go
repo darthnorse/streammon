@@ -1,6 +1,17 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+)
+
+const maxBodySize = 1 << 20 // 1MB
+
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+		next.ServeHTTP(w, r)
+	})
+}
 
 func jsonContentType(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

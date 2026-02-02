@@ -120,6 +120,8 @@ func (s *Store) DailyWatchCounts(start, end time.Time) ([]models.DayStat, error)
 			dayMap[day].Music += cnt
 		case models.MediaTypeAudiobook:
 			dayMap[day].Audiobooks += cnt
+		case models.MediaTypeBook:
+			dayMap[day].Books += cnt
 		}
 	}
 	if err := rows.Err(); err != nil {

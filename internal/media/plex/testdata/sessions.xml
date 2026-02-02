@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer size="2">
+  <Video sessionKey="1" type="movie" title="Inception" grandparentTitle="" parentTitle="" year="2010" duration="8880000" viewOffset="3600000">
+    <Media container="mkv" videoCodec="h264" audioCodec="aac" videoResolution="1080" bitrate="10000" audioChannels="6">
+      <Part>
+        <Stream streamType="1" codec="h264" decision="copy" />
+        <Stream streamType="2" codec="aac" decision="copy" />
+        <Stream streamType="3" codec="srt" decision="burn" />
+      </Part>
+    </Media>
+    <TranscodeSession videoDecision="copy" audioDecision="copy" progress="40.5" transcodeHwDecoding="1" transcodeHwEncoding="0" />
+    <Player title="Chrome" product="Plex Web" address="192.168.1.10" />
+    <Session id="abc123" bandwidth="12000" />
+    <User title="alice" />
+  </Video>
+  <Video sessionKey="2" type="episode" title="Ozymandias" parentTitle="Season 5" grandparentTitle="Breaking Bad" year="2013" duration="2820000" viewOffset="1200000">
+    <Media container="mp4" videoCodec="hevc" audioCodec="eac3" videoResolution="4k" bitrate="20000" audioChannels="8">
+      <Part>
+        <Stream streamType="1" codec="hevc" decision="transcode" />
+        <Stream streamType="2" codec="eac3" decision="copy" />
+      </Part>
+    </Media>
+    <Player title="Roku" product="Plex for Roku" address="192.168.1.20" />
+    <Session id="def456" />
+    <User title="bob" />
+  </Video>
+</MediaContainer>

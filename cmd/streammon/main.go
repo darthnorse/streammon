@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"streammon/internal/media"
+	"streammon/internal/poller"
 	"streammon/internal/server"
 	"streammon/internal/store"
 )
@@ -34,15 +36,38 @@ func main() {
 		log.Fatalf("running migrations: %v", err)
 	}
 
+	p := poller.New(s, 15*time.Second)
+
+	servers, err := s.ListServers()
+	if err != nil {
+		log.Fatalf("loading servers: %v", err)
+	}
+	for _, srv := range servers {
+		if !srv.Enabled {
+			continue
+		}
+		ms, err := media.NewMediaServer(srv)
+		if err != nil {
+			log.Printf("skipping server %s: %v", srv.Name, err)
+			continue
+		}
+		p.AddServer(srv.ID, ms)
+	}
+
+	p.Start(context.Background())
+	defer p.Stop()
+
 	var opts []server.Option
 	if corsOrigin != "" {
 		opts = append(opts, server.WithCORSOrigin(corsOrigin))
 	}
+	opts = append(opts, server.WithPoller(p))
 	srv := server.NewServer(s, opts...)
 
 	httpServer := &http.Server{
-		Addr:    listenAddr,
-		Handler: srv,
+		Addr:              listenAddr,
+		Handler:           srv,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
