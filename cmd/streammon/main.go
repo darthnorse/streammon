@@ -18,6 +18,7 @@ func main() {
 	dbPath := envOr("DB_PATH", "./data/streammon.db")
 	listenAddr := envOr("LISTEN_ADDR", ":8080")
 	migrationsDir := envOr("MIGRATIONS_DIR", "./migrations")
+	corsOrigin := os.Getenv("CORS_ORIGIN")
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		log.Fatal(err)
@@ -33,7 +34,11 @@ func main() {
 		log.Fatalf("running migrations: %v", err)
 	}
 
-	srv := server.NewServer(s)
+	var opts []server.Option
+	if corsOrigin != "" {
+		opts = append(opts, server.WithCORSOrigin(corsOrigin))
+	}
+	srv := server.NewServer(s, opts...)
 
 	httpServer := &http.Server{
 		Addr:    listenAddr,

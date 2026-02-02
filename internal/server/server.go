@@ -10,19 +10,29 @@ import (
 )
 
 type Server struct {
-	router chi.Router
-	store  *store.Store
+	router     chi.Router
+	store      *store.Store
+	corsOrigin string
 }
 
-func NewServer(s *store.Store) *Server {
+func NewServer(s *store.Store, opts ...Option) *Server {
 	srv := &Server{
 		router: chi.NewRouter(),
 		store:  s,
+	}
+	for _, o := range opts {
+		o(srv)
 	}
 	srv.router.Use(middleware.Logger)
 	srv.router.Use(middleware.Recoverer)
 	srv.routes()
 	return srv
+}
+
+type Option func(*Server)
+
+func WithCORSOrigin(origin string) Option {
+	return func(s *Server) { s.corsOrigin = origin }
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

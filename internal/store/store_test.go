@@ -10,25 +10,26 @@ func newTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatalf("New(:memory:) failed: %v", err)
 	}
+	t.Cleanup(func() { s.Close() })
 	return s
 }
 
 func TestNew(t *testing.T) {
-	s := newTestStore(t)
-	defer s.Close()
+	newTestStore(t)
 }
 
 func TestPing(t *testing.T) {
 	s := newTestStore(t)
-	defer s.Close()
-
 	if err := s.Ping(); err != nil {
 		t.Fatalf("Ping() failed: %v", err)
 	}
 }
 
 func TestPingAfterClose(t *testing.T) {
-	s := newTestStore(t)
+	s, err := New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
 	s.Close()
 
 	if err := s.Ping(); err == nil {

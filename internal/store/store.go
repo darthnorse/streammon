@@ -11,7 +11,7 @@ type Store struct {
 }
 
 func New(dbPath string) (*Store, error) {
-	db, err := sql.Open("sqlite3", dbPath+"?_journal_mode=WAL&_foreign_keys=on")
+	db, err := sql.Open("sqlite3", "file:"+dbPath+"?_journal_mode=WAL&_foreign_keys=on")
 	if err != nil {
 		return nil, err
 	}

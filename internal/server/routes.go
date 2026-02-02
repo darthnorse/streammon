@@ -1,9 +1,31 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
 
 func (s *Server) routes() {
 	s.router.Get("/api/health", s.handleHealth)
+
+	s.router.Route("/api", func(r chi.Router) {
+		r.Use(jsonContentType)
+		r.Use(corsMiddleware(s.corsOrigin))
+
+		r.Get("/servers", s.handleListServers)
+		r.Post("/servers", s.handleCreateServer)
+		r.Get("/servers/{id}", s.handleGetServer)
+		r.Put("/servers/{id}", s.handleUpdateServer)
+		r.Delete("/servers/{id}", s.handleDeleteServer)
+
+		r.Get("/history", s.handleListHistory)
+		r.Get("/history/daily", s.handleDailyHistory)
+
+		r.Get("/users", s.handleListUsers)
+		r.Get("/users/{name}", s.handleGetUser)
+	})
+
 	s.serveSPA()
 }
 
