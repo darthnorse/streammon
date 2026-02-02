@@ -1,0 +1,12 @@
+services:
+  streammon:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+      - ./geoip:/app/geoip
+    environment:
+      - DB_PATH=/app/data/streammon.db
+      - GEOIP_PATH=/app/geoip/GeoLite2-City.mmdb
+    restart: unless-stopped

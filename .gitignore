@@ -1,0 +1,32 @@
+# Go
+/streammon
+/cmd/streammon/streammon
+*.exe
+*.test
+*.out
+
+# Node
+web/node_modules/
+internal/server/web/dist/*
+!internal/server/web/dist/.gitkeep
+
+# Data
+data/
+geoip/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+
+# Claude
+CLAUDE.md
+docs/

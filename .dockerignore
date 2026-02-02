@@ -1,0 +1,5 @@
+web/node_modules
+.git
+data/
+geoip/
+.env
