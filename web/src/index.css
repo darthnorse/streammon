@@ -1,3 +1,109 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@layer base {
+  html {
+    @apply font-sans antialiased;
+  }
+
+  body {
+    @apply bg-surface text-gray-800 transition-colors duration-200;
+  }
+
+  .dark body {
+    @apply bg-surface-dark text-gray-100;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-panel rounded-lg border border-border shadow-sm
+           transition-all duration-200;
+  }
+
+  .dark .card {
+    @apply bg-panel-dark border-border-dark shadow-none;
+  }
+
+  .card-hover:hover {
+    @apply shadow-md border-accent/30;
+  }
+
+  .dark .card-hover:hover {
+    @apply shadow-[0_0_20px_rgba(0,229,255,0.08)] border-accent/30;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded font-mono text-xs font-medium;
+  }
+
+  .badge-accent {
+    @apply bg-accent/10 text-accent-dim;
+  }
+
+  .dark .badge-accent {
+    @apply bg-accent/15 text-accent;
+  }
+
+  .badge-warn {
+    @apply bg-warn/10 text-warn-dim;
+  }
+
+  .dark .badge-warn {
+    @apply bg-warn/15 text-warn;
+  }
+
+  .badge-muted {
+    @apply bg-gray-100 text-muted;
+  }
+
+  .dark .badge-muted {
+    @apply bg-white/5 text-muted-dark;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
+           text-muted transition-colors duration-150;
+  }
+
+  .nav-item:hover {
+    @apply text-gray-800 bg-gray-100;
+  }
+
+  .dark .nav-item:hover {
+    @apply text-gray-100 bg-white/5;
+  }
+
+  .nav-item.active {
+    @apply text-accent-dim bg-accent/5;
+  }
+
+  .dark .nav-item.active {
+    @apply text-accent bg-accent/10;
+  }
+}
+
+@layer utilities {
+  .scanlines {
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0, 0, 0, 0.015) 2px,
+      rgba(0, 0, 0, 0.015) 4px
+    );
+  }
+
+  .dark .scanlines {
+    background-image: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(255, 255, 255, 0.01) 2px,
+      rgba(255, 255, 255, 0.01) 4px
+    );
+  }
+}
