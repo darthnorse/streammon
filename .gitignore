@@ -12,7 +12,7 @@ internal/server/web/dist/*
 
 # Data
 data/
-geoip/
+/geoip/
 
 # IDE
 .idea/
