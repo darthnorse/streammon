@@ -83,7 +83,7 @@ func (s *Store) GetCachedGeos(ips []string) (map[string]*models.GeoResult, error
 
 func (s *Store) DistinctIPsForUser(userName string) ([]string, error) {
 	rows, err := s.db.Query(
-		`SELECT DISTINCT ip_address FROM watch_history WHERE user_name = ? AND ip_address != ''`,
+		`SELECT DISTINCT ip_address FROM watch_history WHERE user_name = ? AND ip_address != '' LIMIT 500`,
 		userName,
 	)
 	if err != nil {
