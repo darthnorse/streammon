@@ -97,7 +97,7 @@ function ItemContent({ item, accent }: ItemContentProps) {
               )}
             </div>
           )}
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-50">
+          <h2 id="modal-title" className="text-2xl font-bold text-gray-900 dark:text-gray-50">
             {item.title}
           </h2>
           <div className="flex flex-wrap items-center gap-2 mt-2 text-sm text-muted dark:text-muted-dark">
@@ -157,8 +157,8 @@ function ItemContent({ item, accent }: ItemContentProps) {
           <div className="space-y-2">
             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Cast</div>
             <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
-              {item.cast.slice(0, 6).map(member => (
-                <CastChip key={member.name} name={member.name} role={member.role} />
+              {item.cast.slice(0, 6).map((member, idx) => (
+                <CastChip key={`${member.name}-${idx}`} name={member.name} role={member.role} />
               ))}
             </div>
           </div>
@@ -193,6 +193,9 @@ export function MediaDetailModal({ item, loading, onClose }: MediaDetailModalPro
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
     >
       <div
         className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-xl bg-panel dark:bg-panel-dark shadow-2xl animate-slide-up"

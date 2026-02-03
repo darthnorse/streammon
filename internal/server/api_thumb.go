@@ -44,7 +44,11 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 
 	switch srv.Type {
 	case models.ServerTypePlex:
-		imgURL = fmt.Sprintf("%s/%s?X-Plex-Token=%s", baseURL, thumbPath, srv.APIKey)
+		if strings.Contains(thumbPath, "/") {
+			imgURL = fmt.Sprintf("%s/%s?X-Plex-Token=%s", baseURL, thumbPath, srv.APIKey)
+		} else {
+			imgURL = fmt.Sprintf("%s/library/metadata/%s/thumb?X-Plex-Token=%s", baseURL, thumbPath, srv.APIKey)
+		}
 	case models.ServerTypeEmby, models.ServerTypeJellyfin:
 		imgURL = fmt.Sprintf("%s/Items/%s/Images/Primary?maxHeight=300", baseURL, thumbPath)
 	default:

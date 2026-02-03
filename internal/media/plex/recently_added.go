@@ -61,7 +61,10 @@ func (s *Server) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 			title = item.GrandparentTitle + " - " + item.Title
 		}
 
-		thumbURL := item.Thumb
+		var thumbURL string
+		if item.Thumb != "" {
+			thumbURL = item.RatingKey
+		}
 		itemID := item.RatingKey
 
 		items = append(items, models.LibraryItem{

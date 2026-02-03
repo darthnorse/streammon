@@ -57,8 +57,8 @@ func TestGetRecentlyAdded(t *testing.T) {
 	if item.MediaType != models.MediaTypeMovie {
 		t.Errorf("media type = %q, want movie", item.MediaType)
 	}
-	if item.ThumbURL != "/library/metadata/12345/thumb/1699000000" {
-		t.Errorf("thumb url = %q, want /library/metadata/12345/thumb/1699000000", item.ThumbURL)
+	if item.ThumbURL != "12345" {
+		t.Errorf("thumb url = %q, want 12345", item.ThumbURL)
 	}
 	if item.ServerID != 1 {
 		t.Errorf("server id = %d, want 1", item.ServerID)

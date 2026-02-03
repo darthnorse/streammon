@@ -54,9 +54,9 @@ export function RecentMedia() {
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Recently Added</h2>
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
-        {data.map((item, idx) => (
+        {data.map(item => (
           <div
-            key={`${item.server_id}-${item.title}-${idx}`}
+            key={`${item.server_id}-${item.item_id || item.title}`}
             className={`relative group ${item.item_id ? 'cursor-pointer' : ''}`}
             onClick={() => handleItemClick(item)}
           >
