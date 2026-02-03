@@ -10,6 +10,12 @@ const serverAccent: Record<string, { bar: string; badge: string }> = {
 
 const defaultAccent = { bar: 'bg-accent', badge: 'bg-accent/20 text-blue-700 dark:text-blue-300' }
 
+const mediaTypeIcons: Record<string, string> = {
+  movie: '🎬',
+  episode: '📺',
+}
+const defaultMediaIcon = '🎵'
+
 interface MediaDetailModalProps {
   item: ItemDetails | null
   loading: boolean
@@ -44,6 +50,124 @@ function CastChip({ name, role }: { name: string; role?: string }) {
       <div className="text-xs">
         <div className="font-medium text-gray-900 dark:text-gray-100">{name}</div>
         {role && <div className="text-gray-500 dark:text-gray-400 text-[10px]">{role}</div>}
+      </div>
+    </div>
+  )
+}
+
+function ErrorState() {
+  return (
+    <div className="p-8 text-center text-muted dark:text-muted-dark">
+      Failed to load item details
+    </div>
+  )
+}
+
+interface ItemContentProps {
+  item: ItemDetails
+  accent: { bar: string; badge: string }
+}
+
+function ItemContent({ item, accent }: ItemContentProps) {
+  return (
+    <div className="flex flex-col md:flex-row overflow-y-auto max-h-[calc(90vh-4px)]">
+      <div className="md:w-1/3 shrink-0 p-4 md:p-6">
+        {item.thumb_url ? (
+          <img
+            src={item.thumb_url}
+            alt={item.title}
+            className="w-full aspect-[2/3] object-cover rounded-lg shadow-lg"
+          />
+        ) : (
+          <div className="w-full aspect-[2/3] rounded-lg bg-gray-200 dark:bg-white/10 flex items-center justify-center">
+            <span className="text-6xl opacity-20">
+              {mediaTypeIcons[item.media_type] ?? defaultMediaIcon}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1 p-4 md:p-6 md:pl-0 space-y-4">
+        <div>
+          {item.series_title && (
+            <div className="text-sm text-muted dark:text-muted-dark mb-1">
+              {item.series_title}
+              {item.season_number && item.episode_number && (
+                <span> &middot; S{item.season_number}E{item.episode_number}</span>
+              )}
+            </div>
+          )}
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-50">
+            {item.title}
+          </h2>
+          <div className="flex flex-wrap items-center gap-2 mt-2 text-sm text-muted dark:text-muted-dark">
+            {item.year && <span>{item.year}</span>}
+            {item.duration_ms && (
+              <>
+                <span>&middot;</span>
+                <span>{formatDuration(item.duration_ms)}</span>
+              </>
+            )}
+            {item.content_rating && (
+              <>
+                <span>&middot;</span>
+                <span className="px-1.5 py-0.5 text-xs border border-current rounded">
+                  {item.content_rating}
+                </span>
+              </>
+            )}
+            {item.rating && item.rating > 0 && (
+              <>
+                <span>&middot;</span>
+                <StarRating rating={item.rating} />
+              </>
+            )}
+          </div>
+        </div>
+
+        {item.genres && item.genres.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {item.genres.map(genre => (
+              <span
+                key={genre}
+                className={`px-2.5 py-1 text-xs font-medium rounded-full ${accent.badge}`}
+              >
+                {genre}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {item.summary && (
+          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
+            {item.summary}
+          </p>
+        )}
+
+        {item.directors && item.directors.length > 0 && (
+          <div className="text-sm">
+            <span className="text-muted dark:text-muted-dark">Directed by </span>
+            <span className="text-gray-900 dark:text-gray-100">
+              {item.directors.join(', ')}
+            </span>
+          </div>
+        )}
+
+        {item.cast && item.cast.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Cast</div>
+            <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
+              {item.cast.slice(0, 6).map(member => (
+                <CastChip key={member.name} name={member.name} role={member.role} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="pt-2 flex items-center justify-between text-xs text-muted dark:text-muted-dark border-t border-border dark:border-border-dark">
+          <span>{item.studio}</span>
+          <span>{item.server_name}</span>
+        </div>
       </div>
     </div>
   )
@@ -86,114 +210,9 @@ export function MediaDetailModal({ item, loading, onClose }: MediaDetailModalPro
           </svg>
         </button>
 
-        {loading ? (
-          <LoadingSpinner />
-        ) : item ? (
-          <div className="flex flex-col md:flex-row overflow-y-auto max-h-[calc(90vh-4px)]">
-            <div className="md:w-1/3 shrink-0 p-4 md:p-6">
-              {item.thumb_url ? (
-                <img
-                  src={item.thumb_url}
-                  alt={item.title}
-                  className="w-full aspect-[2/3] object-cover rounded-lg shadow-lg"
-                />
-              ) : (
-                <div className="w-full aspect-[2/3] rounded-lg bg-gray-200 dark:bg-white/10 flex items-center justify-center">
-                  <span className="text-6xl opacity-20">
-                    {item.media_type === 'movie' ? '🎬' : item.media_type === 'episode' ? '📺' : '🎵'}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex-1 p-4 md:p-6 md:pl-0 space-y-4">
-              <div>
-                {item.series_title && (
-                  <div className="text-sm text-muted dark:text-muted-dark mb-1">
-                    {item.series_title}
-                    {item.season_number && item.episode_number && (
-                      <span> &middot; S{item.season_number}E{item.episode_number}</span>
-                    )}
-                  </div>
-                )}
-                <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-50">
-                  {item.title}
-                </h2>
-                <div className="flex flex-wrap items-center gap-2 mt-2 text-sm text-muted dark:text-muted-dark">
-                  {item.year && <span>{item.year}</span>}
-                  {item.duration_ms && (
-                    <>
-                      <span>&middot;</span>
-                      <span>{formatDuration(item.duration_ms)}</span>
-                    </>
-                  )}
-                  {item.content_rating && (
-                    <>
-                      <span>&middot;</span>
-                      <span className="px-1.5 py-0.5 text-xs border border-current rounded">
-                        {item.content_rating}
-                      </span>
-                    </>
-                  )}
-                  {item.rating && item.rating > 0 && (
-                    <>
-                      <span>&middot;</span>
-                      <StarRating rating={item.rating} />
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {item.genres && item.genres.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {item.genres.map((genre, i) => (
-                    <span
-                      key={i}
-                      className={`px-2.5 py-1 text-xs font-medium rounded-full ${accent.badge}`}
-                    >
-                      {genre}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {item.summary && (
-                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-                  {item.summary}
-                </p>
-              )}
-
-              {item.directors && item.directors.length > 0 && (
-                <div className="text-sm">
-                  <span className="text-muted dark:text-muted-dark">Directed by </span>
-                  <span className="text-gray-900 dark:text-gray-100">
-                    {item.directors.join(', ')}
-                  </span>
-                </div>
-              )}
-
-              {item.cast && item.cast.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Cast</div>
-                  <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
-                    {item.cast.slice(0, 6).map((member, i) => (
-                      <CastChip key={i} name={member.name} role={member.role} />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-2 flex items-center justify-between text-xs text-muted dark:text-muted-dark border-t border-border dark:border-border-dark">
-                <span>{item.studio}</span>
-                <span>{item.server_name}</span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="p-8 text-center text-muted dark:text-muted-dark">
-            Failed to load item details
-          </div>
-        )}
+        {loading && <LoadingSpinner />}
+        {!loading && item && <ItemContent item={item} accent={accent} />}
+        {!loading && !item && <ErrorState />}
       </div>
     </div>
   )

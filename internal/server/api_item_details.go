@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -24,7 +23,7 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.Contains(itemID, "..") || strings.Contains(itemID, "?") || strings.Contains(itemID, "#") {
+	if !isValidPathSegment(itemID) {
 		writeError(w, http.StatusBadRequest, "invalid item id")
 		return
 	}

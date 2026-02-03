@@ -28,7 +28,7 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.Contains(thumbPath, "..") || strings.Contains(thumbPath, "?") || strings.Contains(thumbPath, "#") {
+	if !isValidPathSegment(thumbPath) {
 		writeError(w, http.StatusBadRequest, "invalid thumb path")
 		return
 	}
