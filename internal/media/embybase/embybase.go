@@ -102,6 +102,9 @@ type nowPlaying struct {
 	MediaSources   []mediaSource  `json:"MediaSources"`
 	ID             string            `json:"Id"`
 	ImageTags      map[string]string `json:"ImageTags"`
+	Container      string          `json:"Container"`
+	Bitrate        int64           `json:"Bitrate"`
+	MediaStreams    []mediaStream   `json:"MediaStreams"`
 }
 
 type mediaSource struct {
@@ -168,23 +171,33 @@ func parseSessions(data []byte, serverID int64, serverName string) ([]models.Act
 		if s.NowPlaying.ID != "" && s.NowPlaying.ImageTags["Primary"] != "" {
 			as.ThumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, s.NowPlaying.ID)
 		}
+		var container string
+		var bitrate int64
+		var mediaStreams []mediaStream
 		if len(s.NowPlaying.MediaSources) > 0 {
 			src := s.NowPlaying.MediaSources[0]
-			as.Container = src.Container
-			as.Bitrate = src.Bitrate
-			for _, ms := range src.MediaStreams {
-				switch ms.Type {
-				case "Video":
-					as.VideoCodec = ms.Codec
-					if ms.Height > 0 {
-						as.VideoResolution = fmt.Sprintf("%dp", ms.Height)
-					}
-				case "Audio":
-					as.AudioCodec = ms.Codec
-					as.AudioChannels = ms.Channels
-				case "Subtitle":
-					as.SubtitleCodec = ms.Codec
+			container = src.Container
+			bitrate = src.Bitrate
+			mediaStreams = src.MediaStreams
+		} else {
+			container = s.NowPlaying.Container
+			bitrate = s.NowPlaying.Bitrate
+			mediaStreams = s.NowPlaying.MediaStreams
+		}
+		as.Container = container
+		as.Bitrate = bitrate
+		for _, ms := range mediaStreams {
+			switch ms.Type {
+			case "Video":
+				as.VideoCodec = ms.Codec
+				if ms.Height > 0 {
+					as.VideoResolution = fmt.Sprintf("%dp", ms.Height)
 				}
+			case "Audio":
+				as.AudioCodec = ms.Codec
+				as.AudioChannels = ms.Channels
+			case "Subtitle":
+				as.SubtitleCodec = ms.Codec
 			}
 		}
 		if ti := s.TranscodingInfo; ti != nil {

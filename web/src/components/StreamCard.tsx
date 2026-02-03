@@ -37,7 +37,8 @@ function formatStreamLine(stream: ActiveStream): string {
   const src = [stream.container?.toUpperCase(), formatBitrate(stream.bitrate ?? 0)].filter(Boolean).join(' ')
   if (stream.video_decision === 'direct play') return src ? `${src} - Direct Play` : 'Direct Play'
   const dst = [stream.transcode_container?.toUpperCase(), formatBitrate(stream.bandwidth ?? 0)].filter(Boolean).join(' ')
-  return dst ? `${src} \u2192 ${dst}` : src
+  if (src && dst) return `${src} \u2192 ${dst}`
+  return dst || src
 }
 
 function formatVideoLine(stream: ActiveStream): string {
