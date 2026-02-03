@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
+
+	"streammon/internal/models"
 )
 
 func (s *Server) routes() {
@@ -41,6 +43,14 @@ func (s *Server) routes() {
 		r.Get("/users/{name}/locations", s.handleGetUserLocations)
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
+
+		r.Route("/settings/oidc", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleGetOIDCSettings)
+			sr.Put("/", s.handleUpdateOIDCSettings)
+			sr.Delete("/", s.handleDeleteOIDCSettings)
+			sr.Post("/test", s.handleTestOIDCConnection)
+		})
 	})
 
 	s.router.Group(func(r chi.Router) {

@@ -1,8 +1,10 @@
 package auth
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 )
 
@@ -66,4 +68,84 @@ func TestHandleCallback_Disabled(t *testing.T) {
 	if w.Code != http.StatusNotFound {
 		t.Errorf("expected 404, got %d", w.Code)
 	}
+}
+
+func TestReload_DisabledToDisabled(t *testing.T) {
+	svc, err := NewService(Config{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svc.Enabled() {
+		t.Fatal("expected disabled")
+	}
+
+	err = svc.Reload(context.Background(), Config{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if svc.Enabled() {
+		t.Error("expected still disabled after reload with empty config")
+	}
+}
+
+func TestReload_EnabledToDisabled(t *testing.T) {
+	svc := &Service{enabled: true}
+
+	err := svc.Reload(context.Background(), Config{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if svc.Enabled() {
+		t.Error("expected disabled after reload with empty config")
+	}
+}
+
+func TestReload_InvalidConfig(t *testing.T) {
+	svc := &Service{enabled: true}
+
+	err := svc.Reload(context.Background(), Config{Issuer: "https://example.com"})
+	if err == nil {
+		t.Error("expected error for incomplete config")
+	}
+	if !svc.Enabled() {
+		t.Error("expected still enabled after failed reload")
+	}
+}
+
+func TestReload_ConcurrentAccess(t *testing.T) {
+	svc := &Service{enabled: true}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			svc.Enabled()
+		}()
+		go func() {
+			defer wg.Done()
+			svc.Reload(context.Background(), Config{})
+		}()
+	}
+	wg.Wait()
+}
+
+func TestReload_ConcurrentHandlerAccess(t *testing.T) {
+	svc := &Service{enabled: false}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			req := httptest.NewRequest("GET", "/auth/login", nil)
+			w := httptest.NewRecorder()
+			svc.HandleLogin(w, req)
+		}()
+		go func() {
+			defer wg.Done()
+			svc.Reload(context.Background(), Config{})
+		}()
+	}
+	wg.Wait()
 }

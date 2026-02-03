@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"streammon/internal/auth"
 	"streammon/internal/store"
 )
 
@@ -24,6 +25,7 @@ func newTestServer(t *testing.T) (*Server, *store.Store) {
 		t.Fatalf("migrate: %v", err)
 	}
 	t.Cleanup(func() { s.Close() })
-	srv := NewServer(s)
+	authSvc, _ := auth.NewService(auth.Config{}, s)
+	srv := NewServer(s, WithAuth(authSvc))
 	return srv, s
 }

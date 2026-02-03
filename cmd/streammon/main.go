@@ -42,15 +42,14 @@ func main() {
 	geoResolver := geoip.NewResolver(geoDBPath)
 	defer geoResolver.Close()
 
-	oidcCfg := auth.Config{
-		Issuer:       os.Getenv("OIDC_ISSUER"),
-		ClientID:     os.Getenv("OIDC_CLIENT_ID"),
-		ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"),
-		RedirectURL:  os.Getenv("OIDC_REDIRECT_URL"),
-	}
-	authSvc, err := auth.NewService(oidcCfg, s)
+	oidcCfg, err := s.GetOIDCConfig()
 	if err != nil {
-		log.Fatalf("initializing auth: %v", err)
+		log.Fatalf("loading OIDC config: %v", err)
+	}
+	authSvc, err := auth.NewService(auth.ConfigFromStore(oidcCfg), s)
+	if err != nil {
+		log.Printf("OIDC init failed (starting with auth disabled): %v", err)
+		authSvc, _ = auth.NewService(auth.Config{}, s)
 	}
 	if authSvc.Enabled() {
 		log.Println("OIDC authentication enabled")

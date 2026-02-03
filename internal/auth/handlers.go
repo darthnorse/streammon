@@ -3,7 +3,6 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -16,35 +15,48 @@ func generateState() string {
 }
 
 func (s *Service) HandleLogin(w http.ResponseWriter, r *http.Request) {
-	if !s.enabled {
+	s.mu.RLock()
+	enabled := s.enabled
+	oauth2Cfg := s.oauth2
+	s.mu.RUnlock()
+
+	if !enabled {
 		http.NotFound(w, r)
 		return
 	}
 	state := generateState()
 	http.SetCookie(w, &http.Cookie{
-		Name:     "oidc_state",
+		Name:     stateCookieName,
 		Value:    state,
 		Path:     "/",
 		MaxAge:   300,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	http.Redirect(w, r, s.oauth2.AuthCodeURL(state), http.StatusFound)
+	http.Redirect(w, r, oauth2Cfg.AuthCodeURL(state), http.StatusFound)
 }
 
 func (s *Service) HandleCallback(w http.ResponseWriter, r *http.Request) {
-	if !s.enabled {
+	s.mu.RLock()
+	enabled := s.enabled
+	oauth2Cfg := s.oauth2
+	verifier := s.verifier
+	s.mu.RUnlock()
+
+	st := s.store
+
+	if !enabled {
 		http.NotFound(w, r)
 		return
 	}
 
-	stateCookie, err := r.Cookie("oidc_state")
+	stateCookie, err := r.Cookie(stateCookieName)
 	if err != nil || stateCookie.Value != r.URL.Query().Get("state") {
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
 
-	token, err := s.oauth2.Exchange(r.Context(), r.URL.Query().Get("code"))
+	token, err := oauth2Cfg.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
 		log.Printf("OIDC token exchange error: %v", err)
 		http.Error(w, "authentication failed", http.StatusUnauthorized)
@@ -57,7 +69,7 @@ func (s *Service) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idToken, err := s.verifier.Verify(r.Context(), rawIDToken)
+	idToken, err := verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
 		log.Printf("OIDC token verify error: %v", err)
 		http.Error(w, "invalid token", http.StatusUnauthorized)
@@ -82,14 +94,14 @@ func (s *Service) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		name = claims.Sub
 	}
 
-	user, err := s.store.GetOrCreateUserByEmail(claims.Email, name)
+	user, err := st.GetOrCreateUserByEmail(claims.Email, name)
 	if err != nil {
 		log.Printf("user creation error: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	sessionToken, err := s.store.CreateSession(user.ID, time.Now().UTC().Add(SessionDuration))
+	sessionToken, err := st.CreateSession(user.ID, time.Now().UTC().Add(SessionDuration))
 	if err != nil {
 		log.Printf("session creation error: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -106,7 +118,7 @@ func (s *Service) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	})
 
 	http.SetCookie(w, &http.Cookie{
-		Name:   "oidc_state",
+		Name:   stateCookieName,
 		Path:   "/",
 		MaxAge: -1,
 	})
@@ -115,7 +127,7 @@ func (s *Service) HandleCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) HandleLogout(w http.ResponseWriter, r *http.Request) {
-	if cookie, err := r.Cookie(CookieName); err == nil {
+	if cookie, err := r.Cookie(CookieName); err == nil && s.store != nil {
 		s.store.DeleteSession(cookie.Value)
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -127,5 +139,5 @@ func (s *Service) HandleLogout(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }

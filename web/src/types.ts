@@ -96,3 +96,11 @@ export interface PaginatedResult<T> {
   page: number
   per_page: number
 }
+
+export interface OIDCSettings {
+  issuer: string
+  client_id: string
+  client_secret: string
+  redirect_url: string
+  enabled: boolean
+}
