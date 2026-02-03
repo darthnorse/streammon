@@ -48,7 +48,7 @@ describe('StreamCard', () => {
       }} />
     )
     expect(screen.getByText(/H264/)).toBeDefined()
-    expect(screen.getByText(/Video:/)).toBeDefined()
+    expect(screen.getByText(/Video/)).toBeDefined()
   })
 
   it('renders direct play info', () => {

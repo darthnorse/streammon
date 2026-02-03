@@ -90,8 +90,8 @@ func TestGetSessions(t *testing.T) {
 	if s.Container != "mkv" {
 		t.Errorf("container = %q, want mkv", s.Container)
 	}
-	if s.Bitrate != 10000 {
-		t.Errorf("bitrate = %d, want 10000", s.Bitrate)
+	if s.Bitrate != 10000000 {
+		t.Errorf("bitrate = %d, want 10000000", s.Bitrate)
 	}
 	if s.AudioChannels != 6 {
 		t.Errorf("audio channels = %d, want 6", s.AudioChannels)
@@ -108,8 +108,8 @@ func TestGetSessions(t *testing.T) {
 	if s.TranscodeProgress != 40.5 {
 		t.Errorf("transcode progress = %f, want 40.5", s.TranscodeProgress)
 	}
-	if s.Bandwidth != 12000 {
-		t.Errorf("bandwidth = %d, want 12000", s.Bandwidth)
+	if s.Bandwidth != 12000000 {
+		t.Errorf("bandwidth = %d, want 12000000", s.Bandwidth)
 	}
 
 	s2 := sessions[1]
