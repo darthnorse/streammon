@@ -41,6 +41,10 @@ func TestTopMovies(t *testing.T) {
 	if stats[0].PlayCount != 2 {
 		t.Fatalf("expected 2 plays, got %d", stats[0].PlayCount)
 	}
+	// 2 plays * 7200000ms = 14400000ms = 4 hours
+	if stats[0].TotalHours < 3.9 || stats[0].TotalHours > 4.1 {
+		t.Fatalf("expected ~4 total hours, got %f", stats[0].TotalHours)
+	}
 }
 
 func TestTopMoviesEmpty(t *testing.T) {
@@ -89,6 +93,10 @@ func TestTopTVShows(t *testing.T) {
 	if stats[0].PlayCount != 2 {
 		t.Fatalf("expected 2 plays, got %d", stats[0].PlayCount)
 	}
+	// 2 plays * 3600000ms = 7200000ms = 2 hours
+	if stats[0].TotalHours < 1.9 || stats[0].TotalHours > 2.1 {
+		t.Fatalf("expected ~2 total hours, got %f", stats[0].TotalHours)
+	}
 }
 
 func TestTopUsers(t *testing.T) {
@@ -121,6 +129,10 @@ func TestTopUsers(t *testing.T) {
 	}
 	if stats[0].PlayCount != 2 {
 		t.Fatalf("expected 2 plays for alice, got %d", stats[0].PlayCount)
+	}
+	// alice: 7200000ms + 3600000ms = 10800000ms = 3 hours
+	if stats[0].TotalHours < 2.9 || stats[0].TotalHours > 3.1 {
+		t.Fatalf("expected ~3 total hours for alice, got %f", stats[0].TotalHours)
 	}
 }
 
@@ -160,6 +172,10 @@ func TestLibraryStats(t *testing.T) {
 	}
 	if stats.UniqueTVShows != 1 {
 		t.Fatalf("expected 1 unique TV show, got %d", stats.UniqueTVShows)
+	}
+	// 7200000 + 5400000 + 3600000 = 16200000ms = 4.5 hours
+	if stats.TotalHours < 4.4 || stats.TotalHours > 4.6 {
+		t.Fatalf("expected ~4.5 total hours, got %f", stats.TotalHours)
 	}
 }
 

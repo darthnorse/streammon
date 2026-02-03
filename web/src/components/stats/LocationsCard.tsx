@@ -44,6 +44,31 @@ function WorldMap({ locations }: { locations: GeoResult[] }) {
   )
 }
 
+function LocationTable({ locations }: { locations: GeoResult[] }) {
+  return (
+    <div className="overflow-x-auto mt-4">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border dark:border-border-dark text-left text-muted dark:text-muted-dark">
+            <th className="py-2 pr-4 font-medium">IP Address</th>
+            <th className="py-2 font-medium">Location</th>
+          </tr>
+        </thead>
+        <tbody>
+          {locations.map((loc, idx) => (
+            <tr key={`${loc.ip}-${idx}`} className="border-b border-border/50 dark:border-border-dark/50">
+              <td className="py-2 pr-4 font-mono text-xs">{loc.ip}</td>
+              <td className="py-2">
+                {loc.city && loc.country ? `${loc.city}, ${loc.country}` : loc.country || '—'}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 export function LocationsCard({ locations }: LocationsCardProps) {
   return (
     <div className="card p-4">
@@ -62,8 +87,11 @@ export function LocationsCard({ locations }: LocationsCardProps) {
           No location data available
         </div>
       ) : (
-        <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark bg-slate-50 dark:bg-slate-900">
-          <WorldMap locations={locations} />
+        <div className="space-y-4">
+          <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark bg-slate-50 dark:bg-slate-900">
+            <WorldMap locations={locations} />
+          </div>
+          <LocationTable locations={locations} />
         </div>
       )}
     </div>
