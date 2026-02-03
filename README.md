@@ -32,14 +32,16 @@ Browse to `http://localhost:7935`.
 
 ### Optional OIDC
 
+OIDC authentication is configured from the Settings UI at runtime. Alternatively, you can set these environment variables for initial bootstrap:
+
 | Variable | Description |
 |----------|-------------|
 | `OIDC_ISSUER` | OIDC provider URL (e.g. `https://accounts.google.com`) |
 | `OIDC_CLIENT_ID` | OAuth client ID |
 | `OIDC_CLIENT_SECRET` | OAuth client secret |
-| `OIDC_REDIRECT_URL` | Callback URL (e.g. `http://localhost:8080/auth/callback`) |
+| `OIDC_REDIRECT_URL` | Callback URL (e.g. `http://localhost:7935/auth/callback`) |
 
-OIDC can also be configured from the Settings UI at runtime.
+Settings UI values take precedence over environment variables.
 
 ## Development
 

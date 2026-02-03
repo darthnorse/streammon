@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
 
 interface FetchState<T> {
@@ -7,12 +7,13 @@ interface FetchState<T> {
   error: Error | null
 }
 
-export function useFetch<T>(url: string | null): FetchState<T> {
+export function useFetch<T>(url: string | null): FetchState<T> & { refetch: () => void } {
   const [state, setState] = useState<FetchState<T>>({
     data: null,
     loading: true,
     error: null,
   })
+  const [tick, setTick] = useState(0)
 
   useEffect(() => {
     if (!url) {
@@ -32,7 +33,9 @@ export function useFetch<T>(url: string | null): FetchState<T> {
       })
 
     return () => { controller.abort() }
-  }, [url])
+  }, [url, tick])
 
-  return state
+  const refetch = useCallback(() => setTick(t => t + 1), [])
+
+  return { ...state, refetch }
 }

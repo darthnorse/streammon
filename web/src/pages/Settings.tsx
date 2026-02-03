@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import type { Server, OIDCSettings } from '../types'
 import { api } from '../lib/api'
+import { useFetch } from '../hooks/useFetch'
 import { ServerForm } from '../components/ServerForm'
 import { OIDCForm } from '../components/OIDCForm'
 import { EmptyState } from '../components/EmptyState'
@@ -11,66 +12,28 @@ const serverTypeColors: Record<string, string> = {
   jellyfin: 'badge-jellyfin',
 }
 
-function LoadingCard() {
-  return (
-    <div className="card p-12 text-center">
-      <p className="text-muted dark:text-muted-dark">Loading...</p>
-    </div>
-  )
-}
+const tabs: { key: TabKey; label: string }[] = [
+  { key: 'servers', label: 'Servers' },
+  { key: 'auth', label: 'Authentication' },
+]
 
-function ErrorCard({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <div className="card p-12 text-center">
-      <p className="text-red-500 dark:text-red-400">{message}</p>
-      <button onClick={onRetry} className="mt-3 text-sm text-accent hover:underline">
-        Retry
-      </button>
-    </div>
-  )
-}
+const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
+const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
+
+type TabKey = 'servers' | 'auth'
 
 export function Settings() {
-  const [tab, setTab] = useState<'servers' | 'auth'>('servers')
-  const [servers, setServers] = useState<Server[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [tab, setTab] = useState<TabKey>('servers')
+  const { data: servers, loading, error: fetchError, refetch: refetchServers } = useFetch<Server[]>('/api/servers')
+  const { data: oidc, loading: oidcLoading, error: oidcFetchError, refetch: refetchOidc } = useFetch<OIDCSettings>(tab === 'auth' ? '/api/settings/oidc' : null)
+
   const [editingServer, setEditingServer] = useState<Server | undefined>()
   const [showForm, setShowForm] = useState(false)
-
-  const [oidc, setOidc] = useState<OIDCSettings | undefined>()
-  const [oidcLoading, setOidcLoading] = useState(true)
-  const [oidcError, setOidcError] = useState('')
   const [showOidcForm, setShowOidcForm] = useState(false)
+  const [actionError, setActionError] = useState('')
 
-  const fetchServers = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const data = await api.get<Server[]>('/api/servers')
-      setServers(data)
-    } catch {
-      setError('Failed to load servers')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  const fetchOidc = useCallback(async () => {
-    setOidcLoading(true)
-    setOidcError('')
-    try {
-      const data = await api.get<OIDCSettings>('/api/settings/oidc')
-      setOidc(data)
-    } catch {
-      setOidcError('Failed to load OIDC settings')
-    } finally {
-      setOidcLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { fetchServers() }, [fetchServers])
-  useEffect(() => { if (tab === 'auth') fetchOidc() }, [tab, fetchOidc])
+  const serverList = servers ?? []
+  const oidcConfigured = !!oidc?.issuer
 
   function openAdd() {
     setEditingServer(undefined)
@@ -89,37 +52,35 @@ export function Settings() {
 
   function handleSaved() {
     closeForm()
-    fetchServers()
+    refetchServers()
   }
 
   async function handleDelete(server: Server) {
     if (!window.confirm(`Delete "${server.name}"?`)) return
     try {
       await api.del(`/api/servers/${server.id}`)
-      setError('')
-      fetchServers()
+      setActionError('')
+      refetchServers()
     } catch {
-      setError('Failed to delete server')
+      setActionError('Failed to delete server')
     }
   }
 
   function handleOidcSaved() {
     setShowOidcForm(false)
-    fetchOidc()
+    refetchOidc()
   }
 
   async function handleDeleteOidc() {
     if (!window.confirm('Remove OIDC configuration? Authentication will be disabled.')) return
     try {
       await api.del('/api/settings/oidc')
-      setOidcError('')
-      fetchOidc()
+      setActionError('')
+      refetchOidc()
     } catch {
-      setOidcError('Failed to delete OIDC configuration')
+      setActionError('Failed to delete OIDC configuration')
     }
   }
-
-  const oidcConfigured = !!oidc?.issuer
 
   return (
     <div>
@@ -139,41 +100,44 @@ export function Settings() {
       </div>
 
       <div className="flex gap-1 mb-6 border-b border-border dark:border-border-dark">
-        <button
-          onClick={() => setTab('servers')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            tab === 'servers'
-              ? 'border-accent text-accent'
-              : 'border-transparent text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
-          }`}
-        >
-          Servers
-        </button>
-        <button
-          onClick={() => setTab('auth')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            tab === 'auth'
-              ? 'border-accent text-accent'
-              : 'border-transparent text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
-          }`}
-        >
-          Authentication
-        </button>
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              tab === t.key
+                ? 'border-accent text-accent'
+                : 'border-transparent text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
+
+      {actionError && (
+        <div className="card p-4 mb-4 text-center text-red-500 dark:text-red-400">
+          {actionError}
+        </div>
+      )}
 
       {tab === 'servers' && (
         <>
-          {loading && <LoadingCard />}
+          {loading && <EmptyState icon="⟳" title="Loading..." />}
 
-          {error && !loading && <ErrorCard message={error} onRetry={fetchServers} />}
+          {fetchError && !loading && (
+            <EmptyState icon="!" title="Failed to load servers">
+              <button onClick={refetchServers} className="text-sm text-accent hover:underline">Retry</button>
+            </EmptyState>
+          )}
 
-          {!loading && !error && servers.length === 0 && (
+          {!loading && !fetchError && serverList.length === 0 && (
             <EmptyState icon="&#9881;" title="No servers configured" description="Add a Plex, Emby, or Jellyfin server to get started" />
           )}
 
-          {!loading && !error && servers.length > 0 && (
+          {!loading && !fetchError && serverList.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {servers.map(srv => (
+              {serverList.map(srv => (
                 <div key={srv.id} className="card card-hover p-5">
                   <div className="flex items-start justify-between mb-3">
                     <div className="min-w-0 flex-1">
@@ -197,23 +161,10 @@ export function Settings() {
                   </div>
 
                   <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
-                    <button
-                      onClick={() => openEdit(srv)}
-                      aria-label="Edit"
-                      className="px-3 py-1.5 text-xs font-medium rounded-md
-                                 border border-border dark:border-border-dark
-                                 hover:border-accent/30 transition-colors"
-                    >
+                    <button onClick={() => openEdit(srv)} aria-label="Edit" className={btnOutline}>
                       Edit
                     </button>
-                    <button
-                      onClick={() => handleDelete(srv)}
-                      aria-label="Delete"
-                      className="px-3 py-1.5 text-xs font-medium rounded-md
-                                 border border-red-300 dark:border-red-500/30
-                                 text-red-600 dark:text-red-400
-                                 hover:bg-red-500/10 transition-colors"
-                    >
+                    <button onClick={() => handleDelete(srv)} aria-label="Delete" className={btnDanger}>
                       Delete
                     </button>
                   </div>
@@ -234,11 +185,15 @@ export function Settings() {
 
       {tab === 'auth' && (
         <>
-          {oidcLoading && <LoadingCard />}
+          {oidcLoading && <EmptyState icon="⟳" title="Loading..." />}
 
-          {oidcError && !oidcLoading && <ErrorCard message={oidcError} onRetry={fetchOidc} />}
+          {oidcFetchError && !oidcLoading && (
+            <EmptyState icon="!" title="Failed to load OIDC settings">
+              <button onClick={refetchOidc} className="text-sm text-accent hover:underline">Retry</button>
+            </EmptyState>
+          )}
 
-          {!oidcLoading && !oidcError && !oidcConfigured && (
+          {!oidcLoading && !oidcFetchError && !oidcConfigured && (
             <EmptyState icon="&#128274;" title="OIDC Not Configured" description="Configure OpenID Connect to enable single sign-on authentication.">
               <button
                 onClick={() => setShowOidcForm(true)}
@@ -250,7 +205,7 @@ export function Settings() {
             </EmptyState>
           )}
 
-          {!oidcLoading && !oidcError && oidcConfigured && oidc && (
+          {!oidcLoading && !oidcFetchError && oidcConfigured && oidc && (
             <div className="card p-5">
               <div className="flex items-start justify-between mb-4">
                 <h3 className="font-semibold text-base">OpenID Connect</h3>
@@ -273,21 +228,10 @@ export function Settings() {
                 </div>
               </div>
               <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
-                <button
-                  onClick={() => setShowOidcForm(true)}
-                  className="px-3 py-1.5 text-xs font-medium rounded-md
-                             border border-border dark:border-border-dark
-                             hover:border-accent/30 transition-colors"
-                >
+                <button onClick={() => setShowOidcForm(true)} className={btnOutline}>
                   Edit
                 </button>
-                <button
-                  onClick={handleDeleteOidc}
-                  className="px-3 py-1.5 text-xs font-medium rounded-md
-                             border border-red-300 dark:border-red-500/30
-                             text-red-600 dark:text-red-400
-                             hover:bg-red-500/10 transition-colors"
-                >
+                <button onClick={handleDeleteOidc} className={btnDanger}>
                   Remove
                 </button>
               </div>

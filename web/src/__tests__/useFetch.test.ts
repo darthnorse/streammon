@@ -51,6 +51,21 @@ describe('useFetch', () => {
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
   })
 
+  it('refetches when refetch is called', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-length': '10' }),
+      json: () => Promise.resolve({ v: 1 }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+    const { result } = renderHook(() => useFetch<{ v: number }>('/api/data'))
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+    result.current.refetch()
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+  })
+
   it('resets data to null when url changes', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() =>
       new Promise(resolve =>

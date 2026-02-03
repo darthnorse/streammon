@@ -1,6 +1,6 @@
 import React, { Component, ReactNode } from 'react'
 
-interface Props {
+interface ErrorBoundaryProps {
   children: ReactNode
 }
 
@@ -8,7 +8,7 @@ interface State {
   hasError: boolean
 }
 
-export class ErrorBoundary extends Component<Props, State> {
+export class ErrorBoundary extends Component<ErrorBoundaryProps, State> {
   state: State = { hasError: false }
 
   static getDerivedStateFromError(): State {
@@ -23,7 +23,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <div className="card p-12 text-center">
-          <div className="text-4xl mb-3 opacity-30">!</div>
+          <div className="text-4xl mb-3 opacity-30" aria-hidden="true">!</div>
           <h1 className="text-xl font-semibold mb-1">Something went wrong</h1>
           <p className="text-sm text-muted dark:text-muted-dark mb-4">
             An unexpected error occurred.
