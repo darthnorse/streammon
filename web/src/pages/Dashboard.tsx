@@ -2,6 +2,7 @@ import { useSSE } from '../hooks/useSSE'
 import { StreamCard } from '../components/StreamCard'
 import { EmptyState } from '../components/EmptyState'
 import { RecentMedia } from '../components/RecentMedia'
+import { WatchStats } from '../components/WatchStats'
 import { formatBitrate } from '../lib/format'
 
 export function Dashboard() {
@@ -42,6 +43,9 @@ export function Dashboard() {
       )}
       <div className="mt-8">
         <RecentMedia />
+      </div>
+      <div className="mt-8">
+        <WatchStats />
       </div>
     </div>
   )
