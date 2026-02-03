@@ -18,24 +18,24 @@ var thumbProxyClient = &http.Client{Timeout: 10 * time.Second}
 func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 	serverID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
-		http.Error(w, "invalid server id", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "invalid server id")
 		return
 	}
 
 	thumbPath := chi.URLParam(r, "*")
 	if thumbPath == "" {
-		http.Error(w, "missing thumb path", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "missing thumb path")
 		return
 	}
 
 	if strings.Contains(thumbPath, "..") || strings.Contains(thumbPath, "?") || strings.Contains(thumbPath, "#") {
-		http.Error(w, "invalid thumb path", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "invalid thumb path")
 		return
 	}
 
 	srv, err := s.store.GetServer(serverID)
 	if err != nil {
-		http.Error(w, "server not found", http.StatusNotFound)
+		writeError(w, http.StatusNotFound, "server not found")
 		return
 	}
 
@@ -48,14 +48,14 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 	case models.ServerTypeEmby, models.ServerTypeJellyfin:
 		imgURL = fmt.Sprintf("%s/Items/%s/Images/Primary?maxHeight=300", baseURL, thumbPath)
 	default:
-		http.Error(w, "unsupported server type", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "unsupported server type")
 		return
 	}
 
 	ctx := r.Context()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imgURL, nil)
 	if err != nil {
-		http.Error(w, "bad request", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "bad request")
 		return
 	}
 
@@ -65,14 +65,14 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := thumbProxyClient.Do(req)
 	if err != nil {
-		http.Error(w, "upstream error", http.StatusBadGateway)
+		writeError(w, http.StatusBadGateway, "upstream error")
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		http.Error(w, "upstream error", resp.StatusCode)
+		writeError(w, resp.StatusCode, "upstream error")
 		return
 	}
 

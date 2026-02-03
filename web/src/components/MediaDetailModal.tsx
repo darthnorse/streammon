@@ -34,6 +34,7 @@ function StarRating({ rating }: { rating: number }) {
 }
 
 function CastChip({ name, role }: { name: string; role?: string }) {
+  if (!name) return null
   const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
   return (
     <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-100 dark:bg-white/10 shrink-0">

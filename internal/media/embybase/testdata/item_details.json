@@ -12,8 +12,8 @@
   "Studios": [{"Name": "Universal Pictures"}],
   "People": [
     {"Name": "Christopher Nolan", "Type": "Director"},
-    {"Name": "Cillian Murphy", "Role": "J. Robert Oppenheimer", "Type": "Actor", "PrimaryImageTag": "actor1img"},
-    {"Name": "Emily Blunt", "Role": "Kitty Oppenheimer", "Type": "Actor", "PrimaryImageTag": "actor2img"},
+    {"Name": "Cillian Murphy", "Id": "actor1", "Role": "J. Robert Oppenheimer", "Type": "Actor", "PrimaryImageTag": "actor1img"},
+    {"Name": "Emily Blunt", "Id": "actor2", "Role": "Kitty Oppenheimer", "Type": "Actor", "PrimaryImageTag": "actor2img"},
     {"Name": "Matt Damon", "Role": "Leslie Groves", "Type": "Actor"}
   ]
 }

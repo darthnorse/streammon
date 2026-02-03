@@ -32,6 +32,9 @@ export function useItemDetails(serverId: number, itemId: string | null): ItemDet
         }
       })
       .catch(err => {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return
+        }
         if (!controller.signal.aborted) {
           setState({ data: null, loading: false, error: err as Error })
         }
