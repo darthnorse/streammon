@@ -1,3 +1,4 @@
+import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -9,6 +10,15 @@ vi.mock('../hooks/useSSE', () => ({
 
 vi.mock('../hooks/useFetch', () => ({
   useFetch: () => ({ data: null, loading: false, error: null }),
+}))
+
+vi.mock('../context/AuthContext', () => ({
+  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useAuth: () => ({ user: { name: 'test', role: 'admin' }, loading: false }),
+}))
+
+vi.mock('../components/AuthGuard', () => ({
+  AuthGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }))
 
 describe('App routes', () => {
