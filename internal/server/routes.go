@@ -69,6 +69,7 @@ func (s *Server) routes() {
 			r.Use(RequireAuth(s.authService))
 		}
 		r.Get("/api/servers/{id}/thumb/*", s.handleThumbProxy)
+		r.Get("/api/servers/{id}/items/*", s.handleGetItemDetails)
 		r.Get("/api/dashboard/sse", s.handleDashboardSSE)
 	})
 

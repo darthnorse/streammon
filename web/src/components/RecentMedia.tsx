@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
+import { useItemDetails } from '../hooks/useItemDetails'
+import { MediaDetailModal } from './MediaDetailModal'
 import type { LibraryItem } from '../types'
 
 const serverColors: Record<string, string> = {
@@ -7,8 +10,19 @@ const serverColors: Record<string, string> = {
   jellyfin: 'bg-purple-500',
 }
 
+interface SelectedItem {
+  serverId: number
+  itemId: string
+}
+
 export function RecentMedia() {
   const { data, loading, error } = useFetch<LibraryItem[]>('/api/dashboard/recent-media')
+  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
+
+  const { data: itemDetails, loading: detailsLoading } = useItemDetails(
+    selectedItem?.serverId ?? 0,
+    selectedItem?.itemId ?? null
+  )
 
   if (loading) {
     return (
@@ -30,13 +44,23 @@ export function RecentMedia() {
     return null
   }
 
+  const handleItemClick = (item: LibraryItem) => {
+    if (item.item_id) {
+      setSelectedItem({ serverId: item.server_id, itemId: item.item_id })
+    }
+  }
+
   return (
     <div className="space-y-4">
       <h2 className="text-lg font-semibold">Recently Added</h2>
       <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
         {data.map((item, idx) => (
-          <div key={`${item.server_id}-${item.title}-${idx}`} className="relative group">
-            <div className="aspect-[2/3] rounded-lg overflow-hidden bg-panel dark:bg-panel-dark border border-border dark:border-border-dark">
+          <div
+            key={`${item.server_id}-${item.title}-${idx}`}
+            className={`relative group ${item.item_id ? 'cursor-pointer' : ''}`}
+            onClick={() => handleItemClick(item)}
+          >
+            <div className="aspect-[2/3] rounded-lg overflow-hidden bg-panel dark:bg-panel-dark border border-border dark:border-border-dark transition-transform duration-200 group-hover:scale-[1.02] group-hover:shadow-lg">
               {item.thumb_url ? (
                 <img
                   src={`/api/servers/${item.server_id}/thumb/${item.thumb_url}`}
@@ -65,6 +89,14 @@ export function RecentMedia() {
           </div>
         ))}
       </div>
+
+      {selectedItem && (
+        <MediaDetailModal
+          item={itemDetails}
+          loading={detailsLoading}
+          onClose={() => setSelectedItem(null)}
+        />
+      )}
     </div>
   )
 }

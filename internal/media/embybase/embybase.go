@@ -321,6 +321,7 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 		}
 
 		items = append(items, models.LibraryItem{
+			ItemID:     item.ID,
 			Title:      title,
 			Year:       item.ProductionYear,
 			MediaType:  embyMediaType(item.Type),
@@ -333,4 +334,118 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 	}
 
 	return items, nil
+}
+
+type itemDetailsJSON struct {
+	ID                string            `json:"Id"`
+	Name              string            `json:"Name"`
+	ProductionYear    int               `json:"ProductionYear"`
+	Overview          string            `json:"Overview"`
+	Type              string            `json:"Type"`
+	ImageTags         map[string]string `json:"ImageTags"`
+	Genres            []string          `json:"Genres"`
+	CommunityRating   float64           `json:"CommunityRating"`
+	OfficialRating    string            `json:"OfficialRating"`
+	RunTimeTicks      int64             `json:"RunTimeTicks"`
+	Studios           []studioJSON      `json:"Studios"`
+	People            []personJSON      `json:"People"`
+	SeriesName        string            `json:"SeriesName"`
+	ParentIndexNumber int               `json:"ParentIndexNumber"`
+	IndexNumber       int               `json:"IndexNumber"`
+}
+
+type studioJSON struct {
+	Name string `json:"Name"`
+}
+
+type personJSON struct {
+	Name            string `json:"Name"`
+	Role            string `json:"Role"`
+	Type            string `json:"Type"`
+	PrimaryImageTag string `json:"PrimaryImageTag"`
+	ID              string `json:"Id"`
+}
+
+func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
+	url := fmt.Sprintf("%s/Items/%s", c.url, itemID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.client.Do(c.addAuth(req))
+	if err != nil {
+		return nil, fmt.Errorf("%s item details: %w", c.serverType, err)
+	}
+	defer drainBody(resp)
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, models.ErrNotFound
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s item details: status %d", c.serverType, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+	if err != nil {
+		return nil, err
+	}
+
+	var item itemDetailsJSON
+	if err := json.Unmarshal(body, &item); err != nil {
+		return nil, fmt.Errorf("%s parse item details: %w", c.serverType, err)
+	}
+
+	directors := make([]string, 0)
+	cast := make([]models.CastMember, 0)
+	for _, p := range item.People {
+		switch p.Type {
+		case "Director":
+			directors = append(directors, p.Name)
+		case "Actor":
+			var thumbURL string
+			if p.PrimaryImageTag != "" && p.ID != "" {
+				thumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", c.serverID, p.ID)
+			}
+			cast = append(cast, models.CastMember{
+				Name:     p.Name,
+				Role:     p.Role,
+				ThumbURL: thumbURL,
+			})
+		}
+	}
+
+	var thumbURL string
+	if item.ImageTags["Primary"] != "" {
+		thumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", c.serverID, item.ID)
+	}
+
+	var studio string
+	if len(item.Studios) > 0 {
+		studio = item.Studios[0].Name
+	}
+
+	details := &models.ItemDetails{
+		ID:            item.ID,
+		Title:         item.Name,
+		Year:          item.ProductionYear,
+		Summary:       item.Overview,
+		MediaType:     embyMediaType(item.Type),
+		ThumbURL:      thumbURL,
+		Genres:        item.Genres,
+		Directors:     directors,
+		Cast:          cast,
+		Rating:        item.CommunityRating,
+		ContentRating: item.OfficialRating,
+		DurationMs:    ticksToMs(item.RunTimeTicks),
+		Studio:        studio,
+		SeriesTitle:   item.SeriesName,
+		SeasonNumber:  item.ParentIndexNumber,
+		EpisodeNumber: item.IndexNumber,
+		ServerID:      c.serverID,
+		ServerName:    c.serverName,
+		ServerType:    c.serverType,
+	}
+
+	return details, nil
 }

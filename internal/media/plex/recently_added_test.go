@@ -45,6 +45,9 @@ func TestGetRecentlyAdded(t *testing.T) {
 	}
 
 	item := items[0]
+	if item.ItemID != "12345" {
+		t.Errorf("item id = %q, want 12345", item.ItemID)
+	}
 	if item.Title != "Oppenheimer" {
 		t.Errorf("title = %q, want Oppenheimer", item.Title)
 	}

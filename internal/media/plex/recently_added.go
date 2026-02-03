@@ -23,6 +23,7 @@ type recentlyAddedItem struct {
 	Thumb            string `xml:"thumb,attr"`
 	AddedAt          string `xml:"addedAt,attr"`
 	GrandparentTitle string `xml:"grandparentTitle,attr"`
+	RatingKey        string `xml:"ratingKey,attr"`
 }
 
 func (s *Server) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
@@ -61,8 +62,10 @@ func (s *Server) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 		}
 
 		thumbURL := item.Thumb
+		itemID := item.RatingKey
 
 		items = append(items, models.LibraryItem{
+			ItemID:     itemID,
 			Title:      title,
 			Year:       atoi(item.Year),
 			MediaType:  plexMediaType(item.Type),

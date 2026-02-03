@@ -31,8 +31,10 @@ func New(srv models.Server) *Server {
 	}
 }
 
-func (s *Server) Name() string                { return s.serverName }
-func (s *Server) Type() models.ServerType      { return models.ServerTypePlex }
+func (s *Server) Name() string              { return s.serverName }
+func (s *Server) Type() models.ServerType   { return models.ServerTypePlex }
+func (s *Server) ServerID() int64           { return s.serverID }
+func (s *Server) URL() string               { return s.url }
 
 func (s *Server) TestConnection(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url+"/identity", nil)

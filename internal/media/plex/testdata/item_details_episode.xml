@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer size="1">
+  <Video ratingKey="67890" type="episode" title="Ozymandias" year="2013"
+         summary="Everyone copes with radically changed circumstances."
+         thumb="/library/metadata/67890/thumb/1699000001"
+         rating="10.0" contentRating="TV-MA" duration="2880000"
+         grandparentTitle="Breaking Bad" parentIndex="5" index="14">
+    <Genre tag="Crime" />
+    <Genre tag="Drama" />
+    <Director tag="Rian Johnson" />
+    <Role tag="Bryan Cranston" role="Walter White" />
+    <Role tag="Aaron Paul" role="Jesse Pinkman" />
+  </Video>
+</MediaContainer>

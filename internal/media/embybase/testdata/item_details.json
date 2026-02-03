@@ -1,0 +1,19 @@
+{
+  "Id": "item1",
+  "Name": "Oppenheimer",
+  "ProductionYear": 2023,
+  "Overview": "The story of American scientist J. Robert Oppenheimer and his role in the development of the atomic bomb.",
+  "Type": "Movie",
+  "ImageTags": {"Primary": "abc123"},
+  "Genres": ["Drama", "History", "Biography"],
+  "CommunityRating": 8.5,
+  "OfficialRating": "R",
+  "RunTimeTicks": 108000000000,
+  "Studios": [{"Name": "Universal Pictures"}],
+  "People": [
+    {"Name": "Christopher Nolan", "Type": "Director"},
+    {"Name": "Cillian Murphy", "Role": "J. Robert Oppenheimer", "Type": "Actor", "PrimaryImageTag": "actor1img"},
+    {"Name": "Emily Blunt", "Role": "Kitty Oppenheimer", "Type": "Actor", "PrimaryImageTag": "actor2img"},
+    {"Name": "Matt Damon", "Role": "Leslie Groves", "Type": "Actor"}
+  ]
+}

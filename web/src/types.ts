@@ -113,11 +113,40 @@ export interface OIDCSettings {
 }
 
 export interface LibraryItem {
+  item_id: string
   title: string
   year?: number
   media_type: MediaType
   thumb_url?: string
   added_at: string
+  server_id: number
+  server_name: string
+  server_type: ServerType
+}
+
+export interface CastMember {
+  name: string
+  role?: string
+  thumb_url?: string
+}
+
+export interface ItemDetails {
+  id: string
+  title: string
+  year?: number
+  summary?: string
+  media_type: MediaType
+  thumb_url?: string
+  genres?: string[]
+  directors?: string[]
+  cast?: CastMember[]
+  rating?: number
+  content_rating?: string
+  duration_ms?: number
+  studio?: string
+  series_title?: string
+  season_number?: number
+  episode_number?: number
   server_id: number
   server_name: string
   server_type: ServerType

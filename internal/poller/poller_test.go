@@ -18,13 +18,19 @@ type mockServer struct {
 	err      error
 }
 
-func (m *mockServer) Name() string            { return m.name }
+func (m *mockServer) Name() string             { return m.name }
 func (m *mockServer) Type() models.ServerType  { return models.ServerTypePlex }
 func (m *mockServer) TestConnection(ctx context.Context) error { return nil }
 func (m *mockServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.sessions, m.err
+}
+func (m *mockServer) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
+	return nil, nil
+}
+func (m *mockServer) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
+	return nil, nil
 }
 
 func (m *mockServer) setSessions(s []models.ActiveStream) {

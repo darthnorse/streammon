@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer size="1">
+  <Video ratingKey="12345" type="movie" title="Oppenheimer" year="2023"
+         summary="The story of American scientist J. Robert Oppenheimer and his role in the development of the atomic bomb."
+         thumb="/library/metadata/12345/thumb/1699000000"
+         rating="8.5" contentRating="R" duration="10800000" studio="Universal Pictures">
+    <Genre tag="Drama" />
+    <Genre tag="History" />
+    <Genre tag="Biography" />
+    <Director tag="Christopher Nolan" />
+    <Role tag="Cillian Murphy" role="J. Robert Oppenheimer" thumb="/library/metadata/actors/1/thumb" />
+    <Role tag="Emily Blunt" role="Kitty Oppenheimer" thumb="/library/metadata/actors/2/thumb" />
+    <Role tag="Matt Damon" role="Leslie Groves" />
+  </Video>
+</MediaContainer>

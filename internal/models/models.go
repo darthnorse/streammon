@@ -206,6 +206,7 @@ type GeoResult struct {
 }
 
 type LibraryItem struct {
+	ItemID     string     `json:"item_id"`
 	Title      string     `json:"title"`
 	Year       int        `json:"year,omitempty"`
 	MediaType  MediaType  `json:"media_type"`
@@ -214,4 +215,32 @@ type LibraryItem struct {
 	ServerID   int64      `json:"server_id"`
 	ServerName string     `json:"server_name"`
 	ServerType ServerType `json:"server_type"`
+}
+
+type CastMember struct {
+	Name     string `json:"name"`
+	Role     string `json:"role,omitempty"`
+	ThumbURL string `json:"thumb_url,omitempty"`
+}
+
+type ItemDetails struct {
+	ID            string       `json:"id"`
+	Title         string       `json:"title"`
+	Year          int          `json:"year,omitempty"`
+	Summary       string       `json:"summary,omitempty"`
+	MediaType     MediaType    `json:"media_type"`
+	ThumbURL      string       `json:"thumb_url,omitempty"`
+	Genres        []string     `json:"genres,omitempty"`
+	Directors     []string     `json:"directors,omitempty"`
+	Cast          []CastMember `json:"cast,omitempty"`
+	Rating        float64      `json:"rating,omitempty"`
+	ContentRating string       `json:"content_rating,omitempty"`
+	DurationMs    int64        `json:"duration_ms,omitempty"`
+	Studio        string       `json:"studio,omitempty"`
+	SeriesTitle   string       `json:"series_title,omitempty"`
+	SeasonNumber  int          `json:"season_number,omitempty"`
+	EpisodeNumber int          `json:"episode_number,omitempty"`
+	ServerID      int64        `json:"server_id"`
+	ServerName    string       `json:"server_name"`
+	ServerType    ServerType   `json:"server_type"`
 }

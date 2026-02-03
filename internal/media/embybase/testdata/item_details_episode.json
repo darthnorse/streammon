@@ -1,0 +1,20 @@
+{
+  "Id": "item2",
+  "Name": "Ozymandias",
+  "ProductionYear": 2013,
+  "Overview": "Everyone copes with radically changed circumstances.",
+  "Type": "Episode",
+  "ImageTags": {"Primary": "def456"},
+  "Genres": ["Crime", "Drama"],
+  "CommunityRating": 10.0,
+  "OfficialRating": "TV-MA",
+  "RunTimeTicks": 28800000000,
+  "SeriesName": "Breaking Bad",
+  "ParentIndexNumber": 5,
+  "IndexNumber": 14,
+  "People": [
+    {"Name": "Rian Johnson", "Type": "Director"},
+    {"Name": "Bryan Cranston", "Role": "Walter White", "Type": "Actor"},
+    {"Name": "Aaron Paul", "Role": "Jesse Pinkman", "Type": "Actor"}
+  ]
+}
