@@ -4,6 +4,7 @@ export const baseStream: ActiveStream = {
   session_id: 's1',
   server_id: 1,
   server_name: 'Plex',
+  server_type: 'plex',
   user_name: 'alice',
   media_type: 'movie',
   title: 'Inception',

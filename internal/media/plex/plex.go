@@ -181,6 +181,7 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 		SessionID:        plexSessionID(item),
 		ServerID:         serverID,
 		ServerName:       serverName,
+		ServerType:       models.ServerTypePlex,
 		UserName:         item.User.Title,
 		MediaType:        plexMediaType(item.Type),
 		Title:            item.Title,

@@ -68,7 +68,7 @@ func (c *Client) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 	if err != nil {
 		return nil, err
 	}
-	return parseSessions(body, c.serverID, c.serverName)
+	return parseSessions(body, c.serverID, c.serverName, c.serverType)
 }
 
 func (c *Client) addAuth(req *http.Request) *http.Request {
@@ -140,7 +140,7 @@ type transcodingInfo struct {
 	TranscodeReasons    []string `json:"TranscodeReasons"`
 }
 
-func parseSessions(data []byte, serverID int64, serverName string) ([]models.ActiveStream, error) {
+func parseSessions(data []byte, serverID int64, serverName string, serverType models.ServerType) ([]models.ActiveStream, error) {
 	var sessions []embySession
 	if err := json.Unmarshal(data, &sessions); err != nil {
 		return nil, fmt.Errorf("parsing sessions JSON: %w", err)
@@ -155,6 +155,7 @@ func parseSessions(data []byte, serverID int64, serverName string) ([]models.Act
 			SessionID:        s.ID,
 			ServerID:         serverID,
 			ServerName:       serverName,
+			ServerType:       serverType,
 			UserName:         s.UserName,
 			MediaType:        embyMediaType(s.NowPlaying.Type),
 			Title:            s.NowPlaying.Name,

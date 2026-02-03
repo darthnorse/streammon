@@ -126,8 +126,9 @@ const (
 type ActiveStream struct {
 	SessionID        string    `json:"session_id"`
 	ServerID         int64     `json:"server_id"`
-	ServerName       string    `json:"server_name"`
-	UserName         string    `json:"user_name"`
+	ServerName       string     `json:"server_name"`
+	ServerType       ServerType `json:"server_type"`
+	UserName         string     `json:"user_name"`
 	MediaType        MediaType `json:"media_type"`
 	Title            string    `json:"title"`
 	ParentTitle      string    `json:"parent_title"`

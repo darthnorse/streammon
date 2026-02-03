@@ -46,6 +46,7 @@ export interface ActiveStream {
   session_id: string
   server_id: number
   server_name: string
+  server_type: ServerType
   user_name: string
   media_type: MediaType
   title: string

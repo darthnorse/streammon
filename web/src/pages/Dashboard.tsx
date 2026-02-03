@@ -31,8 +31,8 @@ export function Dashboard() {
       {sessions.length === 0 ? (
         <EmptyState icon="▣" title="No active streams" description="Streams will appear here when someone starts watching" />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {sessions.map(stream => (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-w-5xl">
+          {[...sessions].sort((a, b) => `${a.server_id}:${a.session_id}`.localeCompare(`${b.server_id}:${b.session_id}`)).map(stream => (
             <StreamCard key={`${stream.server_id}:${stream.session_id}`} stream={stream} />
           ))}
         </div>

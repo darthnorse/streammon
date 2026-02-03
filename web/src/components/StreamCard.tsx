@@ -4,6 +4,14 @@ import { formatTimestamp, formatBitrate, formatChannels } from '../lib/format'
 import { mediaTypeLabels } from '../lib/constants'
 import { GeoIPPopover } from './GeoIPPopover'
 
+const serverAccent: Record<string, { bar: string; progress: string; badge: string }> = {
+  plex: { bar: 'bg-warn', progress: 'bg-warn', badge: 'badge-warn' },
+  emby: { bar: 'bg-emby', progress: 'bg-emby', badge: 'badge-emby' },
+  jellyfin: { bar: 'bg-jellyfin', progress: 'bg-jellyfin', badge: 'badge-jellyfin' },
+}
+
+const defaultAccent = { bar: 'bg-accent', progress: 'bg-accent', badge: 'badge-accent' }
+
 interface StreamCardProps {
   stream: ActiveStream
 }
@@ -11,25 +19,25 @@ interface StreamCardProps {
 function MediaTitle({ stream }: { stream: ActiveStream }) {
   if (stream.media_type === 'episode' && stream.grandparent_title) {
     return (
-      <div>
-        <div className="font-semibold text-gray-900 dark:text-gray-50 truncate">
+      <>
+        <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-[15px] leading-snug">
           {stream.grandparent_title}
         </div>
-        <div className="text-sm text-muted dark:text-muted-dark truncate">
+        <div className="text-xs text-muted dark:text-muted-dark truncate mt-0.5">
           {stream.parent_title} &middot; {stream.title}
         </div>
-      </div>
+      </>
     )
   }
   return (
-    <div>
-      <div className="font-semibold text-gray-900 dark:text-gray-50 truncate">
+    <>
+      <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-[15px] leading-snug">
         {stream.title}
       </div>
       {stream.year > 0 && (
-        <div className="text-sm text-muted dark:text-muted-dark">{stream.year}</div>
+        <div className="text-xs text-muted dark:text-muted-dark mt-0.5">{stream.year}</div>
       )}
-    </div>
+    </>
   )
 }
 
@@ -67,15 +75,15 @@ function TranscodeInfo({ stream }: { stream: ActiveStream }) {
     { label: 'Stream', value: formatStreamLine(stream) },
     { label: 'Video', value: formatVideoLine(stream) },
     { label: 'Audio', value: formatAudioLine(stream) },
-    { label: '', value: stream.subtitle_codec ? `Subtitle: ${stream.subtitle_codec.toUpperCase()}` : '' },
+    { label: 'Sub', value: stream.subtitle_codec ? stream.subtitle_codec.toUpperCase() : '' },
   ].filter(l => l.value)
 
   return (
-    <div className="mt-2 text-xs text-muted dark:text-muted-dark font-mono space-y-0.5">
+    <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-px text-[10px] leading-relaxed font-mono">
       {lines.map((l, i) => (
-        <div key={i}>
-          {l.label && <span className="text-muted dark:text-muted-dark/60">{l.label}: </span>}
-          <span>{l.value}</span>
+        <div key={i} className="contents">
+          <span className="text-muted dark:text-muted-dark/50 select-none">{l.label}</span>
+          <span className="text-muted dark:text-muted-dark truncate">{l.value}</span>
         </div>
       ))}
     </div>
@@ -87,36 +95,54 @@ export function StreamCard({ stream }: StreamCardProps) {
     ? Math.round((stream.progress_ms / stream.duration_ms) * 100)
     : 0
 
+  const accent = serverAccent[stream.server_type] ?? defaultAccent
+
   return (
-    <div className="card card-hover p-4">
-      <div className="flex gap-3">
-        {stream.thumb_url && (
-          <img src={stream.thumb_url} alt="" className="w-14 h-20 object-cover rounded shrink-0 bg-gray-200 dark:bg-white/10" />
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
+    <div className="card card-hover overflow-hidden group">
+      {/* Top accent bar */}
+      <div className={`h-0.5 ${accent.bar}`} />
+
+      <div className="flex gap-3 p-3 h-full">
+        {/* Poster */}
+        <div className="shrink-0 flex flex-col items-center gap-1.5">
+          {stream.thumb_url ? (
+            <div className="relative">
+              <img
+                src={stream.thumb_url}
+                alt=""
+                className="w-16 h-24 object-cover rounded bg-gray-200 dark:bg-white/5"
+              />
+              <div className="absolute inset-0 rounded bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+          ) : (
+            <div className="w-16 h-24 rounded bg-gray-100 dark:bg-white/5 flex items-center justify-center">
+              <span className="text-2xl opacity-20">
+                {stream.media_type === 'movie' ? '🎬' : stream.media_type === 'episode' ? '📺' : '🎵'}
+              </span>
+            </div>
+          )}
+          <span className={`badge text-[9px] py-0 px-1.5 ${accent.badge}`}>
+            {mediaTypeLabels[stream.media_type]}
+          </span>
+        </div>
+
+        {/* Content */}
+        <div className="min-w-0 flex-1 flex flex-col">
+          {/* Header row */}
+          <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <Link
-                  to={`/users/${encodeURIComponent(stream.user_name)}`}
-                  className="text-sm font-medium text-accent-dim dark:text-accent hover:underline truncate"
-                >
-                  {stream.user_name}
-                </Link>
-                <span className="badge badge-muted">{mediaTypeLabels[stream.media_type]}</span>
-              </div>
               <MediaTitle stream={stream} />
             </div>
-            <div className="text-right shrink-0">
-              <div className="text-xs text-muted dark:text-muted-dark font-mono">
+            <div className="text-right shrink-0 space-y-0.5">
+              <div className="text-[10px] text-muted dark:text-muted-dark font-mono leading-tight">
                 {stream.server_name}
               </div>
-              <div className="text-xs text-muted dark:text-muted-dark mt-0.5">
+              <div className="text-[10px] text-muted dark:text-muted-dark leading-tight">
                 {stream.player}
               </div>
               {stream.ip_address && (
                 <GeoIPPopover ip={stream.ip_address}>
-                  <span className="text-xs font-mono text-muted dark:text-muted-dark hover:text-accent dark:hover:text-accent transition-colors mt-0.5 inline-block">
+                  <span className="text-[10px] font-mono text-muted dark:text-muted-dark hover:text-accent dark:hover:text-accent transition-colors inline-block leading-tight">
                     {stream.ip_address}
                   </span>
                 </GeoIPPopover>
@@ -126,20 +152,26 @@ export function StreamCard({ stream }: StreamCardProps) {
 
           <TranscodeInfo stream={stream} />
 
-          <div className="mt-3">
-            <div className="flex justify-between text-xs text-muted dark:text-muted-dark font-mono mb-1">
-              <span>{formatTimestamp(stream.progress_ms)}</span>
-              <span>{formatTimestamp(stream.duration_ms)}</span>
+          {/* Progress — always pinned to bottom */}
+          <div className="mt-auto pt-2">
+            <div className="flex items-baseline justify-between text-[10px] font-mono mb-0.5">
+              <span className="text-muted dark:text-muted-dark">{formatTimestamp(stream.progress_ms)} / {formatTimestamp(stream.duration_ms)}</span>
+              <Link
+                to={`/users/${encodeURIComponent(stream.user_name)}`}
+                className="text-xs font-medium text-accent-dim dark:text-accent hover:underline truncate ml-2"
+              >
+                {stream.user_name}
+              </Link>
             </div>
             <div
               role="progressbar"
               aria-valuenow={progress}
               aria-valuemin={0}
               aria-valuemax={100}
-              className="h-1.5 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden"
+              className="h-1 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden"
             >
               <div
-                className="h-full rounded-full bg-accent transition-all duration-500"
+                className={`h-full rounded-full ${accent.progress} transition-all duration-500`}
                 style={{ width: `${progress}%` }}
               />
             </div>
