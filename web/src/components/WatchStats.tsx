@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { MediaStatCard } from './stats/MediaStatCard'
+import { TopUsersCard } from './stats/TopUsersCard'
 import type { StatsResponse } from '../types'
 
 type TimePeriod = 7 | 30 | 0
@@ -57,6 +58,7 @@ export function WatchStats() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <MediaStatCard title="Most Watched Movies" items={data.top_movies} />
           <MediaStatCard title="Most Watched TV Shows" items={data.top_tv_shows} />
+          <TopUsersCard users={data.top_users} compact />
         </div>
       ) : null}
     </div>
