@@ -9,11 +9,11 @@ import (
 
 const historyColumns = `id, server_id, user_name, media_type, title, parent_title, grandparent_title,
 	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at, created_at,
-	season_number, episode_number`
+	season_number, episode_number, thumb_url`
 
 const historyColumnsWithGeo = `h.id, h.server_id, h.user_name, h.media_type, h.title, h.parent_title,
 	h.grandparent_title, h.year, h.duration_ms, h.watched_ms, h.player, h.platform, h.ip_address,
-	h.started_at, h.stopped_at, h.created_at, h.season_number, h.episode_number,
+	h.started_at, h.stopped_at, h.created_at, h.season_number, h.episode_number, h.thumb_url,
 	COALESCE(g.city, ''), COALESCE(g.country, ''), COALESCE(g.isp, '')`
 
 func scanHistoryEntry(scanner interface{ Scan(...any) error }) (models.WatchHistoryEntry, error) {
@@ -21,7 +21,7 @@ func scanHistoryEntry(scanner interface{ Scan(...any) error }) (models.WatchHist
 	err := scanner.Scan(&e.ID, &e.ServerID, &e.UserName, &e.MediaType, &e.Title,
 		&e.ParentTitle, &e.GrandparentTitle, &e.Year, &e.DurationMs, &e.WatchedMs,
 		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
-		&e.SeasonNumber, &e.EpisodeNumber)
+		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL)
 	return e, err
 }
 
@@ -30,7 +30,7 @@ func scanHistoryEntryWithGeo(scanner interface{ Scan(...any) error }) (models.Wa
 	err := scanner.Scan(&e.ID, &e.ServerID, &e.UserName, &e.MediaType, &e.Title,
 		&e.ParentTitle, &e.GrandparentTitle, &e.Year, &e.DurationMs, &e.WatchedMs,
 		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
-		&e.SeasonNumber, &e.EpisodeNumber, &e.City, &e.Country, &e.ISP)
+		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL, &e.City, &e.Country, &e.ISP)
 	return e, err
 }
 
@@ -38,13 +38,13 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 	result, err := s.db.Exec(
 		`INSERT INTO watch_history (server_id, user_name, media_type, title, parent_title, grandparent_title,
 			year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at,
-			season_number, episode_number)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			season_number, episode_number, thumb_url)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		entry.ServerID, entry.UserName, entry.MediaType, entry.Title,
 		entry.ParentTitle, entry.GrandparentTitle, entry.Year,
 		entry.DurationMs, entry.WatchedMs, entry.Player, entry.Platform,
 		entry.IPAddress, entry.StartedAt, entry.StoppedAt,
-		entry.SeasonNumber, entry.EpisodeNumber,
+		entry.SeasonNumber, entry.EpisodeNumber, entry.ThumbURL,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting history: %w", err)

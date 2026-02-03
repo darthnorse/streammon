@@ -118,6 +118,7 @@ type WatchHistoryEntry struct {
 	CreatedAt        time.Time `json:"created_at"`
 	SeasonNumber     int       `json:"season_number,omitempty"`
 	EpisodeNumber    int       `json:"episode_number,omitempty"`
+	ThumbURL         string    `json:"thumb_url,omitempty"`
 	// Geo fields from ip_geo_cache (optional, populated by ListHistory)
 	City    string `json:"city,omitempty"`
 	Country string `json:"country,omitempty"`
