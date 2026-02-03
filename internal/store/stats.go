@@ -58,7 +58,7 @@ func (s *Store) TopTVShows(limit int) ([]models.MediaStat, error) {
 }
 
 func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
-	var stats []models.MediaStat
+	stats := []models.MediaStat{}
 	for rows.Next() {
 		var stat models.MediaStat
 		var totalHours sql.NullFloat64
@@ -72,9 +72,6 @@ func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating media stats: %w", err)
-	}
-	if stats == nil {
-		stats = []models.MediaStat{}
 	}
 	return stats, nil
 }
@@ -94,12 +91,12 @@ func (s *Store) TopUsers(limit int) ([]models.UserStat, error) {
 	}
 	defer rows.Close()
 
-	var stats []models.UserStat
+	stats := []models.UserStat{}
 	for rows.Next() {
 		var stat models.UserStat
 		var totalHours sql.NullFloat64
 		if err := rows.Scan(&stat.UserName, &stat.PlayCount, &totalHours); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scanning user stats: %w", err)
 		}
 		if totalHours.Valid {
 			stat.TotalHours = totalHours.Float64
@@ -107,10 +104,7 @@ func (s *Store) TopUsers(limit int) ([]models.UserStat, error) {
 		stats = append(stats, stat)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if stats == nil {
-		stats = []models.UserStat{}
+		return nil, fmt.Errorf("iterating user stats: %w", err)
 	}
 	return stats, nil
 }
@@ -220,19 +214,16 @@ func (s *Store) AllWatchLocations() ([]models.GeoResult, error) {
 	}
 	defer rows.Close()
 
-	var results []models.GeoResult
+	results := []models.GeoResult{}
 	for rows.Next() {
 		geo, err := scanGeoResult(rows)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scanning watch location: %w", err)
 		}
 		results = append(results, geo)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if results == nil {
-		results = []models.GeoResult{}
+		return nil, fmt.Errorf("iterating watch locations: %w", err)
 	}
 	return results, nil
 }

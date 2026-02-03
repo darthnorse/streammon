@@ -3,6 +3,7 @@ package server
 import (
 	"log"
 	"net/http"
+	"time"
 
 	"streammon/internal/models"
 	"streammon/internal/store"
@@ -59,7 +60,7 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.ConcurrentPeak = peak
 	if !peakAt.IsZero() {
-		resp.ConcurrentPeakAt = peakAt.Format("2006-01-02T15:04:05Z")
+		resp.ConcurrentPeakAt = peakAt.Format(time.RFC3339)
 	}
 
 	resp.Locations, err = s.store.AllWatchLocations()
