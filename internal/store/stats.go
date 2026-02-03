@@ -19,98 +19,94 @@ const (
 	DefaultSharerMinIPs = 3
 )
 
-// buildTimeFilter returns SQL clause and args for filtering by time window.
-// Returns empty strings/slice if days <= 0 (all time).
-func buildTimeFilter(days int) (string, []any) {
+// cutoffTime returns the cutoff time for a given number of days, or zero time if days <= 0.
+func cutoffTime(days int) time.Time {
 	if days <= 0 {
-		return "", nil
+		return time.Time{}
 	}
-	cutoff := time.Now().UTC().AddDate(0, 0, -days)
-	return " AND started_at >= ?", []any{cutoff}
+	return time.Now().UTC().AddDate(0, 0, -days)
+}
+
+// topMediaConfig holds the varying parts between movie and TV show queries.
+type topMediaConfig struct {
+	selectCol      string           // column to select as title (title or grandparent_title)
+	yearExpr       string           // year expression (year or 0 as year)
+	thumbMatch     string           // subquery WHERE clause for matching
+	extraWhere     string           // additional WHERE clause
+	groupBy        string           // GROUP BY column
+	mediaType      models.MediaType // movie or episode
+	errMsg         string
+}
+
+func (s *Store) topMedia(limit int, days int, cfg topMediaConfig) ([]models.MediaStat, error) {
+	cutoff := cutoffTime(days)
+	hasTimeFilter := !cutoff.IsZero()
+
+	timeClause := ""
+	subqueryTimeClause := ""
+	if hasTimeFilter {
+		timeClause = " AND started_at >= ?"
+		subqueryTimeClause = " AND h2.started_at >= ?"
+	}
+
+	query := fmt.Sprintf(`SELECT %s, %s, COUNT(*) as play_count,
+		SUM(watched_ms) / 3600000.0 as total_hours,
+		(SELECT thumb_url FROM watch_history h2
+		 WHERE %s AND h2.thumb_url != ''%s ORDER BY h2.started_at DESC LIMIT 1) as thumb_url,
+		(SELECT server_id FROM watch_history h2
+		 WHERE %s AND h2.thumb_url != ''%s ORDER BY h2.started_at DESC LIMIT 1) as server_id
+	FROM watch_history
+	WHERE media_type = ?%s%s
+	GROUP BY %s
+	ORDER BY play_count DESC
+	LIMIT ?`,
+		cfg.selectCol, cfg.yearExpr,
+		cfg.thumbMatch, subqueryTimeClause,
+		cfg.thumbMatch, subqueryTimeClause,
+		cfg.extraWhere, timeClause,
+		cfg.groupBy)
+
+	var args []any
+	if hasTimeFilter {
+		args = append(args, cutoff, cutoff) // for both subqueries
+	}
+	args = append(args, cfg.mediaType)
+	if hasTimeFilter {
+		args = append(args, cutoff) // for main WHERE
+	}
+	args = append(args, limit)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", cfg.errMsg, err)
+	}
+	defer rows.Close()
+
+	return scanMediaStats(rows)
 }
 
 func (s *Store) TopMovies(limit int, days int) ([]models.MediaStat, error) {
-	timeClause, timeArgs := buildTimeFilter(days)
-
-	// Build subquery time filter (same filter applies to thumb lookup)
-	subqueryTimeClause := ""
-	if days > 0 {
-		subqueryTimeClause = " AND h2.started_at >= ?"
-	}
-
-	query := `SELECT title, year, COUNT(*) as play_count,
-		SUM(watched_ms) / 3600000.0 as total_hours,
-		(SELECT thumb_url FROM watch_history h2
-		 WHERE h2.title = watch_history.title AND h2.year = watch_history.year
-		 AND h2.thumb_url != ''` + subqueryTimeClause + ` ORDER BY h2.started_at DESC LIMIT 1) as thumb_url,
-		(SELECT server_id FROM watch_history h2
-		 WHERE h2.title = watch_history.title AND h2.year = watch_history.year
-		 AND h2.thumb_url != ''` + subqueryTimeClause + ` ORDER BY h2.started_at DESC LIMIT 1) as server_id
-	FROM watch_history
-	WHERE media_type = ?` + timeClause + `
-	GROUP BY title, year
-	ORDER BY play_count DESC
-	LIMIT ?`
-
-	// Build args: [timeArg for subquery1, timeArg for subquery2, mediaType, timeArg for main, limit]
-	var args []any
-	if days > 0 {
-		cutoff := time.Now().UTC().AddDate(0, 0, -days)
-		args = append(args, cutoff, cutoff) // for both subqueries
-	}
-	args = append(args, models.MediaTypeMovie)
-	args = append(args, timeArgs...)
-	args = append(args, limit)
-
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("top movies: %w", err)
-	}
-	defer rows.Close()
-
-	return scanMediaStats(rows)
+	return s.topMedia(limit, days, topMediaConfig{
+		selectCol:  "title",
+		yearExpr:   "year",
+		thumbMatch: "h2.title = watch_history.title AND h2.year = watch_history.year",
+		extraWhere: "",
+		groupBy:    "title, year",
+		mediaType:  models.MediaTypeMovie,
+		errMsg:     "top movies",
+	})
 }
 
 func (s *Store) TopTVShows(limit int, days int) ([]models.MediaStat, error) {
-	timeClause, timeArgs := buildTimeFilter(days)
-
-	// Build subquery time filter (same filter applies to thumb lookup)
-	subqueryTimeClause := ""
-	if days > 0 {
-		subqueryTimeClause = " AND h2.started_at >= ?"
-	}
-
-	query := `SELECT grandparent_title, 0 as year, COUNT(*) as play_count,
-		SUM(watched_ms) / 3600000.0 as total_hours,
-		(SELECT thumb_url FROM watch_history h2
-		 WHERE h2.grandparent_title = watch_history.grandparent_title
-		 AND h2.thumb_url != ''` + subqueryTimeClause + ` ORDER BY h2.started_at DESC LIMIT 1) as thumb_url,
-		(SELECT server_id FROM watch_history h2
-		 WHERE h2.grandparent_title = watch_history.grandparent_title
-		 AND h2.thumb_url != ''` + subqueryTimeClause + ` ORDER BY h2.started_at DESC LIMIT 1) as server_id
-	FROM watch_history
-	WHERE media_type = ? AND grandparent_title != ''` + timeClause + `
-	GROUP BY grandparent_title
-	ORDER BY play_count DESC
-	LIMIT ?`
-
-	// Build args: [timeArg for subquery1, timeArg for subquery2, mediaType, timeArg for main, limit]
-	var args []any
-	if days > 0 {
-		cutoff := time.Now().UTC().AddDate(0, 0, -days)
-		args = append(args, cutoff, cutoff) // for both subqueries
-	}
-	args = append(args, models.MediaTypeTV)
-	args = append(args, timeArgs...)
-	args = append(args, limit)
-
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("top tv shows: %w", err)
-	}
-	defer rows.Close()
-
-	return scanMediaStats(rows)
+	return s.topMedia(limit, days, topMediaConfig{
+		selectCol:  "grandparent_title",
+		yearExpr:   "0 as year",
+		thumbMatch: "h2.grandparent_title = watch_history.grandparent_title",
+		extraWhere: " AND grandparent_title != ''",
+		groupBy:    "grandparent_title",
+		mediaType:  models.MediaTypeTV,
+		errMsg:     "top tv shows",
+	})
 }
 
 func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
@@ -141,15 +137,18 @@ func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
 }
 
 func (s *Store) TopUsers(limit int, days int) ([]models.UserStat, error) {
+	cutoff := cutoffTime(days)
+	hasTimeFilter := !cutoff.IsZero()
+
 	query := `SELECT user_name, COUNT(*) as play_count,
 		SUM(watched_ms) / 3600000.0 as total_hours
-	FROM watch_history
-	WHERE 1=1`
-	args := []any{}
+	FROM watch_history`
 
-	clause, filterArgs := buildTimeFilter(days)
-	query += clause
-	args = append(args, filterArgs...)
+	var args []any
+	if hasTimeFilter {
+		query += ` WHERE started_at >= ?`
+		args = append(args, cutoff)
+	}
 
 	query += ` GROUP BY user_name ORDER BY total_hours DESC LIMIT ?`
 	args = append(args, limit)

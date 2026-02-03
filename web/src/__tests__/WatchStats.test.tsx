@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithRouter } from '../test-utils'
 import { WatchStats } from '../components/WatchStats'
+import type { StatsResponse } from '../types'
 
 vi.mock('../hooks/useFetch', () => ({
   useFetch: vi.fn(),
@@ -11,35 +12,52 @@ import { useFetch } from '../hooks/useFetch'
 
 const mockUseFetch = vi.mocked(useFetch)
 
+function createMockStats(overrides: Partial<StatsResponse> = {}): StatsResponse {
+  return {
+    top_movies: [],
+    top_tv_shows: [],
+    top_users: [],
+    library: { total_plays: 0, total_hours: 0, unique_users: 0, unique_movies: 0, unique_tv_shows: 0 },
+    concurrent_peak: 0,
+    locations: [],
+    potential_sharers: [],
+    ...overrides,
+  }
+}
+
+function mockLoading() {
+  mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
+}
+
+function mockError() {
+  mockUseFetch.mockReturnValue({ data: null, loading: false, error: new Error('fail'), refetch: vi.fn() })
+}
+
+function mockData(data: StatsResponse) {
+  mockUseFetch.mockReturnValue({ data, loading: false, error: null, refetch: vi.fn() })
+}
+
 describe('WatchStats', () => {
   it('renders loading skeleton while fetching', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
+    mockLoading()
     renderWithRouter(<WatchStats />)
     expect(screen.getByText('Watch Statistics')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Time period' })).toBeInTheDocument()
     expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
   it('renders error message on failure', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: false, error: new Error('fail'), refetch: vi.fn() })
+    mockError()
     renderWithRouter(<WatchStats />)
     expect(screen.getByText('Failed to load statistics')).toBeInTheDocument()
   })
 
   it('renders media stats when data loads', () => {
-    mockUseFetch.mockReturnValue({
-      data: {
-        top_movies: [{ title: 'Test Movie', year: 2024, play_count: 10, total_hours: 5 }],
-        top_tv_shows: [{ title: 'Test Show', play_count: 8, total_hours: 4 }],
-        top_users: [{ user_name: 'alice', play_count: 15, total_hours: 10 }],
-        library: { total_plays: 100, total_hours: 50, unique_users: 5, unique_movies: 10, unique_tv_shows: 5 },
-        concurrent_peak: 3,
-        locations: [],
-        potential_sharers: [],
-      },
-      loading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockData(createMockStats({
+      top_movies: [{ title: 'Test Movie', year: 2024, play_count: 10, total_hours: 5 }],
+      top_tv_shows: [{ title: 'Test Show', play_count: 8, total_hours: 4 }],
+      top_users: [{ user_name: 'alice', play_count: 15, total_hours: 10 }],
+    }))
     renderWithRouter(<WatchStats />)
     expect(screen.getByText('Most Watched Movies')).toBeInTheDocument()
     expect(screen.getByText('Most Watched TV Shows')).toBeInTheDocument()
@@ -48,7 +66,7 @@ describe('WatchStats', () => {
   })
 
   it('has time period dropdown with correct options and aria-label', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
+    mockLoading()
     renderWithRouter(<WatchStats />)
     const select = screen.getByRole('combobox', { name: 'Time period' })
     expect(select).toBeInTheDocument()
@@ -58,7 +76,7 @@ describe('WatchStats', () => {
   })
 
   it('keeps header visible in error state', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: false, error: new Error('fail'), refetch: vi.fn() })
+    mockError()
     renderWithRouter(<WatchStats />)
     expect(screen.getByText('Watch Statistics')).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Time period' })).toBeInTheDocument()
@@ -66,25 +84,13 @@ describe('WatchStats', () => {
   })
 
   it('renders TopUsersCard with compact mode on dashboard', () => {
-    mockUseFetch.mockReturnValue({
-      data: {
-        top_movies: [],
-        top_tv_shows: [],
-        top_users: [
-          { user_name: 'alice', play_count: 15, total_hours: 10 },
-          { user_name: 'bob', play_count: 10, total_hours: 8 },
-        ],
-        library: { total_plays: 100, total_hours: 50, unique_users: 5, unique_movies: 10, unique_tv_shows: 5 },
-        concurrent_peak: 3,
-        locations: [],
-        potential_sharers: [],
-      },
-      loading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockData(createMockStats({
+      top_users: [
+        { user_name: 'alice', play_count: 15, total_hours: 10 },
+        { user_name: 'bob', play_count: 10, total_hours: 8 },
+      ],
+    }))
     renderWithRouter(<WatchStats />)
-    // TopUsersCard is rendered - check users appear
     expect(screen.getByText('alice')).toBeInTheDocument()
     expect(screen.getByText('bob')).toBeInTheDocument()
   })

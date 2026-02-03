@@ -214,39 +214,27 @@ func TestGetStatsAPI_WithPotentialSharers(t *testing.T) {
 func TestGetStatsAPI_WithDaysFilter(t *testing.T) {
 	srv, _ := newTestServer(t)
 
-	// Test valid days parameter
-	req := httptest.NewRequest("GET", "/api/stats?days=7", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("days=7: status = %d, want 200", w.Code)
+	tests := []struct {
+		name       string
+		query      string
+		wantStatus int
+	}{
+		{"days=7", "?days=7", http.StatusOK},
+		{"days=30", "?days=30", http.StatusOK},
+		{"days=0", "?days=0", http.StatusOK},
+		{"invalid days", "?days=invalid", http.StatusBadRequest},
+		{"unsupported days value", "?days=14", http.StatusBadRequest},
 	}
 
-	// Test days=30
-	req = httptest.NewRequest("GET", "/api/stats?days=30", nil)
-	w = httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/stats"+tt.query, nil)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("days=30: status = %d, want 200", w.Code)
-	}
-
-	// Test invalid days (should return 400)
-	req = httptest.NewRequest("GET", "/api/stats?days=invalid", nil)
-	w = httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("days=invalid: status = %d, want 400", w.Code)
-	}
-
-	// Test unsupported days value (should return 400)
-	req = httptest.NewRequest("GET", "/api/stats?days=14", nil)
-	w = httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("days=14: status = %d, want 400", w.Code)
+			if w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+		})
 	}
 }

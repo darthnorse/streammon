@@ -42,58 +42,42 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := StatsResponse{}
+
+	logAndFail := func(name string, err error) bool {
+		if err != nil {
+			log.Printf("%s error: %v", name, err)
+			writeError(w, http.StatusInternalServerError, "internal")
+			return true
+		}
+		return false
+	}
+
 	var err error
-
-	resp.TopMovies, err = s.store.TopMovies(10, days)
-	if err != nil {
-		log.Printf("TopMovies error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+	if resp.TopMovies, err = s.store.TopMovies(10, days); logAndFail("TopMovies", err) {
+		return
+	}
+	if resp.TopTVShows, err = s.store.TopTVShows(10, days); logAndFail("TopTVShows", err) {
+		return
+	}
+	if resp.TopUsers, err = s.store.TopUsers(10, days); logAndFail("TopUsers", err) {
+		return
+	}
+	if resp.Library, err = s.store.LibraryStats(); logAndFail("LibraryStats", err) {
 		return
 	}
 
-	resp.TopTVShows, err = s.store.TopTVShows(10, days)
-	if err != nil {
-		log.Printf("TopTVShows error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+	var peakAt time.Time
+	if resp.ConcurrentPeak, peakAt, err = s.store.ConcurrentStreamsPeak(); logAndFail("ConcurrentStreamsPeak", err) {
 		return
 	}
-
-	resp.TopUsers, err = s.store.TopUsers(10, days)
-	if err != nil {
-		log.Printf("TopUsers error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-
-	resp.Library, err = s.store.LibraryStats()
-	if err != nil {
-		log.Printf("LibraryStats error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-
-	peak, peakAt, err := s.store.ConcurrentStreamsPeak()
-	if err != nil {
-		log.Printf("ConcurrentStreamsPeak error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	resp.ConcurrentPeak = peak
 	if !peakAt.IsZero() {
 		resp.ConcurrentPeakAt = peakAt.Format(time.RFC3339)
 	}
 
-	resp.Locations, err = s.store.AllWatchLocations()
-	if err != nil {
-		log.Printf("AllWatchLocations error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+	if resp.Locations, err = s.store.AllWatchLocations(); logAndFail("AllWatchLocations", err) {
 		return
 	}
-
-	resp.PotentialSharers, err = s.store.PotentialSharers(store.DefaultSharerMinIPs, store.DefaultSharerWindowDays)
-	if err != nil {
-		log.Printf("PotentialSharers error: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal")
+	if resp.PotentialSharers, err = s.store.PotentialSharers(store.DefaultSharerMinIPs, store.DefaultSharerWindowDays); logAndFail("PotentialSharers", err) {
 		return
 	}
 
