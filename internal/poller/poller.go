@@ -50,14 +50,15 @@ func New(s *store.Store, interval time.Duration) *Poller {
 func (p *Poller) AddServer(id int64, ms media.MediaServer) {
 	p.mu.Lock()
 	p.servers[id] = ms
+	ctx := p.ctx
 	p.mu.Unlock()
 
-	if rt, ok := ms.(media.RealtimeSubscriber); ok && p.ctx != nil {
-		ctx, cancel := context.WithCancel(p.ctx)
+	if rt, ok := ms.(media.RealtimeSubscriber); ok && ctx != nil {
+		wsCtx, cancel := context.WithCancel(ctx)
 		p.mu.Lock()
 		p.wsCancel[id] = cancel
 		p.mu.Unlock()
-		go p.consumeUpdates(ctx, id, rt)
+		go p.consumeUpdates(wsCtx, id, rt)
 	}
 }
 
@@ -79,7 +80,9 @@ func (p *Poller) RemoveServer(id int64) {
 func (p *Poller) Start(ctx context.Context) {
 	p.startOnce.Do(func() {
 		ctx, p.cancel = context.WithCancel(ctx)
+		p.mu.Lock()
 		p.ctx = ctx
+		p.mu.Unlock()
 		p.done = make(chan struct{})
 		go p.run(ctx)
 	})
@@ -133,12 +136,11 @@ func (p *Poller) consumeUpdates(ctx context.Context, serverID int64, rt media.Re
 
 func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
+	var ended *models.ActiveStream
 	for key, session := range p.sessions {
 		if session.ServerID == serverID && session.SessionID == u.SessionKey {
 			if u.State == "stopped" {
-				p.persistHistory(session)
+				ended = &session
 				delete(p.sessions, key)
 			} else {
 				session.ProgressMs = u.ViewOffset
@@ -147,23 +149,15 @@ func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
 			break
 		}
 	}
+	p.mu.Unlock()
 
-	p.publishLocked()
-}
+	if ended != nil {
+		p.persistHistory(*ended)
+	}
 
-func (p *Poller) publishLocked() {
-	snapshot := make([]models.ActiveStream, 0, len(p.sessions))
-	for _, s := range p.sessions {
-		snapshot = append(snapshot, s)
-	}
-	p.subMu.Lock()
-	defer p.subMu.Unlock()
-	for ch := range p.subscribers {
-		select {
-		case ch <- snapshot:
-		default:
-		}
-	}
+	// Publish after releasing mu, matching the pattern in poll()
+	snapshot := p.CurrentSessions()
+	p.publish(snapshot)
 }
 
 func (p *Poller) run(ctx context.Context) {

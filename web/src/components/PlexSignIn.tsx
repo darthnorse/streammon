@@ -17,17 +17,25 @@ function pickConnection(resource: PlexResource): string {
   return conns[0]?.uri ?? ''
 }
 
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message
+  return String(err)
+}
+
 export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState('')
   const [resources, setResources] = useState<PlexResource[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [token, setToken] = useState('')
-  const pollingRef = useRef(false)
+  const abortRef = useRef<AbortController | null>(null)
   const popupRef = useRef<Window | null>(null)
 
   const cleanup = useCallback(() => {
-    pollingRef.current = false
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+    }
     if (popupRef.current && !popupRef.current.closed) {
       popupRef.current.close()
     }
@@ -45,31 +53,30 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
       const authUrl = getAuthUrl(clientId, pin.code)
       popupRef.current = window.open(authUrl, 'plexAuth', 'width=800,height=700')
 
-      pollingRef.current = true
-      pollForToken(pin.id)
+      abortRef.current = new AbortController()
+      pollForToken(pin.id, abortRef.current.signal)
     } catch {
       setError('Failed to start Plex sign-in. Please try again.')
       setPhase('idle')
     }
   }
 
-  async function pollForToken(pinId: number) {
+  async function pollForToken(pinId: number, signal: AbortSignal) {
     const timeout = Date.now() + 5 * 60 * 1000
-    while (pollingRef.current && Date.now() < timeout) {
+    while (!signal.aborted && Date.now() < timeout) {
       await new Promise(r => setTimeout(r, 1500))
-      if (!pollingRef.current) return
+      if (signal.aborted) return
 
       if (popupRef.current?.closed) {
         setError('Sign-in window was closed. Please try again.')
         setPhase('idle')
-        pollingRef.current = false
         return
       }
 
       try {
         const result = await checkPin(pinId)
         if (result.authToken) {
-          pollingRef.current = false
+          if (signal.aborted) return
           if (popupRef.current && !popupRef.current.closed) {
             popupRef.current.close()
           }
@@ -82,10 +89,9 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
       }
     }
 
-    if (pollingRef.current) {
+    if (!signal.aborted) {
       setError('Sign-in timed out. Please try again.')
       setPhase('idle')
-      pollingRef.current = false
     }
   }
 
@@ -130,7 +136,7 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
       setResources([])
       setSelected(new Set())
     } catch (err) {
-      setError((err as Error).message)
+      setError(errorMessage(err))
       setPhase('selecting')
     }
   }

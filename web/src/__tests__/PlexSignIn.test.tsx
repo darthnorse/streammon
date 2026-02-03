@@ -132,6 +132,25 @@ describe('PlexSignIn', () => {
     })
   })
 
+  it('shows empty message when no servers found', async () => {
+    mockRequestPin.mockResolvedValue({ id: 1, code: 'ABCD', authToken: null })
+    mockCheckPin.mockResolvedValue({ id: 1, code: 'ABCD', authToken: 'my-token' })
+    mockFetchResources.mockResolvedValue([])
+
+    const popup = { closed: false, close: vi.fn() } as unknown as Window
+    vi.spyOn(window, 'open').mockReturnValue(popup)
+
+    renderWithRouter(<PlexSignIn onServersAdded={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /sign in to plex/i }))
+
+    await waitFor(() => expect(mockRequestPin).toHaveBeenCalled())
+    await vi.advanceTimersByTimeAsync(1500)
+
+    await waitFor(() => {
+      expect(screen.getByText(/no servers found/i)).toBeDefined()
+    })
+  })
+
   it('shows error when PIN request fails', async () => {
     mockRequestPin.mockRejectedValue(new Error('Network error'))
 

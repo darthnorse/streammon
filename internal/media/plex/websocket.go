@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"strings"
+	"net/url"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -40,12 +40,17 @@ func (s *Server) wsLoop(ctx context.Context, ch chan<- models.SessionUpdate) {
 	backoff := time.Second
 
 	for {
+		connected := time.Now()
 		err := s.wsConnect(ctx, ch)
 		if ctx.Err() != nil {
 			return
 		}
 		if err != nil {
 			log.Printf("plex ws %s: %v", s.serverName, err)
+		}
+		// Reset backoff if the connection lasted more than 30 seconds
+		if time.Since(connected) > 30*time.Second {
+			backoff = time.Second
 		}
 		select {
 		case <-ctx.Done():
@@ -57,25 +62,33 @@ func (s *Server) wsLoop(ctx context.Context, ch chan<- models.SessionUpdate) {
 }
 
 func (s *Server) wsConnect(ctx context.Context, ch chan<- models.SessionUpdate) error {
-	wsURL := strings.Replace(s.url, "https://", "wss://", 1)
-	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
-	wsURL += "/:/websockets/notifications"
-
-	header := http.Header{"X-Plex-Token": {s.token}}
-
-	conn, _, err := websocket.DefaultDialer.DialContext(ctx, wsURL, header)
+	u, err := url.Parse(s.url)
 	if err != nil {
 		return err
 	}
-	defer conn.Close()
+	switch u.Scheme {
+	case "https":
+		u.Scheme = "wss"
+	default:
+		u.Scheme = "ws"
+	}
+	u.Path += "/:/websockets/notifications"
 
-	// Ping goroutine
+	header := http.Header{"X-Plex-Token": {s.token}}
+
+	conn, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), header)
+	if err != nil {
+		return err
+	}
+
+	// Use a local context to stop the ping goroutine before closing the connection
+	pingCtx, pingCancel := context.WithCancel(ctx)
 	go func() {
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ctx.Done():
+			case <-pingCtx.Done():
 				return
 			case <-ticker.C:
 				if err := conn.WriteControl(
@@ -86,6 +99,11 @@ func (s *Server) wsConnect(ctx context.Context, ch chan<- models.SessionUpdate) 
 				}
 			}
 		}
+	}()
+
+	defer func() {
+		pingCancel()
+		conn.Close()
 	}()
 
 	for {

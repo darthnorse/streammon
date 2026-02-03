@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,7 +29,6 @@ func TestSubscribeReceivesPlayingEvent(t *testing.T) {
 		}
 		data, _ := json.Marshal(msg)
 		conn.WriteMessage(websocket.TextMessage, data)
-		// Keep connection open briefly
 		time.Sleep(200 * time.Millisecond)
 	})
 
@@ -62,7 +62,6 @@ func TestSubscribeReceivesPlayingEvent(t *testing.T) {
 
 func TestSubscribeIgnoresNonPlayingEvents(t *testing.T) {
 	srv := startWSServer(t, func(conn *websocket.Conn) {
-		// Send a non-playing event
 		msg := plexWSMessage{
 			NotificationContainer: notificationContainer{
 				Type: "timeline",
@@ -71,7 +70,6 @@ func TestSubscribeIgnoresNonPlayingEvents(t *testing.T) {
 		data, _ := json.Marshal(msg)
 		conn.WriteMessage(websocket.TextMessage, data)
 
-		// Then send a playing event
 		msg2 := plexWSMessage{
 			NotificationContainer: notificationContainer{
 				Type: "playing",
@@ -106,7 +104,6 @@ func TestSubscribeIgnoresNonPlayingEvents(t *testing.T) {
 
 func TestSubscribeStopsOnContextCancel(t *testing.T) {
 	srv := startWSServer(t, func(conn *websocket.Conn) {
-		// Keep connection open
 		for {
 			_, _, err := conn.ReadMessage()
 			if err != nil {
@@ -123,13 +120,11 @@ func TestSubscribeStopsOnContextCancel(t *testing.T) {
 
 	cancel()
 
-	// Channel should eventually close
 	timer := time.NewTimer(5 * time.Second)
 	defer timer.Stop()
 	select {
 	case _, ok := <-ch:
 		if ok {
-			// Got a value, keep draining
 			for range ch {
 			}
 		}
@@ -139,19 +134,17 @@ func TestSubscribeStopsOnContextCancel(t *testing.T) {
 }
 
 func TestSubscribeReconnectsOnClose(t *testing.T) {
-	connectCount := 0
+	var connectCount atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		connectCount++
-		if connectCount == 1 {
-			// Close immediately to trigger reconnect
+		n := connectCount.Add(1)
+		if n == 1 {
 			conn.Close()
 			return
 		}
-		// Second connection: send an event
 		msg := plexWSMessage{
 			NotificationContainer: notificationContainer{
 				Type: "playing",
@@ -189,13 +182,11 @@ func TestSubscribeReconnectsOnClose(t *testing.T) {
 		t.Fatal("timed out waiting for reconnect event")
 	}
 
-	if connectCount < 2 {
-		t.Errorf("expected at least 2 connections, got %d", connectCount)
+	if connectCount.Load() < 2 {
+		t.Errorf("expected at least 2 connections, got %d", connectCount.Load())
 	}
 	cancel()
 }
-
-// Verify interface satisfaction is checked via usage in poller tests.
 
 func startWSServer(t *testing.T, handler func(*websocket.Conn)) *Server {
 	t.Helper()
