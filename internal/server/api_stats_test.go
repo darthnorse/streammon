@@ -232,12 +232,21 @@ func TestGetStatsAPI_WithDaysFilter(t *testing.T) {
 		t.Errorf("days=30: status = %d, want 200", w.Code)
 	}
 
-	// Test invalid days (should still work, defaults to all time)
+	// Test invalid days (should return 400)
 	req = httptest.NewRequest("GET", "/api/stats?days=invalid", nil)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("days=invalid: status = %d, want 200", w.Code)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("days=invalid: status = %d, want 400", w.Code)
+	}
+
+	// Test unsupported days value (should return 400)
+	req = httptest.NewRequest("GET", "/api/stats?days=14", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("days=14: status = %d, want 400", w.Code)
 	}
 }

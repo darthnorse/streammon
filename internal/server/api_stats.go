@@ -27,11 +27,18 @@ type StatsResponse struct {
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
-	days := 0 // default: all time
+	days := 0 // default: all time. Valid values: 7, 30, or 0/omitted (all time)
 	if d := r.URL.Query().Get("days"); d != "" {
-		if parsed, err := strconv.Atoi(d); err == nil && (parsed == FilterDaysWeek || parsed == FilterDaysMonth) {
-			days = parsed
+		parsed, err := strconv.Atoi(d)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "days must be a number")
+			return
 		}
+		if parsed != 0 && parsed != FilterDaysWeek && parsed != FilterDaysMonth {
+			writeError(w, http.StatusBadRequest, "days must be 0, 7, or 30")
+			return
+		}
+		days = parsed
 	}
 
 	resp := StatsResponse{}

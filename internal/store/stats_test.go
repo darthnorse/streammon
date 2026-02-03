@@ -416,3 +416,70 @@ func TestTopMoviesWithTimeFilter(t *testing.T) {
 		t.Errorf("7 days: got %d movies, want 1", len(week))
 	}
 }
+
+func TestTopMoviesWithThumbURL(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+
+	// Insert entry without thumb_url
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Movie A", Year: 2020, WatchedMs: 7200000,
+		StartedAt: now.Add(-2 * time.Hour), StoppedAt: now.Add(-1 * time.Hour),
+		ThumbURL: "",
+	})
+
+	// Insert entry with thumb_url (more recent)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Movie A", Year: 2020, WatchedMs: 7200000,
+		StartedAt: now, StoppedAt: now.Add(1 * time.Hour),
+		ThumbURL: "library/metadata/123/thumb",
+	})
+
+	stats, err := s.TopMovies(10, 0)
+	if err != nil {
+		t.Fatalf("TopMovies: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 movie, got %d", len(stats))
+	}
+	if stats[0].ThumbURL != "library/metadata/123/thumb" {
+		t.Errorf("thumb_url = %q, want library/metadata/123/thumb", stats[0].ThumbURL)
+	}
+	if stats[0].ServerID != serverID {
+		t.Errorf("server_id = %d, want %d", stats[0].ServerID, serverID)
+	}
+}
+
+func TestTopTVShowsWithThumbURL(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+
+	// Insert TV show entry with thumb_url
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeTV,
+		Title: "Episode 1", GrandparentTitle: "Breaking Bad", WatchedMs: 3600000,
+		StartedAt: now, StoppedAt: now.Add(1 * time.Hour),
+		ThumbURL: "library/metadata/456/thumb",
+	})
+
+	stats, err := s.TopTVShows(10, 0)
+	if err != nil {
+		t.Fatalf("TopTVShows: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 show, got %d", len(stats))
+	}
+	if stats[0].Title != "Breaking Bad" {
+		t.Errorf("title = %q, want Breaking Bad", stats[0].Title)
+	}
+	if stats[0].ThumbURL != "library/metadata/456/thumb" {
+		t.Errorf("thumb_url = %q, want library/metadata/456/thumb", stats[0].ThumbURL)
+	}
+	if stats[0].ServerID != serverID {
+		t.Errorf("server_id = %d, want %d", stats[0].ServerID, serverID)
+	}
+}

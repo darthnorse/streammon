@@ -10,14 +10,6 @@ export function WatchStats() {
   const [days, setDays] = useState<TimePeriod>(30)
   const { data, loading, error } = useFetch<StatsResponse>(`/api/stats?days=${days}`)
 
-  if (error) {
-    return (
-      <div className="text-sm text-red-500 dark:text-red-400">
-        Failed to load statistics
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -27,6 +19,7 @@ export function WatchStats() {
         <select
           value={days}
           onChange={(e) => setDays(Number(e.target.value) as TimePeriod)}
+          aria-label="Time period"
           className="text-sm bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-accent"
         >
           <option value={7}>Last 7 days</option>
@@ -35,7 +28,12 @@ export function WatchStats() {
         </select>
       </div>
 
-      {loading ? (
+      {error ? (
+        <div className="text-sm text-red-500 dark:text-red-400">
+          Failed to load statistics
+        </div>
+      ) : loading ? (
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => (
             <div key={i} className="card p-4 animate-pulse">
