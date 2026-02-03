@@ -1,6 +1,7 @@
 import { Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { AuthGuard } from './components/AuthGuard'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { History } from './pages/History'
@@ -23,6 +24,7 @@ export default function App() {
   return (
     <AuthProvider>
       <AuthGuard>
+        <ErrorBoundary>
         <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
@@ -32,6 +34,7 @@ export default function App() {
         <Route path="*" element={<NotFound />} />
       </Route>
         </Routes>
+        </ErrorBoundary>
       </AuthGuard>
     </AuthProvider>
   )
