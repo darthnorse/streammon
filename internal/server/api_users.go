@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -37,34 +38,54 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetUserLocations(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
 
-	ips, err := s.store.DistinctIPsForUser(name)
+	ipResults, err := s.store.DistinctIPsForUser(name)
 	if err != nil {
+		log.Printf("DistinctIPsForUser error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
+	}
+
+	ips := make([]string, len(ipResults))
+	lastSeenMap := make(map[string]string, len(ipResults))
+	for i, ipResult := range ipResults {
+		ips[i] = ipResult.IP
+		lastSeenMap[ipResult.IP] = ipResult.LastSeen.Format(time.RFC3339)
 	}
 
 	cached, err := s.store.GetCachedGeos(ips)
 	if err != nil {
+		log.Printf("GetCachedGeos error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 
-	locations := []models.GeoResult{}
+	locations := make([]models.GeoResult, 0, len(ips))
 	for _, ipStr := range ips {
-		if geo, ok := cached[ipStr]; ok {
-			locations = append(locations, *geo)
-			continue
-		}
-		if s.geoResolver != nil {
-			ip := net.ParseIP(ipStr)
-			if geo := s.geoResolver.Lookup(ip); geo != nil {
-				if err := s.store.SetCachedGeo(geo); err != nil {
-					log.Printf("caching geo for %s: %v", ipStr, err)
-				}
-				locations = append(locations, *geo)
-			}
+		geo := s.resolveGeo(ipStr, cached)
+		if geo != nil {
+			result := *geo
+			lastSeen := lastSeenMap[ipStr]
+			result.LastSeen = &lastSeen
+			locations = append(locations, result)
 		}
 	}
 
 	writeJSON(w, http.StatusOK, locations)
+}
+
+func (s *Server) resolveGeo(ipStr string, cached map[string]*models.GeoResult) *models.GeoResult {
+	if geo, ok := cached[ipStr]; ok {
+		return geo
+	}
+	if s.geoResolver == nil {
+		return nil
+	}
+	ip := net.ParseIP(ipStr)
+	geo := s.geoResolver.Lookup(ip)
+	if geo != nil {
+		if err := s.store.SetCachedGeo(geo); err != nil {
+			log.Printf("caching geo for %s: %v", ipStr, err)
+		}
+	}
+	return geo
 }

@@ -133,10 +133,11 @@ func TestDistinctIPsForUser(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
+	earlier := now.Add(-time.Hour)
 	entries := []models.WatchHistoryEntry{
-		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "A", IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now},
+		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "A", IPAddress: "8.8.8.8", StartedAt: earlier, StoppedAt: earlier},
 		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "B", IPAddress: "8.8.8.8", StartedAt: now, StoppedAt: now},
-		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "C", IPAddress: "1.1.1.1", StartedAt: now, StoppedAt: now},
+		{ServerID: srv.ID, UserName: "alice", MediaType: "movie", Title: "C", IPAddress: "1.1.1.1", StartedAt: earlier, StoppedAt: earlier},
 		{ServerID: srv.ID, UserName: "bob", MediaType: "movie", Title: "D", IPAddress: "2.2.2.2", StartedAt: now, StoppedAt: now},
 	}
 	for i := range entries {
@@ -145,11 +146,18 @@ func TestDistinctIPsForUser(t *testing.T) {
 		}
 	}
 
-	ips, err := s.DistinctIPsForUser("alice")
+	results, err := s.DistinctIPsForUser("alice")
 	if err != nil {
 		t.Fatalf("DistinctIPsForUser: %v", err)
 	}
-	if len(ips) != 2 {
-		t.Fatalf("expected 2 distinct IPs, got %d", len(ips))
+	if len(results) != 2 {
+		t.Fatalf("expected 2 distinct IPs, got %d", len(results))
+	}
+	// Results should be ordered by last_seen DESC, so 8.8.8.8 (more recent) comes first
+	if results[0].IP != "8.8.8.8" {
+		t.Errorf("expected first IP to be 8.8.8.8, got %s", results[0].IP)
+	}
+	if results[0].LastSeen.Before(results[1].LastSeen) {
+		t.Errorf("expected results ordered by last_seen DESC")
 	}
 }

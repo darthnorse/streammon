@@ -93,6 +93,7 @@ export interface GeoResult {
   lng: number
   city: string
   country: string
+  last_seen?: string
 }
 
 export interface PaginatedResult<T> {

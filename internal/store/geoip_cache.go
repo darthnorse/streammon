@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -81,9 +82,19 @@ func (s *Store) GetCachedGeos(ips []string) (map[string]*models.GeoResult, error
 	return result, rows.Err()
 }
 
-func (s *Store) DistinctIPsForUser(userName string) ([]string, error) {
+type IPWithLastSeen struct {
+	IP       string
+	LastSeen time.Time
+}
+
+func (s *Store) DistinctIPsForUser(userName string) ([]IPWithLastSeen, error) {
 	rows, err := s.db.Query(
-		`SELECT DISTINCT ip_address FROM watch_history WHERE user_name = ? AND ip_address != '' LIMIT 500`,
+		`SELECT ip_address, COALESCE(MAX(stopped_at), MAX(started_at)) as last_seen
+		FROM watch_history
+		WHERE user_name = ? AND ip_address != ''
+		GROUP BY ip_address
+		ORDER BY last_seen DESC
+		LIMIT 500`,
 		userName,
 	)
 	if err != nil {
@@ -91,13 +102,35 @@ func (s *Store) DistinctIPsForUser(userName string) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var ips []string
+	var results []IPWithLastSeen
 	for rows.Next() {
-		var ip string
-		if err := rows.Scan(&ip); err != nil {
-			return nil, err
+		var r IPWithLastSeen
+		var lastSeenStr sql.NullString
+		if err := rows.Scan(&r.IP, &lastSeenStr); err != nil {
+			return nil, fmt.Errorf("scanning ip result: %w", err)
 		}
-		ips = append(ips, ip)
+		if lastSeenStr.Valid && lastSeenStr.String != "" {
+			r.LastSeen = parseSQLiteTimestamp(lastSeenStr.String)
+		}
+		results = append(results, r)
 	}
-	return ips, rows.Err()
+	return results, rows.Err()
+}
+
+var sqliteTimeFormats = []string{
+	time.RFC3339,
+	time.RFC3339Nano,
+	"2006-01-02 15:04:05.999999999-07:00",
+	"2006-01-02 15:04:05-07:00",
+	"2006-01-02 15:04:05",
+}
+
+func parseSQLiteTimestamp(s string) time.Time {
+	for _, format := range sqliteTimeFormats {
+		if t, err := time.Parse(format, s); err == nil {
+			return t
+		}
+	}
+	log.Printf("failed to parse timestamp: %q", s)
+	return time.Time{}
 }

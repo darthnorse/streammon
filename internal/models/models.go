@@ -194,9 +194,10 @@ type PaginatedResult[T any] struct {
 }
 
 type GeoResult struct {
-	IP      string  `json:"ip"`
-	Lat     float64 `json:"lat"`
-	Lng     float64 `json:"lng"`
-	City    string  `json:"city"`
-	Country string  `json:"country"`
+	IP       string  `json:"ip"`
+	Lat      float64 `json:"lat"`
+	Lng      float64 `json:"lng"`
+	City     string  `json:"city"`
+	Country  string  `json:"country"`
+	LastSeen *string `json:"last_seen,omitempty"`
 }
