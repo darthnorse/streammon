@@ -159,6 +159,14 @@ type ActiveStream struct {
 	TranscodeAudioCodec string            `json:"transcode_audio_codec,omitempty"`
 }
 
+// SessionUpdate represents a lightweight play state change from a WebSocket event.
+type SessionUpdate struct {
+	SessionKey string
+	RatingKey  string
+	State      string // "playing", "paused", "stopped", "buffering"
+	ViewOffset int64  // progress in milliseconds
+}
+
 type DayStat struct {
 	Date       string `json:"date"`
 	Movies     int    `json:"movies"`
