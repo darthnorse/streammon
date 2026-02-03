@@ -41,14 +41,23 @@ function StarRating({ rating }: { rating: number }) {
   )
 }
 
-function CastChip({ name, role }: { name: string; role?: string }) {
+function CastChip({ name, role, thumbUrl }: { name: string; role?: string; thumbUrl?: string }) {
   if (!name) return null
   const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
   return (
     <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-100 dark:bg-white/10 shrink-0">
-      <div className="w-6 h-6 rounded-full bg-gray-300 dark:bg-white/20 flex items-center justify-center text-[10px] font-medium text-gray-600 dark:text-gray-300">
-        {initials}
-      </div>
+      {thumbUrl ? (
+        <img
+          src={thumbUrl}
+          alt={name}
+          className="w-6 h-6 rounded-full object-cover bg-gray-300 dark:bg-white/20"
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-6 h-6 rounded-full bg-gray-300 dark:bg-white/20 flex items-center justify-center text-[10px] font-medium text-gray-600 dark:text-gray-300">
+          {initials}
+        </div>
+      )}
       <div className="text-xs">
         <div className="font-medium text-gray-900 dark:text-gray-100">{name}</div>
         {role && <div className="text-gray-500 dark:text-gray-400 text-[10px]">{role}</div>}
@@ -258,7 +267,7 @@ function ItemContent({ item, accent }: ItemContentProps) {
             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Cast</div>
             <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
               {item.cast.slice(0, 6).map((member, idx) => (
-                <CastChip key={`${member.name}-${idx}`} name={member.name} role={member.role} />
+                <CastChip key={`${member.name}-${idx}`} name={member.name} role={member.role} thumbUrl={member.thumb_url} />
               ))}
             </div>
           </div>

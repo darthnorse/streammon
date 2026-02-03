@@ -161,3 +161,48 @@ func TestGetItemDetails_EmptyContainer(t *testing.T) {
 		t.Errorf("expected ErrNotFound for empty container, got %v", err)
 	}
 }
+
+func TestGetItemDetails_TVSeries(t *testing.T) {
+	// TV series metadata is returned as Directory element, not Video
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer size="1">
+  <Directory ratingKey="55555" type="show" title="Breaking Bad" year="2008"
+    summary="A high school chemistry teacher turned meth producer."
+    thumb="/library/metadata/55555/thumb/123" contentRating="TV-MA" rating="9.5"
+    studio="AMC">
+    <Genre tag="Drama" />
+    <Genre tag="Crime" />
+    <Role tag="Bryan Cranston" role="Walter White" />
+  </Directory>
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(xml))
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, Name: "TestPlex", URL: ts.URL, APIKey: "tok"})
+	details, err := srv.GetItemDetails(context.Background(), "55555")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if details.ID != "55555" {
+		t.Errorf("id = %q, want 55555", details.ID)
+	}
+	if details.Title != "Breaking Bad" {
+		t.Errorf("title = %q, want Breaking Bad", details.Title)
+	}
+	if details.Year != 2008 {
+		t.Errorf("year = %d, want 2008", details.Year)
+	}
+	if details.MediaType != models.MediaTypeTV {
+		t.Errorf("media type = %q, want episode", details.MediaType)
+	}
+	if len(details.Genres) != 2 || details.Genres[0] != "Drama" {
+		t.Errorf("genres = %v, want [Drama, Crime]", details.Genres)
+	}
+	if details.Studio != "AMC" {
+		t.Errorf("studio = %q, want AMC", details.Studio)
+	}
+}

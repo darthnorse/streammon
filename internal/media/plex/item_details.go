@@ -117,6 +117,8 @@ func parseItemDetails(data []byte, serverID int64, serverName string) (*models.I
 	cast := make([]models.CastMember, 0, len(item.Roles))
 	for _, r := range item.Roles {
 		thumbURL := r.Thumb
+		// Plex thumb paths already include leading slash (e.g., "/library/metadata/actors/1/thumb")
+		// so we use thumb%s (no extra slash) to build the proxy URL
 		if thumbURL != "" && !strings.HasPrefix(thumbURL, "http") {
 			thumbURL = fmt.Sprintf("/api/servers/%d/thumb%s", serverID, thumbURL)
 		}

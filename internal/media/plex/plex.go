@@ -339,7 +339,11 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 		Bandwidth:         atoi64(item.Session.Bandwidth) * 1000, // Plex reports kbps
 		StartedAt:         time.Now().UTC(),
 	}
-	// For episodes, use series poster (grandparentThumb) instead of episode thumbnail
+	// ThumbURL stores either a rating key (e.g., "55555") or a path fragment
+	// (e.g., "library/metadata/12345/thumb/123"). The thumb proxy handler
+	// (api_thumb.go) handles both: paths with "/" use the full path, otherwise
+	// it constructs /library/metadata/{id}/thumb. For episodes, we prefer the
+	// series poster (grandparentRatingKey) over the episode thumbnail.
 	if item.GrandparentThumb != "" && item.GrandparentRatingKey != "" {
 		as.ThumbURL = item.GrandparentRatingKey
 	} else if item.Thumb != "" {
@@ -446,7 +450,7 @@ func plexMediaType(t string) models.MediaType {
 	switch t {
 	case "movie":
 		return models.MediaTypeMovie
-	case "episode":
+	case "episode", "show":
 		return models.MediaTypeTV
 	case "track":
 		return models.MediaTypeMusic

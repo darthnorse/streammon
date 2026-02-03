@@ -462,3 +462,18 @@ func TestGetItemDetails_NotFound(t *testing.T) {
 		t.Errorf("expected ErrNotFound, got %v", err)
 	}
 }
+
+func TestGetItemDetails_EmptyItems(t *testing.T) {
+	// Test that 200 OK with empty Items array returns ErrNotFound
+	// This can happen when item ID doesn't exist but API returns success
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"Items":[],"TotalRecordCount":0}`))
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	_, err := c.GetItemDetails(context.Background(), "nonexistent")
+	if err != models.ErrNotFound {
+		t.Errorf("expected ErrNotFound for empty Items array, got %v", err)
+	}
+}
