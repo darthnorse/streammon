@@ -1,6 +1,7 @@
 import { useSSE } from '../hooks/useSSE'
 import { StreamCard } from '../components/StreamCard'
 import { DailyChart } from '../components/DailyChart'
+import { EmptyState } from '../components/EmptyState'
 
 export function Dashboard() {
   const { sessions, connected } = useSSE('/api/dashboard/sse')
@@ -28,13 +29,7 @@ export function Dashboard() {
       </div>
 
       {sessions.length === 0 ? (
-        <div className="card p-12 text-center">
-          <div className="text-4xl mb-3 opacity-30">▣</div>
-          <p className="text-muted dark:text-muted-dark">No active streams</p>
-          <p className="text-sm text-muted dark:text-muted-dark mt-1">
-            Streams will appear here when someone starts watching
-          </p>
-        </div>
+        <EmptyState icon="▣" title="No active streams" description="Streams will appear here when someone starts watching" />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {sessions.map(stream => (

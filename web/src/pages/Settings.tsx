@@ -3,6 +3,7 @@ import type { Server, OIDCSettings } from '../types'
 import { api } from '../lib/api'
 import { ServerForm } from '../components/ServerForm'
 import { OIDCForm } from '../components/OIDCForm'
+import { EmptyState } from '../components/EmptyState'
 
 const serverTypeColors: Record<string, string> = {
   plex: 'badge-warn',
@@ -167,13 +168,7 @@ export function Settings() {
           {error && !loading && <ErrorCard message={error} onRetry={fetchServers} />}
 
           {!loading && !error && servers.length === 0 && (
-            <div className="card p-12 text-center">
-              <div className="text-4xl mb-3 opacity-30">&#9881;</div>
-              <p className="text-muted dark:text-muted-dark">No servers configured</p>
-              <p className="text-sm text-muted dark:text-muted-dark mt-1">
-                Add a Plex, Emby, or Jellyfin server to get started
-              </p>
-            </div>
+            <EmptyState icon="&#9881;" title="No servers configured" description="Add a Plex, Emby, or Jellyfin server to get started" />
           )}
 
           {!loading && !error && servers.length > 0 && (
