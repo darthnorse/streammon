@@ -30,17 +30,23 @@ func buildTimeFilter(days int) (string, []any) {
 }
 
 func (s *Store) TopMovies(limit int, days int) ([]models.MediaStat, error) {
+	timeClause, timeArgs := buildTimeFilter(days)
+
 	query := `SELECT title, year, COUNT(*) as play_count,
-		SUM(watched_ms) / 3600000.0 as total_hours
+		SUM(watched_ms) / 3600000.0 as total_hours,
+		(SELECT thumb_url FROM watch_history h2
+		 WHERE h2.title = watch_history.title AND h2.year = watch_history.year
+		 AND h2.thumb_url != '' ORDER BY h2.started_at DESC LIMIT 1) as thumb_url,
+		(SELECT server_id FROM watch_history h2
+		 WHERE h2.title = watch_history.title AND h2.year = watch_history.year
+		 AND h2.thumb_url != '' ORDER BY h2.started_at DESC LIMIT 1) as server_id
 	FROM watch_history
-	WHERE media_type = ?`
-	args := []any{models.MediaTypeMovie}
+	WHERE media_type = ?` + timeClause + `
+	GROUP BY title, year
+	ORDER BY play_count DESC
+	LIMIT ?`
 
-	clause, filterArgs := buildTimeFilter(days)
-	query += clause
-	args = append(args, filterArgs...)
-
-	query += ` GROUP BY title, year ORDER BY play_count DESC LIMIT ?`
+	args := append([]any{models.MediaTypeMovie}, timeArgs...)
 	args = append(args, limit)
 
 	rows, err := s.db.Query(query, args...)
@@ -53,17 +59,23 @@ func (s *Store) TopMovies(limit int, days int) ([]models.MediaStat, error) {
 }
 
 func (s *Store) TopTVShows(limit int, days int) ([]models.MediaStat, error) {
+	timeClause, timeArgs := buildTimeFilter(days)
+
 	query := `SELECT grandparent_title, 0 as year, COUNT(*) as play_count,
-		SUM(watched_ms) / 3600000.0 as total_hours
+		SUM(watched_ms) / 3600000.0 as total_hours,
+		(SELECT thumb_url FROM watch_history h2
+		 WHERE h2.grandparent_title = watch_history.grandparent_title
+		 AND h2.thumb_url != '' ORDER BY h2.started_at DESC LIMIT 1) as thumb_url,
+		(SELECT server_id FROM watch_history h2
+		 WHERE h2.grandparent_title = watch_history.grandparent_title
+		 AND h2.thumb_url != '' ORDER BY h2.started_at DESC LIMIT 1) as server_id
 	FROM watch_history
-	WHERE media_type = ? AND grandparent_title != ''`
-	args := []any{models.MediaTypeTV}
+	WHERE media_type = ? AND grandparent_title != ''` + timeClause + `
+	GROUP BY grandparent_title
+	ORDER BY play_count DESC
+	LIMIT ?`
 
-	clause, filterArgs := buildTimeFilter(days)
-	query += clause
-	args = append(args, filterArgs...)
-
-	query += ` GROUP BY grandparent_title ORDER BY play_count DESC LIMIT ?`
+	args := append([]any{models.MediaTypeTV}, timeArgs...)
 	args = append(args, limit)
 
 	rows, err := s.db.Query(query, args...)
@@ -80,11 +92,19 @@ func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
 	for rows.Next() {
 		var stat models.MediaStat
 		var totalHours sql.NullFloat64
-		if err := rows.Scan(&stat.Title, &stat.Year, &stat.PlayCount, &totalHours); err != nil {
+		var thumbURL sql.NullString
+		var serverID sql.NullInt64
+		if err := rows.Scan(&stat.Title, &stat.Year, &stat.PlayCount, &totalHours, &thumbURL, &serverID); err != nil {
 			return nil, fmt.Errorf("scanning media stats: %w", err)
 		}
 		if totalHours.Valid {
 			stat.TotalHours = totalHours.Float64
+		}
+		if thumbURL.Valid {
+			stat.ThumbURL = thumbURL.String
+		}
+		if serverID.Valid {
+			stat.ServerID = serverID.Int64
 		}
 		stats = append(stats, stat)
 	}
