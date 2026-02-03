@@ -244,3 +244,31 @@ type ItemDetails struct {
 	ServerName    string       `json:"server_name"`
 	ServerType    ServerType   `json:"server_type"`
 }
+
+type MediaStat struct {
+	Title      string  `json:"title"`
+	Year       int     `json:"year,omitempty"`
+	PlayCount  int     `json:"play_count"`
+	TotalHours float64 `json:"total_hours"`
+}
+
+type UserStat struct {
+	UserName   string  `json:"user_name"`
+	PlayCount  int     `json:"play_count"`
+	TotalHours float64 `json:"total_hours"`
+}
+
+type LibraryStat struct {
+	TotalPlays    int     `json:"total_plays"`
+	TotalHours    float64 `json:"total_hours"`
+	UniqueUsers   int     `json:"unique_users"`
+	UniqueMovies  int     `json:"unique_movies"`
+	UniqueTVShows int     `json:"unique_tv_shows"`
+}
+
+type SharerAlert struct {
+	UserName  string   `json:"user_name"`
+	UniqueIPs int      `json:"unique_ips"`
+	Locations []string `json:"locations"`
+	LastSeen  string   `json:"last_seen"`
+}

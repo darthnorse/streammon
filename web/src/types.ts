@@ -151,3 +151,42 @@ export interface ItemDetails {
   server_name: string
   server_type: ServerType
 }
+
+export interface MediaStat {
+  title: string
+  year?: number
+  play_count: number
+  total_hours: number
+}
+
+export interface UserStat {
+  user_name: string
+  play_count: number
+  total_hours: number
+}
+
+export interface LibraryStat {
+  total_plays: number
+  total_hours: number
+  unique_users: number
+  unique_movies: number
+  unique_tv_shows: number
+}
+
+export interface SharerAlert {
+  user_name: string
+  unique_ips: number
+  locations: string[]
+  last_seen: string
+}
+
+export interface StatsResponse {
+  top_movies: MediaStat[]
+  top_tv_shows: MediaStat[]
+  top_users: UserStat[]
+  library: LibraryStat
+  concurrent_peak: number
+  concurrent_peak_at?: string
+  locations: GeoResult[]
+  potential_sharers: SharerAlert[]
+}
