@@ -27,21 +27,12 @@ Browse to `http://localhost:7935`.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DB_PATH` | `./data/streammon.db` | SQLite database path |
-| `GEOIP_PATH` | `./geoip/GeoLite2-City.mmdb` | MaxMind GeoLite2 database path |
+| `GEOIP_DB` | `./geoip/GeoLite2-City.mmdb` | MaxMind GeoLite2 database path |
 | `LISTEN_ADDR` | `:7935` | HTTP listen address |
 
 ### Optional OIDC
 
-OIDC authentication is configured from the Settings UI at runtime. Alternatively, you can set these environment variables for initial bootstrap:
-
-| Variable | Description |
-|----------|-------------|
-| `OIDC_ISSUER` | OIDC provider URL (e.g. `https://accounts.google.com`) |
-| `OIDC_CLIENT_ID` | OAuth client ID |
-| `OIDC_CLIENT_SECRET` | OAuth client secret |
-| `OIDC_REDIRECT_URL` | Callback URL (e.g. `http://localhost:7935/auth/callback`) |
-
-Settings UI values take precedence over environment variables.
+OIDC authentication is configured from the Settings UI at runtime.
 
 ## Development
 
@@ -55,7 +46,7 @@ make dev-frontend
 
 ## GeoIP
 
-Download [MaxMind GeoLite2-City](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) database and place at the `GEOIP_PATH` location.
+Download [MaxMind GeoLite2-City](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) database and place at the `GEOIP_DB` location.
 
 ## Tech Stack
 
