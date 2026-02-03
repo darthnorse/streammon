@@ -316,16 +316,22 @@ func TestGetItemDetails_Movie(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Wrap in Items array as the new endpoint returns
+	wrappedData := append([]byte(`{"Items":[`), data...)
+	wrappedData = append(wrappedData, []byte(`]}`)...)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Emby-Token") != "test-key" {
 			t.Error("missing X-Emby-Token header")
 		}
-		if r.URL.Path != "/Items/item1" {
+		if r.URL.Path != "/Items" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
+		if r.URL.Query().Get("Ids") != "item1" {
+			t.Errorf("unexpected Ids param: %s", r.URL.Query().Get("Ids"))
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
+		w.Write(wrappedData)
 	}))
 	defer ts.Close()
 
@@ -415,9 +421,11 @@ func TestGetItemDetails_Episode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	wrappedData := append([]byte(`{"Items":[`), data...)
+	wrappedData = append(wrappedData, []byte(`]}`)...)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write(data)
+		w.Write(wrappedData)
 	}))
 	defer ts.Close()
 

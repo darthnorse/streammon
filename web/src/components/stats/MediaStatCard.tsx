@@ -67,12 +67,8 @@ export function MediaStatCard({ title, items }: MediaStatCardProps) {
             {items.slice(0, 5).map((item, idx) => (
               <div
                 key={`${idx}-${item.title}-${item.year ?? 0}`}
-                className={`flex items-center gap-2 py-0.5 px-1 -mx-1 rounded transition-colors ${
+                className={`flex items-center gap-2 py-0.5 px-1 -mx-1 rounded transition-colors hover:bg-panel-hover dark:hover:bg-panel-hover-dark ${
                   item.item_id && item.server_id ? 'cursor-pointer' : ''
-                } ${
-                  (hoveredIdx === idx || (hoveredIdx === null && idx === 0))
-                    ? 'bg-accent/10'
-                    : 'hover:bg-panel-hover dark:hover:bg-panel-hover-dark'
                 }`}
                 onMouseEnter={() => setHoveredIdx(idx)}
                 onMouseLeave={() => setHoveredIdx(null)}

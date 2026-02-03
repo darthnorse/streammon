@@ -177,7 +177,7 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			StartedAt:         time.Now().UTC(),
 		}
 		if s.NowPlaying.ID != "" && s.NowPlaying.ImageTags["Primary"] != "" {
-			as.ThumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, s.NowPlaying.ID)
+			as.ThumbURL = s.NowPlaying.ID
 		}
 		var container string
 		var bitrate int64
@@ -396,7 +396,8 @@ type personJSON struct {
 }
 
 func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
-	url := fmt.Sprintf("%s/Items/%s", c.url, itemID)
+	// Use Items?Ids= endpoint which doesn't require user context
+	url := fmt.Sprintf("%s/Items?Ids=%s&Fields=Overview,Genres,People,Studios,ProductionYear,OfficialRating,CommunityRating,MediaSources", c.url, itemID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -420,10 +421,16 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 		return nil, err
 	}
 
-	var item itemDetailsJSON
-	if err := json.Unmarshal(body, &item); err != nil {
+	var container struct {
+		Items []itemDetailsJSON `json:"Items"`
+	}
+	if err := json.Unmarshal(body, &container); err != nil {
 		return nil, fmt.Errorf("%s parse item details: %w", c.serverType, err)
 	}
+	if len(container.Items) == 0 {
+		return nil, models.ErrNotFound
+	}
+	item := container.Items[0]
 
 	directors := make([]string, 0)
 	cast := make([]models.CastMember, 0)

@@ -179,6 +179,7 @@ type plexItem struct {
 	User                  user              `xml:"User"`
 	Media                 []plexMedia       `xml:"Media"`
 	Thumb                 string            `xml:"thumb,attr"`
+	GrandparentThumb      string            `xml:"grandparentThumb,attr"`
 	TranscodeSession      *transcodeSession `xml:"TranscodeSession"`
 }
 
@@ -338,8 +339,11 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 		Bandwidth:         atoi64(item.Session.Bandwidth) * 1000, // Plex reports kbps
 		StartedAt:         time.Now().UTC(),
 	}
-	if item.Thumb != "" {
-		as.ThumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, strings.TrimPrefix(item.Thumb, "/"))
+	// For episodes, use series poster (grandparentThumb) instead of episode thumbnail
+	if item.GrandparentThumb != "" && item.GrandparentRatingKey != "" {
+		as.ThumbURL = item.GrandparentRatingKey
+	} else if item.Thumb != "" {
+		as.ThumbURL = strings.TrimPrefix(item.Thumb, "/")
 	}
 
 	// Media element contains transcoded output during transcoding, not source

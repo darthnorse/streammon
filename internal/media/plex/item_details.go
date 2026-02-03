@@ -12,8 +12,9 @@ import (
 )
 
 type itemDetailsContainer struct {
-	XMLName xml.Name         `xml:"MediaContainer"`
-	Videos  []itemDetailItem `xml:"Video"`
+	XMLName     xml.Name         `xml:"MediaContainer"`
+	Videos      []itemDetailItem `xml:"Video"`
+	Directories []itemDetailItem `xml:"Directory"`
 }
 
 type itemDetailItem struct {
@@ -94,11 +95,14 @@ func parseItemDetails(data []byte, serverID int64, serverName string) (*models.I
 		return nil, fmt.Errorf("plex parse item details: %w", err)
 	}
 
-	if len(container.Videos) == 0 {
+	var item itemDetailItem
+	if len(container.Videos) > 0 {
+		item = container.Videos[0]
+	} else if len(container.Directories) > 0 {
+		item = container.Directories[0]
+	} else {
 		return nil, models.ErrNotFound
 	}
-
-	item := container.Videos[0]
 
 	genres := make([]string, 0, len(item.Genres))
 	for _, g := range item.Genres {

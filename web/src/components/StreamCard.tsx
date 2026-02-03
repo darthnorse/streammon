@@ -118,7 +118,7 @@ export function StreamCard({ stream }: StreamCardProps) {
           {stream.thumb_url ? (
             <div className="relative">
               <img
-                src={stream.thumb_url}
+                src={`/api/servers/${stream.server_id}/thumb/${stream.thumb_url}`}
                 alt=""
                 className="w-28 h-[168px] object-cover rounded-lg shadow-md bg-gray-200 dark:bg-white/5"
               />
