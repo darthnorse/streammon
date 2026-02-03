@@ -18,15 +18,15 @@ export default function App() {
     <AuthProvider>
       <AuthGuard>
         <ErrorBoundary>
-        <Routes>
-      <Route element={<Layout />}>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/history" element={<History />} />
-        <Route path="/users/:name" element={<UserDetail />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<NotFound />} />
-      </Route>
-        </Routes>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/history" element={<History />} />
+              <Route path="/users/:name" element={<UserDetail />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
         </ErrorBoundary>
       </AuthGuard>
     </AuthProvider>

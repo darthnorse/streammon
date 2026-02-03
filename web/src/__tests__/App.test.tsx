@@ -28,7 +28,7 @@ describe('App routes', () => {
         <App />
       </MemoryRouter>
     )
-    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeDefined()
+    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument()
   })
 
   it('renders history at /history', () => {
@@ -37,7 +37,7 @@ describe('App routes', () => {
         <App />
       </MemoryRouter>
     )
-    expect(screen.getByRole('heading', { name: 'History' })).toBeDefined()
+    expect(screen.getByRole('heading', { name: 'History' })).toBeInTheDocument()
   })
 
   it('renders 404 for unknown routes', () => {
@@ -46,6 +46,6 @@ describe('App routes', () => {
         <App />
       </MemoryRouter>
     )
-    expect(screen.getByText('Page not found')).toBeDefined()
+    expect(screen.getByText('Page not found')).toBeInTheDocument()
   })
 })

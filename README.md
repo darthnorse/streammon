@@ -28,7 +28,7 @@ Browse to `http://localhost:7935`.
 |----------|---------|-------------|
 | `DB_PATH` | `./data/streammon.db` | SQLite database path |
 | `GEOIP_PATH` | `./geoip/GeoLite2-City.mmdb` | MaxMind GeoLite2 database path |
-| `LISTEN_ADDR` | `:8080` | HTTP listen address |
+| `LISTEN_ADDR` | `:7935` | HTTP listen address |
 
 ### Optional OIDC
 

@@ -10,7 +10,7 @@ interface EmptyStateProps {
 export function EmptyState({ icon, title, description, children }: EmptyStateProps) {
   return (
     <div className="card p-12 text-center">
-      <div className="text-4xl mb-3 opacity-30">{icon}</div>
+      <div className="text-4xl mb-3 opacity-30" aria-hidden="true">{icon}</div>
       <p className="text-muted dark:text-muted-dark">{title}</p>
       {description && (
         <p className="text-sm text-muted dark:text-muted-dark mt-1">{description}</p>

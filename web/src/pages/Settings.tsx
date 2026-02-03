@@ -239,12 +239,7 @@ export function Settings() {
           {oidcError && !oidcLoading && <ErrorCard message={oidcError} onRetry={fetchOidc} />}
 
           {!oidcLoading && !oidcError && !oidcConfigured && (
-            <div className="card p-8 text-center">
-              <div className="text-4xl mb-3 opacity-30">&#128274;</div>
-              <p className="font-medium mb-1">OIDC Not Configured</p>
-              <p className="text-sm text-muted dark:text-muted-dark mb-4">
-                Configure OpenID Connect to enable single sign-on authentication.
-              </p>
+            <EmptyState icon="&#128274;" title="OIDC Not Configured" description="Configure OpenID Connect to enable single sign-on authentication.">
               <button
                 onClick={() => setShowOidcForm(true)}
                 className="px-4 py-2.5 text-sm font-semibold rounded-lg
@@ -252,7 +247,7 @@ export function Settings() {
               >
                 Configure OIDC
               </button>
-            </div>
+            </EmptyState>
           )}
 
           {!oidcLoading && !oidcError && oidcConfigured && oidc && (

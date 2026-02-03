@@ -1,4 +1,4 @@
-import { Component, ReactNode } from 'react'
+import React, { Component, ReactNode } from 'react'
 
 interface Props {
   children: ReactNode
@@ -13,6 +13,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   static getDerivedStateFromError(): State {
     return { hasError: true }
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('ErrorBoundary caught:', error, info.componentStack)
   }
 
   render() {
