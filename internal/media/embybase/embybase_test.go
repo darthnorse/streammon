@@ -11,6 +11,12 @@ import (
 	"streammon/internal/models"
 )
 
+// wrapInItemsArray wraps JSON data in an Items array for the Items?Ids= endpoint format
+func wrapInItemsArray(data []byte) []byte {
+	result := append([]byte(`{"Items":[`), data...)
+	return append(result, []byte(`]}`)...)
+}
+
 func TestGetSessions(t *testing.T) {
 	data, err := os.ReadFile("testdata/sessions.json")
 	if err != nil {
@@ -316,9 +322,7 @@ func TestGetItemDetails_Movie(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Wrap in Items array as the new endpoint returns
-	wrappedData := append([]byte(`{"Items":[`), data...)
-	wrappedData = append(wrappedData, []byte(`]}`)...)
+	wrappedData := wrapInItemsArray(data)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Emby-Token") != "test-key" {
@@ -421,8 +425,7 @@ func TestGetItemDetails_Episode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrappedData := append([]byte(`{"Items":[`), data...)
-	wrappedData = append(wrappedData, []byte(`]}`)...)
+	wrappedData := wrapInItemsArray(data)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write(wrappedData)

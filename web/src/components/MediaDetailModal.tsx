@@ -159,7 +159,7 @@ function WatchHistory({ item }: { item: ItemDetails }) {
                 {entry.user_name}
               </Link>
               <span className="text-muted dark:text-muted-dark truncate">
-                {entry.grandparent_title ? `${entry.title}` : ''}
+                {entry.grandparent_title ? entry.title : ''}
               </span>
             </div>
             <div className="text-xs text-muted dark:text-muted-dark whitespace-nowrap ml-2">

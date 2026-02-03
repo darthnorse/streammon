@@ -197,7 +197,7 @@ func TestGetItemDetails_TVSeries(t *testing.T) {
 		t.Errorf("year = %d, want 2008", details.Year)
 	}
 	if details.MediaType != models.MediaTypeTV {
-		t.Errorf("media type = %q, want episode", details.MediaType)
+		t.Errorf("media type = %q, want %q", details.MediaType, models.MediaTypeTV)
 	}
 	if len(details.Genres) != 2 || details.Genres[0] != "Drama" {
 		t.Errorf("genres = %v, want [Drama, Crime]", details.Genres)

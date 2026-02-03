@@ -440,10 +440,7 @@ func plexDecision(d string) models.TranscodeDecision {
 // isHWAccel checks if the transcode HW value indicates hardware acceleration.
 // Plex can return "1" (older format) or the codec name like "nvdec", "qsv", "vaapi".
 func isHWAccel(val string) bool {
-	if val == "" || val == "0" {
-		return false
-	}
-	return true
+	return val != "" && val != "0"
 }
 
 func plexMediaType(t string) models.MediaType {
