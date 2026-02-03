@@ -27,7 +27,7 @@ func (s *Server) handleGetRecentMedia(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		items, err := ms.GetRecentlyAdded(r.Context(), 10)
+		items, err := ms.GetRecentlyAdded(r.Context(), 25)
 		if err != nil {
 			log.Printf("recent media from %s: %v", ms.Name(), err)
 			continue
@@ -40,8 +40,8 @@ func (s *Server) handleGetRecentMedia(w http.ResponseWriter, r *http.Request) {
 		return allItems[i].AddedAt.After(allItems[j].AddedAt)
 	})
 
-	if len(allItems) > 20 {
-		allItems = allItems[:20]
+	if len(allItems) > 50 {
+		allItems = allItems[:50]
 	}
 
 	writeJSON(w, http.StatusOK, allItems)
