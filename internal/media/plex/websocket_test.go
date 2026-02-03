@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
-
 	"streammon/internal/models"
+
+	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
@@ -48,7 +48,7 @@ func TestSubscribeReceivesPlayingEvent(t *testing.T) {
 		if u.RatingKey != "500" {
 			t.Errorf("rating key = %q, want 500", u.RatingKey)
 		}
-		if u.State != "playing" {
+		if u.State != models.SessionStatePlaying {
 			t.Errorf("state = %q, want playing", u.State)
 		}
 		if u.ViewOffset != 12345 {
@@ -57,7 +57,6 @@ func TestSubscribeReceivesPlayingEvent(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for update")
 	}
-	cancel()
 }
 
 func TestSubscribeIgnoresNonPlayingEvents(t *testing.T) {
@@ -93,13 +92,12 @@ func TestSubscribeIgnoresNonPlayingEvents(t *testing.T) {
 
 	select {
 	case u := <-ch:
-		if u.State != "paused" {
+		if u.State != models.SessionStatePaused {
 			t.Errorf("expected paused, got %s", u.State)
 		}
 	case <-ctx.Done():
 		t.Fatal("timed out")
 	}
-	cancel()
 }
 
 func TestSubscribeStopsOnContextCancel(t *testing.T) {
@@ -185,7 +183,6 @@ func TestSubscribeReconnectsOnClose(t *testing.T) {
 	if connectCount.Load() < 2 {
 		t.Errorf("expected at least 2 connections, got %d", connectCount.Load())
 	}
-	cancel()
 }
 
 func startWSServer(t *testing.T, handler func(*websocket.Conn)) *Server {

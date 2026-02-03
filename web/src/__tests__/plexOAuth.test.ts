@@ -83,10 +83,11 @@ describe('getAuthUrl', () => {
 })
 
 describe('fetchResources', () => {
-  it('returns server list filtered to provides=server', async () => {
+  it('returns server list filtered to owned servers', async () => {
     const resources = [
-      { name: 'My Server', clientIdentifier: 'abc', accessToken: 'tok', provides: 'server', connections: [{ uri: 'https://1.2.3.4:32400', local: false, relay: false, protocol: 'https' }] },
-      { name: 'Player', clientIdentifier: 'def', accessToken: 'tok2', provides: 'player', connections: [] },
+      { name: 'My Server', clientIdentifier: 'abc', accessToken: 'tok', provides: 'server', owned: true, connections: [{ uri: 'https://1.2.3.4:32400', local: false, relay: false, protocol: 'https' }] },
+      { name: 'Shared Server', clientIdentifier: 'ghi', accessToken: 'tok3', provides: 'server', owned: false, connections: [] },
+      { name: 'Player', clientIdentifier: 'def', accessToken: 'tok2', provides: 'player', owned: true, connections: [] },
     ]
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify(resources), { status: 200 })

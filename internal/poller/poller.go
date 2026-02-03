@@ -51,15 +51,14 @@ func (p *Poller) AddServer(id int64, ms media.MediaServer) {
 	p.mu.Lock()
 	p.servers[id] = ms
 	ctx := p.ctx
-	p.mu.Unlock()
-
 	if rt, ok := ms.(media.RealtimeSubscriber); ok && ctx != nil {
 		wsCtx, cancel := context.WithCancel(ctx)
-		p.mu.Lock()
 		p.wsCancel[id] = cancel
 		p.mu.Unlock()
 		go p.consumeUpdates(wsCtx, id, rt)
+		return
 	}
+	p.mu.Unlock()
 }
 
 func (p *Poller) RemoveServer(id int64) {
@@ -137,9 +136,11 @@ func (p *Poller) consumeUpdates(ctx context.Context, serverID int64, rt media.Re
 func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
 	p.mu.Lock()
 	var ended *models.ActiveStream
+	matched := false
 	for key, session := range p.sessions {
 		if session.ServerID == serverID && session.SessionID == u.SessionKey {
-			if u.State == "stopped" {
+			matched = true
+			if u.State == models.SessionStateStopped {
 				ended = &session
 				delete(p.sessions, key)
 			} else {
@@ -151,11 +152,14 @@ func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
 	}
 	p.mu.Unlock()
 
+	if !matched {
+		return
+	}
+
 	if ended != nil {
 		p.persistHistory(*ended)
 	}
 
-	// Publish after releasing mu, matching the pattern in poll()
 	snapshot := p.CurrentSessions()
 	p.publish(snapshot)
 }
@@ -198,6 +202,7 @@ func (p *Poller) poll(ctx context.Context) {
 	failedServers := make(map[int64]struct{})
 	newSessions := make(map[string]models.ActiveStream)
 
+	now := time.Now().UTC()
 	for _, entry := range servers {
 		streams, err := entry.mediaServer.GetSessions(ctx)
 		if err != nil {
@@ -210,15 +215,22 @@ func (p *Poller) poll(ctx context.Context) {
 			if prev, ok := oldSessions[key]; ok {
 				s.StartedAt = prev.StartedAt
 			}
+			s.LastPollSeen = now
 			newSessions[key] = s
 		}
 	}
 
-	// Carry forward sessions from failed servers to avoid false history entries
+	// Carry forward sessions from failed servers to avoid false history entries,
+	// but only if they were seen in a poll within the last 5 minutes
+	staleThreshold := now.Add(-5 * time.Minute)
 	for key, prev := range oldSessions {
 		if _, failed := failedServers[prev.ServerID]; failed {
 			if _, exists := newSessions[key]; !exists {
-				newSessions[key] = prev
+				if prev.LastPollSeen.After(staleThreshold) {
+					newSessions[key] = prev
+				} else {
+					log.Printf("removing stale session %s (last seen %v)", prev.Title, prev.LastPollSeen)
+				}
 			}
 		}
 	}

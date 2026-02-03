@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { Server, ServerType } from '../types'
 import { api } from '../lib/api'
+import { PlexSignIn } from './PlexSignIn'
 
 interface ServerFormProps {
   server?: Server
@@ -219,6 +220,15 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
               ))}
             </select>
           </div>
+
+          {!isEdit && form.type === 'plex' && (
+            <div className="border border-border dark:border-border-dark rounded-lg p-4">
+              <PlexSignIn onServersAdded={onSaved} />
+              <p className="text-xs text-muted dark:text-muted-dark mt-2">
+                Or fill in the fields below manually.
+              </p>
+            </div>
+          )}
 
           <div>
             <label htmlFor="srv-url" className="block text-sm font-medium mb-1.5">URL</label>

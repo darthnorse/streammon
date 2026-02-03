@@ -45,7 +45,7 @@ describe('PlexSignIn', () => {
     mockRequestPin.mockResolvedValue({ id: 1, code: 'ABCD', authToken: null })
     mockCheckPin.mockResolvedValue({ id: 1, code: 'ABCD', authToken: null })
 
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({ closed: false, close: vi.fn() } as unknown as Window)
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({ closed: false, close: vi.fn(), location: { href: '' } } as unknown as Window)
 
     renderWithRouter(<PlexSignIn onServersAdded={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /sign in to plex/i }))
@@ -67,11 +67,12 @@ describe('PlexSignIn', () => {
         clientIdentifier: 'abc',
         accessToken: 'srv-token',
         provides: 'server',
+        owned: true,
         connections: [{ uri: 'https://192.168.1.100:32400', local: false, relay: false, protocol: 'https' }],
       },
     ])
 
-    const popup = { closed: false, close: vi.fn() } as unknown as Window
+    const popup = { closed: false, close: vi.fn(), location: { href: '' } } as unknown as Window
     vi.spyOn(window, 'open').mockReturnValue(popup)
 
     renderWithRouter(<PlexSignIn onServersAdded={vi.fn()} />)
@@ -98,13 +99,14 @@ describe('PlexSignIn', () => {
         clientIdentifier: 'abc',
         accessToken: 'srv-token',
         provides: 'server',
+        owned: true,
         connections: [{ uri: 'https://192.168.1.100:32400', local: false, relay: false, protocol: 'https' }],
       },
     ])
     mockApiPost.mockResolvedValue({})
 
     const onServersAdded = vi.fn()
-    const popup = { closed: false, close: vi.fn() } as unknown as Window
+    const popup = { closed: false, close: vi.fn(), location: { href: '' } } as unknown as Window
     vi.spyOn(window, 'open').mockReturnValue(popup)
 
     renderWithRouter(<PlexSignIn onServersAdded={onServersAdded} />)
@@ -137,7 +139,7 @@ describe('PlexSignIn', () => {
     mockCheckPin.mockResolvedValue({ id: 1, code: 'ABCD', authToken: 'my-token' })
     mockFetchResources.mockResolvedValue([])
 
-    const popup = { closed: false, close: vi.fn() } as unknown as Window
+    const popup = { closed: false, close: vi.fn(), location: { href: '' } } as unknown as Window
     vi.spyOn(window, 'open').mockReturnValue(popup)
 
     renderWithRouter(<PlexSignIn onServersAdded={vi.fn()} />)
@@ -153,12 +155,15 @@ describe('PlexSignIn', () => {
 
   it('shows error when PIN request fails', async () => {
     mockRequestPin.mockRejectedValue(new Error('Network error'))
+    const popup = { closed: false, close: vi.fn(), location: { href: '' } } as unknown as Window
+    vi.spyOn(window, 'open').mockReturnValue(popup)
 
     renderWithRouter(<PlexSignIn onServersAdded={vi.fn()} />)
     fireEvent.click(screen.getByRole('button', { name: /sign in to plex/i }))
 
     await waitFor(() => {
       expect(screen.getByText(/failed to start/i)).toBeDefined()
+      expect(popup.close).toHaveBeenCalled()
     })
   })
 })

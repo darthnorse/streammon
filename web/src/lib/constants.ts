@@ -11,6 +11,8 @@ export const mediaTypeLabels: Record<MediaType, string> = {
 
 export const PER_PAGE = 20
 
+export const plexBtnClass = 'px-4 py-2.5 text-sm font-semibold rounded-lg bg-[#e5a00d] text-gray-900 hover:bg-[#cc8e0b] transition-colors'
+
 export const navLinks = [
   { to: '/', label: 'Dashboard', icon: '▣' },
   { to: '/history', label: 'History', icon: '☰' },

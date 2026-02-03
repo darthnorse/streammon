@@ -81,6 +81,11 @@ func (s *Server) wsConnect(ctx context.Context, ch chan<- models.SessionUpdate) 
 		return err
 	}
 
+	// Set up pong handler to extend read deadline on each pong
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	})
+
 	// Use a local context to stop the ping goroutine before closing the connection
 	pingCtx, pingCancel := context.WithCancel(ctx)
 	go func() {
@@ -106,11 +111,16 @@ func (s *Server) wsConnect(ctx context.Context, ch chan<- models.SessionUpdate) 
 		conn.Close()
 	}()
 
+	// Initial read deadline - will be extended by pong responses
+	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			return err
 		}
+		// Extend deadline on any message (not just pong)
+		conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 		updates := parsePlexWSMessage(msg)
 		for _, u := range updates {
 			select {
@@ -135,7 +145,7 @@ func parsePlexWSMessage(data []byte) []models.SessionUpdate {
 		updates = append(updates, models.SessionUpdate{
 			SessionKey: ps.SessionKey,
 			RatingKey:  ps.RatingKey,
-			State:      ps.State,
+			State:      models.SessionState(ps.State),
 			ViewOffset: ps.ViewOffset,
 		})
 	}

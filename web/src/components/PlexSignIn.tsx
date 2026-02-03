@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { getClientId, requestPin, checkPin, getAuthUrl, fetchResources, type PlexResource } from '../lib/plexOAuth'
 import { api } from '../lib/api'
+import { plexBtnClass } from '../lib/constants'
 
 interface PlexSignInProps {
   onServersAdded: () => void
@@ -46,17 +47,27 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
 
   async function startAuth() {
     setError('')
+    // Open popup synchronously so it isn't blocked by the browser
+    const popup = window.open('about:blank', 'plexAuth', 'width=800,height=700')
+    if (!popup) {
+      setError('Popup blocked. Please allow popups for this site.')
+      return
+    }
+    popupRef.current = popup
     setPhase('polling')
     try {
       const pin = await requestPin()
       const clientId = getClientId()
       const authUrl = getAuthUrl(clientId, pin.code)
-      popupRef.current = window.open(authUrl, 'plexAuth', 'width=800,height=700')
+      if (!popup.closed) {
+        popup.location.href = authUrl
+      }
 
       abortRef.current = new AbortController()
       pollForToken(pin.id, abortRef.current.signal)
-    } catch {
-      setError('Failed to start Plex sign-in. Please try again.')
+    } catch (err) {
+      if (popup && !popup.closed) popup.close()
+      setError(`Failed to start Plex sign-in: ${errorMessage(err)}`)
       setPhase('idle')
     }
   }
@@ -68,6 +79,7 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
       if (signal.aborted) return
 
       if (popupRef.current?.closed) {
+        abortRef.current?.abort()
         setError('Sign-in window was closed. Please try again.')
         setPhase('idle')
         return
@@ -84,9 +96,7 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
           await loadResources(result.authToken)
           return
         }
-      } catch {
-        // continue polling
-      }
+      } catch { /* retry on next poll */ }
     }
 
     if (!signal.aborted) {
@@ -146,6 +156,7 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
     setPhase('idle')
     setResources([])
     setSelected(new Set())
+    setToken('')
     setError('')
   }
 
@@ -154,8 +165,7 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
       <div>
         <button
           onClick={startAuth}
-          className="px-4 py-2.5 text-sm font-semibold rounded-lg
-                     bg-[#e5a00d] text-gray-900 hover:bg-[#cc8e0b] transition-colors"
+          className={plexBtnClass}
         >
           Sign in to Plex
         </button>
@@ -168,7 +178,7 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
 
   if (phase === 'polling') {
     return (
-      <div className="card p-5">
+      <div>
         <p className="text-sm">Waiting for Plex authorization...</p>
         <p className="text-xs text-muted dark:text-muted-dark mt-1">
           Complete sign-in in the popup window.
@@ -184,7 +194,7 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
   }
 
   return (
-    <div className="card p-5">
+    <div>
       <h3 className="font-semibold text-base mb-3">Select Plex Servers</h3>
 
       {resources.length === 0 && (

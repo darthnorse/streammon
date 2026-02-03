@@ -46,14 +46,14 @@ export function UserDetail() {
     )
   }
 
-  if (userError) {
-    const notFound = userError instanceof ApiError && userError.status === 404
+  // User record may not exist (e.g., Plex user who hasn't logged into StreamMon)
+  // We still show their watch history based on username from session data
+  const userNotFound = userError instanceof ApiError && userError.status === 404
+  if (userError && !userNotFound) {
     return (
       <div className="card p-12 text-center">
-        <div className="text-4xl mb-3 opacity-30">?</div>
-        <p className="text-muted dark:text-muted-dark">
-          {notFound ? 'User not found' : 'Failed to load user'}
-        </p>
+        <div className="text-4xl mb-3 opacity-30">!</div>
+        <p className="text-muted dark:text-muted-dark">Failed to load user</p>
         <Link to="/history" className="text-sm text-accent-dim dark:text-accent hover:underline mt-2 inline-block">
           Back to History
         </Link>

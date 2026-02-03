@@ -59,11 +59,11 @@ func (s *Server) handleUpdateMaxMindSettings(w http.ResponseWriter, r *http.Requ
 	}
 
 	if s.geoUpdater != nil {
-		go func() {
-			if err := s.geoUpdater.Download(); err != nil {
-				log.Printf("maxmind download: %v", err)
-			}
-		}()
+		if err := s.geoUpdater.Download(); err != nil {
+			log.Printf("maxmind download: %v", err)
+			writeError(w, http.StatusBadGateway, "download failed: "+err.Error())
+			return
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

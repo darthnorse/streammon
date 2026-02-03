@@ -99,11 +99,9 @@ export function StreamCard({ stream }: StreamCardProps) {
 
   return (
     <div className="card card-hover overflow-hidden group">
-      {/* Top accent bar */}
       <div className={`h-0.5 ${accent.bar}`} />
 
       <div className="flex gap-3 p-3 h-full">
-        {/* Poster */}
         <div className="shrink-0 flex flex-col items-center gap-1.5">
           {stream.thumb_url ? (
             <div className="relative">
@@ -126,9 +124,7 @@ export function StreamCard({ stream }: StreamCardProps) {
           </span>
         </div>
 
-        {/* Content */}
         <div className="min-w-0 flex-1 flex flex-col">
-          {/* Header row */}
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
               <MediaTitle stream={stream} />
@@ -152,7 +148,6 @@ export function StreamCard({ stream }: StreamCardProps) {
 
           <TranscodeInfo stream={stream} />
 
-          {/* Progress — always pinned to bottom */}
           <div className="mt-auto pt-2">
             <div className="flex items-baseline justify-between text-[10px] font-mono mb-0.5">
               <span className="text-muted dark:text-muted-dark">{formatTimestamp(stream.progress_ms)} / {formatTimestamp(stream.duration_ms)}</span>

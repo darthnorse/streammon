@@ -50,7 +50,7 @@ func TestAddServerStartsWebSocket(t *testing.T) {
 	triggerAndWaitPoll(t, p)
 
 	// Send a WS update
-	ch <- models.SessionUpdate{SessionKey: "s1", State: "playing", ViewOffset: 50000}
+	ch <- models.SessionUpdate{SessionKey: "s1", State: models.SessionStatePlaying, ViewOffset: 50000}
 
 	// Give the goroutine time to process
 	time.Sleep(100 * time.Millisecond)
@@ -99,7 +99,7 @@ func TestWebSocketStoppedStateRemovesSession(t *testing.T) {
 		t.Fatal("expected 1 session before stop")
 	}
 
-	ch <- models.SessionUpdate{SessionKey: "s1", State: "stopped", ViewOffset: 80000}
+	ch <- models.SessionUpdate{SessionKey: "s1", State: models.SessionStateStopped, ViewOffset: 80000}
 	time.Sleep(100 * time.Millisecond)
 
 	if len(p.CurrentSessions()) != 0 {

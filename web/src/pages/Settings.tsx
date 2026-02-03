@@ -3,7 +3,6 @@ import type { Server, OIDCSettings } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { ServerForm } from '../components/ServerForm'
-import { PlexSignIn } from '../components/PlexSignIn'
 import { OIDCForm } from '../components/OIDCForm'
 import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
 import { EmptyState } from '../components/EmptyState'
@@ -34,7 +33,6 @@ export function Settings() {
   const [editingServer, setEditingServer] = useState<Server | undefined>()
   const [showForm, setShowForm] = useState(false)
   const [showOidcForm, setShowOidcForm] = useState(false)
-  const [showPlexSignIn, setShowPlexSignIn] = useState(false)
   const [actionError, setActionError] = useState('')
 
   const serverList = servers ?? []
@@ -97,19 +95,10 @@ export function Settings() {
           </p>
         </div>
         {tab === 'servers' && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => setShowPlexSignIn(v => !v)}
-              className="px-4 py-2.5 text-sm font-semibold rounded-lg
-                         bg-[#e5a00d] text-gray-900 hover:bg-[#cc8e0b] transition-colors"
-            >
-              Sign in to Plex
-            </button>
-            <button onClick={openAdd} className="px-4 py-2.5 text-sm font-semibold rounded-lg
-                       bg-accent text-gray-900 hover:bg-accent/90 transition-colors">
-              Add Server
-            </button>
-          </div>
+          <button onClick={openAdd} className="px-4 py-2.5 text-sm font-semibold rounded-lg
+                     bg-accent text-gray-900 hover:bg-accent/90 transition-colors">
+            Add Server
+          </button>
         )}
       </div>
 
@@ -137,12 +126,6 @@ export function Settings() {
 
       {tab === 'servers' && (
         <>
-          {showPlexSignIn && (
-            <div className="mb-4">
-              <PlexSignIn onServersAdded={() => { setShowPlexSignIn(false); refetchServers() }} />
-            </div>
-          )}
-
           {loading && <EmptyState icon="⟳" title="Loading..." />}
 
           {fetchError && !loading && (

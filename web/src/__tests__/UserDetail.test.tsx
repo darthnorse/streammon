@@ -49,11 +49,12 @@ describe('UserDetail', () => {
     expect(screen.getByText(/loading user/i)).toBeDefined()
   })
 
-  it('shows not found for 404 error', () => {
+  it('shows page with username when user record not found (404)', () => {
     const err = new ApiError(404, 'not found')
     mockUseFetch.mockReturnValue({ data: null, loading: false, error: err, refetch: vi.fn() })
     renderAtRoute('/users/nobody')
-    expect(screen.getByText(/user not found/i)).toBeDefined()
+    // User may not have a StreamMon account but we still show their history page
+    expect(screen.getByRole('heading', { name: 'nobody' })).toBeDefined()
   })
 
   it('shows generic error for non-404', () => {
