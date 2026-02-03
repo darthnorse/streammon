@@ -24,8 +24,11 @@ type Poller struct {
 	subscribers map[chan []models.ActiveStream]struct{}
 
 	startOnce sync.Once
+	ctx       context.Context
 	cancel    context.CancelFunc
 	done      chan struct{}
+
+	wsCancel map[int64]context.CancelFunc // per-server WS goroutine cancellation
 
 	// triggerPoll forces an immediate poll cycle (for testing)
 	triggerPoll chan struct{}
@@ -40,29 +43,43 @@ func New(s *store.Store, interval time.Duration) *Poller {
 		servers:     make(map[int64]media.MediaServer),
 		sessions:    make(map[string]models.ActiveStream),
 		subscribers: make(map[chan []models.ActiveStream]struct{}),
+		wsCancel:    make(map[int64]context.CancelFunc),
 	}
 }
 
 func (p *Poller) AddServer(id int64, ms media.MediaServer) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.servers[id] = ms
+	p.mu.Unlock()
+
+	if rt, ok := ms.(media.RealtimeSubscriber); ok && p.ctx != nil {
+		ctx, cancel := context.WithCancel(p.ctx)
+		p.mu.Lock()
+		p.wsCancel[id] = cancel
+		p.mu.Unlock()
+		go p.consumeUpdates(ctx, id, rt)
+	}
 }
 
 func (p *Poller) RemoveServer(id int64) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	if cancel, ok := p.wsCancel[id]; ok {
+		cancel()
+		delete(p.wsCancel, id)
+	}
 	delete(p.servers, id)
 	for key, s := range p.sessions {
 		if s.ServerID == id {
 			delete(p.sessions, key)
 		}
 	}
+	p.mu.Unlock()
 }
 
 func (p *Poller) Start(ctx context.Context) {
 	p.startOnce.Do(func() {
 		ctx, p.cancel = context.WithCancel(ctx)
+		p.ctx = ctx
 		p.done = make(chan struct{})
 		go p.run(ctx)
 	})
@@ -100,6 +117,52 @@ func (p *Poller) Unsubscribe(ch chan []models.ActiveStream) {
 	p.subMu.Unlock()
 	if exists {
 		close(ch)
+	}
+}
+
+func (p *Poller) consumeUpdates(ctx context.Context, serverID int64, rt media.RealtimeSubscriber) {
+	ch, err := rt.Subscribe(ctx)
+	if err != nil {
+		log.Printf("ws subscribe failed for server %d: %v", serverID, err)
+		return
+	}
+	for update := range ch {
+		p.applyUpdate(serverID, update)
+	}
+}
+
+func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for key, session := range p.sessions {
+		if session.ServerID == serverID && session.SessionID == u.SessionKey {
+			if u.State == "stopped" {
+				p.persistHistory(session)
+				delete(p.sessions, key)
+			} else {
+				session.ProgressMs = u.ViewOffset
+				p.sessions[key] = session
+			}
+			break
+		}
+	}
+
+	p.publishLocked()
+}
+
+func (p *Poller) publishLocked() {
+	snapshot := make([]models.ActiveStream, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		snapshot = append(snapshot, s)
+	}
+	p.subMu.Lock()
+	defer p.subMu.Unlock()
+	for ch := range p.subscribers {
+		select {
+		case ch <- snapshot:
+		default:
+		}
 	}
 }
 
