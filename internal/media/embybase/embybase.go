@@ -259,3 +259,78 @@ func embyMediaType(t string) models.MediaType {
 		return models.MediaType(strings.ToLower(t))
 	}
 }
+
+type libraryItemsResponse struct {
+	Items []libraryItemJSON `json:"Items"`
+}
+
+type libraryItemJSON struct {
+	ID             string            `json:"Id"`
+	Name           string            `json:"Name"`
+	ProductionYear int               `json:"ProductionYear"`
+	Type           string            `json:"Type"`
+	ImageTags      map[string]string `json:"ImageTags"`
+	DateCreated    string            `json:"DateCreated"`
+	SeriesName     string            `json:"SeriesName,omitempty"`
+}
+
+func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
+	url := fmt.Sprintf("%s/Items?Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=%d&IncludeItemTypes=Movie,Episode",
+		c.url, limit)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.client.Do(c.addAuth(req))
+	if err != nil {
+		return nil, fmt.Errorf("%s recently added: %w", c.serverType, err)
+	}
+	defer drainBody(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s recently added: status %d", c.serverType, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+	if err != nil {
+		return nil, err
+	}
+
+	var data libraryItemsResponse
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, fmt.Errorf("%s parse recently added: %w", c.serverType, err)
+	}
+
+	items := make([]models.LibraryItem, 0, len(data.Items))
+	for _, item := range data.Items {
+		addedAt, err := time.Parse(time.RFC3339, item.DateCreated)
+		if err != nil {
+			addedAt = time.Now().UTC()
+		}
+
+		title := item.Name
+		if item.SeriesName != "" {
+			title = item.SeriesName + " - " + item.Name
+		}
+
+		var thumbURL string
+		if item.ImageTags["Primary"] != "" {
+			thumbURL = item.ID
+		}
+
+		items = append(items, models.LibraryItem{
+			Title:      title,
+			Year:       item.ProductionYear,
+			MediaType:  embyMediaType(item.Type),
+			ThumbURL:   thumbURL,
+			AddedAt:    addedAt.UTC(),
+			ServerID:   c.serverID,
+			ServerName: c.serverName,
+			ServerType: c.serverType,
+		})
+	}
+
+	return items, nil
+}

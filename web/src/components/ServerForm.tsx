@@ -15,6 +15,7 @@ interface FormData {
   url: string
   api_key: string
   enabled: boolean
+  show_recent_media: boolean
 }
 
 interface TestResult {
@@ -47,6 +48,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
     url: server?.url ?? '',
     api_key: '',
     enabled: server?.enabled ?? true,
+    show_recent_media: server?.show_recent_media ?? false,
   })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -110,6 +112,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
       url: form.url.trim(),
       api_key: form.api_key,
       enabled: form.enabled,
+      show_recent_media: form.show_recent_media,
     }
   }
 
@@ -263,6 +266,17 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
                          accent-accent cursor-pointer"
             />
             <span className="text-sm font-medium">Enabled</span>
+          </label>
+
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.show_recent_media}
+              onChange={e => setField('show_recent_media', e.target.checked)}
+              className="w-4 h-4 rounded border-border dark:border-border-dark
+                         accent-accent cursor-pointer"
+            />
+            <span className="text-sm font-medium">Show recent media on dashboard</span>
           </label>
 
           {error && (

@@ -11,6 +11,7 @@ type MediaServer interface {
 	Type() models.ServerType
 	GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 	TestConnection(ctx context.Context) error
+	GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error)
 }
 
 // RealtimeSubscriber is optionally implemented by adapters that support

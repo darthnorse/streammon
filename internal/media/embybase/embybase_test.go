@@ -192,3 +192,106 @@ func TestIdleSessionsExcluded(t *testing.T) {
 		t.Errorf("expected 0 sessions, got %d", len(sessions))
 	}
 }
+
+func TestGetRecentlyAdded(t *testing.T) {
+	data, err := os.ReadFile("testdata/recently_added.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Emby-Token") != "test-key" {
+			t.Error("missing X-Emby-Token header")
+		}
+		if r.URL.Path != "/Items" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("SortBy") != "DateCreated" {
+			t.Error("missing SortBy=DateCreated query param")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{
+		ID:     1,
+		Name:   "TestEmby",
+		URL:    ts.URL,
+		APIKey: "test-key",
+	}, models.ServerTypeEmby)
+
+	items, err := c.GetRecentlyAdded(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(items))
+	}
+
+	item := items[0]
+	if item.Title != "Oppenheimer" {
+		t.Errorf("title = %q, want Oppenheimer", item.Title)
+	}
+	if item.Year != 2023 {
+		t.Errorf("year = %d, want 2023", item.Year)
+	}
+	if item.MediaType != models.MediaTypeMovie {
+		t.Errorf("media type = %q, want movie", item.MediaType)
+	}
+	if item.ThumbURL != "item1" {
+		t.Errorf("thumb url = %q, want item1", item.ThumbURL)
+	}
+	if item.ServerID != 1 {
+		t.Errorf("server id = %d, want 1", item.ServerID)
+	}
+	if item.ServerName != "TestEmby" {
+		t.Errorf("server name = %q, want TestEmby", item.ServerName)
+	}
+	if item.ServerType != models.ServerTypeEmby {
+		t.Errorf("server type = %q, want emby", item.ServerType)
+	}
+
+	item2 := items[1]
+	if item2.Title != "Breaking Bad - Ozymandias" {
+		t.Errorf("title = %q, want Breaking Bad - Ozymandias", item2.Title)
+	}
+	if item2.MediaType != models.MediaTypeTV {
+		t.Errorf("media type = %q, want episode", item2.MediaType)
+	}
+
+	item3 := items[2]
+	if item3.ThumbURL != "" {
+		t.Errorf("thumb url = %q, want empty (no Primary tag)", item3.ThumbURL)
+	}
+}
+
+func TestGetRecentlyAddedEmpty(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"Items":[]}`))
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "k"}, models.ServerTypeEmby)
+	items, err := c.GetRecentlyAdded(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 items, got %d", len(items))
+	}
+}
+
+func TestGetRecentlyAddedError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "bad"}, models.ServerTypeEmby)
+	_, err := c.GetRecentlyAdded(context.Background(), 10)
+	if err == nil {
+		t.Error("expected error for 401")
+	}
+}

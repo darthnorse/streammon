@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer size="3">
+  <Video type="movie" title="Oppenheimer" year="2023" thumb="/library/metadata/12345/thumb/1699000000" addedAt="1706900000" />
+  <Video type="episode" title="Ozymandias" grandparentTitle="Breaking Bad" year="2013" thumb="/library/metadata/67890/thumb/1699000001" addedAt="1706800000" />
+  <Video type="movie" title="Inception" year="2010" addedAt="1706700000" />
+</MediaContainer>

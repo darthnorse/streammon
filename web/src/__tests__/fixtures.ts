@@ -64,6 +64,7 @@ export const baseServer: Server = {
   type: 'plex',
   url: 'http://localhost:32400',
   enabled: true,
+  show_recent_media: false,
   created_at: '2024-01-01T00:00:00Z',
   updated_at: '2024-06-15T00:00:00Z',
 }

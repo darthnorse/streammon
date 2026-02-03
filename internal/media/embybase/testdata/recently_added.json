@@ -1,0 +1,29 @@
+{
+  "Items": [
+    {
+      "Id": "item1",
+      "Name": "Oppenheimer",
+      "ProductionYear": 2023,
+      "Type": "Movie",
+      "ImageTags": {"Primary": "abc123"},
+      "DateCreated": "2024-02-01T12:00:00Z"
+    },
+    {
+      "Id": "item2",
+      "Name": "Ozymandias",
+      "SeriesName": "Breaking Bad",
+      "ProductionYear": 2013,
+      "Type": "Episode",
+      "ImageTags": {"Primary": "def456"},
+      "DateCreated": "2024-01-31T12:00:00Z"
+    },
+    {
+      "Id": "item3",
+      "Name": "Inception",
+      "ProductionYear": 2010,
+      "Type": "Movie",
+      "ImageTags": {},
+      "DateCreated": "2024-01-30T12:00:00Z"
+    }
+  ]
+}

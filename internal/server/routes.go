@@ -43,6 +43,7 @@ func (s *Server) routes() {
 		r.Get("/users/{name}/locations", s.handleGetUserLocations)
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
+		r.Get("/dashboard/recent-media", s.handleGetRecentMedia)
 
 		r.Get("/geoip/{ip}", s.handleGeoIPLookup)
 

@@ -169,8 +169,9 @@ describe('ServerForm', () => {
 
   it('has enabled toggle defaulting to true for new servers', () => {
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
-    const toggle = screen.getByRole('checkbox') as HTMLInputElement
-    expect(toggle.checked).toBe(true)
+    const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
+    const enabledToggle = checkboxes.find(cb => cb.nextElementSibling?.textContent === 'Enabled')
+    expect(enabledToggle?.checked).toBe(true)
   })
 
   it('has dialog role with aria-modal', () => {

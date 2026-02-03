@@ -1,0 +1,1 @@
+ALTER TABLE servers ADD COLUMN show_recent_media BOOLEAN NOT NULL DEFAULT 0;

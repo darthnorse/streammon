@@ -76,6 +76,13 @@ func (p *Poller) RemoveServer(id int64) {
 	p.mu.Unlock()
 }
 
+func (p *Poller) GetServer(id int64) (media.MediaServer, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	ms, ok := p.servers[id]
+	return ms, ok
+}
+
 func (p *Poller) Start(ctx context.Context) {
 	p.startOnce.Do(func() {
 		ctx, p.cancel = context.WithCancel(ctx)

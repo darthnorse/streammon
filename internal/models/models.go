@@ -42,14 +42,15 @@ func (st ServerType) Valid() bool {
 }
 
 type Server struct {
-	ID        int64      `json:"id"`
-	Name      string     `json:"name"`
-	Type      ServerType `json:"type"`
-	URL       string     `json:"url"`
-	APIKey    string     `json:"-"`
-	Enabled   bool       `json:"enabled"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID              int64      `json:"id"`
+	Name            string     `json:"name"`
+	Type            ServerType `json:"type"`
+	URL             string     `json:"url"`
+	APIKey          string     `json:"-"`
+	Enabled         bool       `json:"enabled"`
+	ShowRecentMedia bool       `json:"show_recent_media"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 func (s *Server) Validate() error {
@@ -69,20 +70,22 @@ func (s *Server) Validate() error {
 }
 
 type ServerInput struct {
-	Name    string     `json:"name"`
-	Type    ServerType `json:"type"`
-	URL     string     `json:"url"`
-	APIKey  string     `json:"api_key"`
-	Enabled bool       `json:"enabled"`
+	Name            string     `json:"name"`
+	Type            ServerType `json:"type"`
+	URL             string     `json:"url"`
+	APIKey          string     `json:"api_key"`
+	Enabled         bool       `json:"enabled"`
+	ShowRecentMedia bool       `json:"show_recent_media"`
 }
 
 func (si *ServerInput) ToServer() *Server {
 	return &Server{
-		Name:    si.Name,
-		Type:    si.Type,
-		URL:     si.URL,
-		APIKey:  si.APIKey,
-		Enabled: si.Enabled,
+		Name:            si.Name,
+		Type:            si.Type,
+		URL:             si.URL,
+		APIKey:          si.APIKey,
+		Enabled:         si.Enabled,
+		ShowRecentMedia: si.ShowRecentMedia,
 	}
 }
 
@@ -200,4 +203,15 @@ type GeoResult struct {
 	City     string  `json:"city"`
 	Country  string  `json:"country"`
 	LastSeen *string `json:"last_seen,omitempty"`
+}
+
+type LibraryItem struct {
+	Title      string     `json:"title"`
+	Year       int        `json:"year,omitempty"`
+	MediaType  MediaType  `json:"media_type"`
+	ThumbURL   string     `json:"thumb_url,omitempty"`
+	AddedAt    time.Time  `json:"added_at"`
+	ServerID   int64      `json:"server_id"`
+	ServerName string     `json:"server_name"`
+	ServerType ServerType `json:"server_type"`
 }

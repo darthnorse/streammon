@@ -9,6 +9,7 @@ export interface Server {
   type: ServerType
   url: string
   enabled: boolean
+  show_recent_media: boolean
   created_at: string
   updated_at: string
 }
@@ -109,4 +110,15 @@ export interface OIDCSettings {
   client_secret: string
   redirect_url: string
   enabled: boolean
+}
+
+export interface LibraryItem {
+  title: string
+  year?: number
+  media_type: MediaType
+  thumb_url?: string
+  added_at: string
+  server_id: number
+  server_name: string
+  server_type: ServerType
 }

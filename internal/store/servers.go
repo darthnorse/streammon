@@ -8,18 +8,18 @@ import (
 	"streammon/internal/models"
 )
 
-const serverColumns = `id, name, type, url, api_key, enabled, created_at, updated_at`
+const serverColumns = `id, name, type, url, api_key, enabled, show_recent_media, created_at, updated_at`
 
 func scanServer(scanner interface{ Scan(...any) error }) (models.Server, error) {
 	var srv models.Server
-	err := scanner.Scan(&srv.ID, &srv.Name, &srv.Type, &srv.URL, &srv.APIKey, &srv.Enabled, &srv.CreatedAt, &srv.UpdatedAt)
+	err := scanner.Scan(&srv.ID, &srv.Name, &srv.Type, &srv.URL, &srv.APIKey, &srv.Enabled, &srv.ShowRecentMedia, &srv.CreatedAt, &srv.UpdatedAt)
 	return srv, err
 }
 
 func (s *Store) CreateServer(srv *models.Server) error {
 	created, err := scanServer(s.db.QueryRow(
-		`INSERT INTO servers (name, type, url, api_key, enabled) VALUES (?, ?, ?, ?, ?) RETURNING `+serverColumns,
-		srv.Name, srv.Type, srv.URL, srv.APIKey, srv.Enabled,
+		`INSERT INTO servers (name, type, url, api_key, enabled, show_recent_media) VALUES (?, ?, ?, ?, ?, ?) RETURNING `+serverColumns,
+		srv.Name, srv.Type, srv.URL, srv.APIKey, srv.Enabled, srv.ShowRecentMedia,
 	))
 	if err != nil {
 		return fmt.Errorf("creating server: %w", err)
@@ -61,9 +61,9 @@ func (s *Store) ListServers() ([]models.Server, error) {
 
 func (s *Store) UpdateServer(srv *models.Server) error {
 	updated, err := scanServer(s.db.QueryRow(
-		`UPDATE servers SET name = ?, type = ?, url = ?, api_key = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP
+		`UPDATE servers SET name = ?, type = ?, url = ?, api_key = ?, enabled = ?, show_recent_media = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? RETURNING `+serverColumns,
-		srv.Name, srv.Type, srv.URL, srv.APIKey, srv.Enabled, srv.ID,
+		srv.Name, srv.Type, srv.URL, srv.APIKey, srv.Enabled, srv.ShowRecentMedia, srv.ID,
 	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("server %d: %w", srv.ID, models.ErrNotFound)
