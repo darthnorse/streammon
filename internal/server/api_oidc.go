@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -118,7 +119,9 @@ func (s *Server) handleDeleteOIDCSettings(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	s.reloadAuth(r.Context())
+	if err := s.reloadAuth(r.Context()); err != nil {
+		log.Printf("reloading auth after OIDC delete: %v", err)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

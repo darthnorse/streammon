@@ -71,7 +71,10 @@ func (s *Store) UpdateUserRole(name string, role models.Role) error {
 	if err != nil {
 		return fmt.Errorf("updating user role: %w", err)
 	}
-	n, _ := result.RowsAffected()
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
 	if n == 0 {
 		return fmt.Errorf("user %q: %w", name, models.ErrNotFound)
 	}

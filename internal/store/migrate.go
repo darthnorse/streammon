@@ -56,14 +56,13 @@ func (s *Store) Migrate(migrationsDir string) error {
 		if err != nil {
 			return err
 		}
+		defer tx.Rollback()
 
 		if _, err := tx.Exec(string(content)); err != nil {
-			tx.Rollback()
 			return fmt.Errorf("executing migration %s: %w", f, err)
 		}
 
 		if _, err := tx.Exec("INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
-			tx.Rollback()
 			return err
 		}
 

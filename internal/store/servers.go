@@ -89,7 +89,10 @@ func (s *Store) DeleteServer(id int64) error {
 	if err != nil {
 		return fmt.Errorf("deleting server: %w", err)
 	}
-	n, _ := result.RowsAffected()
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
 	if n == 0 {
 		return fmt.Errorf("server %d: %w", id, models.ErrNotFound)
 	}
