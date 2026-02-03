@@ -3,6 +3,7 @@ package geoip
 import (
 	"log"
 	"net"
+	"sync"
 
 	"github.com/oschwald/maxminddb-golang"
 
@@ -10,6 +11,7 @@ import (
 )
 
 type Resolver struct {
+	mu sync.RWMutex
 	db *maxminddb.Reader
 }
 
@@ -39,6 +41,8 @@ func NewResolver(dbPath string) *Resolver {
 }
 
 func (r *Resolver) Close() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.db != nil {
 		return r.db.Close()
 	}
@@ -46,6 +50,8 @@ func (r *Resolver) Close() error {
 }
 
 func (r *Resolver) Lookup(ip net.IP) *models.GeoResult {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if ip == nil || r.db == nil || ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() {
 		return nil
 	}
@@ -62,4 +68,19 @@ func (r *Resolver) Lookup(ip net.IP) *models.GeoResult {
 		City:    city,
 		Country: record.Country.ISOCode,
 	}
+}
+
+func (r *Resolver) Reload(dbPath string) error {
+	newDB, err := maxminddb.Open(dbPath)
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	old := r.db
+	r.db = newDB
+	r.mu.Unlock()
+	if old != nil {
+		old.Close()
+	}
+	return nil
 }

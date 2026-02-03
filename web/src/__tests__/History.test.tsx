@@ -19,7 +19,7 @@ afterEach(() => {
 
 describe('History', () => {
   it('shows loading state', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null })
+    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     renderWithRouter(<History />)
     expect(screen.getByText('History')).toBeDefined()
   })
@@ -31,7 +31,7 @@ describe('History', () => {
       page: 1,
       per_page: 20,
     }
-    mockUseFetch.mockReturnValue({ data, loading: false, error: null })
+    mockUseFetch.mockReturnValue({ data, loading: false, error: null, refetch: vi.fn() })
     renderWithRouter(<History />)
     expect(screen.getAllByText('alice').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Inception').length).toBeGreaterThan(0)
@@ -44,13 +44,13 @@ describe('History', () => {
       page: 1,
       per_page: 20,
     }
-    mockUseFetch.mockReturnValue({ data, loading: false, error: null })
+    mockUseFetch.mockReturnValue({ data, loading: false, error: null, refetch: vi.fn() })
     renderWithRouter(<History />)
     expect(screen.getByText(/next/i)).toBeDefined()
   })
 
   it('shows error state', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: false, error: new Error('fail') })
+    mockUseFetch.mockReturnValue({ data: null, loading: false, error: new Error('fail'), refetch: vi.fn() })
     renderWithRouter(<History />)
     expect(screen.getByText(/error/i)).toBeDefined()
   })

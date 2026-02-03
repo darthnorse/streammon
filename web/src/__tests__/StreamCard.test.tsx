@@ -37,20 +37,21 @@ describe('StreamCard', () => {
     expect(screen.getByText(/Season 1/)).toBeDefined()
   })
 
-  it('renders transcode badge when transcoding', () => {
+  it('renders transcode info when transcoding', () => {
     renderWithRouter(
       <StreamCard stream={{
         ...baseStream,
         video_decision: 'transcode',
         video_codec: 'h264',
         video_resolution: '1080p',
+        transcode_video_codec: 'h264',
       }} />
     )
-    expect(screen.getByText(/transcode/i)).toBeDefined()
-    expect(screen.getByText(/h264/i)).toBeDefined()
+    expect(screen.getByText(/H264/)).toBeDefined()
+    expect(screen.getByText(/Video:/)).toBeDefined()
   })
 
-  it('renders direct play badge', () => {
+  it('renders direct play info', () => {
     renderWithRouter(
       <StreamCard stream={{
         ...baseStream,
@@ -59,6 +60,6 @@ describe('StreamCard', () => {
         video_resolution: '4K',
       }} />
     )
-    expect(screen.getByText(/direct play/i)).toBeDefined()
+    expect(screen.getAllByText(/Direct Play/).length).toBeGreaterThan(0)
   })
 })

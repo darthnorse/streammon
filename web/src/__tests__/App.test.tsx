@@ -9,7 +9,7 @@ vi.mock('../hooks/useSSE', () => ({
 }))
 
 vi.mock('../hooks/useFetch', () => ({
-  useFetch: () => ({ data: null, loading: false, error: null }),
+  useFetch: () => ({ data: null, loading: false, error: null, refetch: () => {} }),
 }))
 
 vi.mock('../context/AuthContext', () => ({

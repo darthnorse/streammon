@@ -38,9 +38,11 @@ func main() {
 		log.Fatalf("running migrations: %v", err)
 	}
 
-	geoDBPath := os.Getenv("GEOIP_DB")
+	geoDBPath := envOr("GEOIP_DB", "./geoip/GeoLite2-City.mmdb")
 	geoResolver := geoip.NewResolver(geoDBPath)
 	defer geoResolver.Close()
+
+	geoUpdater := geoip.NewUpdater(s, geoResolver, geoDBPath)
 
 	oidcCfg, err := s.GetOIDCConfig()
 	if err != nil {
@@ -57,7 +59,13 @@ func main() {
 		log.Println("OIDC not configured — authentication disabled")
 	}
 
-	p := poller.New(s, 15*time.Second)
+	pollInterval := 5 * time.Second
+	if v := os.Getenv("POLL_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 2*time.Second {
+			pollInterval = d
+		}
+	}
+	p := poller.New(s, pollInterval)
 
 	servers, err := s.ListServers()
 	if err != nil {
@@ -78,13 +86,15 @@ func main() {
 	p.Start(context.Background())
 	defer p.Stop()
 
-	var opts []server.Option
+	opts := []server.Option{
+		server.WithPoller(p),
+		server.WithGeoResolver(geoResolver),
+		server.WithAuth(authSvc),
+		server.WithGeoUpdater(geoUpdater),
+	}
 	if corsOrigin != "" {
 		opts = append(opts, server.WithCORSOrigin(corsOrigin))
 	}
-	opts = append(opts, server.WithPoller(p))
-	opts = append(opts, server.WithGeoResolver(geoResolver))
-	opts = append(opts, server.WithAuth(authSvc))
 	srv := server.NewServer(s, opts...)
 
 	httpServer := &http.Server{
@@ -95,6 +105,8 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	go geoUpdater.Start(ctx)
 
 	go func() {
 		log.Printf("StreamMon listening on %s", listenAddr)

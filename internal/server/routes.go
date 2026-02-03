@@ -44,12 +44,21 @@ func (s *Server) routes() {
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
 
+		r.Get("/geoip/{ip}", s.handleGeoIPLookup)
+
 		r.Route("/settings/oidc", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleGetOIDCSettings)
 			sr.Put("/", s.handleUpdateOIDCSettings)
 			sr.Delete("/", s.handleDeleteOIDCSettings)
 			sr.Post("/test", s.handleTestOIDCConnection)
+		})
+
+		r.Route("/settings/maxmind", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleGetMaxMindSettings)
+			sr.Put("/", s.handleUpdateMaxMindSettings)
+			sr.Delete("/", s.handleDeleteMaxMindSettings)
 		})
 	})
 
@@ -58,6 +67,7 @@ func (s *Server) routes() {
 		if s.authService != nil {
 			r.Use(RequireAuth(s.authService))
 		}
+		r.Get("/api/servers/{id}/thumb/*", s.handleThumbProxy)
 		r.Get("/api/dashboard/sse", s.handleDashboardSSE)
 	})
 

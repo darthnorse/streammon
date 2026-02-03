@@ -152,6 +152,10 @@ type ActiveStream struct {
 	TranscodeHWAccel  bool              `json:"transcode_hw_accel,omitempty"`
 	TranscodeProgress float64           `json:"transcode_progress,omitempty"`
 	Bandwidth         int64             `json:"bandwidth,omitempty"`
+	ThumbURL            string            `json:"thumb_url,omitempty"`
+	TranscodeContainer  string            `json:"transcode_container,omitempty"`
+	TranscodeVideoCodec string            `json:"transcode_video_codec,omitempty"`
+	TranscodeAudioCodec string            `json:"transcode_audio_codec,omitempty"`
 }
 
 type DayStat struct {

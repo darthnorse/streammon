@@ -15,6 +15,21 @@ export function formatDuration(ms: number): string {
   return `${m}m`
 }
 
+export function formatBitrate(bps: number): string {
+  if (bps <= 0) return ''
+  if (bps >= 1_000_000) return `${(bps / 1_000_000).toFixed(1)} Mbps`
+  if (bps >= 1_000) return `${Math.round(bps / 1_000)} Kbps`
+  return `${bps} bps`
+}
+
+export function formatChannels(ch: number): string {
+  if (ch === 2) return 'Stereo'
+  if (ch === 6) return '5.1'
+  if (ch === 8) return '7.1'
+  if (ch > 0) return `${ch}ch`
+  return ''
+}
+
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, {
     month: 'short',

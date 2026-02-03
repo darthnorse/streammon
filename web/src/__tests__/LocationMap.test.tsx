@@ -48,25 +48,25 @@ const locations: GeoResult[] = [
 
 describe('LocationMap', () => {
   it('shows loading state', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null })
+    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     renderWithRouter(<LocationMap userName="alice" />)
     expect(screen.getByText(/loading map/i)).toBeDefined()
   })
 
   it('shows error state', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: false, error: new Error('fail') })
+    mockUseFetch.mockReturnValue({ data: null, loading: false, error: new Error('fail'), refetch: vi.fn() })
     renderWithRouter(<LocationMap userName="alice" />)
     expect(screen.getByText(/failed to load locations/i)).toBeDefined()
   })
 
   it('shows empty state when no locations', () => {
-    mockUseFetch.mockReturnValue({ data: [], loading: false, error: null })
+    mockUseFetch.mockReturnValue({ data: [], loading: false, error: null, refetch: vi.fn() })
     renderWithRouter(<LocationMap userName="alice" />)
     expect(screen.getByText(/no location data/i)).toBeDefined()
   })
 
   it('renders map with markers when data exists', () => {
-    mockUseFetch.mockReturnValue({ data: locations, loading: false, error: null })
+    mockUseFetch.mockReturnValue({ data: locations, loading: false, error: null, refetch: vi.fn() })
     renderWithRouter(<LocationMap userName="alice" />)
     expect(screen.getByTestId('map-container')).toBeDefined()
     expect(screen.getAllByTestId('marker')).toHaveLength(2)
@@ -75,7 +75,7 @@ describe('LocationMap', () => {
   })
 
   it('fetches locations for the correct user', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null })
+    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     renderWithRouter(<LocationMap userName="bob smith" />)
     const url = mockUseFetch.mock.calls[0][0] as string
     expect(url).toBe('/api/users/bob%20smith/locations')

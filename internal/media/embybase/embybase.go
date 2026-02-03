@@ -44,7 +44,7 @@ func (c *Client) TestConnection(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer func() { io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
+	defer drainBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
 	}
@@ -60,7 +60,7 @@ func (c *Client) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
+	defer drainBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
 	}
@@ -74,6 +74,11 @@ func (c *Client) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 func (c *Client) addAuth(req *http.Request) *http.Request {
 	req.Header.Set("X-Emby-Token", c.apiKey)
 	return req
+}
+
+func drainBody(resp *http.Response) {
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 }
 
 type embySession struct {
@@ -95,6 +100,8 @@ type nowPlaying struct {
 	ProductionYear int            `json:"ProductionYear"`
 	RunTimeTicks   int64          `json:"RunTimeTicks"`
 	MediaSources   []mediaSource  `json:"MediaSources"`
+	ID             string            `json:"Id"`
+	ImageTags      map[string]string `json:"ImageTags"`
 }
 
 type mediaSource struct {
@@ -158,6 +165,9 @@ func parseSessions(data []byte, serverID int64, serverName string) ([]models.Act
 			IPAddress:        s.RemoteIP,
 			StartedAt:        time.Now().UTC(),
 		}
+		if s.NowPlaying.ID != "" && s.NowPlaying.ImageTags["Primary"] != "" {
+			as.ThumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, s.NowPlaying.ID)
+		}
 		if len(s.NowPlaying.MediaSources) > 0 {
 			src := s.NowPlaying.MediaSources[0]
 			as.Container = src.Container
@@ -181,6 +191,9 @@ func parseSessions(data []byte, serverID int64, serverName string) ([]models.Act
 			as.TranscodeProgress = ti.CompletionPct
 			as.TranscodeHWAccel = ti.HWAccelerationType != ""
 			as.Bandwidth = ti.Bitrate
+			as.TranscodeContainer = ti.Container
+			as.TranscodeVideoCodec = ti.VideoCodec
+			as.TranscodeAudioCodec = ti.AudioCodec
 			if ti.IsVideoDirect {
 				as.VideoDecision = models.TranscodeDecisionDirectPlay
 			} else {

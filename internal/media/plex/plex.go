@@ -44,7 +44,7 @@ func (s *Server) TestConnection(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer func() { io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
+	defer drainBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("plex returned status %d", resp.StatusCode)
 	}
@@ -61,7 +61,7 @@ func (s *Server) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { io.Copy(io.Discard, resp.Body); resp.Body.Close() }()
+	defer drainBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("plex returned status %d", resp.StatusCode)
 	}
@@ -75,6 +75,11 @@ func (s *Server) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 func (s *Server) setHeaders(req *http.Request) {
 	req.Header.Set("X-Plex-Token", s.token)
 	req.Header.Set("Accept", "application/xml")
+}
+
+func drainBody(resp *http.Response) {
+	io.Copy(io.Discard, resp.Body)
+	resp.Body.Close()
 }
 
 type mediaContainer struct {
@@ -96,6 +101,7 @@ type plexItem struct {
 	Session          session           `xml:"Session"`
 	User             user              `xml:"User"`
 	Media            []plexMedia       `xml:"Media"`
+	Thumb            string            `xml:"thumb,attr"`
 	TranscodeSession *transcodeSession `xml:"TranscodeSession"`
 }
 
@@ -186,8 +192,11 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 		Player:           item.Player.Title,
 		Platform:         item.Player.Product,
 		IPAddress:        item.Player.Address,
-		Bandwidth:        atoi64(item.Session.Bandwidth),
+		Bandwidth:        atoi64(item.Session.Bandwidth) * 1000,  // Plex reports kbps
 		StartedAt:        time.Now().UTC(),
+	}
+	if item.Thumb != "" {
+		as.ThumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, strings.TrimPrefix(item.Thumb, "/"))
 	}
 	if len(item.Media) > 0 {
 		m := item.Media[0]
@@ -195,7 +204,7 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 		as.AudioCodec = m.AudioCodec
 		as.VideoResolution = normalizeResolution(m.VideoResolution)
 		as.Container = m.Container
-		as.Bitrate = atoi64(m.Bitrate)
+		as.Bitrate = atoi64(m.Bitrate) * 1000  // Plex reports kbps
 		as.AudioChannels = atoi(m.AudioChannels)
 		for _, p := range m.Parts {
 			for _, st := range p.Streams {
@@ -210,6 +219,12 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 		as.AudioDecision = plexDecision(ts.AudioDecision)
 		as.TranscodeHWAccel = ts.HWDecoding == "1" || ts.HWEncoding == "1"
 		as.TranscodeProgress = atof(ts.Progress)
+		as.TranscodeContainer = ts.Container
+		if ts.Protocol != "" {
+			as.TranscodeContainer = ts.Protocol
+		}
+		as.TranscodeVideoCodec = ts.VideoCodec
+		as.TranscodeAudioCodec = ts.AudioCodec
 	} else {
 		as.VideoDecision = models.TranscodeDecisionDirectPlay
 		as.AudioDecision = models.TranscodeDecisionDirectPlay

@@ -70,6 +70,10 @@ export interface ActiveStream {
   transcode_hw_accel?: boolean
   transcode_progress?: number
   bandwidth?: number
+  thumb_url?: string
+  transcode_container?: string
+  transcode_video_codec?: string
+  transcode_audio_codec?: string
 }
 
 export interface DayStat {

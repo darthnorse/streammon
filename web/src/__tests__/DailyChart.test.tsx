@@ -31,25 +31,25 @@ const activeDays = [
 
 describe('DailyChart', () => {
   it('shows loading state', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null })
+    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     renderWithRouter(<DailyChart />)
     expect(screen.getByText(/loading chart data/i)).toBeDefined()
   })
 
   it('shows error state', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: false, error: new Error('fail') })
+    mockUseFetch.mockReturnValue({ data: null, loading: false, error: new Error('fail'), refetch: vi.fn() })
     renderWithRouter(<DailyChart />)
     expect(screen.getByText(/failed to load chart data/i)).toBeDefined()
   })
 
   it('shows empty data message when all counts are zero', () => {
-    mockUseFetch.mockReturnValue({ data: [emptyDayStat], loading: false, error: null })
+    mockUseFetch.mockReturnValue({ data: [emptyDayStat], loading: false, error: null, refetch: vi.fn() })
     renderWithRouter(<DailyChart />)
     expect(screen.getByText(/no play data/i)).toBeDefined()
   })
 
   it('renders chart when data has values', async () => {
-    mockUseFetch.mockReturnValue({ data: activeDays, loading: false, error: null })
+    mockUseFetch.mockReturnValue({ data: activeDays, loading: false, error: null, refetch: vi.fn() })
     renderWithRouter(<DailyChart />)
     await waitFor(() => {
       expect(screen.getByText('Daily Plays')).toBeDefined()
@@ -59,7 +59,7 @@ describe('DailyChart', () => {
   })
 
   it('renders range selector buttons', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null })
+    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     renderWithRouter(<DailyChart />)
     expect(screen.getByText('7d')).toBeDefined()
     expect(screen.getByText('30d')).toBeDefined()
@@ -67,14 +67,14 @@ describe('DailyChart', () => {
   })
 
   it('passes correct URL with date range params', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null })
+    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     renderWithRouter(<DailyChart />)
     const url = mockUseFetch.mock.calls[0][0] as string
     expect(url).toMatch(/^\/api\/history\/daily\?start=\d{4}-\d{2}-\d{2}&end=\d{4}-\d{2}-\d{2}$/)
   })
 
   it('sets end to tomorrow so today is included', () => {
-    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null })
+    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     renderWithRouter(<DailyChart />)
     const url = mockUseFetch.mock.calls[0][0] as string
     const params = new URLSearchParams(url.split('?')[1])

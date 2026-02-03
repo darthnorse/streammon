@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { ServerForm } from '../components/ServerForm'
 import { OIDCForm } from '../components/OIDCForm'
+import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
 import { EmptyState } from '../components/EmptyState'
 
 const serverTypeColors: Record<string, string> = {
@@ -15,17 +16,19 @@ const serverTypeColors: Record<string, string> = {
 const tabs: { key: TabKey; label: string }[] = [
   { key: 'servers', label: 'Servers' },
   { key: 'auth', label: 'Authentication' },
+  { key: 'geoip', label: 'GeoIP' },
 ]
 
 const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
 const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
 
-type TabKey = 'servers' | 'auth'
+type TabKey = 'servers' | 'auth' | 'geoip'
 
 export function Settings() {
   const [tab, setTab] = useState<TabKey>('servers')
   const { data: servers, loading, error: fetchError, refetch: refetchServers } = useFetch<Server[]>('/api/servers')
   const { data: oidc, loading: oidcLoading, error: oidcFetchError, refetch: refetchOidc } = useFetch<OIDCSettings>(tab === 'auth' ? '/api/settings/oidc' : null)
+  const { data: maxmind, loading: maxmindLoading, refetch: refetchMaxmind } = useFetch<MaxMindSettings>(tab === 'geoip' ? '/api/settings/maxmind' : null)
 
   const [editingServer, setEditingServer] = useState<Server | undefined>()
   const [showForm, setShowForm] = useState(false)
@@ -240,10 +243,19 @@ export function Settings() {
 
           {showOidcForm && (
             <OIDCForm
-              settings={oidc}
+              settings={oidc ?? undefined}
               onClose={() => setShowOidcForm(false)}
               onSaved={handleOidcSaved}
             />
+          )}
+        </>
+      )}
+
+      {tab === 'geoip' && (
+        <>
+          {maxmindLoading && <EmptyState icon="&#8635;" title="Loading..." />}
+          {!maxmindLoading && (
+            <MaxMindForm settings={maxmind} onSaved={refetchMaxmind} />
           )}
         </>
       )}

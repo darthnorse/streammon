@@ -1,14 +1,14 @@
 package server
 
 import (
+	"net"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
-	"net"
-
 	"streammon/internal/auth"
+	"streammon/internal/geoip"
 	"streammon/internal/models"
 	"streammon/internal/poller"
 	"streammon/internal/store"
@@ -25,6 +25,7 @@ type Server struct {
 	authService *auth.Service
 	corsOrigin  string
 	geoResolver GeoLookup
+	geoUpdater  *geoip.Updater
 }
 
 func NewServer(s *store.Store, opts ...Option) *Server {
@@ -57,6 +58,10 @@ func WithGeoResolver(r GeoLookup) Option {
 
 func WithAuth(a *auth.Service) Option {
 	return func(s *Server) { s.authService = a }
+}
+
+func WithGeoUpdater(u *geoip.Updater) Option {
+	return func(s *Server) { s.geoUpdater = u }
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

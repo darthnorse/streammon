@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatTimestamp, formatDuration, formatDate } from '../lib/format'
+import { formatTimestamp, formatDuration, formatDate, formatBitrate, formatChannels } from '../lib/format'
 
 describe('formatTimestamp', () => {
   it('formats seconds only', () => {
@@ -31,6 +31,21 @@ describe('formatDuration', () => {
   it('handles zero', () => {
     expect(formatDuration(0)).toBe('0m')
   })
+})
+
+describe('formatBitrate', () => {
+  it('formats megabits', () => expect(formatBitrate(6_000_000)).toBe('6.0 Mbps'))
+  it('formats fractional megabits', () => expect(formatBitrate(2_500_000)).toBe('2.5 Mbps'))
+  it('formats kilobits', () => expect(formatBitrate(500_000)).toBe('500 Kbps'))
+  it('returns empty for zero', () => expect(formatBitrate(0)).toBe(''))
+})
+
+describe('formatChannels', () => {
+  it('formats stereo', () => expect(formatChannels(2)).toBe('Stereo'))
+  it('formats 5.1', () => expect(formatChannels(6)).toBe('5.1'))
+  it('formats 7.1', () => expect(formatChannels(8)).toBe('7.1'))
+  it('formats other channels', () => expect(formatChannels(4)).toBe('4ch'))
+  it('returns empty for zero', () => expect(formatChannels(0)).toBe(''))
 })
 
 describe('formatDate', () => {
