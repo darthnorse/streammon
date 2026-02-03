@@ -100,9 +100,11 @@ type User struct {
 }
 
 type WatchHistoryEntry struct {
-	ID               int64     `json:"id"`
-	ServerID         int64     `json:"server_id"`
-	UserName         string    `json:"user_name"`
+	ID                int64     `json:"id"`
+	ServerID          int64     `json:"server_id"`
+	ItemID            string    `json:"item_id,omitempty"`
+	GrandparentItemID string    `json:"grandparent_item_id,omitempty"`
+	UserName          string    `json:"user_name"`
 	MediaType        MediaType `json:"media_type"`
 	Title            string    `json:"title"`
 	ParentTitle      string    `json:"parent_title"`
@@ -134,9 +136,11 @@ const (
 )
 
 type ActiveStream struct {
-	SessionID        string    `json:"session_id"`
-	ServerID         int64     `json:"server_id"`
-	ServerName       string     `json:"server_name"`
+	SessionID          string    `json:"session_id"`
+	ServerID           int64     `json:"server_id"`
+	ItemID             string    `json:"item_id,omitempty"`
+	GrandparentItemID  string    `json:"grandparent_item_id,omitempty"`
+	ServerName         string    `json:"server_name"`
 	ServerType       ServerType `json:"server_type"`
 	UserName         string     `json:"user_name"`
 	MediaType        MediaType `json:"media_type"`
@@ -274,6 +278,7 @@ type MediaStat struct {
 	TotalHours float64 `json:"total_hours"`
 	ThumbURL   string  `json:"thumb_url,omitempty"`
 	ServerID   int64   `json:"server_id,omitempty"`
+	ItemID     string  `json:"item_id,omitempty"`
 }
 
 type UserStat struct {

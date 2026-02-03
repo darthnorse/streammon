@@ -27,6 +27,8 @@ export interface User {
 export interface WatchHistoryEntry {
   id: number
   server_id: number
+  item_id?: string
+  grandparent_item_id?: string
   user_name: string
   media_type: MediaType
   title: string
@@ -52,6 +54,8 @@ export interface WatchHistoryEntry {
 export interface ActiveStream {
   session_id: string
   server_id: number
+  item_id?: string
+  grandparent_item_id?: string
   server_name: string
   server_type: ServerType
   user_name: string
@@ -180,6 +184,7 @@ export interface MediaStat {
   total_hours: number
   thumb_url?: string
   server_id?: number
+  item_id?: string
 }
 
 export interface UserStat {

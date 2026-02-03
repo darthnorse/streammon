@@ -95,6 +95,7 @@ type embySession struct {
 type nowPlaying struct {
 	Name              string            `json:"Name"`
 	SeriesName        string            `json:"SeriesName"`
+	SeriesId          string            `json:"SeriesId"`
 	SeasonName        string            `json:"SeasonName"`
 	Type              string            `json:"Type"`
 	ProductionYear    int               `json:"ProductionYear"`
@@ -154,24 +155,26 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			continue
 		}
 		as := models.ActiveStream{
-			SessionID:        s.ID,
-			ServerID:         serverID,
-			ServerName:       serverName,
-			ServerType:       serverType,
-			UserName:         s.UserName,
-			MediaType:        embyMediaType(s.NowPlaying.Type),
-			Title:            s.NowPlaying.Name,
-			ParentTitle:      s.NowPlaying.SeasonName,
-			GrandparentTitle: s.NowPlaying.SeriesName,
-			SeasonNumber:     s.NowPlaying.ParentIndexNumber,
-			EpisodeNumber:    s.NowPlaying.IndexNumber,
-			Year:             s.NowPlaying.ProductionYear,
-			DurationMs:       ticksToMs(s.NowPlaying.RunTimeTicks),
-			ProgressMs:       ticksToMs(playPos(s.PlayState)),
-			Player:           s.DeviceName,
-			Platform:         s.Client,
-			IPAddress:        s.RemoteIP,
-			StartedAt:        time.Now().UTC(),
+			SessionID:         s.ID,
+			ServerID:          serverID,
+			ItemID:            s.NowPlaying.ID,
+			GrandparentItemID: s.NowPlaying.SeriesId,
+			ServerName:        serverName,
+			ServerType:        serverType,
+			UserName:          s.UserName,
+			MediaType:         embyMediaType(s.NowPlaying.Type),
+			Title:             s.NowPlaying.Name,
+			ParentTitle:       s.NowPlaying.SeasonName,
+			GrandparentTitle:  s.NowPlaying.SeriesName,
+			SeasonNumber:      s.NowPlaying.ParentIndexNumber,
+			EpisodeNumber:     s.NowPlaying.IndexNumber,
+			Year:              s.NowPlaying.ProductionYear,
+			DurationMs:        ticksToMs(s.NowPlaying.RunTimeTicks),
+			ProgressMs:        ticksToMs(playPos(s.PlayState)),
+			Player:            s.DeviceName,
+			Platform:          s.Client,
+			IPAddress:         s.RemoteIP,
+			StartedAt:         time.Now().UTC(),
 		}
 		if s.NowPlaying.ID != "" && s.NowPlaying.ImageTags["Primary"] != "" {
 			as.ThumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, s.NowPlaying.ID)

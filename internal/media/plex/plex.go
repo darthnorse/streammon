@@ -162,23 +162,24 @@ type mediaContainer struct {
 }
 
 type plexItem struct {
-	SessionKey       string            `xml:"sessionKey,attr"`
-	RatingKey        string            `xml:"ratingKey,attr"`
-	Type             string            `xml:"type,attr"`
-	Title            string            `xml:"title,attr"`
-	ParentTitle      string            `xml:"parentTitle,attr"`
-	GrandparentTitle string            `xml:"grandparentTitle,attr"`
-	ParentIndex      string            `xml:"parentIndex,attr"`
-	Index            string            `xml:"index,attr"`
-	Year             string            `xml:"year,attr"`
-	Duration         string            `xml:"duration,attr"`
-	ViewOffset       string            `xml:"viewOffset,attr"`
-	Player           player            `xml:"Player"`
-	Session          session           `xml:"Session"`
-	User             user              `xml:"User"`
-	Media            []plexMedia       `xml:"Media"`
-	Thumb            string            `xml:"thumb,attr"`
-	TranscodeSession *transcodeSession `xml:"TranscodeSession"`
+	SessionKey            string            `xml:"sessionKey,attr"`
+	RatingKey             string            `xml:"ratingKey,attr"`
+	GrandparentRatingKey  string            `xml:"grandparentRatingKey,attr"`
+	Type                  string            `xml:"type,attr"`
+	Title                 string            `xml:"title,attr"`
+	ParentTitle           string            `xml:"parentTitle,attr"`
+	GrandparentTitle      string            `xml:"grandparentTitle,attr"`
+	ParentIndex           string            `xml:"parentIndex,attr"`
+	Index                 string            `xml:"index,attr"`
+	Year                  string            `xml:"year,attr"`
+	Duration              string            `xml:"duration,attr"`
+	ViewOffset            string            `xml:"viewOffset,attr"`
+	Player                player            `xml:"Player"`
+	Session               session           `xml:"Session"`
+	User                  user              `xml:"User"`
+	Media                 []plexMedia       `xml:"Media"`
+	Thumb                 string            `xml:"thumb,attr"`
+	TranscodeSession      *transcodeSession `xml:"TranscodeSession"`
 }
 
 type player struct {
@@ -285,7 +286,6 @@ func (s *Server) parseSessions(ctx context.Context, data []byte) ([]models.Activ
 	items = append(items, mc.Videos...)
 	items = append(items, mc.Tracks...)
 
-	// Track active ratingKeys to clean up stale cache entries
 	activeKeys := make(map[string]struct{}, len(items))
 
 	streams := make([]models.ActiveStream, 0, len(items))
@@ -316,33 +316,33 @@ func (s *Server) parseSessions(ctx context.Context, data []byte) ([]models.Activ
 
 func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sourceMediaInfo) models.ActiveStream {
 	as := models.ActiveStream{
-		SessionID:        plexSessionID(item),
-		ServerID:         serverID,
-		ServerName:       serverName,
-		ServerType:       models.ServerTypePlex,
-		UserName:         item.User.Title,
-		MediaType:        plexMediaType(item.Type),
-		Title:            item.Title,
-		ParentTitle:      item.ParentTitle,
-		GrandparentTitle: item.GrandparentTitle,
-		SeasonNumber:     atoi(item.ParentIndex),
-		EpisodeNumber:    atoi(item.Index),
-		Year:             atoi(item.Year),
-		DurationMs:       atoi64(item.Duration),
-		ProgressMs:       atoi64(item.ViewOffset),
-		Player:           item.Player.Title,
-		Platform:         item.Player.Product,
-		IPAddress:        item.Player.Address,
-		Bandwidth:        atoi64(item.Session.Bandwidth) * 1000, // Plex reports kbps
-		StartedAt:        time.Now().UTC(),
+		SessionID:         plexSessionID(item),
+		ServerID:          serverID,
+		ItemID:            item.RatingKey,
+		GrandparentItemID: item.GrandparentRatingKey,
+		ServerName:        serverName,
+		ServerType:        models.ServerTypePlex,
+		UserName:          item.User.Title,
+		MediaType:         plexMediaType(item.Type),
+		Title:             item.Title,
+		ParentTitle:       item.ParentTitle,
+		GrandparentTitle:  item.GrandparentTitle,
+		SeasonNumber:      atoi(item.ParentIndex),
+		EpisodeNumber:     atoi(item.Index),
+		Year:              atoi(item.Year),
+		DurationMs:        atoi64(item.Duration),
+		ProgressMs:        atoi64(item.ViewOffset),
+		Player:            item.Player.Title,
+		Platform:          item.Player.Product,
+		IPAddress:         item.Player.Address,
+		Bandwidth:         atoi64(item.Session.Bandwidth) * 1000, // Plex reports kbps
+		StartedAt:         time.Now().UTC(),
 	}
 	if item.Thumb != "" {
 		as.ThumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, strings.TrimPrefix(item.Thumb, "/"))
 	}
 
-	// During active transcoding, the session's Media element contains transcoded
-	// OUTPUT info, not the original source. We save this for TranscodeVideoResolution
-	// before potentially overriding with source info from metadata.
+	// Media element contains transcoded output during transcoding, not source
 	var sessionVideoRes string
 
 	if len(item.Media) > 0 {
@@ -388,7 +388,6 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 		as.TranscodeVideoCodec = ts.VideoCodec
 		as.TranscodeAudioCodec = ts.AudioCodec
 
-		// Transcode output resolution: prefer TranscodeSession, fallback to session Media
 		if ts.Height != "" {
 			as.TranscodeVideoResolution = heightToResolution(ts.Height)
 		} else if ts.VideoResolution != "" {
@@ -397,7 +396,6 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 			as.TranscodeVideoResolution = sessionVideoRes
 		}
 
-		// Override with source info from metadata
 		if srcInfo != nil {
 			as.VideoCodec = srcInfo.VideoCodec
 			as.AudioCodec = srcInfo.AudioCodec
@@ -406,7 +404,6 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 			as.Container = srcInfo.Container
 			as.AudioChannels = srcInfo.AudioChannels
 		} else if ts.SourceVideoCodec != "" || ts.SourceAudioCodec != "" {
-			// Fallback to TranscodeSession source codecs (no resolution fallback available)
 			if ts.SourceVideoCodec != "" {
 				as.VideoCodec = ts.SourceVideoCodec
 			}

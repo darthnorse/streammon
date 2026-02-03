@@ -67,7 +67,8 @@ export function useSSE(url: string): SSEState {
         try {
           const data = JSON.parse(event.data as string) as ActiveStream[]
           mergeSessionData(data)
-        } catch {
+        } catch (err) {
+          console.warn('SSE parse error:', err)
         }
       }
 

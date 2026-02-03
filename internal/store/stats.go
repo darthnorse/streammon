@@ -11,15 +11,11 @@ import (
 )
 
 const (
-	// DefaultConcurrentPeakDays limits the concurrent streams calculation to recent history
 	DefaultConcurrentPeakDays = 90
-	// DefaultSharerWindowDays is the time window for detecting potential password sharing
-	DefaultSharerWindowDays = 30
-	// DefaultSharerMinIPs is the minimum unique IPs to flag as potential sharing
-	DefaultSharerMinIPs = 3
+	DefaultSharerWindowDays   = 30
+	DefaultSharerMinIPs       = 3
 )
 
-// cutoffTime returns the cutoff time for a given number of days, or zero time if days <= 0.
 func cutoffTime(days int) time.Time {
 	if days <= 0 {
 		return time.Time{}
@@ -27,15 +23,15 @@ func cutoffTime(days int) time.Time {
 	return time.Now().UTC().AddDate(0, 0, -days)
 }
 
-// topMediaConfig holds the varying parts between movie and TV show queries.
 type topMediaConfig struct {
-	selectCol      string           // column to select as title (title or grandparent_title)
-	yearExpr       string           // year expression (year or 0 as year)
-	thumbMatch     string           // subquery WHERE clause for matching
-	extraWhere     string           // additional WHERE clause
-	groupBy        string           // GROUP BY column
-	mediaType      models.MediaType // movie or episode
-	errMsg         string
+	selectCol  string
+	yearExpr   string
+	thumbMatch string
+	extraWhere string
+	groupBy    string
+	mediaType  models.MediaType
+	errMsg     string
+	itemIDCol  string
 }
 
 func (s *Store) topMedia(limit int, days int, cfg topMediaConfig) ([]models.MediaStat, error) {
@@ -49,12 +45,19 @@ func (s *Store) topMedia(limit int, days int, cfg topMediaConfig) ([]models.Medi
 		subqueryTimeClause = " AND h2.started_at >= ?"
 	}
 
+	itemIDCol := cfg.itemIDCol
+	if itemIDCol == "" {
+		itemIDCol = "item_id"
+	}
+
 	query := fmt.Sprintf(`SELECT %s, %s, COUNT(*) as play_count,
 		SUM(watched_ms) / 3600000.0 as total_hours,
 		(SELECT thumb_url FROM watch_history h2
 		 WHERE %s AND h2.thumb_url != ''%s ORDER BY h2.started_at DESC LIMIT 1) as thumb_url,
 		(SELECT server_id FROM watch_history h2
-		 WHERE %s AND h2.thumb_url != ''%s ORDER BY h2.started_at DESC LIMIT 1) as server_id
+		 WHERE %s AND h2.thumb_url != ''%s ORDER BY h2.started_at DESC LIMIT 1) as server_id,
+		(SELECT %s FROM watch_history h2
+		 WHERE %s AND h2.%s != ''%s ORDER BY h2.started_at DESC LIMIT 1) as item_id
 	FROM watch_history
 	WHERE media_type = ?%s%s
 	GROUP BY %s
@@ -63,12 +66,13 @@ func (s *Store) topMedia(limit int, days int, cfg topMediaConfig) ([]models.Medi
 		cfg.selectCol, cfg.yearExpr,
 		cfg.thumbMatch, subqueryTimeClause,
 		cfg.thumbMatch, subqueryTimeClause,
+		itemIDCol, cfg.thumbMatch, itemIDCol, subqueryTimeClause,
 		cfg.extraWhere, timeClause,
 		cfg.groupBy)
 
 	var args []any
 	if hasTimeFilter {
-		args = append(args, cutoff, cutoff) // for both subqueries
+		args = append(args, cutoff, cutoff, cutoff) // for all three subqueries
 	}
 	args = append(args, cfg.mediaType)
 	if hasTimeFilter {
@@ -106,6 +110,7 @@ func (s *Store) TopTVShows(limit int, days int) ([]models.MediaStat, error) {
 		groupBy:    "grandparent_title",
 		mediaType:  models.MediaTypeTV,
 		errMsg:     "top tv shows",
+		itemIDCol:  "grandparent_item_id",
 	})
 }
 
@@ -116,7 +121,8 @@ func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
 		var totalHours sql.NullFloat64
 		var thumbURL sql.NullString
 		var serverID sql.NullInt64
-		if err := rows.Scan(&stat.Title, &stat.Year, &stat.PlayCount, &totalHours, &thumbURL, &serverID); err != nil {
+		var itemID sql.NullString
+		if err := rows.Scan(&stat.Title, &stat.Year, &stat.PlayCount, &totalHours, &thumbURL, &serverID, &itemID); err != nil {
 			return nil, fmt.Errorf("scanning media stats: %w", err)
 		}
 		if totalHours.Valid {
@@ -127,6 +133,9 @@ func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
 		}
 		if serverID.Valid {
 			stat.ServerID = serverID.Int64
+		}
+		if itemID.Valid {
+			stat.ItemID = itemID.String
 		}
 		stats = append(stats, stat)
 	}

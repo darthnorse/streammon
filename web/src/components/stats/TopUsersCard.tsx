@@ -22,20 +22,18 @@ export function TopUsersCard({ users, compact = false }: TopUsersCardProps) {
         ) : (
           <div className="space-y-2">
             {users.slice(0, 5).map((user, idx) => (
-              <div key={user.user_name} className="flex items-center gap-3">
-                <div className="w-6 h-6 rounded-full bg-accent/20 dark:bg-accent/10 flex items-center justify-center text-xs font-medium text-accent shrink-0">
+              <div key={user.user_name} className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-full bg-accent/20 dark:bg-accent/10 flex items-center justify-center text-[10px] font-medium text-accent shrink-0">
                   {idx + 1}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <Link
-                    to={`/users/${encodeURIComponent(user.user_name)}`}
-                    className="text-sm font-medium truncate block hover:text-accent transition-colors"
-                  >
-                    {user.user_name}
-                  </Link>
-                  <div className="text-xs text-muted dark:text-muted-dark">
-                    {user.play_count} plays · {formatHours(user.total_hours)}
-                  </div>
+                <Link
+                  to={`/users/${encodeURIComponent(user.user_name)}`}
+                  className="flex-1 min-w-0 text-xs font-medium truncate hover:text-accent transition-colors"
+                >
+                  {user.user_name}
+                </Link>
+                <div className="text-[10px] text-muted dark:text-muted-dark whitespace-nowrap">
+                  {user.play_count} plays · {formatHours(user.total_hours)}
                 </div>
               </div>
             ))}

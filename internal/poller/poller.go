@@ -28,12 +28,9 @@ type Poller struct {
 	cancel    context.CancelFunc
 	done      chan struct{}
 
-	wsCancel map[int64]context.CancelFunc // per-server WS goroutine cancellation
-
-	// triggerPoll forces an immediate poll cycle (for testing)
+	wsCancel    map[int64]context.CancelFunc
 	triggerPoll chan struct{}
-	// pollNotify is sent to after each poll cycle (for testing)
-	pollNotify chan struct{}
+	pollNotify  chan struct{}
 }
 
 func New(s *store.Store, interval time.Duration) *Poller {
@@ -227,8 +224,7 @@ func (p *Poller) poll(ctx context.Context) {
 		}
 	}
 
-	// Carry forward sessions from failed servers to avoid false history entries,
-	// but only if they were seen in a poll within the last 5 minutes
+	// Keep recent sessions from failed servers to avoid false history entries
 	staleThreshold := now.Add(-5 * time.Minute)
 	for key, prev := range oldSessions {
 		if _, failed := failedServers[prev.ServerID]; failed {
@@ -265,22 +261,25 @@ func (p *Poller) poll(ctx context.Context) {
 
 func (p *Poller) persistHistory(s models.ActiveStream) {
 	entry := &models.WatchHistoryEntry{
-		ServerID:         s.ServerID,
-		UserName:         s.UserName,
-		MediaType:        s.MediaType,
-		Title:            s.Title,
-		ParentTitle:      s.ParentTitle,
-		GrandparentTitle: s.GrandparentTitle,
-		Year:             s.Year,
-		DurationMs:       s.DurationMs,
-		WatchedMs:        s.ProgressMs,
-		Player:           s.Player,
-		Platform:         s.Platform,
-		IPAddress:        s.IPAddress,
-		StartedAt:        s.StartedAt,
-		StoppedAt:        time.Now().UTC(),
-		SeasonNumber:     s.SeasonNumber,
-		EpisodeNumber:    s.EpisodeNumber,
+		ServerID:          s.ServerID,
+		ItemID:            s.ItemID,
+		GrandparentItemID: s.GrandparentItemID,
+		UserName:          s.UserName,
+		MediaType:         s.MediaType,
+		Title:             s.Title,
+		ParentTitle:       s.ParentTitle,
+		GrandparentTitle:  s.GrandparentTitle,
+		Year:              s.Year,
+		DurationMs:        s.DurationMs,
+		WatchedMs:         s.ProgressMs,
+		Player:            s.Player,
+		Platform:          s.Platform,
+		IPAddress:         s.IPAddress,
+		StartedAt:         s.StartedAt,
+		StoppedAt:         time.Now().UTC(),
+		SeasonNumber:      s.SeasonNumber,
+		EpisodeNumber:     s.EpisodeNumber,
+		ThumbURL:          s.ThumbURL,
 	}
 	if err := p.store.InsertHistory(entry); err != nil {
 		log.Printf("persisting history for %s: %v", s.Title, err)
