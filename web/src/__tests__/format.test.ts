@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatTimestamp, formatDuration, formatDate, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, formatAudioCodec, formatVideoCodec } from '../lib/format'
+import { formatTimestamp, formatDuration, formatDate, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, formatAudioCodec, formatVideoCodec, formatLocation } from '../lib/format'
 
 describe('formatTimestamp', () => {
   it('formats seconds only', () => {
@@ -145,5 +145,23 @@ describe('formatVideoCodec', () => {
   })
   it('returns empty for no data', () => {
     expect(formatVideoCodec(undefined, undefined)).toBe('')
+  })
+})
+
+describe('formatLocation', () => {
+  it('formats city and country', () => {
+    expect(formatLocation('New York', 'USA')).toBe('New York, USA')
+  })
+  it('returns country only when no city', () => {
+    expect(formatLocation(undefined, 'USA')).toBe('USA')
+  })
+  it('returns default fallback when no data', () => {
+    expect(formatLocation(undefined, undefined)).toBe('—')
+  })
+  it('returns custom fallback when provided', () => {
+    expect(formatLocation(undefined, undefined, 'Unknown')).toBe('Unknown')
+  })
+  it('returns country when city is empty string', () => {
+    expect(formatLocation('', 'Canada')).toBe('Canada')
   })
 })

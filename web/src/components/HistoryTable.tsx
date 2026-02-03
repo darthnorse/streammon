@@ -1,40 +1,38 @@
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import type { WatchHistoryEntry } from '../types'
-import { formatDuration, formatDate, formatEpisode, parseSeasonFromTitle } from '../lib/format'
+import { formatDuration, formatDate, formatLocation } from '../lib/format'
 import { mediaTypeLabels } from '../lib/constants'
-
-function formatLocation(city?: string, country?: string): string {
-  if (city && country) return `${city}, ${country}`
-  return country || '—'
-}
+import { HISTORY_COLUMNS, EntryTitle } from '../lib/historyColumns'
+import { useColumnConfig } from '../hooks/useColumnConfig'
+import { ColumnSettings } from './ColumnSettings'
 
 interface HistoryTableProps {
   entries: WatchHistoryEntry[]
   hideUser?: boolean
 }
 
-function EntryTitle({ entry }: { entry: WatchHistoryEntry }) {
-  if (entry.media_type === 'episode' && entry.grandparent_title) {
-    const season = entry.season_number ?? parseSeasonFromTitle(entry.parent_title)
-    const episode = entry.episode_number
-    const episodeInfo = formatEpisode(season, episode)
-    const subtitle = episodeInfo ? `${episodeInfo} · ${entry.title}` : entry.title
+type SortDirection = 'asc' | 'desc'
 
-    return (
-      <div>
-        <div className="font-medium text-gray-900 dark:text-gray-50 truncate">
-          {entry.grandparent_title}
-        </div>
-        <div className="text-xs text-muted dark:text-muted-dark truncate">
-          {subtitle}
-        </div>
-      </div>
-    )
-  }
+interface SortState {
+  columnId: string
+  direction: SortDirection
+}
+
+function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
   return (
-    <div className="font-medium text-gray-900 dark:text-gray-50 truncate">
-      {entry.title}
-    </div>
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      className={`w-3 h-3 ml-1 inline-block transition-opacity ${active ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}
+    >
+      {direction === 'asc' ? (
+        <path fillRule="evenodd" d="M8 14a.75.75 0 0 1-.75-.75V4.56L4.03 7.78a.75.75 0 0 1-1.06-1.06l4.5-4.5a.75.75 0 0 1 1.06 0l4.5 4.5a.75.75 0 0 1-1.06 1.06L8.75 4.56v8.69A.75.75 0 0 1 8 14Z" clipRule="evenodd" />
+      ) : (
+        <path fillRule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clipRule="evenodd" />
+      )}
+    </svg>
   )
 }
 
@@ -76,7 +74,57 @@ function HistoryCard({ entry, hideUser }: { entry: WatchHistoryEntry; hideUser?:
   )
 }
 
+const EMPTY_EXCLUDE: string[] = []
+const USER_EXCLUDE = ['user']
+
 export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
+  const excludeColumns = hideUser ? USER_EXCLUDE : EMPTY_EXCLUDE
+  const { visibleColumns, toggleColumn, moveColumn, resetToDefaults } = useColumnConfig(
+    HISTORY_COLUMNS,
+    excludeColumns
+  )
+  const [sort, setSort] = useState<SortState | null>(null)
+
+  const orderedColumns = useMemo(() =>
+    visibleColumns
+      .map(id => HISTORY_COLUMNS.find(c => c.id === id))
+      .filter((c): c is typeof HISTORY_COLUMNS[number] => c !== undefined),
+    [visibleColumns]
+  )
+
+  const sortedEntries = useMemo(() => {
+    if (!sort) return entries
+    const column = HISTORY_COLUMNS.find(c => c.id === sort.columnId)
+    if (!column?.sortValue) return entries
+
+    return [...entries].sort((a, b) => {
+      const aVal = column.sortValue!(a)
+      const bVal = column.sortValue!(b)
+      let cmp = 0
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        cmp = aVal - bVal
+      } else {
+        cmp = String(aVal).localeCompare(String(bVal))
+      }
+      return sort.direction === 'asc' ? cmp : -cmp
+    })
+  }, [entries, sort])
+
+  function handleSort(columnId: string) {
+    const column = HISTORY_COLUMNS.find(c => c.id === columnId)
+    if (!column?.sortValue) return
+
+    setSort(prev => {
+      if (prev?.columnId === columnId) {
+        if (prev.direction === 'asc') {
+          return { columnId, direction: 'desc' }
+        }
+        return null // Third click removes sort
+      }
+      return { columnId, direction: 'asc' }
+    })
+  }
+
   if (entries.length === 0) {
     return (
       <div className="card p-12 text-center">
@@ -89,71 +137,70 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
   return (
     <>
       <div className="md:hidden space-y-3">
-        {entries.map(entry => (
+        {sortedEntries.map(entry => (
           <HistoryCard key={entry.id} entry={entry} hideUser={hideUser} />
         ))}
       </div>
 
       <div className="hidden md:block card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border dark:border-border-dark text-left text-xs
-                          text-muted dark:text-muted-dark uppercase tracking-wider">
-              {!hideUser && <th className="px-4 py-3 font-medium">User</th>}
-              <th className="px-4 py-3 font-medium">Title</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium hidden lg:table-cell">Player</th>
-              <th className="px-4 py-3 font-medium hidden lg:table-cell">Platform</th>
-              <th className="px-4 py-3 font-medium hidden xl:table-cell">Location</th>
-              <th className="px-4 py-3 font-medium hidden xl:table-cell">ISP</th>
-              <th className="px-4 py-3 font-medium">Duration</th>
-              <th className="px-4 py-3 font-medium">Date</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border dark:divide-border-dark">
-            {entries.map(entry => (
-              <tr key={entry.id} data-testid="history-row"
-                  className="hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
-                {!hideUser && (
-                  <td className="px-4 py-3">
-                    <Link
-                      to={`/users/${encodeURIComponent(entry.user_name)}`}
-                      className="font-medium text-accent-dim dark:text-accent hover:underline"
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border dark:border-border-dark">
+          <span className="text-xs text-muted dark:text-muted-dark uppercase tracking-wider">
+            {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
+          </span>
+          <ColumnSettings
+            columns={HISTORY_COLUMNS}
+            visibleColumns={visibleColumns}
+            excludeColumns={excludeColumns}
+            onToggle={toggleColumn}
+            onMove={moveColumn}
+            onReset={resetToDefaults}
+          />
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border dark:border-border-dark text-left text-xs
+                            text-muted dark:text-muted-dark uppercase tracking-wider">
+                {orderedColumns.map(col => {
+                  const isSortable = !!col.sortValue
+                  const isActive = sort?.columnId === col.id
+                  return (
+                    <th
+                      key={col.id}
+                      className={`px-4 py-3 font-medium ${col.responsiveClassName || ''} ${isSortable ? 'cursor-pointer select-none group' : ''}`}
+                      onClick={isSortable ? () => handleSort(col.id) : undefined}
                     >
-                      {entry.user_name}
-                    </Link>
-                  </td>
-                )}
-                <td className="px-4 py-3 max-w-[300px]">
-                  <EntryTitle entry={entry} />
-                </td>
-                <td className="px-4 py-3">
-                  <span className="badge badge-muted">
-                    {mediaTypeLabels[entry.media_type]}
-                  </span>
-                </td>
-                <td className="px-4 py-3 hidden lg:table-cell text-muted dark:text-muted-dark">
-                  {entry.player}
-                </td>
-                <td className="px-4 py-3 hidden lg:table-cell text-muted dark:text-muted-dark">
-                  {entry.platform}
-                </td>
-                <td className="px-4 py-3 hidden xl:table-cell text-muted dark:text-muted-dark">
-                  {formatLocation(entry.city, entry.country)}
-                </td>
-                <td className="px-4 py-3 hidden xl:table-cell text-muted dark:text-muted-dark text-xs">
-                  {entry.isp || '—'}
-                </td>
-                <td className="px-4 py-3 font-mono text-xs">
-                  {formatDuration(entry.watched_ms)}
-                </td>
-                <td className="px-4 py-3 text-muted dark:text-muted-dark whitespace-nowrap">
-                  {formatDate(entry.started_at)}
-                </td>
+                      <span className="inline-flex items-center">
+                        {col.label}
+                        {isSortable && (
+                          <SortIcon
+                            direction={isActive ? sort!.direction : 'asc'}
+                            active={isActive}
+                          />
+                        )}
+                      </span>
+                    </th>
+                  )
+                })}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-border dark:divide-border-dark">
+              {sortedEntries.map(entry => (
+                <tr key={entry.id} data-testid="history-row"
+                    className="hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
+                  {orderedColumns.map(col => (
+                    <td
+                      key={col.id}
+                      className={`px-4 py-3 ${col.className || ''} ${col.responsiveClassName || ''}`}
+                    >
+                      {col.render(entry)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   )

@@ -75,13 +75,15 @@ export interface ActiveStream {
   subtitle_codec?: string
   video_decision?: TranscodeDecision
   audio_decision?: TranscodeDecision
-  transcode_hw_accel?: boolean
+  transcode_hw_decode?: boolean
+  transcode_hw_encode?: boolean
   transcode_progress?: number
   bandwidth?: number
   thumb_url?: string
   transcode_container?: string
   transcode_video_codec?: string
   transcode_audio_codec?: string
+  transcode_video_resolution?: string
   season_number?: number
   episode_number?: number
 }

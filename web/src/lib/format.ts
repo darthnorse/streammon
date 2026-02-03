@@ -104,3 +104,34 @@ export function formatVideoCodec(codec?: string, resolution?: string): string {
   }
   return parts.join(' ')
 }
+
+interface LocationLike {
+  city?: string
+  country?: string
+}
+
+export function formatLocation(loc: LocationLike, fallback?: string): string
+export function formatLocation(city: string | undefined, country: string | undefined, fallback?: string): string
+export function formatLocation(
+  cityOrLoc: string | undefined | LocationLike,
+  countryOrFallback?: string,
+  fallback = '—'
+): string {
+  let city: string | undefined
+  let country: string | undefined
+  let fb = fallback
+
+  if (typeof cityOrLoc === 'object' && cityOrLoc !== null) {
+    city = cityOrLoc.city
+    country = cityOrLoc.country
+    fb = countryOrFallback ?? fallback
+  } else {
+    city = cityOrLoc
+    country = countryOrFallback
+  }
+
+  if (city && city.length > 0 && country && country.length > 0) {
+    return `${city}, ${country}`
+  }
+  return (country && country.length > 0) ? country : fb
+}

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer size="2">
-  <Video sessionKey="1" type="movie" title="Inception" grandparentTitle="" parentTitle="" year="2010" duration="8880000" viewOffset="3600000">
+  <Video sessionKey="1" ratingKey="12345" type="movie" title="Inception" grandparentTitle="" parentTitle="" year="2010" duration="8880000" viewOffset="3600000">
     <Media container="mkv" videoCodec="h264" audioCodec="aac" videoResolution="1080" bitrate="10000" audioChannels="6">
       <Part>
         <Stream streamType="1" codec="h264" decision="copy" />
@@ -8,7 +8,7 @@
         <Stream streamType="3" codec="srt" decision="burn" />
       </Part>
     </Media>
-    <TranscodeSession videoDecision="copy" audioDecision="copy" progress="40.5" transcodeHwDecoding="1" transcodeHwEncoding="0" />
+    <TranscodeSession videoDecision="copy" audioDecision="copy" progress="40.5" transcodeHwDecoding="1" transcodeHwEncoding="0" width="1280" height="720" sourceVideoCodec="h264" sourceAudioCodec="aac" />
     <Player title="Chrome" product="Plex Web" address="192.168.1.10" />
     <Session id="abc123" bandwidth="12000" />
     <User title="alice" />

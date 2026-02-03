@@ -11,19 +11,31 @@ import (
 )
 
 func TestGetSessions(t *testing.T) {
-	data, err := os.ReadFile("testdata/sessions.xml")
+	sessionsData, err := os.ReadFile("testdata/sessions.xml")
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	// Metadata response for ratingKey 12345 - provides original media info
+	metadataXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer>
+  <Video ratingKey="12345">
+    <Media id="1001" container="mkv" videoCodec="h264" audioCodec="aac" videoResolution="1080" bitrate="10000" audioChannels="6" />
+  </Video>
+</MediaContainer>`
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Plex-Token") != "test-token" {
 			t.Error("missing plex token header")
 		}
-		if r.URL.Path != "/status/sessions" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
+		switch r.URL.Path {
+		case "/status/sessions":
+			w.Write(sessionsData)
+		case "/library/metadata/12345":
+			w.Write([]byte(metadataXML))
+		default:
+			w.WriteHeader(http.StatusNotFound)
 		}
-		w.Write(data)
 	}))
 	defer ts.Close()
 
@@ -102,14 +114,20 @@ func TestGetSessions(t *testing.T) {
 	if s.VideoDecision != models.TranscodeDecisionCopy {
 		t.Errorf("video decision = %q, want copy", s.VideoDecision)
 	}
-	if s.TranscodeHWAccel != true {
-		t.Error("expected HW accel to be true")
+	if !s.TranscodeHWDecode {
+		t.Error("expected HW decode to be true")
+	}
+	if s.TranscodeHWEncode {
+		t.Error("expected HW encode to be false")
 	}
 	if s.TranscodeProgress != 40.5 {
 		t.Errorf("transcode progress = %f, want 40.5", s.TranscodeProgress)
 	}
 	if s.Bandwidth != 12000000 {
 		t.Errorf("bandwidth = %d, want 12000000", s.Bandwidth)
+	}
+	if s.TranscodeVideoResolution != "720p" {
+		t.Errorf("transcode resolution = %q, want 720p", s.TranscodeVideoResolution)
 	}
 
 	s2 := sessions[1]
@@ -161,14 +179,20 @@ func TestTestConnectionFailure(t *testing.T) {
 }
 
 func TestSessionIDFallsBackToSessionKey(t *testing.T) {
-	xml := `<?xml version="1.0" encoding="UTF-8"?>
+	xmlData := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer>
   <Video sessionKey="42" type="movie" title="Test">
     <Player title="TV" product="Plex" address="10.0.0.1"/>
     <User title="bob"/>
   </Video>
 </MediaContainer>`
-	sessions, err := parseSessions([]byte(xml), 1, "srv")
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(xmlData))
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, Name: "srv", URL: ts.URL, APIKey: "tok"})
+	sessions, err := srv.GetSessions(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,5 +218,179 @@ func TestEmptyContainer(t *testing.T) {
 	}
 	if len(sessions) != 0 {
 		t.Errorf("expected 0 sessions, got %d", len(sessions))
+	}
+}
+
+func TestMetadataFallbackOnNotFound(t *testing.T) {
+	// Session with TranscodeSession but metadata returns 404
+	// Should fall back to TranscodeSession.SourceVideoCodec
+	sessionsXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer>
+  <Video sessionKey="1" ratingKey="99999" type="movie" title="Test">
+    <Media videoCodec="output_codec" videoResolution="720" />
+    <TranscodeSession videoDecision="transcode" sourceVideoCodec="h265" sourceAudioCodec="dts" />
+    <Player title="TV" product="Plex" address="10.0.0.1"/>
+    <User title="bob"/>
+  </Video>
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/status/sessions":
+			w.Write([]byte(sessionsXML))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+	sessions, err := srv.GetSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	// Should use fallback to TranscodeSession.SourceVideoCodec
+	if sessions[0].VideoCodec != "h265" {
+		t.Errorf("video codec = %q, want h265 (from TranscodeSession fallback)", sessions[0].VideoCodec)
+	}
+	if sessions[0].AudioCodec != "dts" {
+		t.Errorf("audio codec = %q, want dts (from TranscodeSession fallback)", sessions[0].AudioCodec)
+	}
+}
+
+func TestMetadataFallbackOnMalformedXML(t *testing.T) {
+	sessionsXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer>
+  <Video sessionKey="1" ratingKey="12345" type="movie" title="Test">
+    <Media videoCodec="session_codec" videoResolution="720" />
+    <TranscodeSession videoDecision="transcode" sourceVideoCodec="original_codec" />
+    <Player title="TV" product="Plex" address="10.0.0.1"/>
+    <User title="bob"/>
+  </Video>
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/status/sessions":
+			w.Write([]byte(sessionsXML))
+		case "/library/metadata/12345":
+			w.Write([]byte("not valid xml {{{"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+	sessions, err := srv.GetSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	// Should use fallback to TranscodeSession.SourceVideoCodec
+	if sessions[0].VideoCodec != "original_codec" {
+		t.Errorf("video codec = %q, want original_codec (from TranscodeSession fallback)", sessions[0].VideoCodec)
+	}
+}
+
+func TestMetadataCaching(t *testing.T) {
+	sessionsXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer>
+  <Video sessionKey="1" ratingKey="cached123" type="movie" title="Test">
+    <Media videoCodec="session_codec" videoResolution="720" />
+    <TranscodeSession videoDecision="transcode" />
+    <Player title="TV" product="Plex" address="10.0.0.1"/>
+    <User title="bob"/>
+  </Video>
+</MediaContainer>`
+
+	metadataXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer>
+  <Video ratingKey="cached123">
+    <Media videoCodec="cached_codec" videoResolution="1080" />
+  </Video>
+</MediaContainer>`
+
+	metadataCallCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/status/sessions":
+			w.Write([]byte(sessionsXML))
+		case "/library/metadata/cached123":
+			metadataCallCount++
+			w.Write([]byte(metadataXML))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+
+	// First call
+	sessions, err := srv.GetSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessions[0].VideoCodec != "cached_codec" {
+		t.Errorf("first call: video codec = %q, want cached_codec", sessions[0].VideoCodec)
+	}
+
+	// Second call - should use cache
+	sessions, err = srv.GetSessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sessions[0].VideoCodec != "cached_codec" {
+		t.Errorf("second call: video codec = %q, want cached_codec", sessions[0].VideoCodec)
+	}
+
+	// Metadata should only be fetched once due to caching
+	if metadataCallCount != 1 {
+		t.Errorf("metadata fetched %d times, want 1 (should be cached)", metadataCallCount)
+	}
+}
+
+func TestContextCancellation(t *testing.T) {
+	sessionsXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer>
+  <Video sessionKey="1" ratingKey="slow123" type="movie" title="Test1">
+    <Media videoCodec="codec1" />
+    <TranscodeSession videoDecision="transcode" />
+    <Player title="TV" product="Plex" address="10.0.0.1"/>
+    <User title="bob"/>
+  </Video>
+  <Video sessionKey="2" ratingKey="slow456" type="movie" title="Test2">
+    <Media videoCodec="codec2" />
+    <TranscodeSession videoDecision="transcode" />
+    <Player title="TV2" product="Plex" address="10.0.0.2"/>
+    <User title="alice"/>
+  </Video>
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/status/sessions":
+			w.Write([]byte(sessionsXML))
+		default:
+			// Metadata endpoints - don't respond, let context cancel
+			<-r.Context().Done()
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := srv.GetSessions(ctx)
+	if err == nil {
+		t.Error("expected context cancellation error")
 	}
 }

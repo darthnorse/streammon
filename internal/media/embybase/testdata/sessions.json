@@ -17,7 +17,7 @@
           "Container": "mkv",
           "Bitrate": 10000000,
           "MediaStreams": [
-            {"Type": "Video", "Codec": "h264", "Channels": 0},
+            {"Type": "Video", "Codec": "h264", "Channels": 0, "Height": 1080},
             {"Type": "Audio", "Codec": "aac", "Channels": 6},
             {"Type": "Subtitle", "Codec": "srt", "Channels": 0}
           ]
@@ -35,8 +35,8 @@
       "Container": "ts",
       "Bitrate": 8000000,
       "CompletionPercentage": 55.2,
-      "Width": 1920,
-      "Height": 1080,
+      "Width": 1280,
+      "Height": 720,
       "AudioChannels": 6,
       "HardwareAccelerationType": "vaapi",
       "TranscodeReasons": ["ContainerNotSupported"]

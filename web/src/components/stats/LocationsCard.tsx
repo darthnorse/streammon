@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { GeoResult } from '../../types'
 import { WorldMapBase } from '../shared/WorldMapBase'
-import { formatLocation } from '../../lib/geo'
+import { formatLocation } from '../../lib/format'
 
 const MAX_TOOLTIP_USERS = 5
 const TOOLTIP_OFFSET_PX = 8

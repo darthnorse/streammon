@@ -116,9 +116,6 @@ export function UserDetail() {
             </div>
           ) : history ? (
             <>
-              <div className="text-sm text-muted dark:text-muted-dark mb-3">
-                {history.total} entr{history.total === 1 ? 'y' : 'ies'}
-              </div>
               <HistoryTable entries={history.items} hideUser />
               <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
             </>

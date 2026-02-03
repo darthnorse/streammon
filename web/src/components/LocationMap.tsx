@@ -1,7 +1,7 @@
 import { useFetch } from '../hooks/useFetch'
 import type { GeoResult } from '../types'
 import { WorldMapBase } from './shared/WorldMapBase'
-import { formatLocation } from '../lib/geo'
+import { formatLocation } from '../lib/format'
 
 const MS_PER_MINUTE = 60_000
 const MS_PER_HOUR = 3_600_000

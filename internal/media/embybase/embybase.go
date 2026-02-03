@@ -207,7 +207,9 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 		}
 		if ti := s.TranscodingInfo; ti != nil {
 			as.TranscodeProgress = ti.CompletionPct
-			as.TranscodeHWAccel = ti.HWAccelerationType != ""
+			hwAccel := ti.HWAccelerationType != ""
+			as.TranscodeHWDecode = hwAccel
+			as.TranscodeHWEncode = hwAccel
 			as.Bandwidth = ti.Bitrate
 			as.TranscodeContainer = ti.Container
 			as.TranscodeVideoCodec = ti.VideoCodec
@@ -223,7 +225,7 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 				as.AudioDecision = models.TranscodeDecisionTranscode
 			}
 			if ti.Height > 0 {
-				as.VideoResolution = fmt.Sprintf("%dp", ti.Height)
+				as.TranscodeVideoResolution = fmt.Sprintf("%dp", ti.Height)
 			}
 		} else {
 			as.VideoDecision = models.TranscodeDecisionDirectPlay

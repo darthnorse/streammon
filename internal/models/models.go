@@ -158,15 +158,17 @@ type ActiveStream struct {
 	Bitrate           int64             `json:"bitrate,omitempty"`
 	AudioChannels     int               `json:"audio_channels,omitempty"`
 	SubtitleCodec     string            `json:"subtitle_codec,omitempty"`
-	VideoDecision     TranscodeDecision `json:"video_decision,omitempty"`
-	AudioDecision     TranscodeDecision `json:"audio_decision,omitempty"`
-	TranscodeHWAccel  bool              `json:"transcode_hw_accel,omitempty"`
-	TranscodeProgress float64           `json:"transcode_progress,omitempty"`
-	Bandwidth         int64             `json:"bandwidth,omitempty"`
-	ThumbURL            string            `json:"thumb_url,omitempty"`
-	TranscodeContainer  string            `json:"transcode_container,omitempty"`
-	TranscodeVideoCodec string            `json:"transcode_video_codec,omitempty"`
-	TranscodeAudioCodec string            `json:"transcode_audio_codec,omitempty"`
+	VideoDecision            TranscodeDecision `json:"video_decision,omitempty"`
+	AudioDecision            TranscodeDecision `json:"audio_decision,omitempty"`
+	TranscodeHWDecode        bool              `json:"transcode_hw_decode,omitempty"`
+	TranscodeHWEncode        bool              `json:"transcode_hw_encode,omitempty"`
+	TranscodeProgress        float64           `json:"transcode_progress,omitempty"`
+	Bandwidth                int64             `json:"bandwidth,omitempty"`
+	ThumbURL                 string            `json:"thumb_url,omitempty"`
+	TranscodeContainer       string            `json:"transcode_container,omitempty"`
+	TranscodeVideoCodec      string            `json:"transcode_video_codec,omitempty"`
+	TranscodeAudioCodec      string            `json:"transcode_audio_codec,omitempty"`
+	TranscodeVideoResolution string            `json:"transcode_video_resolution,omitempty"`
 	SeasonNumber        int               `json:"season_number,omitempty"`
 	EpisodeNumber       int               `json:"episode_number,omitempty"`
 }

@@ -5,20 +5,23 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"streammon/internal/models"
 )
 
 type Server struct {
-	serverID   int64
-	serverName string
-	url        string
-	token      string
-	client     *http.Client
+	serverID      int64
+	serverName    string
+	url           string
+	token         string
+	client        *http.Client
+	metadataCache sync.Map
 }
 
 func New(srv models.Server) *Server {
@@ -71,7 +74,75 @@ func (s *Server) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 	if err != nil {
 		return nil, err
 	}
-	return parseSessions(body, s.serverID, s.serverName)
+	return s.parseSessions(ctx, body)
+}
+
+func (s *Server) getMetadata(ctx context.Context, ratingKey string) *sourceMediaInfo {
+	if ratingKey == "" {
+		return nil
+	}
+
+	if cached, ok := s.metadataCache.Load(ratingKey); ok {
+		if info, ok := cached.(*sourceMediaInfo); ok {
+			return info
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url+"/library/metadata/"+ratingKey, nil)
+	if err != nil {
+		slog.Debug("plex: failed to create metadata request", "ratingKey", ratingKey, "error", err)
+		return nil
+	}
+	s.setHeaders(req)
+	resp, err := s.client.Do(req)
+	if err != nil {
+		slog.Debug("plex: failed to fetch metadata", "ratingKey", ratingKey, "error", err)
+		return nil
+	}
+	defer drainBody(resp)
+	if resp.StatusCode != http.StatusOK {
+		slog.Debug("plex: metadata returned non-200", "ratingKey", ratingKey, "status", resp.StatusCode)
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	if err != nil {
+		slog.Debug("plex: failed to read metadata body", "ratingKey", ratingKey, "error", err)
+		return nil
+	}
+
+	var mc metadataContainer
+	if err := xml.Unmarshal(body, &mc); err != nil {
+		slog.Debug("plex: failed to parse metadata XML", "ratingKey", ratingKey, "error", err)
+		return nil
+	}
+
+	var items []metadataItem
+	items = append(items, mc.Videos...)
+	items = append(items, mc.Tracks...)
+	if len(items) == 0 || len(items[0].Media) == 0 {
+		slog.Debug("plex: metadata has no media items", "ratingKey", ratingKey)
+		return nil
+	}
+
+	m := items[0].Media[0]
+	res := m.VideoResolution
+	if res == "" && m.Height != "" {
+		res = heightToResolution(m.Height)
+	} else {
+		res = normalizeResolution(res)
+	}
+
+	info := &sourceMediaInfo{
+		VideoCodec:      m.VideoCodec,
+		AudioCodec:      m.AudioCodec,
+		VideoResolution: res,
+		Bitrate:         atoi64(m.Bitrate) * 1000,
+		Container:       m.Container,
+		AudioChannels:   atoi(m.AudioChannels),
+	}
+
+	s.metadataCache.Store(ratingKey, info)
+	return info
 }
 
 func (s *Server) setHeaders(req *http.Request) {
@@ -92,6 +163,7 @@ type mediaContainer struct {
 
 type plexItem struct {
 	SessionKey       string            `xml:"sessionKey,attr"`
+	RatingKey        string            `xml:"ratingKey,attr"`
 	Type             string            `xml:"type,attr"`
 	Title            string            `xml:"title,attr"`
 	ParentTitle      string            `xml:"parentTitle,attr"`
@@ -125,12 +197,16 @@ type user struct {
 }
 
 type plexMedia struct {
+	ID              string       `xml:"id,attr"`
 	Container       string       `xml:"container,attr"`
 	VideoCodec      string       `xml:"videoCodec,attr"`
 	AudioCodec      string       `xml:"audioCodec,attr"`
 	VideoResolution string       `xml:"videoResolution,attr"`
+	Height          string       `xml:"height,attr"`
+	Width           string       `xml:"width,attr"`
 	Bitrate         string       `xml:"bitrate,attr"`
 	AudioChannels   string       `xml:"audioChannels,attr"`
+	Selected        string       `xml:"selected,attr"`
 	Parts           []plexPart   `xml:"Part"`
 }
 
@@ -142,28 +218,64 @@ type plexStream struct {
 	StreamType string `xml:"streamType,attr"` // 1=video, 2=audio, 3=subtitle
 	Codec      string `xml:"codec,attr"`
 	Decision   string `xml:"decision,attr"`
+	Height     string `xml:"height,attr"`
+	Width      string `xml:"width,attr"`
 }
 
 type transcodeSession struct {
-	VideoDecision   string `xml:"videoDecision,attr"`
-	AudioDecision   string `xml:"audioDecision,attr"`
+	VideoDecision    string `xml:"videoDecision,attr"`
+	AudioDecision    string `xml:"audioDecision,attr"`
 	SubtitleDecision string `xml:"subtitleDecision,attr"`
-	Progress        string `xml:"progress,attr"`
-	Speed           string `xml:"speed,attr"`
-	Throttled       string `xml:"throttled,attr"`
+	Progress         string `xml:"progress,attr"`
+	Speed            string `xml:"speed,attr"`
+	Throttled        string `xml:"throttled,attr"`
 	SourceVideoCodec string `xml:"sourceVideoCodec,attr"`
 	SourceAudioCodec string `xml:"sourceAudioCodec,attr"`
-	VideoCodec      string `xml:"videoCodec,attr"`
-	AudioCodec      string `xml:"audioCodec,attr"`
-	Container       string `xml:"container,attr"`
-	Protocol        string `xml:"protocol,attr"`
-	HWRequested     string `xml:"transcodeHwRequested,attr"`
-	HWFullPipeline  string `xml:"transcodeHwFullPipeline,attr"`
-	HWDecoding      string `xml:"transcodeHwDecoding,attr"`
-	HWEncoding      string `xml:"transcodeHwEncoding,attr"`
+	VideoCodec       string `xml:"videoCodec,attr"`
+	AudioCodec       string `xml:"audioCodec,attr"`
+	VideoResolution  string `xml:"videoResolution,attr"`
+	Container        string `xml:"container,attr"`
+	Protocol         string `xml:"protocol,attr"`
+	Width            string `xml:"width,attr"`
+	Height           string `xml:"height,attr"`
+	HWRequested      string `xml:"transcodeHwRequested,attr"`
+	HWFullPipeline   string `xml:"transcodeHwFullPipeline,attr"`
+	HWDecoding       string `xml:"transcodeHwDecoding,attr"`
+	HWEncoding       string `xml:"transcodeHwEncoding,attr"`
 }
 
-func parseSessions(data []byte, serverID int64, serverName string) ([]models.ActiveStream, error) {
+type metadataContainer struct {
+	XMLName xml.Name       `xml:"MediaContainer"`
+	Videos  []metadataItem `xml:"Video"`
+	Tracks  []metadataItem `xml:"Track"`
+}
+
+type metadataItem struct {
+	RatingKey string          `xml:"ratingKey,attr"`
+	Media     []metadataMedia `xml:"Media"`
+}
+
+type metadataMedia struct {
+	ID              string `xml:"id,attr"`
+	VideoCodec      string `xml:"videoCodec,attr"`
+	AudioCodec      string `xml:"audioCodec,attr"`
+	VideoResolution string `xml:"videoResolution,attr"`
+	Height          string `xml:"height,attr"`
+	Bitrate         string `xml:"bitrate,attr"`
+	AudioChannels   string `xml:"audioChannels,attr"`
+	Container       string `xml:"container,attr"`
+}
+
+type sourceMediaInfo struct {
+	VideoCodec      string
+	AudioCodec      string
+	VideoResolution string
+	Bitrate         int64
+	Container       string
+	AudioChannels   int
+}
+
+func (s *Server) parseSessions(ctx context.Context, data []byte) ([]models.ActiveStream, error) {
 	var mc mediaContainer
 	if err := xml.Unmarshal(data, &mc); err != nil {
 		return nil, fmt.Errorf("parsing plex XML: %w", err)
@@ -173,14 +285,36 @@ func parseSessions(data []byte, serverID int64, serverName string) ([]models.Act
 	items = append(items, mc.Videos...)
 	items = append(items, mc.Tracks...)
 
+	// Track active ratingKeys to clean up stale cache entries
+	activeKeys := make(map[string]struct{}, len(items))
+
 	streams := make([]models.ActiveStream, 0, len(items))
 	for _, item := range items {
-		streams = append(streams, buildStream(item, serverID, serverName))
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		var srcInfo *sourceMediaInfo
+		if item.TranscodeSession != nil && item.RatingKey != "" {
+			activeKeys[item.RatingKey] = struct{}{}
+			srcInfo = s.getMetadata(ctx, item.RatingKey)
+		}
+		streams = append(streams, buildStream(item, s.serverID, s.serverName, srcInfo))
 	}
+
+	s.metadataCache.Range(func(key, _ any) bool {
+		if k, ok := key.(string); ok {
+			if _, active := activeKeys[k]; !active {
+				s.metadataCache.Delete(k)
+			}
+		}
+		return true
+	})
+
 	return streams, nil
 }
 
-func buildStream(item plexItem, serverID int64, serverName string) models.ActiveStream {
+func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sourceMediaInfo) models.ActiveStream {
 	as := models.ActiveStream{
 		SessionID:        plexSessionID(item),
 		ServerID:         serverID,
@@ -199,20 +333,39 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 		Player:           item.Player.Title,
 		Platform:         item.Player.Product,
 		IPAddress:        item.Player.Address,
-		Bandwidth:        atoi64(item.Session.Bandwidth) * 1000,  // Plex reports kbps
+		Bandwidth:        atoi64(item.Session.Bandwidth) * 1000, // Plex reports kbps
 		StartedAt:        time.Now().UTC(),
 	}
 	if item.Thumb != "" {
 		as.ThumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, strings.TrimPrefix(item.Thumb, "/"))
 	}
+
+	// During active transcoding, the session's Media element contains transcoded
+	// OUTPUT info, not the original source. We save this for TranscodeVideoResolution
+	// before potentially overriding with source info from metadata.
+	var sessionVideoRes string
+
 	if len(item.Media) > 0 {
 		m := item.Media[0]
+		for i := range item.Media {
+			if item.Media[i].Selected == "1" {
+				m = item.Media[i]
+				break
+			}
+		}
+
 		as.VideoCodec = m.VideoCodec
 		as.AudioCodec = m.AudioCodec
-		as.VideoResolution = normalizeResolution(m.VideoResolution)
+		if m.VideoResolution != "" {
+			sessionVideoRes = normalizeResolution(m.VideoResolution)
+		} else if m.Height != "" {
+			sessionVideoRes = heightToResolution(m.Height)
+		}
+		as.VideoResolution = sessionVideoRes
 		as.Container = m.Container
-		as.Bitrate = atoi64(m.Bitrate) * 1000  // Plex reports kbps
+		as.Bitrate = atoi64(m.Bitrate) * 1000 // Plex reports kbps
 		as.AudioChannels = atoi(m.AudioChannels)
+
 		for _, p := range m.Parts {
 			for _, st := range p.Streams {
 				if st.StreamType == "3" && st.Codec != "" {
@@ -221,10 +374,12 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 			}
 		}
 	}
+
 	if ts := item.TranscodeSession; ts != nil {
 		as.VideoDecision = plexDecision(ts.VideoDecision)
 		as.AudioDecision = plexDecision(ts.AudioDecision)
-		as.TranscodeHWAccel = isHWAccel(ts.HWDecoding) || isHWAccel(ts.HWEncoding)
+		as.TranscodeHWDecode = isHWAccel(ts.HWDecoding)
+		as.TranscodeHWEncode = isHWAccel(ts.HWEncoding)
 		as.TranscodeProgress = atof(ts.Progress)
 		as.TranscodeContainer = ts.Container
 		if ts.Protocol != "" {
@@ -232,6 +387,33 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 		}
 		as.TranscodeVideoCodec = ts.VideoCodec
 		as.TranscodeAudioCodec = ts.AudioCodec
+
+		// Transcode output resolution: prefer TranscodeSession, fallback to session Media
+		if ts.Height != "" {
+			as.TranscodeVideoResolution = heightToResolution(ts.Height)
+		} else if ts.VideoResolution != "" {
+			as.TranscodeVideoResolution = normalizeResolution(ts.VideoResolution)
+		} else if sessionVideoRes != "" {
+			as.TranscodeVideoResolution = sessionVideoRes
+		}
+
+		// Override with source info from metadata
+		if srcInfo != nil {
+			as.VideoCodec = srcInfo.VideoCodec
+			as.AudioCodec = srcInfo.AudioCodec
+			as.VideoResolution = srcInfo.VideoResolution
+			as.Bitrate = srcInfo.Bitrate
+			as.Container = srcInfo.Container
+			as.AudioChannels = srcInfo.AudioChannels
+		} else if ts.SourceVideoCodec != "" || ts.SourceAudioCodec != "" {
+			// Fallback to TranscodeSession source codecs (no resolution fallback available)
+			if ts.SourceVideoCodec != "" {
+				as.VideoCodec = ts.SourceVideoCodec
+			}
+			if ts.SourceAudioCodec != "" {
+				as.AudioCodec = ts.SourceAudioCodec
+			}
+		}
 	} else {
 		as.VideoDecision = models.TranscodeDecisionDirectPlay
 		as.AudioDecision = models.TranscodeDecisionDirectPlay
@@ -283,6 +465,25 @@ func normalizeResolution(r string) string {
 		return r + "p"
 	}
 	return r
+}
+
+func heightToResolution(h string) string {
+	height := atoi(h)
+	if height == 0 {
+		return ""
+	}
+	switch {
+	case height >= 2160:
+		return "4K"
+	case height >= 1080:
+		return "1080p"
+	case height >= 720:
+		return "720p"
+	case height >= 480:
+		return "480p"
+	default:
+		return strconv.Itoa(height) + "p"
+	}
 }
 
 func plexSessionID(item plexItem) string {

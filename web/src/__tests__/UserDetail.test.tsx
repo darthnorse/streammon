@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { render } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
@@ -20,6 +20,10 @@ vi.mock('../components/LocationMap', () => ({
 import { useFetch } from '../hooks/useFetch'
 
 const mockUseFetch = vi.mocked(useFetch)
+
+beforeEach(() => {
+  localStorage.clear()
+})
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -78,15 +82,28 @@ describe('UserDetail', () => {
       .mockReturnValueOnce({ data: baseUser, loading: false, error: null, refetch: vi.fn() })
       .mockReturnValueOnce({ data: testHistory, loading: false, error: null, refetch: vi.fn() })
     renderAtRoute('/users/alice')
-    expect(screen.getByText('1 entry')).toBeDefined()
     expect(screen.getAllByText('Inception').length).toBeGreaterThan(0)
   })
 
-  it('shows entry count text', () => {
+  it('hides user column in history table (hideUser prop)', () => {
     mockUseFetch
       .mockReturnValueOnce({ data: baseUser, loading: false, error: null, refetch: vi.fn() })
       .mockReturnValueOnce({ data: testHistory, loading: false, error: null, refetch: vi.fn() })
     renderAtRoute('/users/alice')
-    expect(screen.getByText('1 entry')).toBeDefined()
+    // The table should not contain a link to the user since hideUser is true
+    const table = document.querySelector('table')
+    const userLinks = table?.querySelectorAll('a[href="/users/alice"]')
+    expect(userLinks?.length ?? 0).toBe(0)
+  })
+
+  it('excludes user column from column settings', () => {
+    mockUseFetch
+      .mockReturnValueOnce({ data: baseUser, loading: false, error: null, refetch: vi.fn() })
+      .mockReturnValueOnce({ data: testHistory, loading: false, error: null, refetch: vi.fn() })
+    renderAtRoute('/users/alice')
+    // The User column should not appear in the table header since hideUser excludes it
+    const headers = document.querySelectorAll('table th')
+    const headerTexts = Array.from(headers).map(h => h.textContent?.toLowerCase())
+    expect(headerTexts).not.toContain('user')
   })
 })

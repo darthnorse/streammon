@@ -54,13 +54,20 @@ function formatStreamLine(stream: ActiveStream): string {
 }
 
 function formatVideoLine(stream: ActiveStream): string {
-  const src = [stream.video_resolution, stream.video_codec?.toUpperCase()].filter(Boolean).join(' ')
+  const srcCodec = stream.video_codec?.toUpperCase()
+  const srcRes = stream.video_resolution
+  const src = [srcCodec, srcRes].filter(Boolean).join(' ')
   if (!src) return ''
+
   if (stream.video_decision === 'direct play') return `${src} - Direct Play`
   if (stream.video_decision === 'copy') return `${src} - Direct Stream`
-  const dst = [stream.transcode_video_codec?.toUpperCase(), formatBitrate(stream.bandwidth ?? 0)].filter(Boolean).join(' ')
-  const hw = stream.transcode_hw_accel ? ' (HW)' : ''
-  return `${src} \u2192 ${dst}${hw}`
+
+  const dstCodec = stream.transcode_video_codec?.toUpperCase()
+  const dstRes = stream.transcode_video_resolution
+  const dst = [dstCodec, dstRes].filter(Boolean).join(' ')
+  if (!dst) return src
+  const dstHw = stream.transcode_hw_encode ? ' (HW)' : ''
+  return `${src} \u2192 ${dst}${dstHw}`
 }
 
 function formatAudioLine(stream: ActiveStream): string {

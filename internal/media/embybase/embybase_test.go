@@ -85,14 +85,20 @@ func TestGetSessions(t *testing.T) {
 	if s.AudioDecision != models.TranscodeDecisionDirectPlay {
 		t.Errorf("audio decision = %q, want direct play", s.AudioDecision)
 	}
-	if !s.TranscodeHWAccel {
-		t.Error("expected HW accel true (vaapi)")
+	if !s.TranscodeHWDecode {
+		t.Error("expected HW decode true (vaapi)")
+	}
+	if !s.TranscodeHWEncode {
+		t.Error("expected HW encode true (vaapi)")
 	}
 	if s.TranscodeProgress != 55.2 {
 		t.Errorf("transcode progress = %f, want 55.2", s.TranscodeProgress)
 	}
 	if s.VideoResolution != "1080p" {
-		t.Errorf("resolution = %q, want 1080p", s.VideoResolution)
+		t.Errorf("source resolution = %q, want 1080p", s.VideoResolution)
+	}
+	if s.TranscodeVideoResolution != "720p" {
+		t.Errorf("transcode resolution = %q, want 720p", s.TranscodeVideoResolution)
 	}
 
 	s2 := sessions[1]
