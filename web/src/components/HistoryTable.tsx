@@ -3,6 +3,11 @@ import type { WatchHistoryEntry } from '../types'
 import { formatDuration, formatDate, formatEpisode, parseSeasonFromTitle } from '../lib/format'
 import { mediaTypeLabels } from '../lib/constants'
 
+function formatLocation(city?: string, country?: string): string {
+  if (city && country) return `${city}, ${country}`
+  return country || '—'
+}
+
 interface HistoryTableProps {
   entries: WatchHistoryEntry[]
   hideUser?: boolean
@@ -61,6 +66,12 @@ function HistoryCard({ entry, hideUser }: { entry: WatchHistoryEntry; hideUser?:
         <span className="hidden sm:inline">&middot;</span>
         <span className="hidden sm:inline">{entry.player}</span>
       </div>
+      {(entry.city || entry.country) && (
+        <div className="mt-1 text-xs text-muted dark:text-muted-dark">
+          {formatLocation(entry.city, entry.country)}
+          {entry.isp && <span className="ml-2 opacity-75">({entry.isp})</span>}
+        </div>
+      )}
     </div>
   )
 }
@@ -93,6 +104,8 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
               <th className="px-4 py-3 font-medium">Type</th>
               <th className="px-4 py-3 font-medium hidden lg:table-cell">Player</th>
               <th className="px-4 py-3 font-medium hidden lg:table-cell">Platform</th>
+              <th className="px-4 py-3 font-medium hidden xl:table-cell">Location</th>
+              <th className="px-4 py-3 font-medium hidden xl:table-cell">ISP</th>
               <th className="px-4 py-3 font-medium">Duration</th>
               <th className="px-4 py-3 font-medium">Date</th>
             </tr>
@@ -124,6 +137,12 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
                 </td>
                 <td className="px-4 py-3 hidden lg:table-cell text-muted dark:text-muted-dark">
                   {entry.platform}
+                </td>
+                <td className="px-4 py-3 hidden xl:table-cell text-muted dark:text-muted-dark">
+                  {formatLocation(entry.city, entry.country)}
+                </td>
+                <td className="px-4 py-3 hidden xl:table-cell text-muted dark:text-muted-dark text-xs">
+                  {entry.isp || '—'}
                 </td>
                 <td className="px-4 py-3 font-mono text-xs">
                   {formatDuration(entry.watched_ms)}

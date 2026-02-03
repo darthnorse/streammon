@@ -11,12 +11,26 @@ const historyColumns = `id, server_id, user_name, media_type, title, parent_titl
 	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at, created_at,
 	season_number, episode_number`
 
+const historyColumnsWithGeo = `h.id, h.server_id, h.user_name, h.media_type, h.title, h.parent_title,
+	h.grandparent_title, h.year, h.duration_ms, h.watched_ms, h.player, h.platform, h.ip_address,
+	h.started_at, h.stopped_at, h.created_at, h.season_number, h.episode_number,
+	COALESCE(g.city, ''), COALESCE(g.country, ''), COALESCE(g.isp, '')`
+
 func scanHistoryEntry(scanner interface{ Scan(...any) error }) (models.WatchHistoryEntry, error) {
 	var e models.WatchHistoryEntry
 	err := scanner.Scan(&e.ID, &e.ServerID, &e.UserName, &e.MediaType, &e.Title,
 		&e.ParentTitle, &e.GrandparentTitle, &e.Year, &e.DurationMs, &e.WatchedMs,
 		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
 		&e.SeasonNumber, &e.EpisodeNumber)
+	return e, err
+}
+
+func scanHistoryEntryWithGeo(scanner interface{ Scan(...any) error }) (models.WatchHistoryEntry, error) {
+	var e models.WatchHistoryEntry
+	err := scanner.Scan(&e.ID, &e.ServerID, &e.UserName, &e.MediaType, &e.Title,
+		&e.ParentTitle, &e.GrandparentTitle, &e.Year, &e.DurationMs, &e.WatchedMs,
+		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
+		&e.SeasonNumber, &e.EpisodeNumber, &e.City, &e.Country, &e.ISP)
 	return e, err
 }
 
@@ -47,18 +61,25 @@ func (s *Store) ListHistory(page, perPage int, userFilter string) (*models.Pagin
 	where := ""
 	var args []any
 	if userFilter != "" {
-		where = " WHERE user_name = ?"
+		where = " WHERE h.user_name = ?"
 		args = append(args, userFilter)
 	}
 
+	countWhere := where
+	if countWhere != "" {
+		countWhere = " WHERE user_name = ?"
+	}
 	var total int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM watch_history"+where, args...).Scan(&total)
+	err := s.db.QueryRow("SELECT COUNT(*) FROM watch_history"+countWhere, args...).Scan(&total)
 	if err != nil {
 		return nil, fmt.Errorf("counting history: %w", err)
 	}
 
 	offset := (page - 1) * perPage
-	query := `SELECT ` + historyColumns + ` FROM watch_history` + where + ` ORDER BY started_at DESC LIMIT ? OFFSET ?`
+	query := `SELECT ` + historyColumnsWithGeo + `
+		FROM watch_history h
+		LEFT JOIN ip_geo_cache g ON h.ip_address = g.ip` +
+		where + ` ORDER BY h.started_at DESC LIMIT ? OFFSET ?`
 	queryArgs := append(args, perPage, offset)
 
 	rows, err := s.db.Query(query, queryArgs...)
@@ -69,7 +90,7 @@ func (s *Store) ListHistory(page, perPage int, userFilter string) (*models.Pagin
 
 	items := []models.WatchHistoryEntry{}
 	for rows.Next() {
-		e, err := scanHistoryEntry(rows)
+		e, err := scanHistoryEntryWithGeo(rows)
 		if err != nil {
 			return nil, err
 		}

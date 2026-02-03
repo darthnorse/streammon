@@ -43,6 +43,10 @@ export interface WatchHistoryEntry {
   created_at: string
   season_number?: number
   episode_number?: number
+  // Geo fields from ip_geo_cache (populated by ListHistory)
+  city?: string
+  country?: string
+  isp?: string
 }
 
 export interface ActiveStream {
