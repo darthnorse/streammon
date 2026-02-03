@@ -1,17 +1,10 @@
 import type { MediaStat } from '../../types'
+import { formatHours } from '../../lib/format'
 
 interface TopMediaCardProps {
   title: string
   items: MediaStat[]
   icon: string
-}
-
-function formatHours(hours: number): string {
-  if (hours < 1) {
-    const minutes = Math.round(hours * 60)
-    return `${minutes}m`
-  }
-  return `${hours.toFixed(1)}h`
 }
 
 export function TopMediaCard({ title, items, icon }: TopMediaCardProps) {
@@ -30,7 +23,7 @@ export function TopMediaCard({ title, items, icon }: TopMediaCardProps) {
         <div className="space-y-3">
           {items.map((item, idx) => (
             <div
-              key={`${item.title}-${item.year || idx}`}
+              key={idx}
               className="flex items-center gap-3"
             >
               <div className="w-6 h-6 rounded-full bg-accent/10 dark:bg-accent/20 flex items-center justify-center text-xs font-semibold text-accent">

@@ -1,20 +1,9 @@
 import { Link } from 'react-router-dom'
 import type { UserStat } from '../../types'
+import { formatHours } from '../../lib/format'
 
 interface TopUsersCardProps {
   users: UserStat[]
-}
-
-function formatHours(hours: number): string {
-  if (hours < 1) {
-    const minutes = Math.round(hours * 60)
-    return `${minutes}m`
-  }
-  if (hours >= 24) {
-    const days = hours / 24
-    return `${days.toFixed(1)}d`
-  }
-  return `${hours.toFixed(1)}h`
 }
 
 export function TopUsersCard({ users }: TopUsersCardProps) {

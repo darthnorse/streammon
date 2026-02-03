@@ -1,4 +1,5 @@
 import type { LibraryStat } from '../../types'
+import { formatHours } from '../../lib/format'
 
 interface LibraryCardsProps {
   stats: LibraryStat
@@ -23,18 +24,6 @@ function StatCard({ label, value, icon }: StatCardProps) {
       </div>
     </div>
   )
-}
-
-function formatHours(hours: number): string {
-  if (hours < 1) {
-    const minutes = Math.round(hours * 60)
-    return `${minutes}m`
-  }
-  if (hours >= 24) {
-    const days = hours / 24
-    return `${days.toFixed(1)}d`
-  }
-  return `${hours.toFixed(1)}h`
 }
 
 export function LibraryCards({ stats, concurrentPeak }: LibraryCardsProps) {

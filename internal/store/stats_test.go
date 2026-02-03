@@ -179,7 +179,7 @@ func TestConcurrentStreamsPeak(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)
 
-	base := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	base := time.Now().UTC().Add(-24 * time.Hour)
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
 		Title: "M1", StartedAt: base, StoppedAt: base.Add(2 * time.Hour),

@@ -39,3 +39,16 @@ export function formatDate(iso: string): string {
     minute: '2-digit',
   })
 }
+
+export function formatHours(hours: number): string {
+  if (hours === 0) return '0m'
+  if (hours < 1) {
+    const minutes = Math.round(hours * 60)
+    return `${minutes}m`
+  }
+  if (hours >= 24) {
+    const days = hours / 24
+    return `${days.toFixed(1)}d`
+  }
+  return `${hours.toFixed(1)}h`
+}

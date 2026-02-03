@@ -4,9 +4,19 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"streammon/internal/models"
+)
+
+const (
+	// DefaultConcurrentPeakDays limits the concurrent streams calculation to recent history
+	DefaultConcurrentPeakDays = 90
+	// DefaultSharerWindowDays is the time window for detecting potential password sharing
+	DefaultSharerWindowDays = 30
+	// DefaultSharerMinIPs is the minimum unique IPs to flag as potential sharing
+	DefaultSharerMinIPs = 3
 )
 
 func (s *Store) TopMovies(limit int) ([]models.MediaStat, error) {
@@ -53,7 +63,7 @@ func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
 		var stat models.MediaStat
 		var totalHours sql.NullFloat64
 		if err := rows.Scan(&stat.Title, &stat.Year, &stat.PlayCount, &totalHours); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scanning media stats: %w", err)
 		}
 		if totalHours.Valid {
 			stat.TotalHours = totalHours.Float64
@@ -61,7 +71,7 @@ func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
 		stats = append(stats, stat)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("iterating media stats: %w", err)
 	}
 	if stats == nil {
 		stats = []models.MediaStat{}
@@ -146,8 +156,10 @@ func (s *Store) LibraryStats() (*models.LibraryStat, error) {
 }
 
 func (s *Store) ConcurrentStreamsPeak() (int, time.Time, error) {
+	cutoff := time.Now().UTC().AddDate(0, 0, -DefaultConcurrentPeakDays)
 	rows, err := s.db.Query(
-		`SELECT started_at, stopped_at FROM watch_history`,
+		`SELECT started_at, stopped_at FROM watch_history WHERE started_at >= ?`,
+		cutoff,
 	)
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("concurrent streams: %w", err)
@@ -163,13 +175,13 @@ func (s *Store) ConcurrentStreamsPeak() (int, time.Time, error) {
 	for rows.Next() {
 		var start, stop time.Time
 		if err := rows.Scan(&start, &stop); err != nil {
-			return 0, time.Time{}, err
+			return 0, time.Time{}, fmt.Errorf("scanning concurrent streams: %w", err)
 		}
 		events = append(events, event{t: start, delta: 1})
 		events = append(events, event{t: stop, delta: -1})
 	}
 	if err := rows.Err(); err != nil {
-		return 0, time.Time{}, err
+		return 0, time.Time{}, fmt.Errorf("iterating concurrent streams: %w", err)
 	}
 
 	if len(events) == 0 {
@@ -226,16 +238,17 @@ func (s *Store) AllWatchLocations() ([]models.GeoResult, error) {
 }
 
 func (s *Store) PotentialSharers(minIPs int, windowDays int) ([]models.SharerAlert, error) {
+	cutoff := time.Now().UTC().AddDate(0, 0, -windowDays)
 	rows, err := s.db.Query(
 		`SELECT user_name, COUNT(DISTINCT ip_address) as unique_ips,
 			MAX(COALESCE(stopped_at, started_at)) as last_seen
 		FROM watch_history
-		WHERE started_at > datetime('now', ?)
+		WHERE started_at >= ?
 		AND ip_address != ''
 		GROUP BY user_name
 		HAVING unique_ips >= ?
 		ORDER BY unique_ips DESC`,
-		fmt.Sprintf("-%d days", windowDays), minIPs,
+		cutoff, minIPs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("potential sharers: %w", err)
@@ -243,63 +256,79 @@ func (s *Store) PotentialSharers(minIPs int, windowDays int) ([]models.SharerAle
 	defer rows.Close()
 
 	var alerts []models.SharerAlert
+	var userNames []string
 	for rows.Next() {
 		var alert models.SharerAlert
 		var lastSeen sql.NullString
 		if err := rows.Scan(&alert.UserName, &alert.UniqueIPs, &lastSeen); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scanning sharer alert: %w", err)
 		}
 		if lastSeen.Valid {
 			alert.LastSeen = lastSeen.String
 		}
+		alert.Locations = []string{}
 		alerts = append(alerts, alert)
+		userNames = append(userNames, alert.UserName)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating sharer alerts: %w", err)
+	}
+
+	if len(alerts) == 0 {
+		return []models.SharerAlert{}, nil
+	}
+
+	locationMap, err := s.getLocationsForUsers(userNames, cutoff)
+	if err != nil {
 		return nil, err
 	}
-
 	for i := range alerts {
-		locs, err := s.getLocationsForUser(alerts[i].UserName, windowDays)
-		if err != nil {
-			return nil, err
+		if locs, ok := locationMap[alerts[i].UserName]; ok {
+			alerts[i].Locations = locs
 		}
-		alerts[i].Locations = locs
 	}
 
-	if alerts == nil {
-		alerts = []models.SharerAlert{}
-	}
 	return alerts, nil
 }
 
-func (s *Store) getLocationsForUser(userName string, windowDays int) ([]string, error) {
-	rows, err := s.db.Query(
-		`SELECT DISTINCT g.city || ', ' || g.country as location
+func (s *Store) getLocationsForUsers(userNames []string, cutoff time.Time) (map[string][]string, error) {
+	if len(userNames) == 0 {
+		return map[string][]string{}, nil
+	}
+
+	placeholders := make([]string, len(userNames))
+	args := make([]any, 0, len(userNames)+1)
+	args = append(args, cutoff)
+	for i, name := range userNames {
+		placeholders[i] = "?"
+		args = append(args, name)
+	}
+
+	query := `SELECT h.user_name, g.city || ', ' || g.country as location
 		FROM watch_history h
 		JOIN ip_geo_cache g ON h.ip_address = g.ip
-		WHERE h.user_name = ?
-		AND h.started_at > datetime('now', ?)
-		AND g.city != ''`,
-		userName, fmt.Sprintf("-%d days", windowDays),
-	)
+		WHERE h.started_at >= ?
+		AND h.user_name IN (` + strings.Join(placeholders, ",") + `)
+		AND g.city != ''
+		GROUP BY h.user_name, location`
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("user locations: %w", err)
+		return nil, fmt.Errorf("batch user locations: %w", err)
 	}
 	defer rows.Close()
 
-	var locations []string
+	result := make(map[string][]string)
 	for rows.Next() {
-		var loc string
-		if err := rows.Scan(&loc); err != nil {
-			return nil, err
+		var userName, location string
+		if err := rows.Scan(&userName, &location); err != nil {
+			return nil, fmt.Errorf("scanning user location: %w", err)
 		}
-		locations = append(locations, loc)
+		result[userName] = append(result[userName], location)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("iterating user locations: %w", err)
 	}
-	if locations == nil {
-		locations = []string{}
-	}
-	return locations, nil
+
+	return result, nil
 }

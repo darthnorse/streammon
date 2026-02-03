@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"streammon/internal/models"
+	"streammon/internal/store"
 )
 
 type StatsResponse struct {
@@ -68,7 +69,7 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp.PotentialSharers, err = s.store.PotentialSharers(3, 30)
+	resp.PotentialSharers, err = s.store.PotentialSharers(store.DefaultSharerMinIPs, store.DefaultSharerWindowDays)
 	if err != nil {
 		log.Printf("PotentialSharers error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
