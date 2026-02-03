@@ -250,12 +250,14 @@ func (s *Store) PotentialSharers(minIPs int, windowDays int) ([]models.SharerAle
 	var userNames []string
 	for rows.Next() {
 		var alert models.SharerAlert
-		var lastSeen sql.NullString
-		if err := rows.Scan(&alert.UserName, &alert.UniqueIPs, &lastSeen); err != nil {
+		var lastSeenStr sql.NullString
+		if err := rows.Scan(&alert.UserName, &alert.UniqueIPs, &lastSeenStr); err != nil {
 			return nil, fmt.Errorf("scanning sharer alert: %w", err)
 		}
-		if lastSeen.Valid {
-			alert.LastSeen = lastSeen.String
+		if lastSeenStr.Valid {
+			if t := parseSQLiteTimestamp(lastSeenStr.String); !t.IsZero() {
+				alert.LastSeen = t.Format(time.RFC3339)
+			}
 		}
 		alert.Locations = []string{}
 		alerts = append(alerts, alert)
