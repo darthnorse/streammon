@@ -210,3 +210,34 @@ func TestGetStatsAPI_WithPotentialSharers(t *testing.T) {
 		t.Fatalf("expected 3 locations, got %d", len(resp.PotentialSharers[0].Locations))
 	}
 }
+
+func TestGetStatsAPI_WithDaysFilter(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// Test valid days parameter
+	req := httptest.NewRequest("GET", "/api/stats?days=7", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("days=7: status = %d, want 200", w.Code)
+	}
+
+	// Test days=30
+	req = httptest.NewRequest("GET", "/api/stats?days=30", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("days=30: status = %d, want 200", w.Code)
+	}
+
+	// Test invalid days (should still work, defaults to all time)
+	req = httptest.NewRequest("GET", "/api/stats?days=invalid", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("days=invalid: status = %d, want 200", w.Code)
+	}
+}

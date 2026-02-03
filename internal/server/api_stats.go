@@ -3,10 +3,16 @@ package server
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"streammon/internal/models"
 	"streammon/internal/store"
+)
+
+const (
+	FilterDaysWeek  = 7
+	FilterDaysMonth = 30
 )
 
 type StatsResponse struct {
@@ -21,24 +27,31 @@ type StatsResponse struct {
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
+	days := 0 // default: all time
+	if d := r.URL.Query().Get("days"); d != "" {
+		if parsed, err := strconv.Atoi(d); err == nil && (parsed == FilterDaysWeek || parsed == FilterDaysMonth) {
+			days = parsed
+		}
+	}
+
 	resp := StatsResponse{}
 	var err error
 
-	resp.TopMovies, err = s.store.TopMovies(10)
+	resp.TopMovies, err = s.store.TopMovies(10, days)
 	if err != nil {
 		log.Printf("TopMovies error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 
-	resp.TopTVShows, err = s.store.TopTVShows(10)
+	resp.TopTVShows, err = s.store.TopTVShows(10, days)
 	if err != nil {
 		log.Printf("TopTVShows error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 
-	resp.TopUsers, err = s.store.TopUsers(10)
+	resp.TopUsers, err = s.store.TopUsers(10, days)
 	if err != nil {
 		log.Printf("TopUsers error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")

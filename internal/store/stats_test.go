@@ -29,7 +29,7 @@ func TestTopMovies(t *testing.T) {
 		StartedAt: now, StoppedAt: now.Add(90 * time.Minute),
 	})
 
-	stats, err := s.TopMovies(10)
+	stats, err := s.TopMovies(10, 0)
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestTopMovies(t *testing.T) {
 func TestTopMoviesEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	stats, err := s.TopMovies(10)
+	stats, err := s.TopMovies(10, 0)
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestTopTVShows(t *testing.T) {
 		StartedAt: now, StoppedAt: now.Add(30 * time.Minute),
 	})
 
-	stats, err := s.TopTVShows(10)
+	stats, err := s.TopTVShows(10, 0)
 	if err != nil {
 		t.Fatalf("TopTVShows: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestTopUsers(t *testing.T) {
 		Title: "M1", WatchedMs: 1800000, StartedAt: now, StoppedAt: now.Add(30 * time.Minute),
 	})
 
-	stats, err := s.TopUsers(10)
+	stats, err := s.TopUsers(10, 0)
 	if err != nil {
 		t.Fatalf("TopUsers: %v", err)
 	}
@@ -363,5 +363,56 @@ func TestPotentialSharersNone(t *testing.T) {
 	}
 	if len(sharers) != 0 {
 		t.Fatalf("expected 0 potential sharers, got %d", len(sharers))
+	}
+}
+
+func TestTopMoviesWithTimeFilter(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	// Insert old record (40 days ago)
+	oldDate := time.Now().UTC().AddDate(0, 0, -40)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "user1", MediaType: models.MediaTypeMovie,
+		Title: "Old Movie", Year: 2020, DurationMs: 7200000, WatchedMs: 7200000,
+		StartedAt: oldDate, StoppedAt: oldDate.Add(2 * time.Hour),
+	})
+
+	// Insert recent record (5 days ago)
+	recentDate := time.Now().UTC().AddDate(0, 0, -5)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "user1", MediaType: models.MediaTypeMovie,
+		Title: "Recent Movie", Year: 2023, DurationMs: 7200000, WatchedMs: 7200000,
+		StartedAt: recentDate, StoppedAt: recentDate.Add(2 * time.Hour),
+	})
+
+	// All time should return both
+	all, err := s.TopMovies(10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 2 {
+		t.Errorf("all time: got %d movies, want 2", len(all))
+	}
+
+	// 30 days should return only recent
+	month, err := s.TopMovies(10, 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(month) != 1 {
+		t.Errorf("30 days: got %d movies, want 1", len(month))
+	}
+	if month[0].Title != "Recent Movie" {
+		t.Errorf("30 days: got %q, want Recent Movie", month[0].Title)
+	}
+
+	// 7 days should return only recent
+	week, err := s.TopMovies(10, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(week) != 1 {
+		t.Errorf("7 days: got %d movies, want 1", len(week))
 	}
 }
