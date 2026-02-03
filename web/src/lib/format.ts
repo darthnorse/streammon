@@ -52,3 +52,55 @@ export function formatHours(hours: number): string {
   }
   return `${hours.toFixed(1)}h`
 }
+
+export function formatEpisode(season?: number, episode?: number): string {
+  if (season == null && episode == null) return ''
+  const s = season != null ? `S${season}` : ''
+  const e = episode != null ? `E${episode}` : ''
+  if (s && e) return `${s} · ${e}`
+  return s || e
+}
+
+export function parseSeasonFromTitle(parentTitle: string): number | undefined {
+  if (!parentTitle) return undefined
+  const match = parentTitle.match(/^(?:Season|Temporada|Staffel|Saison|Stagione)\s+(\d+)$/i)
+  if (match) {
+    return parseInt(match[1], 10)
+  }
+  return undefined
+}
+
+export function formatAudioCodec(codec?: string, channels?: number): string {
+  if (!codec) return ''
+  const c = codec.toLowerCase()
+  const ch = formatChannels(channels ?? 0)
+
+  if (c.includes('truehd') && c.includes('atmos')) return `Dolby TrueHD Atmos${ch ? ` ${ch}` : ''}`
+  if (c.includes('truehd')) return `Dolby TrueHD${ch ? ` ${ch}` : ''}`
+  if (c.includes('atmos')) return `Dolby Atmos${ch ? ` ${ch}` : ''}`
+  if (c === 'eac3' || c === 'dd+' || c.includes('ddp')) return `Dolby Digital+${ch ? ` ${ch}` : ''}`
+  if (c === 'ac3' || c === 'dd') return `Dolby Digital${ch ? ` ${ch}` : ''}`
+  if (c === 'dts-hd ma' || c.includes('dts-hd')) return `DTS-HD MA${ch ? ` ${ch}` : ''}`
+  if (c.includes('dts:x')) return `DTS:X${ch ? ` ${ch}` : ''}`
+  if (c.includes('dts')) return `DTS${ch ? ` ${ch}` : ''}`
+  if (c === 'aac') return `AAC${ch ? ` ${ch}` : ''}`
+  if (c === 'flac') return `FLAC${ch ? ` ${ch}` : ''}`
+  if (c === 'opus') return `Opus${ch ? ` ${ch}` : ''}`
+
+  return ch ? `${codec.toUpperCase()} ${ch}` : codec.toUpperCase()
+}
+
+export function formatVideoCodec(codec?: string, resolution?: string): string {
+  if (!codec && !resolution) return ''
+  const parts: string[] = []
+  if (resolution) parts.push(resolution)
+  if (codec) {
+    const c = codec.toLowerCase()
+    if (c === 'hevc' || c === 'h265') parts.push('HEVC')
+    else if (c === 'h264' || c === 'avc') parts.push('H.264')
+    else if (c === 'av1') parts.push('AV1')
+    else if (c === 'vp9') parts.push('VP9')
+    else parts.push(codec.toUpperCase())
+  }
+  return parts.join(' ')
+}

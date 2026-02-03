@@ -92,6 +92,12 @@ func TestGetRecentlyAdded(t *testing.T) {
 			if it.ThumbURL != "55555" {
 				t.Errorf("episode thumb = %q, want 55555 (series grandparentRatingKey)", it.ThumbURL)
 			}
+			if it.SeasonNumber != 5 {
+				t.Errorf("season number = %d, want 5", it.SeasonNumber)
+			}
+			if it.EpisodeNumber != 14 {
+				t.Errorf("episode number = %d, want 14", it.EpisodeNumber)
+			}
 			break
 		}
 	}

@@ -1,11 +1,13 @@
 import { useSSE } from '../hooks/useSSE'
 import { StreamCard } from '../components/StreamCard'
-import { DailyChart } from '../components/DailyChart'
 import { EmptyState } from '../components/EmptyState'
 import { RecentMedia } from '../components/RecentMedia'
+import { formatBitrate } from '../lib/format'
 
 export function Dashboard() {
   const { sessions, connected } = useSSE('/api/dashboard/sse')
+
+  const totalBandwidth = sessions.reduce((sum, s) => sum + (s.bandwidth ?? 0), 0)
 
   return (
     <div>
@@ -14,7 +16,7 @@ export function Dashboard() {
           <h1 className="text-2xl font-semibold">Dashboard</h1>
           <p className="text-sm text-muted dark:text-muted-dark mt-1">
             {sessions.length > 0
-              ? `${sessions.length} active stream${sessions.length !== 1 ? 's' : ''}`
+              ? `${sessions.length} active stream${sessions.length !== 1 ? 's' : ''}${totalBandwidth > 0 ? ` (${formatBitrate(totalBandwidth)})` : ''}`
               : 'Monitoring streams'}
           </p>
         </div>
@@ -32,16 +34,13 @@ export function Dashboard() {
       {sessions.length === 0 ? (
         <EmptyState icon="▣" title="No active streams" description="Streams will appear here when someone starts watching" />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-w-5xl">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-5xl">
           {[...sessions].sort((a, b) => `${a.server_id}:${a.session_id}`.localeCompare(`${b.server_id}:${b.session_id}`)).map(stream => (
             <StreamCard key={`${stream.server_id}:${stream.session_id}`} stream={stream} />
           ))}
         </div>
       )}
-      <div className="mt-6">
-        <DailyChart />
-      </div>
-      <div className="mt-6">
+      <div className="mt-8">
         <RecentMedia />
       </div>
     </div>

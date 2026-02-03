@@ -1,4 +1,5 @@
 import { useFetch } from '../hooks/useFetch'
+import { DailyChart } from '../components/DailyChart'
 import { LibraryCards } from '../components/stats/LibraryCards'
 import { TopMediaCard } from '../components/stats/TopMediaCard'
 import { TopUsersCard } from '../components/stats/TopUsersCard'
@@ -37,6 +38,8 @@ export function Statistics() {
       </div>
 
       <LibraryCards stats={data.library} concurrentPeak={data.concurrent_peak} />
+
+      <DailyChart />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <TopMediaCard title="Most Popular Movies" items={data.top_movies} icon="▶" />

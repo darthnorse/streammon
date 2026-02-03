@@ -10,6 +10,11 @@ import (
 	"streammon/internal/models"
 )
 
+type itemDetailsResponse struct {
+	*models.ItemDetails
+	WatchHistory []models.WatchHistoryEntry `json:"watch_history,omitempty"`
+}
+
 func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 	serverID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
@@ -44,5 +49,15 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, details)
+	searchTitle := details.Title
+	if details.SeriesTitle != "" {
+		searchTitle = details.SeriesTitle
+	}
+	history, _ := s.store.HistoryForTitle(searchTitle, 10)
+
+	resp := itemDetailsResponse{
+		ItemDetails:  details,
+		WatchHistory: history,
+	}
+	writeJSON(w, http.StatusOK, resp)
 }

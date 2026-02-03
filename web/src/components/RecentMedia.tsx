@@ -51,16 +51,16 @@ export function RecentMedia() {
   }
 
   return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold">Recently Added</h2>
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
-        {data.map(item => (
+    <div className="space-y-3">
+      <h2 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide">Recently Added</h2>
+      <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
+        {data.slice(0, 25).map(item => (
           <div
             key={`${item.server_id}-${item.item_id || item.title}`}
-            className={`relative group ${item.item_id ? 'cursor-pointer' : ''}`}
+            className={`relative group shrink-0 w-24 ${item.item_id ? 'cursor-pointer' : ''}`}
             onClick={() => handleItemClick(item)}
           >
-            <div className="aspect-[2/3] rounded-lg overflow-hidden bg-panel dark:bg-panel-dark border border-border dark:border-border-dark transition-transform duration-200 group-hover:scale-[1.02] group-hover:shadow-lg">
+            <div className="aspect-[2/3] rounded overflow-hidden bg-panel dark:bg-panel-dark border border-border dark:border-border-dark transition-transform duration-200 group-hover:scale-105 group-hover:shadow-lg">
               {item.thumb_url ? (
                 <img
                   src={`/api/servers/${item.server_id}/thumb/${item.thumb_url}`}
@@ -69,21 +69,18 @@ export function RecentMedia() {
                   loading="lazy"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-3xl opacity-20">
+                <div className="w-full h-full flex items-center justify-center text-2xl opacity-20">
                   🎬
                 </div>
               )}
             </div>
             <div
-              className={`absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full ${serverColors[item.server_type] || 'bg-gray-500'}`}
+              className={`absolute top-1 right-1 w-2 h-2 rounded-full ${serverColors[item.server_type] || 'bg-gray-500'}`}
               title={item.server_name}
             />
-            <div className="mt-1.5">
-              <div className="text-xs font-medium truncate" title={item.title}>
+            <div className="mt-1">
+              <div className="text-[11px] font-medium truncate" title={item.title}>
                 {item.title}
-              </div>
-              <div className="text-xs text-muted dark:text-muted-dark truncate">
-                {item.year ? `${item.year} · ${item.server_name}` : item.server_name}
               </div>
             </div>
           </div>

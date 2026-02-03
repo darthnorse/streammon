@@ -28,6 +28,8 @@ type recentlyAddedItem struct {
 	GrandparentTitle string `xml:"grandparentTitle,attr"`
 	RatingKey        string `xml:"ratingKey,attr"`
 	GrandparentKey   string `xml:"grandparentRatingKey,attr"`
+	ParentIndex      string `xml:"parentIndex,attr"`
+	Index            string `xml:"index,attr"`
 }
 
 // Plex hub media types
@@ -106,15 +108,17 @@ func (s *Server) fetchHubRecentlyAdded(ctx context.Context, mediaType string, li
 		}
 
 		items = append(items, models.LibraryItem{
-			ItemID:     item.RatingKey,
-			Title:      title,
-			Year:       atoi(item.Year),
-			MediaType:  plexMediaType(item.Type),
-			ThumbURL:   thumbURL,
-			AddedAt:    time.Unix(atoi64(item.AddedAt), 0).UTC(),
-			ServerID:   s.serverID,
-			ServerName: s.serverName,
-			ServerType: models.ServerTypePlex,
+			ItemID:        item.RatingKey,
+			Title:         title,
+			Year:          atoi(item.Year),
+			MediaType:     plexMediaType(item.Type),
+			ThumbURL:      thumbURL,
+			AddedAt:       time.Unix(atoi64(item.AddedAt), 0).UTC(),
+			ServerID:      s.serverID,
+			ServerName:    s.serverName,
+			ServerType:    models.ServerTypePlex,
+			SeasonNumber:  atoi(item.ParentIndex),
+			EpisodeNumber: atoi(item.Index),
 		})
 	}
 

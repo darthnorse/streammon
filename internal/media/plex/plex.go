@@ -96,6 +96,8 @@ type plexItem struct {
 	Title            string            `xml:"title,attr"`
 	ParentTitle      string            `xml:"parentTitle,attr"`
 	GrandparentTitle string            `xml:"grandparentTitle,attr"`
+	ParentIndex      string            `xml:"parentIndex,attr"`
+	Index            string            `xml:"index,attr"`
 	Year             string            `xml:"year,attr"`
 	Duration         string            `xml:"duration,attr"`
 	ViewOffset       string            `xml:"viewOffset,attr"`
@@ -189,6 +191,8 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 		Title:            item.Title,
 		ParentTitle:      item.ParentTitle,
 		GrandparentTitle: item.GrandparentTitle,
+		SeasonNumber:     atoi(item.ParentIndex),
+		EpisodeNumber:    atoi(item.Index),
 		Year:             atoi(item.Year),
 		DurationMs:       atoi64(item.Duration),
 		ProgressMs:       atoi64(item.ViewOffset),

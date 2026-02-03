@@ -1,6 +1,8 @@
 import { useEffect, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import type { ItemDetails } from '../types'
-import { formatDuration } from '../lib/format'
+import { formatDuration, formatBitrate, formatAudioCodec, formatVideoCodec, formatDate } from '../lib/format'
+import { getAudioCodecIcon, getVideoCodecIcon, getResolutionIcon, getChannelsIcon } from '../lib/mediaFlags'
 
 const serverAccent: Record<string, { bar: string; badge: string }> = {
   plex: { bar: 'bg-warn', badge: 'bg-warn/20 text-amber-700 dark:text-amber-300' },
@@ -63,6 +65,104 @@ function ErrorState() {
   )
 }
 
+function MediaFlagIcon({ src, alt }: { src: string | null; alt: string }) {
+  if (!src) return null
+  return <img src={src} alt={alt} className="h-4 object-contain" loading="lazy" />
+}
+
+function TechInfo({ item }: { item: ItemDetails }) {
+  const video = formatVideoCodec(item.video_codec, item.video_resolution)
+  const audio = formatAudioCodec(item.audio_codec, item.audio_channels)
+  const bitrate = item.bitrate ? formatBitrate(item.bitrate) : null
+  const container = item.container?.toUpperCase()
+
+  const resolutionIcon = getResolutionIcon(item.video_resolution)
+  const videoCodecIcon = getVideoCodecIcon(item.video_codec)
+  const audioCodecIcon = getAudioCodecIcon(item.audio_codec)
+  const channelsIcon = getChannelsIcon(item.audio_channels)
+
+  const hasIcons = resolutionIcon || videoCodecIcon || audioCodecIcon || channelsIcon
+  const hasDetails = video || audio || bitrate || container
+
+  if (!hasIcons && !hasDetails) return null
+
+  return (
+    <div className="bg-gray-50 dark:bg-white/5 rounded-lg p-3 space-y-3">
+      <div className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+        Technical Details
+      </div>
+
+      {hasIcons && (
+        <div className="flex flex-wrap items-center gap-3">
+          <MediaFlagIcon src={resolutionIcon} alt={item.video_resolution || ''} />
+          <MediaFlagIcon src={videoCodecIcon} alt={item.video_codec || ''} />
+          <MediaFlagIcon src={audioCodecIcon} alt={item.audio_codec || ''} />
+          <MediaFlagIcon src={channelsIcon} alt={`${item.audio_channels} channels`} />
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+        {video && (
+          <>
+            <span className="text-muted dark:text-muted-dark">Video</span>
+            <span className="text-gray-900 dark:text-gray-100">{video}</span>
+          </>
+        )}
+        {audio && (
+          <>
+            <span className="text-muted dark:text-muted-dark">Audio</span>
+            <span className="text-gray-900 dark:text-gray-100">{audio}</span>
+          </>
+        )}
+        {container && (
+          <>
+            <span className="text-muted dark:text-muted-dark">Container</span>
+            <span className="text-gray-900 dark:text-gray-100">{container}</span>
+          </>
+        )}
+        {bitrate && (
+          <>
+            <span className="text-muted dark:text-muted-dark">Bitrate</span>
+            <span className="text-gray-900 dark:text-gray-100">{bitrate}</span>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function WatchHistory({ item }: { item: ItemDetails }) {
+  if (!item.watch_history?.length) return null
+
+  return (
+    <div className="bg-gray-50 dark:bg-white/5 rounded-lg p-3 space-y-2">
+      <div className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+        Watch History
+      </div>
+      <div className="space-y-2 max-h-40 overflow-y-auto">
+        {item.watch_history.map(entry => (
+          <div key={entry.id} className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2 min-w-0">
+              <Link
+                to={`/users/${encodeURIComponent(entry.user_name)}`}
+                className="font-medium text-accent-dim dark:text-accent hover:underline truncate"
+              >
+                {entry.user_name}
+              </Link>
+              <span className="text-muted dark:text-muted-dark truncate">
+                {entry.grandparent_title ? `${entry.title}` : ''}
+              </span>
+            </div>
+            <div className="text-xs text-muted dark:text-muted-dark whitespace-nowrap ml-2">
+              {formatDate(entry.started_at)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 interface ItemContentProps {
   item: ItemDetails
   accent: { bar: string; badge: string }
@@ -87,12 +187,12 @@ function ItemContent({ item, accent }: ItemContentProps) {
         )}
       </div>
 
-      <div className="flex-1 p-4 md:p-6 md:pl-0 space-y-4">
+      <div className="flex-1 p-4 md:p-6 md:pl-0 space-y-4 overflow-y-auto">
         <div>
           {item.series_title && (
             <div className="text-sm text-muted dark:text-muted-dark mb-1">
               {item.series_title}
-              {item.season_number && item.episode_number && (
+              {item.season_number != null && item.episode_number != null && (
                 <span> &middot; S{item.season_number}E{item.episode_number}</span>
               )}
             </div>
@@ -164,6 +264,9 @@ function ItemContent({ item, accent }: ItemContentProps) {
           </div>
         )}
 
+        <TechInfo item={item} />
+        <WatchHistory item={item} />
+
         <div className="pt-2 flex items-center justify-between text-xs text-muted dark:text-muted-dark border-t border-border dark:border-border-dark">
           <span>{item.studio}</span>
           <span>{item.server_name}</span>
@@ -198,7 +301,7 @@ export function MediaDetailModal({ item, loading, onClose }: MediaDetailModalPro
       aria-labelledby="modal-title"
     >
       <div
-        className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-xl bg-panel dark:bg-panel-dark shadow-2xl animate-slide-up"
+        className="relative w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-xl bg-panel dark:bg-panel-dark shadow-2xl animate-slide-up"
         onClick={e => e.stopPropagation()}
       >
         <div className={`h-1 ${accent.bar}`} />

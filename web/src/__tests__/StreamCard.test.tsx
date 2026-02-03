@@ -34,7 +34,7 @@ describe('StreamCard', () => {
       }} />
     )
     expect(screen.getByText('Breaking Bad')).toBeDefined()
-    expect(screen.getByText(/Season 1/)).toBeDefined()
+    expect(screen.getByText(/S1 · Pilot/)).toBeDefined()
   })
 
   it('renders transcode info when transcoding', () => {

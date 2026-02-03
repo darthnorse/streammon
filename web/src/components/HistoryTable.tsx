@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { WatchHistoryEntry } from '../types'
-import { formatDuration, formatDate } from '../lib/format'
+import { formatDuration, formatDate, formatEpisode, parseSeasonFromTitle } from '../lib/format'
 import { mediaTypeLabels } from '../lib/constants'
 
 interface HistoryTableProps {
@@ -10,13 +10,18 @@ interface HistoryTableProps {
 
 function EntryTitle({ entry }: { entry: WatchHistoryEntry }) {
   if (entry.media_type === 'episode' && entry.grandparent_title) {
+    const season = entry.season_number ?? parseSeasonFromTitle(entry.parent_title)
+    const episode = entry.episode_number
+    const episodeInfo = formatEpisode(season, episode)
+    const subtitle = episodeInfo ? `${episodeInfo} · ${entry.title}` : entry.title
+
     return (
       <div>
         <div className="font-medium text-gray-900 dark:text-gray-50 truncate">
           {entry.grandparent_title}
         </div>
         <div className="text-xs text-muted dark:text-muted-dark truncate">
-          {entry.parent_title} &middot; {entry.title}
+          {subtitle}
         </div>
       </div>
     )

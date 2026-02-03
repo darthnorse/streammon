@@ -15,7 +15,9 @@
       "ProductionYear": 2013,
       "Type": "Episode",
       "ImageTags": {"Primary": "def456"},
-      "DateCreated": "2024-01-31T12:00:00Z"
+      "DateCreated": "2024-01-31T12:00:00Z",
+      "ParentIndexNumber": 5,
+      "IndexNumber": 14
     },
     {
       "Id": "item3",

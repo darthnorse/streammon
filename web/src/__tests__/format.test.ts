@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatTimestamp, formatDuration, formatDate, formatBitrate, formatChannels } from '../lib/format'
+import { formatTimestamp, formatDuration, formatDate, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, formatAudioCodec, formatVideoCodec } from '../lib/format'
 
 describe('formatTimestamp', () => {
   it('formats seconds only', () => {
@@ -52,5 +52,98 @@ describe('formatDate', () => {
   it('returns a formatted date string containing the year', () => {
     const result = formatDate('2024-06-15T12:00:00Z')
     expect(result).toContain('2024')
+  })
+})
+
+describe('formatEpisode', () => {
+  it('formats season and episode', () => {
+    expect(formatEpisode(5, 14)).toBe('S5 · E14')
+  })
+  it('formats season only', () => {
+    expect(formatEpisode(3, undefined)).toBe('S3')
+  })
+  it('formats episode only', () => {
+    expect(formatEpisode(undefined, 7)).toBe('E7')
+  })
+  it('returns empty for no values', () => {
+    expect(formatEpisode(undefined, undefined)).toBe('')
+  })
+  it('handles season 0 (specials)', () => {
+    expect(formatEpisode(0, 1)).toBe('S0 · E1')
+  })
+  it('handles episode 0', () => {
+    expect(formatEpisode(1, 0)).toBe('S1 · E0')
+  })
+})
+
+describe('parseSeasonFromTitle', () => {
+  it('parses "Season N" format', () => {
+    expect(parseSeasonFromTitle('Season 5')).toBe(5)
+  })
+  it('parses case-insensitive', () => {
+    expect(parseSeasonFromTitle('SEASON 3')).toBe(3)
+  })
+  it('parses "Temporada N" (Spanish)', () => {
+    expect(parseSeasonFromTitle('Temporada 2')).toBe(2)
+  })
+  it('parses "Staffel N" (German)', () => {
+    expect(parseSeasonFromTitle('Staffel 4')).toBe(4)
+  })
+  it('parses "Saison N" (French)', () => {
+    expect(parseSeasonFromTitle('Saison 1')).toBe(1)
+  })
+  it('parses "Stagione N" (Italian)', () => {
+    expect(parseSeasonFromTitle('Stagione 6')).toBe(6)
+  })
+  it('returns undefined for empty string', () => {
+    expect(parseSeasonFromTitle('')).toBeUndefined()
+  })
+  it('returns undefined for non-matching format', () => {
+    expect(parseSeasonFromTitle('S5')).toBeUndefined()
+  })
+})
+
+describe('formatAudioCodec', () => {
+  it('formats Dolby TrueHD Atmos', () => {
+    expect(formatAudioCodec('truehd atmos', 8)).toBe('Dolby TrueHD Atmos 7.1')
+  })
+  it('formats Dolby TrueHD', () => {
+    expect(formatAudioCodec('truehd', 8)).toBe('Dolby TrueHD 7.1')
+  })
+  it('formats Dolby Digital Plus', () => {
+    expect(formatAudioCodec('eac3', 6)).toBe('Dolby Digital+ 5.1')
+  })
+  it('formats Dolby Digital', () => {
+    expect(formatAudioCodec('ac3', 6)).toBe('Dolby Digital 5.1')
+  })
+  it('formats DTS-HD MA', () => {
+    expect(formatAudioCodec('dts-hd ma', 8)).toBe('DTS-HD MA 7.1')
+  })
+  it('formats DTS', () => {
+    expect(formatAudioCodec('dts', 6)).toBe('DTS 5.1')
+  })
+  it('formats AAC', () => {
+    expect(formatAudioCodec('aac', 2)).toBe('AAC Stereo')
+  })
+  it('returns empty for no codec', () => {
+    expect(formatAudioCodec(undefined, 6)).toBe('')
+  })
+})
+
+describe('formatVideoCodec', () => {
+  it('formats HEVC with resolution', () => {
+    expect(formatVideoCodec('hevc', '2160p')).toBe('2160p HEVC')
+  })
+  it('formats H.264 with resolution', () => {
+    expect(formatVideoCodec('h264', '1080p')).toBe('1080p H.264')
+  })
+  it('formats resolution only', () => {
+    expect(formatVideoCodec(undefined, '720p')).toBe('720p')
+  })
+  it('formats codec only', () => {
+    expect(formatVideoCodec('av1', undefined)).toBe('AV1')
+  })
+  it('returns empty for no data', () => {
+    expect(formatVideoCodec(undefined, undefined)).toBe('')
   })
 })

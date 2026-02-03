@@ -116,6 +116,8 @@ type WatchHistoryEntry struct {
 	StartedAt        time.Time `json:"started_at"`
 	StoppedAt        time.Time `json:"stopped_at"`
 	CreatedAt        time.Time `json:"created_at"`
+	SeasonNumber     int       `json:"season_number,omitempty"`
+	EpisodeNumber    int       `json:"episode_number,omitempty"`
 }
 
 type TranscodeDecision string
@@ -161,6 +163,8 @@ type ActiveStream struct {
 	TranscodeContainer  string            `json:"transcode_container,omitempty"`
 	TranscodeVideoCodec string            `json:"transcode_video_codec,omitempty"`
 	TranscodeAudioCodec string            `json:"transcode_audio_codec,omitempty"`
+	SeasonNumber        int               `json:"season_number,omitempty"`
+	EpisodeNumber       int               `json:"episode_number,omitempty"`
 }
 
 type SessionState string
@@ -206,15 +210,17 @@ type GeoResult struct {
 }
 
 type LibraryItem struct {
-	ItemID     string     `json:"item_id"`
-	Title      string     `json:"title"`
-	Year       int        `json:"year,omitempty"`
-	MediaType  MediaType  `json:"media_type"`
-	ThumbURL   string     `json:"thumb_url,omitempty"`
-	AddedAt    time.Time  `json:"added_at"`
-	ServerID   int64      `json:"server_id"`
-	ServerName string     `json:"server_name"`
-	ServerType ServerType `json:"server_type"`
+	ItemID        string     `json:"item_id"`
+	Title         string     `json:"title"`
+	Year          int        `json:"year,omitempty"`
+	MediaType     MediaType  `json:"media_type"`
+	ThumbURL      string     `json:"thumb_url,omitempty"`
+	AddedAt       time.Time  `json:"added_at"`
+	ServerID      int64      `json:"server_id"`
+	ServerName    string     `json:"server_name"`
+	ServerType    ServerType `json:"server_type"`
+	SeasonNumber  int        `json:"season_number,omitempty"`
+	EpisodeNumber int        `json:"episode_number,omitempty"`
 }
 
 type CastMember struct {
@@ -243,6 +249,13 @@ type ItemDetails struct {
 	ServerID      int64        `json:"server_id"`
 	ServerName    string       `json:"server_name"`
 	ServerType    ServerType   `json:"server_type"`
+
+	VideoResolution string `json:"video_resolution,omitempty"`
+	VideoCodec      string `json:"video_codec,omitempty"`
+	AudioCodec      string `json:"audio_codec,omitempty"`
+	AudioChannels   int    `json:"audio_channels,omitempty"`
+	Container       string `json:"container,omitempty"`
+	Bitrate         int64  `json:"bitrate,omitempty"`
 }
 
 type MediaStat struct {

@@ -106,7 +106,7 @@ describe('MediaDetailModal', () => {
     const onClose = vi.fn()
     render(<MediaDetailModal item={mockItem} loading={false} onClose={onClose} />)
 
-    const modalContent = document.querySelector('.max-w-3xl')
+    const modalContent = document.querySelector('.max-w-6xl')
     fireEvent.click(modalContent!)
     expect(onClose).not.toHaveBeenCalled()
   })

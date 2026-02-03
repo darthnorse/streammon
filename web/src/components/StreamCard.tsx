@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { ActiveStream } from '../types'
-import { formatTimestamp, formatBitrate, formatChannels } from '../lib/format'
+import { formatTimestamp, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle } from '../lib/format'
 import { mediaTypeLabels } from '../lib/constants'
 import { GeoIPPopover } from './GeoIPPopover'
 
@@ -18,24 +18,28 @@ interface StreamCardProps {
 
 function MediaTitle({ stream }: { stream: ActiveStream }) {
   if (stream.media_type === 'episode' && stream.grandparent_title) {
+    const season = stream.season_number ?? parseSeasonFromTitle(stream.parent_title)
+    const episodeInfo = formatEpisode(season, stream.episode_number)
+    const subtitle = episodeInfo ? `${episodeInfo} · ${stream.title}` : stream.title
+
     return (
       <>
-        <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-[15px] leading-snug">
+        <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-base leading-snug">
           {stream.grandparent_title}
         </div>
-        <div className="text-xs text-muted dark:text-muted-dark truncate mt-0.5">
-          {stream.parent_title} &middot; {stream.title}
+        <div className="text-sm text-gray-600 dark:text-gray-300 truncate mt-1">
+          {subtitle}
         </div>
       </>
     )
   }
   return (
     <>
-      <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-[15px] leading-snug">
+      <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-base leading-snug">
         {stream.title}
       </div>
       {stream.year > 0 && (
-        <div className="text-xs text-muted dark:text-muted-dark mt-0.5">{stream.year}</div>
+        <div className="text-sm text-gray-600 dark:text-gray-300 mt-1">{stream.year}</div>
       )}
     </>
   )
@@ -76,14 +80,15 @@ function TranscodeInfo({ stream }: { stream: ActiveStream }) {
     { label: 'Video', value: formatVideoLine(stream) },
     { label: 'Audio', value: formatAudioLine(stream) },
     { label: 'Sub', value: stream.subtitle_codec ? stream.subtitle_codec.toUpperCase() : '' },
+    { label: 'BW', value: stream.bandwidth ? formatBitrate(stream.bandwidth) : '' },
   ].filter(l => l.value)
 
   return (
-    <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-2 gap-y-px text-[10px] leading-relaxed font-mono">
+    <div className="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs leading-relaxed font-mono">
       {lines.map((l, i) => (
         <div key={i} className="contents">
-          <span className="text-muted dark:text-muted-dark/50 select-none">{l.label}</span>
-          <span className="text-muted dark:text-muted-dark truncate">{l.value}</span>
+          <span className="text-gray-500 dark:text-gray-400 select-none">{l.label}</span>
+          <span className="text-gray-600 dark:text-gray-300 truncate">{l.value}</span>
         </div>
       ))}
     </div>
@@ -99,46 +104,46 @@ export function StreamCard({ stream }: StreamCardProps) {
 
   return (
     <div className="card card-hover overflow-hidden group">
-      <div className={`h-0.5 ${accent.bar}`} />
+      <div className={`h-1 ${accent.bar}`} />
 
-      <div className="flex gap-3 p-3 h-full">
-        <div className="shrink-0 flex flex-col items-center gap-1.5">
+      <div className="flex gap-4 p-4 h-full">
+        <div className="shrink-0 flex flex-col items-center gap-2">
           {stream.thumb_url ? (
             <div className="relative">
               <img
                 src={stream.thumb_url}
                 alt=""
-                className="w-16 h-24 object-cover rounded bg-gray-200 dark:bg-white/5"
+                className="w-28 h-[168px] object-cover rounded-lg shadow-md bg-gray-200 dark:bg-white/5"
               />
-              <div className="absolute inset-0 rounded bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           ) : (
-            <div className="w-16 h-24 rounded bg-gray-100 dark:bg-white/5 flex items-center justify-center">
-              <span className="text-2xl opacity-20">
+            <div className="w-28 h-[168px] rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center shadow-md">
+              <span className="text-3xl opacity-20">
                 {stream.media_type === 'movie' ? '🎬' : stream.media_type === 'episode' ? '📺' : '🎵'}
               </span>
             </div>
           )}
-          <span className={`badge text-[9px] py-0 px-1.5 ${accent.badge}`}>
+          <span className={`badge text-[10px] py-0.5 px-2 ${accent.badge}`}>
             {mediaTypeLabels[stream.media_type]}
           </span>
         </div>
 
         <div className="min-w-0 flex-1 flex flex-col">
-          <div className="flex items-start justify-between gap-2">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <MediaTitle stream={stream} />
             </div>
-            <div className="text-right shrink-0 space-y-0.5">
-              <div className="text-[10px] text-muted dark:text-muted-dark font-mono leading-tight">
+            <div className="text-right shrink-0 space-y-1">
+              <div className="text-xs text-muted dark:text-muted-dark font-mono">
                 {stream.server_name}
               </div>
-              <div className="text-[10px] text-muted dark:text-muted-dark leading-tight">
+              <div className="text-xs text-muted dark:text-muted-dark">
                 {stream.player}
               </div>
               {stream.ip_address && (
                 <GeoIPPopover ip={stream.ip_address}>
-                  <span className="text-[10px] font-mono text-muted dark:text-muted-dark hover:text-accent dark:hover:text-accent transition-colors inline-block leading-tight">
+                  <span className="text-xs font-mono text-muted dark:text-muted-dark hover:text-accent dark:hover:text-accent transition-colors inline-block">
                     {stream.ip_address}
                   </span>
                 </GeoIPPopover>
@@ -148,12 +153,12 @@ export function StreamCard({ stream }: StreamCardProps) {
 
           <TranscodeInfo stream={stream} />
 
-          <div className="mt-auto pt-2">
-            <div className="flex items-baseline justify-between text-[10px] font-mono mb-0.5">
+          <div className="mt-auto pt-3">
+            <div className="flex items-baseline justify-between text-xs font-mono mb-1">
               <span className="text-muted dark:text-muted-dark">{formatTimestamp(stream.progress_ms)} / {formatTimestamp(stream.duration_ms)}</span>
               <Link
                 to={`/users/${encodeURIComponent(stream.user_name)}`}
-                className="text-xs font-medium text-accent-dim dark:text-accent hover:underline truncate ml-2"
+                className="text-sm font-medium text-accent-dim dark:text-accent hover:underline truncate ml-2"
               >
                 {stream.user_name}
               </Link>
@@ -163,7 +168,7 @@ export function StreamCard({ stream }: StreamCardProps) {
               aria-valuenow={progress}
               aria-valuemin={0}
               aria-valuemax={100}
-              className="h-1 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden"
+              className="h-1.5 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden"
             >
               <div
                 className={`h-full rounded-full ${accent.progress} transition-all duration-500`}

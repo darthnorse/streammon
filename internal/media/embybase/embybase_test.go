@@ -263,6 +263,12 @@ func TestGetRecentlyAdded(t *testing.T) {
 	if item2.MediaType != models.MediaTypeTV {
 		t.Errorf("media type = %q, want episode", item2.MediaType)
 	}
+	if item2.SeasonNumber != 5 {
+		t.Errorf("season number = %d, want 5", item2.SeasonNumber)
+	}
+	if item2.EpisodeNumber != 14 {
+		t.Errorf("episode number = %d, want 14", item2.EpisodeNumber)
+	}
 
 	item3 := items[2]
 	if item3.ThumbURL != "" {

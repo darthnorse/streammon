@@ -8,25 +8,29 @@ import (
 )
 
 const historyColumns = `id, server_id, user_name, media_type, title, parent_title, grandparent_title,
-	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at, created_at`
+	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at, created_at,
+	season_number, episode_number`
 
 func scanHistoryEntry(scanner interface{ Scan(...any) error }) (models.WatchHistoryEntry, error) {
 	var e models.WatchHistoryEntry
 	err := scanner.Scan(&e.ID, &e.ServerID, &e.UserName, &e.MediaType, &e.Title,
 		&e.ParentTitle, &e.GrandparentTitle, &e.Year, &e.DurationMs, &e.WatchedMs,
-		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt)
+		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
+		&e.SeasonNumber, &e.EpisodeNumber)
 	return e, err
 }
 
 func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 	result, err := s.db.Exec(
 		`INSERT INTO watch_history (server_id, user_name, media_type, title, parent_title, grandparent_title,
-			year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at,
+			season_number, episode_number)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		entry.ServerID, entry.UserName, entry.MediaType, entry.Title,
 		entry.ParentTitle, entry.GrandparentTitle, entry.Year,
 		entry.DurationMs, entry.WatchedMs, entry.Player, entry.Platform,
 		entry.IPAddress, entry.StartedAt, entry.StoppedAt,
+		entry.SeasonNumber, entry.EpisodeNumber,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting history: %w", err)
@@ -133,4 +137,25 @@ func (s *Store) DailyWatchCounts(start, end time.Time) ([]models.DayStat, error)
 		stats = append(stats, *dayMap[d])
 	}
 	return stats, nil
+}
+
+func (s *Store) HistoryForTitle(title string, limit int) ([]models.WatchHistoryEntry, error) {
+	query := `SELECT ` + historyColumns + ` FROM watch_history
+		WHERE title = ? OR grandparent_title = ?
+		ORDER BY started_at DESC LIMIT ?`
+	rows, err := s.db.Query(query, title, title, limit)
+	if err != nil {
+		return nil, fmt.Errorf("history for title: %w", err)
+	}
+	defer rows.Close()
+
+	items := []models.WatchHistoryEntry{}
+	for rows.Next() {
+		e, err := scanHistoryEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, e)
+	}
+	return items, rows.Err()
 }

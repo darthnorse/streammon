@@ -93,18 +93,20 @@ type embySession struct {
 }
 
 type nowPlaying struct {
-	Name           string         `json:"Name"`
-	SeriesName     string         `json:"SeriesName"`
-	SeasonName     string         `json:"SeasonName"`
-	Type           string         `json:"Type"`
-	ProductionYear int            `json:"ProductionYear"`
-	RunTimeTicks   int64          `json:"RunTimeTicks"`
-	MediaSources   []mediaSource  `json:"MediaSources"`
-	ID             string            `json:"Id"`
-	ImageTags      map[string]string `json:"ImageTags"`
-	Container      string          `json:"Container"`
-	Bitrate        int64           `json:"Bitrate"`
-	MediaStreams    []mediaStream   `json:"MediaStreams"`
+	Name              string            `json:"Name"`
+	SeriesName        string            `json:"SeriesName"`
+	SeasonName        string            `json:"SeasonName"`
+	Type              string            `json:"Type"`
+	ProductionYear    int               `json:"ProductionYear"`
+	RunTimeTicks      int64             `json:"RunTimeTicks"`
+	MediaSources      []mediaSource     `json:"MediaSources"`
+	ID                string            `json:"Id"`
+	ImageTags         map[string]string `json:"ImageTags"`
+	Container         string            `json:"Container"`
+	Bitrate           int64             `json:"Bitrate"`
+	MediaStreams      []mediaStream     `json:"MediaStreams"`
+	ParentIndexNumber int               `json:"ParentIndexNumber"`
+	IndexNumber       int               `json:"IndexNumber"`
 }
 
 type mediaSource struct {
@@ -161,6 +163,8 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			Title:            s.NowPlaying.Name,
 			ParentTitle:      s.NowPlaying.SeasonName,
 			GrandparentTitle: s.NowPlaying.SeriesName,
+			SeasonNumber:     s.NowPlaying.ParentIndexNumber,
+			EpisodeNumber:    s.NowPlaying.IndexNumber,
 			Year:             s.NowPlaying.ProductionYear,
 			DurationMs:       ticksToMs(s.NowPlaying.RunTimeTicks),
 			ProgressMs:       ticksToMs(playPos(s.PlayState)),
@@ -265,13 +269,15 @@ type libraryItemsResponse struct {
 }
 
 type libraryItemJSON struct {
-	ID             string            `json:"Id"`
-	Name           string            `json:"Name"`
-	ProductionYear int               `json:"ProductionYear"`
-	Type           string            `json:"Type"`
-	ImageTags      map[string]string `json:"ImageTags"`
-	DateCreated    string            `json:"DateCreated"`
-	SeriesName     string            `json:"SeriesName,omitempty"`
+	ID                string            `json:"Id"`
+	Name              string            `json:"Name"`
+	ProductionYear    int               `json:"ProductionYear"`
+	Type              string            `json:"Type"`
+	ImageTags         map[string]string `json:"ImageTags"`
+	DateCreated       string            `json:"DateCreated"`
+	SeriesName        string            `json:"SeriesName,omitempty"`
+	ParentIndexNumber int               `json:"ParentIndexNumber,omitempty"`
+	IndexNumber       int               `json:"IndexNumber,omitempty"`
 }
 
 func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
@@ -321,15 +327,17 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 		}
 
 		items = append(items, models.LibraryItem{
-			ItemID:     item.ID,
-			Title:      title,
-			Year:       item.ProductionYear,
-			MediaType:  embyMediaType(item.Type),
-			ThumbURL:   thumbURL,
-			AddedAt:    addedAt.UTC(),
-			ServerID:   c.serverID,
-			ServerName: c.serverName,
-			ServerType: c.serverType,
+			ItemID:        item.ID,
+			Title:         title,
+			Year:          item.ProductionYear,
+			MediaType:     embyMediaType(item.Type),
+			ThumbURL:      thumbURL,
+			AddedAt:       addedAt.UTC(),
+			ServerID:      c.serverID,
+			ServerName:    c.serverName,
+			ServerType:    c.serverType,
+			SeasonNumber:  item.ParentIndexNumber,
+			EpisodeNumber: item.IndexNumber,
 		})
 	}
 
@@ -337,21 +345,37 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 }
 
 type itemDetailsJSON struct {
-	ID                string            `json:"Id"`
-	Name              string            `json:"Name"`
-	ProductionYear    int               `json:"ProductionYear"`
-	Overview          string            `json:"Overview"`
-	Type              string            `json:"Type"`
-	ImageTags         map[string]string `json:"ImageTags"`
-	Genres            []string          `json:"Genres"`
-	CommunityRating   float64           `json:"CommunityRating"`
-	OfficialRating    string            `json:"OfficialRating"`
-	RunTimeTicks      int64             `json:"RunTimeTicks"`
-	Studios           []studioJSON      `json:"Studios"`
-	People            []personJSON      `json:"People"`
-	SeriesName        string            `json:"SeriesName"`
-	ParentIndexNumber int               `json:"ParentIndexNumber"`
-	IndexNumber       int               `json:"IndexNumber"`
+	ID                string              `json:"Id"`
+	Name              string              `json:"Name"`
+	ProductionYear    int                 `json:"ProductionYear"`
+	Overview          string              `json:"Overview"`
+	Type              string              `json:"Type"`
+	ImageTags         map[string]string   `json:"ImageTags"`
+	Genres            []string            `json:"Genres"`
+	CommunityRating   float64             `json:"CommunityRating"`
+	OfficialRating    string              `json:"OfficialRating"`
+	RunTimeTicks      int64               `json:"RunTimeTicks"`
+	Studios           []studioJSON        `json:"Studios"`
+	People            []personJSON        `json:"People"`
+	SeriesName        string              `json:"SeriesName"`
+	ParentIndexNumber int                 `json:"ParentIndexNumber"`
+	IndexNumber       int                 `json:"IndexNumber"`
+	MediaSources      []mediaSourceDetail `json:"MediaSources"`
+}
+
+type mediaSourceDetail struct {
+	Container string               `json:"Container"`
+	Bitrate   int64                `json:"Bitrate"`
+	Streams   []mediaStreamDetail  `json:"MediaStreams"`
+}
+
+type mediaStreamDetail struct {
+	Type           string `json:"Type"`
+	Codec          string `json:"Codec"`
+	Height         int    `json:"Height"`
+	Width          int    `json:"Width"`
+	Channels       int    `json:"Channels"`
+	DisplayTitle   string `json:"DisplayTitle"`
 }
 
 type studioJSON struct {
@@ -445,6 +469,24 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 		ServerID:      c.serverID,
 		ServerName:    c.serverName,
 		ServerType:    c.serverType,
+	}
+
+	if len(item.MediaSources) > 0 {
+		ms := item.MediaSources[0]
+		details.Container = ms.Container
+		details.Bitrate = ms.Bitrate
+		for _, stream := range ms.Streams {
+			switch stream.Type {
+			case "Video":
+				details.VideoCodec = stream.Codec
+				if stream.Height > 0 {
+					details.VideoResolution = fmt.Sprintf("%dp", stream.Height)
+				}
+			case "Audio":
+				details.AudioCodec = stream.Codec
+				details.AudioChannels = stream.Channels
+			}
+		}
 	}
 
 	return details, nil

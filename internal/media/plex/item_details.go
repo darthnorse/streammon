@@ -33,6 +33,16 @@ type itemDetailItem struct {
 	Genres           []genreItem        `xml:"Genre"`
 	Directors        []directorItem     `xml:"Director"`
 	Roles            []roleItem         `xml:"Role"`
+	Media            []itemDetailMedia  `xml:"Media"`
+}
+
+type itemDetailMedia struct {
+	Container       string `xml:"container,attr"`
+	VideoCodec      string `xml:"videoCodec,attr"`
+	AudioCodec      string `xml:"audioCodec,attr"`
+	VideoResolution string `xml:"videoResolution,attr"`
+	Bitrate         string `xml:"bitrate,attr"`
+	AudioChannels   string `xml:"audioChannels,attr"`
 }
 
 type genreItem struct {
@@ -138,6 +148,16 @@ func parseItemDetails(data []byte, serverID int64, serverName string) (*models.I
 		ServerID:      serverID,
 		ServerName:    serverName,
 		ServerType:    models.ServerTypePlex,
+	}
+
+	if len(item.Media) > 0 {
+		m := item.Media[0]
+		details.VideoResolution = normalizeResolution(m.VideoResolution)
+		details.VideoCodec = m.VideoCodec
+		details.AudioCodec = m.AudioCodec
+		details.AudioChannels = atoi(m.AudioChannels)
+		details.Container = m.Container
+		details.Bitrate = atoi64(m.Bitrate) * 1000
 	}
 
 	return details, nil

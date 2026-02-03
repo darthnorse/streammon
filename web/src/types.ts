@@ -41,6 +41,8 @@ export interface WatchHistoryEntry {
   started_at: string
   stopped_at: string
   created_at: string
+  season_number?: number
+  episode_number?: number
 }
 
 export interface ActiveStream {
@@ -76,6 +78,8 @@ export interface ActiveStream {
   transcode_container?: string
   transcode_video_codec?: string
   transcode_audio_codec?: string
+  season_number?: number
+  episode_number?: number
 }
 
 export interface DayStat {
@@ -122,6 +126,8 @@ export interface LibraryItem {
   server_id: number
   server_name: string
   server_type: ServerType
+  season_number?: number
+  episode_number?: number
 }
 
 export interface CastMember {
@@ -150,6 +156,13 @@ export interface ItemDetails {
   server_id: number
   server_name: string
   server_type: ServerType
+  video_resolution?: string
+  video_codec?: string
+  audio_codec?: string
+  audio_channels?: number
+  container?: string
+  bitrate?: number
+  watch_history?: WatchHistoryEntry[]
 }
 
 export interface MediaStat {
