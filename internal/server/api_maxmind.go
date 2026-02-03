@@ -8,9 +8,10 @@ import (
 )
 
 type maxmindSettingsResponse struct {
-	LicenseKey  string `json:"license_key"`
-	LastUpdated string `json:"last_updated"`
-	DBAvailable bool   `json:"db_available"`
+	LicenseKey     string `json:"license_key"`
+	LastUpdated    string `json:"last_updated"`
+	DBAvailable    bool   `json:"db_available"`
+	ASNDBAvailable bool   `json:"asn_db_available"`
 }
 
 type maxmindSettingsRequest struct {
@@ -29,15 +30,21 @@ func (s *Server) handleGetMaxMindSettings(w http.ResponseWriter, r *http.Request
 	}
 
 	dbAvailable := false
+	asnDBAvailable := false
 	if s.geoUpdater != nil {
-		_, err := os.Stat(s.geoUpdater.DBPath())
-		dbAvailable = err == nil
+		if _, err := os.Stat(s.geoUpdater.DBPath()); err == nil {
+			dbAvailable = true
+		}
+		if _, err := os.Stat(s.geoUpdater.ASNDBPath()); err == nil {
+			asnDBAvailable = true
+		}
 	}
 
 	writeJSON(w, http.StatusOK, maxmindSettingsResponse{
-		LicenseKey:  maskedKey,
-		LastUpdated: lastUpdated,
-		DBAvailable: dbAvailable,
+		LicenseKey:     maskedKey,
+		LastUpdated:    lastUpdated,
+		DBAvailable:    dbAvailable,
+		ASNDBAvailable: asnDBAvailable,
 	})
 }
 
@@ -61,7 +68,7 @@ func (s *Server) handleUpdateMaxMindSettings(w http.ResponseWriter, r *http.Requ
 	if s.geoUpdater != nil {
 		if err := s.geoUpdater.Download(); err != nil {
 			log.Printf("maxmind download: %v", err)
-			writeError(w, http.StatusBadGateway, "download failed: "+err.Error())
+			writeError(w, http.StatusBadGateway, "download failed")
 			return
 		}
 	}
@@ -78,6 +85,9 @@ func (s *Server) handleDeleteMaxMindSettings(w http.ResponseWriter, r *http.Requ
 	if s.geoUpdater != nil {
 		if err := os.Remove(s.geoUpdater.DBPath()); err != nil && !os.IsNotExist(err) {
 			log.Printf("removing geoip db: %v", err)
+		}
+		if err := os.Remove(s.geoUpdater.ASNDBPath()); err != nil && !os.IsNotExist(err) {
+			log.Printf("removing geoip asn db: %v", err)
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

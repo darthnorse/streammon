@@ -1,8 +1,7 @@
-import { ComposableMap, Geographies, Geography, Marker } from 'react-simple-maps'
 import { useFetch } from '../hooks/useFetch'
 import type { GeoResult } from '../types'
-
-const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
+import { WorldMapBase } from './shared/WorldMapBase'
+import { formatLocation } from '../lib/geo'
 
 const MS_PER_MINUTE = 60_000
 const MS_PER_HOUR = 3_600_000
@@ -42,41 +41,19 @@ function locationKey(loc: GeoResult, idx: number): string {
 
 function WorldMap({ locations }: { locations: GeoResult[] }) {
   return (
-    <ComposableMap
-      projection="geoMercator"
-      projectionConfig={{ scale: 120, center: [0, 30] }}
-      style={{ width: '100%', height: 'auto' }}
-    >
-      <Geographies geography={GEO_URL}>
-        {({ geographies }) =>
-          geographies.map((geo) => (
-            <Geography
-              key={geo.rsmKey}
-              geography={geo}
-              fill="#e5e7eb"
-              stroke="#d1d5db"
-              strokeWidth={0.5}
-              className="dark:fill-slate-700 dark:stroke-slate-600 outline-none"
-              style={{
-                default: { outline: 'none' },
-                hover: { outline: 'none', fill: '#d1d5db' },
-                pressed: { outline: 'none' },
-              }}
-            />
-          ))
-        }
-      </Geographies>
-
-      {locations.map((loc, idx) => {
+    <WorldMapBase
+      locations={locations}
+      markerKey={locationKey}
+      renderMarker={({ location: loc }) => {
         const color = isRecentLocation(loc.last_seen) ? COLOR_RECENT : COLOR_OLD
         return (
-          <Marker key={locationKey(loc, idx)} coordinates={[loc.lng, loc.lat]}>
+          <>
             <circle r={6} fill={color} fillOpacity={0.3} />
             <circle r={3} fill={color} />
-          </Marker>
+          </>
         )
-      })}
-    </ComposableMap>
+      }}
+    />
   )
 }
 
@@ -95,9 +72,7 @@ function LocationTable({ locations }: { locations: GeoResult[] }) {
           {locations.map((loc, idx) => (
             <tr key={locationKey(loc, idx)} className="border-b border-border/50 dark:border-border-dark/50">
               <td className="py-2 pr-4 font-mono text-xs">{loc.ip}</td>
-              <td className="py-2 pr-4">
-                {loc.city}, {loc.country}
-              </td>
+              <td className="py-2 pr-4">{formatLocation(loc, '—')}</td>
               <td className="py-2 text-muted dark:text-muted-dark">
                 {loc.last_seen ? formatLastSeen(loc.last_seen) : '—'}
               </td>

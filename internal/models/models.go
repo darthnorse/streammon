@@ -201,12 +201,14 @@ type PaginatedResult[T any] struct {
 }
 
 type GeoResult struct {
-	IP       string  `json:"ip"`
-	Lat      float64 `json:"lat"`
-	Lng      float64 `json:"lng"`
-	City     string  `json:"city"`
-	Country  string  `json:"country"`
-	LastSeen *string `json:"last_seen,omitempty"`
+	IP       string   `json:"ip,omitempty"`
+	Lat      float64  `json:"lat"`
+	Lng      float64  `json:"lng"`
+	City     string   `json:"city"`
+	Country  string   `json:"country"`
+	ISP      string   `json:"isp,omitempty"`
+	LastSeen *string  `json:"last_seen,omitempty"`
+	Users    []string `json:"users,omitempty"`
 }
 
 type LibraryItem struct {

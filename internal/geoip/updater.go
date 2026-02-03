@@ -26,20 +26,27 @@ type Updater struct {
 	store     SettingsStore
 	resolver  *Resolver
 	geoDBPath string
+	asnDBPath string
 	client    *http.Client
 }
 
 func NewUpdater(store SettingsStore, resolver *Resolver, geoDBPath string) *Updater {
+	asnDBPath := strings.TrimSuffix(geoDBPath, ".mmdb") + "-ASN.mmdb"
 	return &Updater{
 		store:     store,
 		resolver:  resolver,
 		geoDBPath: geoDBPath,
+		asnDBPath: asnDBPath,
 		client:    &http.Client{Timeout: 2 * time.Minute},
 	}
 }
 
 func (u *Updater) DBPath() string {
 	return u.geoDBPath
+}
+
+func (u *Updater) ASNDBPath() string {
+	return u.asnDBPath
 }
 
 func (u *Updater) Download() error {
@@ -54,24 +61,45 @@ func (u *Updater) Download() error {
 		return nil
 	}
 
+	destDir := filepath.Dir(u.geoDBPath)
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("creating geoip dir: %w", err)
+	}
+
+	// Download City database
+	if err := u.downloadDB("GeoLite2-City", key, destDir, u.geoDBPath); err != nil {
+		return err
+	}
+	if err := u.resolver.Reload(u.geoDBPath); err != nil {
+		return fmt.Errorf("reloading resolver: %w", err)
+	}
+
+	// Download ASN database for ISP info
+	if err := u.downloadDB("GeoLite2-ASN", key, destDir, u.asnDBPath); err != nil {
+		log.Printf("geoip: ASN database download failed (ISP info unavailable): %v", err)
+	} else if err := u.resolver.ReloadASN(u.asnDBPath); err != nil {
+		log.Printf("geoip: ASN database reload failed: %v", err)
+	}
+
+	_ = u.store.SetSetting("maxmind.last_updated", time.Now().UTC().Format(time.RFC3339))
+	log.Println("geoip: database updated successfully")
+	return nil
+}
+
+func (u *Updater) downloadDB(edition, licenseKey, destDir, destPath string) error {
 	dlURL := fmt.Sprintf(
-		"https://download.maxmind.com/app/geoip_download?edition_id=GeoLite2-City&license_key=%s&suffix=tar.gz",
-		url.QueryEscape(key),
+		"https://download.maxmind.com/app/geoip_download?edition_id=%s&license_key=%s&suffix=tar.gz",
+		edition, url.QueryEscape(licenseKey),
 	)
 
 	resp, err := u.client.Get(dlURL)
 	if err != nil {
-		return fmt.Errorf("downloading GeoLite2: %w", err)
+		return fmt.Errorf("downloading %s: %w", edition, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("MaxMind returned status %d", resp.StatusCode)
-	}
-
-	destDir := filepath.Dir(u.geoDBPath)
-	if err := os.MkdirAll(destDir, 0755); err != nil {
-		return fmt.Errorf("creating geoip dir: %w", err)
+		return fmt.Errorf("MaxMind returned status %d for %s", resp.StatusCode, edition)
 	}
 
 	tmpFile, err := os.CreateTemp(destDir, "geolite2-*.tar.gz")
@@ -93,16 +121,10 @@ func (u *Updater) Download() error {
 	}
 	defer os.Remove(mmdbPath)
 
-	if err := os.Rename(mmdbPath, u.geoDBPath); err != nil {
+	if err := os.Rename(mmdbPath, destPath); err != nil {
 		return fmt.Errorf("moving mmdb: %w", err)
 	}
 
-	if err := u.resolver.Reload(u.geoDBPath); err != nil {
-		return fmt.Errorf("reloading resolver: %w", err)
-	}
-
-	_ = u.store.SetSetting("maxmind.last_updated", time.Now().UTC().Format(time.RFC3339))
-	log.Println("geoip: database updated successfully")
 	return nil
 }
 

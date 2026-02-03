@@ -32,7 +32,10 @@ function PopoverContent({ ip, geo, loading, error }: {
         <div className="font-semibold">
           {[geo.city, geo.country].filter(Boolean).join(', ') || 'Unknown location'}
         </div>
-        <div className="text-muted dark:text-muted-dark font-mono">
+        {geo.isp && (
+          <div className="text-muted dark:text-muted-dark">{geo.isp}</div>
+        )}
+        <div className="text-muted dark:text-muted-dark font-mono text-[10px]">
           {geo.lat.toFixed(4)}, {geo.lng.toFixed(4)}
         </div>
       </div>

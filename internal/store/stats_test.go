@@ -1,6 +1,7 @@
 package store
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -235,17 +236,26 @@ func TestAllWatchLocations(t *testing.T) {
 	serverID := seedServer(t, s)
 	now := time.Now().UTC()
 
+	// Alice watches from NYC
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
 		Title: "M1", IPAddress: "1.2.3.4", StartedAt: now, StoppedAt: now.Add(time.Hour),
 	})
+	// Bob watches from LA
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
 		Title: "M2", IPAddress: "5.6.7.8", StartedAt: now, StoppedAt: now.Add(time.Hour),
 	})
+	// Carol also watches from NYC (same location as Alice, different IP)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "carol", MediaType: models.MediaTypeMovie,
+		Title: "M3", IPAddress: "1.2.3.5", StartedAt: now, StoppedAt: now.Add(time.Hour),
+	})
 
-	s.SetCachedGeo(&models.GeoResult{IP: "1.2.3.4", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0})
-	s.SetCachedGeo(&models.GeoResult{IP: "5.6.7.8", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2})
+	// NYC has two different ISPs - MAX() will pick "Verizon" (alphabetically last)
+	s.SetCachedGeo(&models.GeoResult{IP: "1.2.3.4", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0, ISP: "Comcast"})
+	s.SetCachedGeo(&models.GeoResult{IP: "1.2.3.5", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0, ISP: "Verizon"})
+	s.SetCachedGeo(&models.GeoResult{IP: "5.6.7.8", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2, ISP: "AT&T"})
 
 	locs, err := s.AllWatchLocations()
 	if err != nil {
@@ -253,6 +263,46 @@ func TestAllWatchLocations(t *testing.T) {
 	}
 	if len(locs) != 2 {
 		t.Fatalf("expected 2 locations, got %d", len(locs))
+	}
+
+	// Results are ordered by country, city - so LA comes before NYC
+	laLoc := locs[0]
+	nycLoc := locs[1]
+
+	if laLoc.City != "LA" {
+		t.Fatalf("expected first location to be LA, got %s", laLoc.City)
+	}
+	if laLoc.ISP != "AT&T" {
+		t.Fatalf("expected LA ISP to be AT&T, got %s", laLoc.ISP)
+	}
+	if len(laLoc.Users) != 1 || laLoc.Users[0] != "bob" {
+		t.Fatalf("expected LA to have user bob, got %v", laLoc.Users)
+	}
+
+	if nycLoc.City != "NYC" {
+		t.Fatalf("expected second location to be NYC, got %s", nycLoc.City)
+	}
+	// NYC has two ISPs (Comcast, Verizon) - MAX() picks "Verizon" (alphabetically last)
+	if nycLoc.ISP != "Verizon" {
+		t.Fatalf("expected NYC ISP to be Verizon (MAX of multiple ISPs), got %s", nycLoc.ISP)
+	}
+	if len(nycLoc.Users) != 2 {
+		t.Fatalf("expected NYC to have 2 users, got %d", len(nycLoc.Users))
+	}
+	if !slices.Contains(nycLoc.Users, "alice") || !slices.Contains(nycLoc.Users, "carol") {
+		t.Fatalf("expected NYC to have alice and carol, got %v", nycLoc.Users)
+	}
+}
+
+func TestAllWatchLocationsEmpty(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	locs, err := s.AllWatchLocations()
+	if err != nil {
+		t.Fatalf("AllWatchLocations: %v", err)
+	}
+	if len(locs) != 0 {
+		t.Fatalf("expected 0 locations, got %d", len(locs))
 	}
 }
 
@@ -278,9 +328,9 @@ func TestPotentialSharers(t *testing.T) {
 		Title: "M1", IPAddress: "4.4.4.4", StartedAt: now, StoppedAt: now,
 	})
 
-	s.SetCachedGeo(&models.GeoResult{IP: "1.1.1.1", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0})
-	s.SetCachedGeo(&models.GeoResult{IP: "2.2.2.2", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2})
-	s.SetCachedGeo(&models.GeoResult{IP: "3.3.3.3", City: "Chicago", Country: "US", Lat: 41.9, Lng: -87.6})
+	s.SetCachedGeo(&models.GeoResult{IP: "1.1.1.1", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0, ISP: "Verizon"})
+	s.SetCachedGeo(&models.GeoResult{IP: "2.2.2.2", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2, ISP: "AT&T"})
+	s.SetCachedGeo(&models.GeoResult{IP: "3.3.3.3", City: "Chicago", Country: "US", Lat: 41.9, Lng: -87.6, ISP: "Comcast"})
 
 	sharers, err := s.PotentialSharers(3, 30)
 	if err != nil {

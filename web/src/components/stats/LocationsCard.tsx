@@ -1,46 +1,74 @@
-import { ComposableMap, Geographies, Geography, Marker } from 'react-simple-maps'
+import { useState } from 'react'
 import type { GeoResult } from '../../types'
+import { WorldMapBase } from '../shared/WorldMapBase'
+import { formatLocation } from '../../lib/geo'
 
-const GEO_URL = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
+const MAX_TOOLTIP_USERS = 5
+const TOOLTIP_OFFSET_PX = 8
 
 interface LocationsCardProps {
   locations: GeoResult[]
 }
 
-function WorldMap({ locations }: { locations: GeoResult[] }) {
-  return (
-    <ComposableMap
-      projection="geoMercator"
-      projectionConfig={{ scale: 120, center: [0, 30] }}
-      style={{ width: '100%', height: 'auto' }}
-    >
-      <Geographies geography={GEO_URL}>
-        {({ geographies }) =>
-          geographies.map((geo) => (
-            <Geography
-              key={geo.rsmKey}
-              geography={geo}
-              fill="#e5e7eb"
-              stroke="#d1d5db"
-              strokeWidth={0.5}
-              className="dark:fill-slate-700 dark:stroke-slate-600 outline-none"
-              style={{
-                default: { outline: 'none' },
-                hover: { outline: 'none', fill: '#d1d5db' },
-                pressed: { outline: 'none' },
-              }}
-            />
-          ))
-        }
-      </Geographies>
+interface TooltipState {
+  x: number
+  y: number
+  location: GeoResult
+}
 
-      {locations.map((loc, idx) => (
-        <Marker key={`${loc.ip}-${idx}`} coordinates={[loc.lng, loc.lat]}>
-          <circle r={6} fill="#3b82f6" fillOpacity={0.3} />
-          <circle r={3} fill="#3b82f6" />
-        </Marker>
-      ))}
-    </ComposableMap>
+function WorldMap({ locations }: { locations: GeoResult[] }) {
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null)
+
+  return (
+    <div className="relative">
+      <WorldMapBase
+        locations={locations}
+        renderMarker={({ location: loc }) => (
+          <>
+            <circle
+              r={6}
+              fill="#3b82f6"
+              fillOpacity={0.3}
+              style={{ cursor: 'pointer' }}
+              onMouseEnter={(e) => {
+                const rect = (e.target as SVGCircleElement).ownerSVGElement?.getBoundingClientRect()
+                const circle = (e.target as SVGCircleElement).getBoundingClientRect()
+                if (rect) {
+                  setTooltip({
+                    x: circle.left - rect.left + circle.width / 2,
+                    y: circle.top - rect.top,
+                    location: loc,
+                  })
+                }
+              }}
+              onMouseLeave={() => setTooltip(null)}
+            />
+            <circle r={3} fill="#3b82f6" style={{ pointerEvents: 'none' }} />
+          </>
+        )}
+      />
+
+      {tooltip && (
+        <div
+          className="absolute z-10 px-3 py-2 text-xs bg-gray-900 dark:bg-gray-800 text-white rounded-lg shadow-lg pointer-events-none transform -translate-x-1/2 -translate-y-full"
+          style={{ left: tooltip.x, top: tooltip.y - TOOLTIP_OFFSET_PX }}
+        >
+          <div className="font-medium">{formatLocation(tooltip.location)}</div>
+          {tooltip.location.isp && (
+            <div className="text-gray-400">{tooltip.location.isp}</div>
+          )}
+          {tooltip.location.users && tooltip.location.users.length > 0 && (
+            <div className="mt-1 text-gray-300">
+              {tooltip.location.users.slice(0, MAX_TOOLTIP_USERS).join(', ')}
+              {tooltip.location.users.length > MAX_TOOLTIP_USERS && ` +${tooltip.location.users.length - MAX_TOOLTIP_USERS} more`}
+            </div>
+          )}
+          <div
+            className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900 dark:border-t-gray-800"
+          />
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -50,16 +78,18 @@ function LocationTable({ locations }: { locations: GeoResult[] }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border dark:border-border-dark text-left text-muted dark:text-muted-dark">
-            <th className="py-2 pr-4 font-medium">IP Address</th>
-            <th className="py-2 font-medium">Location</th>
+            <th className="py-2 pr-4 font-medium">Location</th>
+            <th className="py-2 pr-4 font-medium">ISP</th>
+            <th className="py-2 font-medium">Users</th>
           </tr>
         </thead>
         <tbody>
           {locations.map((loc, idx) => (
-            <tr key={`${loc.ip}-${idx}`} className="border-b border-border/50 dark:border-border-dark/50">
-              <td className="py-2 pr-4 font-mono text-xs">{loc.ip}</td>
-              <td className="py-2">
-                {loc.city && loc.country ? `${loc.city}, ${loc.country}` : loc.country || '—'}
+            <tr key={`${loc.lat}-${loc.lng}-${idx}`} className="border-b border-border/50 dark:border-border-dark/50">
+              <td className="py-2 pr-4">{formatLocation(loc, '—')}</td>
+              <td className="py-2 pr-4 text-gray-600 dark:text-gray-400">{loc.isp || '—'}</td>
+              <td className="py-2 text-gray-600 dark:text-gray-400">
+                {loc.users?.join(', ') || '—'}
               </td>
             </tr>
           ))}

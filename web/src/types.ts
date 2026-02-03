@@ -93,12 +93,14 @@ export interface DayStat {
 }
 
 export interface GeoResult {
-  ip: string
+  ip?: string
   lat: number
   lng: number
   city: string
   country: string
+  isp?: string
   last_seen?: string
+  users?: string[]
 }
 
 export interface PaginatedResult<T> {

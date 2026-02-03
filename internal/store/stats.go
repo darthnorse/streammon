@@ -204,10 +204,13 @@ func (s *Store) ConcurrentStreamsPeak() (int, time.Time, error) {
 
 func (s *Store) AllWatchLocations() ([]models.GeoResult, error) {
 	rows, err := s.db.Query(
-		`SELECT DISTINCT g.ip, g.lat, g.lng, g.city, g.country
+		`SELECT g.lat, g.lng, g.city, g.country, COALESCE(MAX(g.isp), '') as isp,
+			COALESCE(GROUP_CONCAT(DISTINCT h.user_name), '') as users
 		FROM watch_history h
 		JOIN ip_geo_cache g ON h.ip_address = g.ip
-		WHERE h.ip_address != ''`,
+		WHERE h.ip_address != ''
+		GROUP BY g.lat, g.lng, g.city, g.country
+		ORDER BY g.country, g.city`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("watch locations: %w", err)
@@ -216,9 +219,13 @@ func (s *Store) AllWatchLocations() ([]models.GeoResult, error) {
 
 	results := []models.GeoResult{}
 	for rows.Next() {
-		geo, err := scanGeoResult(rows)
-		if err != nil {
+		var geo models.GeoResult
+		var usersStr string
+		if err := rows.Scan(&geo.Lat, &geo.Lng, &geo.City, &geo.Country, &geo.ISP, &usersStr); err != nil {
 			return nil, fmt.Errorf("scanning watch location: %w", err)
+		}
+		if usersStr != "" {
+			geo.Users = strings.Split(usersStr, ",")
 		}
 		results = append(results, geo)
 	}

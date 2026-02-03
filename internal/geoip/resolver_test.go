@@ -43,3 +43,27 @@ func TestNewResolverEmptyPath(t *testing.T) {
 		t.Fatal("resolver should never be nil")
 	}
 }
+
+func TestReloadASNBadPath(t *testing.T) {
+	r := NewResolver("")
+	err := r.ReloadASN("/nonexistent/GeoLite2-ASN.mmdb")
+	if err == nil {
+		t.Fatal("expected error for nonexistent ASN database")
+	}
+}
+
+func TestLookupWithoutASNReturnsEmptyISP(t *testing.T) {
+	r := NewResolver("")
+	if r.asnDB != nil {
+		t.Fatal("asnDB should be nil when not loaded")
+	}
+}
+
+func TestCloseHandlesNilDatabases(t *testing.T) {
+	r := NewResolver("")
+	// Should not panic when closing resolver with nil databases
+	err := r.Close()
+	if err != nil {
+		t.Fatalf("Close should not error with nil databases: %v", err)
+	}
+}

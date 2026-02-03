@@ -11,13 +11,13 @@ import (
 )
 
 const (
-	geoCacheTTL    = 30 * 24 * time.Hour
-	geoColumns     = `ip, lat, lng, city, country`
+	geoCacheTTL = 30 * 24 * time.Hour
+	geoColumns  = `ip, lat, lng, city, country, isp`
 )
 
 func scanGeoResult(scanner interface{ Scan(...any) error }) (models.GeoResult, error) {
 	var geo models.GeoResult
-	err := scanner.Scan(&geo.IP, &geo.Lat, &geo.Lng, &geo.City, &geo.Country)
+	err := scanner.Scan(&geo.IP, &geo.Lat, &geo.Lng, &geo.City, &geo.Country, &geo.ISP)
 	return geo, err
 }
 
@@ -38,11 +38,11 @@ func (s *Store) GetCachedGeo(ip string) (*models.GeoResult, error) {
 func (s *Store) SetCachedGeo(geo *models.GeoResult) error {
 	_, err := s.db.Exec(
 		`INSERT INTO ip_geo_cache (`+geoColumns+`, cached_at)
-		VALUES (?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(ip) DO UPDATE SET
 			lat=excluded.lat, lng=excluded.lng, city=excluded.city,
-			country=excluded.country, cached_at=excluded.cached_at`,
-		geo.IP, geo.Lat, geo.Lng, geo.City, geo.Country, time.Now().UTC(),
+			country=excluded.country, isp=excluded.isp, cached_at=excluded.cached_at`,
+		geo.IP, geo.Lat, geo.Lng, geo.City, geo.Country, geo.ISP, time.Now().UTC(),
 	)
 	if err != nil {
 		return fmt.Errorf("set cached geo: %w", err)
