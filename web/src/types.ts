@@ -178,6 +178,8 @@ export interface MediaStat {
   year?: number
   play_count: number
   total_hours: number
+  thumb_url?: string
+  server_id?: number
 }
 
 export interface UserStat {

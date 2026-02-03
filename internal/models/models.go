@@ -271,6 +271,8 @@ type MediaStat struct {
 	Year       int     `json:"year,omitempty"`
 	PlayCount  int     `json:"play_count"`
 	TotalHours float64 `json:"total_hours"`
+	ThumbURL   string  `json:"thumb_url,omitempty"`
+	ServerID   int64   `json:"server_id,omitempty"`
 }
 
 type UserStat struct {
