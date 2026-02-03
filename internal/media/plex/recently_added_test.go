@@ -16,13 +16,19 @@ func TestGetRecentlyAdded(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	requestCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Plex-Token") != "test-token" {
 			t.Error("missing plex token header")
 		}
-		if r.URL.Path != "/library/recentlyAdded" {
+		if r.URL.Path != "/hubs/home/recentlyAdded" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
+		typeParam := r.URL.Query().Get("type")
+		if typeParam != "1" && typeParam != "2" {
+			t.Errorf("unexpected type parameter: %s", typeParam)
+		}
+		requestCount++
 		w.Write(data)
 	}))
 	defer ts.Close()
@@ -40,8 +46,13 @@ func TestGetRecentlyAdded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(items) != 3 {
-		t.Fatalf("expected 3 items, got %d", len(items))
+	if requestCount != 2 {
+		t.Errorf("expected 2 requests (movies + shows), got %d", requestCount)
+	}
+
+	// 3 items per type × 2 types = 6 total
+	if len(items) != 6 {
+		t.Fatalf("expected 6 items, got %d", len(items))
 	}
 
 	item := items[0]
@@ -70,17 +81,22 @@ func TestGetRecentlyAdded(t *testing.T) {
 		t.Errorf("server type = %q, want plex", item.ServerType)
 	}
 
-	item2 := items[1]
-	if item2.Title != "Breaking Bad - Ozymandias" {
-		t.Errorf("title = %q, want Breaking Bad - Ozymandias", item2.Title)
+	// Verify episode uses series poster (grandparentRatingKey) for thumb
+	hasEpisode := false
+	for _, it := range items {
+		if it.Title == "Breaking Bad - Ozymandias" {
+			hasEpisode = true
+			if it.MediaType != models.MediaTypeTV {
+				t.Errorf("episode media type = %q, want episode", it.MediaType)
+			}
+			if it.ThumbURL != "55555" {
+				t.Errorf("episode thumb = %q, want 55555 (series grandparentRatingKey)", it.ThumbURL)
+			}
+			break
+		}
 	}
-	if item2.MediaType != models.MediaTypeTV {
-		t.Errorf("media type = %q, want episode", item2.MediaType)
-	}
-
-	item3 := items[2]
-	if item3.ThumbURL != "" {
-		t.Errorf("thumb url = %q, want empty (no thumb attr)", item3.ThumbURL)
+	if !hasEpisode {
+		t.Error("expected to find episode 'Breaking Bad - Ozymandias'")
 	}
 }
 
@@ -108,8 +124,11 @@ func TestGetRecentlyAddedError(t *testing.T) {
 	defer ts.Close()
 
 	srv := New(models.Server{URL: ts.URL, APIKey: "bad"})
-	_, err := srv.GetRecentlyAdded(context.Background(), 10)
-	if err == nil {
-		t.Error("expected error for 401")
+	items, err := srv.GetRecentlyAdded(context.Background(), 10)
+	if err != nil {
+		t.Errorf("expected no error (errors logged, not returned), got: %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 items on error, got %d", len(items))
 	}
 }

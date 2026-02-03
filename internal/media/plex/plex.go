@@ -220,7 +220,7 @@ func buildStream(item plexItem, serverID int64, serverName string) models.Active
 	if ts := item.TranscodeSession; ts != nil {
 		as.VideoDecision = plexDecision(ts.VideoDecision)
 		as.AudioDecision = plexDecision(ts.AudioDecision)
-		as.TranscodeHWAccel = ts.HWDecoding == "1" || ts.HWEncoding == "1"
+		as.TranscodeHWAccel = isHWAccel(ts.HWDecoding) || isHWAccel(ts.HWEncoding)
 		as.TranscodeProgress = atof(ts.Progress)
 		as.TranscodeContainer = ts.Container
 		if ts.Protocol != "" {
@@ -244,6 +244,15 @@ func plexDecision(d string) models.TranscodeDecision {
 	default:
 		return models.TranscodeDecisionDirectPlay
 	}
+}
+
+// isHWAccel checks if the transcode HW value indicates hardware acceleration.
+// Plex can return "1" (older format) or the codec name like "nvdec", "qsv", "vaapi".
+func isHWAccel(val string) bool {
+	if val == "" || val == "0" {
+		return false
+	}
+	return true
 }
 
 func plexMediaType(t string) models.MediaType {
