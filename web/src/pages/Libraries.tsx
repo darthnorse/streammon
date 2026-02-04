@@ -9,10 +9,10 @@ const serverAccent: Record<ServerType, string> = {
 }
 
 const libraryTypeIcon: Record<LibraryType, string> = {
-  movie: '🎬',
-  show: '📺',
-  music: '🎵',
-  other: '📁',
+  movie: '◉',
+  show: '▦',
+  music: '♫',
+  other: '▤',
 }
 
 const libraryTypeLabel: Record<LibraryType, string> = {
@@ -38,7 +38,7 @@ function getUniqueServers(libraries: Library[]): { id: number; name: string }[] 
 
 function LibraryRow({ library }: { library: Library }) {
   const accent = serverAccent[library.server_type] || 'bg-gray-100 text-gray-600'
-  const icon = libraryTypeIcon[library.type] || '📁'
+  const icon = libraryTypeIcon[library.type] || '▤'
 
   return (
     <tr className="border-b border-border dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
@@ -166,7 +166,7 @@ export function Libraries() {
                 {displayedLibraries.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-4 py-12 text-center">
-                      <div className="text-4xl mb-3 opacity-30">📚</div>
+                      <div className="text-4xl mb-3 opacity-30">▤</div>
                       <p className="text-muted dark:text-muted-dark">No libraries found</p>
                     </td>
                   </tr>
