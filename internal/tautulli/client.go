@@ -17,7 +17,6 @@ type Client struct {
 	http    *http.Client
 }
 
-// FlexString handles JSON fields that can be either string or number
 type FlexString string
 
 func (f *FlexString) UnmarshalJSON(data []byte) error {
@@ -41,7 +40,6 @@ func (f *FlexString) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// FlexInt handles JSON fields that can be either string or number
 type FlexInt int
 
 func (f *FlexInt) UnmarshalJSON(data []byte) error {
@@ -84,7 +82,7 @@ type HistoryRecord struct {
 	RatingKey            FlexString `json:"rating_key"`
 	GrandparentRatingKey FlexString `json:"grandparent_rating_key"`
 	SessionKey           FlexString `json:"session_key"`
-	ReferenceID          FlexInt    `json:"reference_id"` // Used to get stream data for historical records
+	ReferenceID          FlexInt    `json:"reference_id"`
 	Started              int64      `json:"started"`
 	Stopped              int64      `json:"stopped"`
 	Duration             int64      `json:"duration"`
@@ -366,9 +364,8 @@ func HeightToResolution(height int) string {
 }
 
 type BatchResult struct {
-	Records   []HistoryRecord
-	Total     int
-	Processed int
+	Records []HistoryRecord
+	Total   int
 }
 
 type BatchHandler func(batch BatchResult) error
@@ -379,7 +376,6 @@ func (c *Client) StreamHistory(ctx context.Context, batchSize int, handler Batch
 	}
 
 	start := 0
-	processed := 0
 
 	for {
 		select {
@@ -393,21 +389,17 @@ func (c *Client) StreamHistory(ctx context.Context, batchSize int, handler Batch
 			return err
 		}
 
-		processed += len(records)
-
 		if err := handler(BatchResult{
-			Records:   records,
-			Total:     total,
-			Processed: processed,
+			Records: records,
+			Total:   total,
 		}); err != nil {
 			return err
 		}
 
-		if len(records) == 0 || len(records) < batchSize || processed >= total {
+		start += len(records)
+		if len(records) == 0 || len(records) < batchSize || start >= total {
 			break
 		}
-
-		start += len(records)
 	}
 
 	return nil

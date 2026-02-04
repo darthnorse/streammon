@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, MutableRefObject } from 'react'
 import type { TautulliSettings, TautulliImportResult, Server } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
@@ -59,6 +59,8 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
   const [importResult, setImportResult] = useState<TautulliImportResult | null>(null)
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
   const [justSaved, setJustSaved] = useState(false)
+  const importAbortRef: MutableRefObject<AbortController | null> = useRef(null)
+  const mountedRef = useRef(true)
   const busy = saving || testing || importing
   const showImport = isEdit || justSaved
 
@@ -105,10 +107,17 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
   }, [])
 
   useEffect(() => {
-    if (servers && servers.length > 0 && selectedServer === 0) {
-      setSelectedServer(servers[0].id)
+    if (servers && servers.length > 0) {
+      setSelectedServer(prev => prev === 0 ? servers[0].id : prev)
     }
-  }, [servers, selectedServer])
+  }, [servers])
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+      importAbortRef.current?.abort()
+    }
+  }, [])
 
   function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -135,11 +144,11 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
         url: form.url.trim(),
         api_key: form.api_key,
       })
-      setJustSaved(true)
+      if (mountedRef.current) setJustSaved(true)
     } catch (err) {
-      setError((err as Error).message)
+      if (mountedRef.current) setError((err as Error).message)
     } finally {
-      setSaving(false)
+      if (mountedRef.current) setSaving(false)
     }
   }
 
@@ -155,11 +164,11 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
         url: form.url.trim(),
         api_key: form.api_key,
       })
-      setTestResult(result)
+      if (mountedRef.current) setTestResult(result)
     } catch (err) {
-      setTestResult({ success: false, error: (err as Error).message })
+      if (mountedRef.current) setTestResult({ success: false, error: (err as Error).message })
     } finally {
-      setTesting(false)
+      if (mountedRef.current) setTesting(false)
     }
   }
 
@@ -168,6 +177,11 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
       setError('Please select a server')
       return
     }
+
+    importAbortRef.current?.abort()
+    const abortController = new AbortController()
+    importAbortRef.current = abortController
+
     setImporting(true)
     setImportResult(null)
     setImportProgress(null)
@@ -178,10 +192,12 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ server_id: selectedServer }),
+        signal: abortController.signal,
       })
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
+        const body = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error || `HTTP ${response.status}`)
       }
 
       const reader = response.body?.getReader()
@@ -202,31 +218,38 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6)) as ImportProgress
-            setImportProgress(data)
+            try {
+              const data = JSON.parse(line.slice(6)) as ImportProgress
+              setImportProgress(data)
 
-            if (data.type === 'complete') {
-              setImportResult({
-                imported: data.inserted,
-                skipped: data.skipped,
-                total: data.total,
-              })
-            } else if (data.type === 'error') {
-              setError(data.error || 'Import failed')
-              setImportResult({
-                imported: data.inserted,
-                skipped: data.skipped,
-                total: data.total,
-                error: data.error,
-              })
+              if (data.type === 'complete') {
+                setImportResult({
+                  imported: data.inserted,
+                  skipped: data.skipped,
+                  total: data.total,
+                })
+              } else if (data.type === 'error') {
+                setError(data.error || 'Import failed')
+                setImportResult({
+                  imported: data.inserted,
+                  skipped: data.skipped,
+                  total: data.total,
+                  error: data.error,
+                })
+              }
+            } catch {
+              // Skip malformed SSE data
             }
           }
         }
       }
     } catch (err) {
-      setError((err as Error).message)
+      if ((err as Error).name !== 'AbortError') {
+        setError((err as Error).message)
+      }
     } finally {
       setImporting(false)
+      importAbortRef.current = null
     }
   }
 

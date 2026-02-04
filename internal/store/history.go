@@ -89,7 +89,6 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 	return nil
 }
 
-// Valid sort columns for history queries (prevent SQL injection)
 var validHistorySortColumns = map[string]bool{
 	"h.started_at":  true,
 	"h.stopped_at":  true,

@@ -67,6 +67,7 @@ func (s *Server) handleGetTautulliSettings(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleUpdateTautulliSettings(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16) // 64KB limit
 	var req tautulliSettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -106,6 +107,7 @@ func (s *Server) handleDeleteTautulliSettings(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleTestTautulliConnection(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16) // 64KB limit
 	var req tautulliSettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -156,6 +158,7 @@ func (s *Server) handleTestTautulliConnection(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16) // 64KB limit
 	var req tautulliImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -192,7 +195,6 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set up SSE streaming
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming not supported")
@@ -215,8 +217,7 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 
 	var totalInserted, totalSkipped, totalRecords, processed int
 
-	// Rate limiter for enrichment: 10 requests/second to avoid overwhelming Tautulli
-	enrichRateLimiter := time.NewTicker(100 * time.Millisecond)
+	enrichRateLimiter := time.NewTicker(100 * time.Millisecond) // 10 req/s max
 	defer enrichRateLimiter.Stop()
 
 	err = client.StreamHistory(ctx, 1000, func(batch tautulli.BatchResult) error {
