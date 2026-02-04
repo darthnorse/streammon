@@ -19,6 +19,15 @@ interface TestResult {
   error?: string
 }
 
+interface ImportProgress {
+  type: 'progress' | 'complete' | 'error'
+  processed: number
+  total: number
+  inserted: number
+  skipped: number
+  error?: string
+}
+
 const inputClass = `w-full px-3 py-2.5 rounded-lg text-sm font-mono
   bg-surface dark:bg-surface-dark
   border border-border dark:border-border-dark
@@ -48,6 +57,7 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
   const [testing, setTesting] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<TautulliImportResult | null>(null)
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
   const [justSaved, setJustSaved] = useState(false)
   const busy = saving || testing || importing
   const showImport = isEdit || justSaved
@@ -160,14 +170,58 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
     }
     setImporting(true)
     setImportResult(null)
+    setImportProgress(null)
     setError('')
+
     try {
-      const result = await api.post<TautulliImportResult>('/api/settings/tautulli/import', {
-        server_id: selectedServer,
+      const response = await fetch('/api/settings/tautulli/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ server_id: selectedServer }),
       })
-      setImportResult(result)
-      if (result.error) {
-        setError(result.error)
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('Streaming not supported')
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6)) as ImportProgress
+            setImportProgress(data)
+
+            if (data.type === 'complete') {
+              setImportResult({
+                imported: data.inserted,
+                skipped: data.skipped,
+                total: data.total,
+              })
+            } else if (data.type === 'error') {
+              setError(data.error || 'Import failed')
+              setImportResult({
+                imported: data.inserted,
+                skipped: data.skipped,
+                total: data.total,
+                error: data.error,
+              })
+            }
+          }
+        }
       }
     } catch (err) {
       setError((err as Error).message)
@@ -320,6 +374,21 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
                     >
                       {importing ? 'Importing...' : 'Import Now'}
                     </button>
+                  </div>
+                )}
+
+                {importing && importProgress && importProgress.total > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <div className="flex justify-between text-xs text-muted dark:text-muted-dark">
+                      <span>Enriching stream details...</span>
+                      <span>{importProgress.processed} / {importProgress.total}</span>
+                    </div>
+                    <div className="w-full bg-surface dark:bg-surface-dark rounded-full h-2 overflow-hidden">
+                      <div
+                        className="bg-accent h-2 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.round((importProgress.processed / importProgress.total) * 100)}%` }}
+                      />
+                    </div>
                   </div>
                 )}
               </div>

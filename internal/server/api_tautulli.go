@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -36,6 +37,15 @@ type tautulliImportResponse struct {
 	Skipped  int    `json:"skipped"`
 	Total    int    `json:"total"`
 	Error    string `json:"error,omitempty"`
+}
+
+type tautulliProgressEvent struct {
+	Type      string `json:"type"` // "progress" or "complete" or "error"
+	Processed int    `json:"processed"`
+	Total     int    `json:"total"`
+	Inserted  int    `json:"inserted"`
+	Skipped   int    `json:"skipped"`
+	Error     string `json:"error,omitempty"`
 }
 
 func (s *Server) handleGetTautulliSettings(w http.ResponseWriter, r *http.Request) {
@@ -174,9 +184,6 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancel()
-
 	client, err := tautulli.NewClient(cfg.URL, cfg.APIKey)
 	if err != nil {
 		writeJSON(w, http.StatusOK, tautulliImportResponse{
@@ -185,7 +192,28 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var totalInserted, totalSkipped, totalRecords int
+	// Set up SSE streaming
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	sendEvent := func(event tautulliProgressEvent) {
+		data, _ := json.Marshal(event)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	var totalInserted, totalSkipped, totalRecords, processed int
 
 	// Rate limiter for enrichment: 10 requests/second to avoid overwhelming Tautulli
 	enrichRateLimiter := time.NewTicker(100 * time.Millisecond)
@@ -193,7 +221,7 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 
 	err = client.StreamHistory(ctx, 1000, func(batch tautulli.BatchResult) error {
 		entries := make([]*models.WatchHistoryEntry, 0, len(batch.Records))
-		for _, rec := range batch.Records {
+		for i, rec := range batch.Records {
 			entry := convertTautulliRecord(rec, req.ServerID)
 
 			if rec.ReferenceID != 0 {
@@ -211,6 +239,17 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 			}
 
 			entries = append(entries, entry)
+
+			// Send progress every 10 records or on last record
+			if (i+1)%10 == 0 || i == len(batch.Records)-1 {
+				sendEvent(tautulliProgressEvent{
+					Type:      "progress",
+					Processed: processed + i + 1,
+					Total:     batch.Total,
+					Inserted:  totalInserted,
+					Skipped:   totalSkipped,
+				})
+			}
 		}
 
 		inserted, skipped, err := s.store.InsertHistoryBatch(ctx, entries)
@@ -221,26 +260,31 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 		totalInserted += inserted
 		totalSkipped += skipped
 		totalRecords = batch.Total
+		processed += len(batch.Records)
 		return nil
 	})
 
 	if err != nil {
 		log.Printf("Tautulli import error: %v (imported %d, skipped %d)", err, totalInserted, totalSkipped)
-		writeJSON(w, http.StatusOK, tautulliImportResponse{
-			Imported: totalInserted,
-			Skipped:  totalSkipped,
-			Total:    totalRecords,
-			Error:    err.Error(),
+		sendEvent(tautulliProgressEvent{
+			Type:      "error",
+			Processed: processed,
+			Total:     totalRecords,
+			Inserted:  totalInserted,
+			Skipped:   totalSkipped,
+			Error:     err.Error(),
 		})
 		return
 	}
 
 	log.Printf("Tautulli import completed: %d inserted, %d skipped, server_id=%d", totalInserted, totalSkipped, req.ServerID)
 
-	writeJSON(w, http.StatusOK, tautulliImportResponse{
-		Imported: totalInserted,
-		Skipped:  totalSkipped,
-		Total:    totalRecords,
+	sendEvent(tautulliProgressEvent{
+		Type:      "complete",
+		Processed: processed,
+		Total:     totalRecords,
+		Inserted:  totalInserted,
+		Skipped:   totalSkipped,
 	})
 }
 
