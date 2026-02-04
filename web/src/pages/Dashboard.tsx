@@ -12,23 +12,22 @@ export function Dashboard() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-muted dark:text-muted-dark mt-1">
-            {sessions.length > 0
-              ? `${sessions.length} active stream${sessions.length !== 1 ? 's' : ''}${totalBandwidth > 0 ? ` (${formatBitrate(totalBandwidth)})` : ''}`
-              : 'Monitoring streams'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span
-            aria-hidden="true"
-            className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}
-          />
-          <span className="text-xs text-muted dark:text-muted-dark font-mono">
-            {connected ? 'Live' : 'Reconnecting'}
-          </span>
+      <div className="flex items-center justify-end mb-6">
+        <div className="flex items-center gap-4">
+          {sessions.length > 0 && (
+            <span className="text-sm text-muted dark:text-muted-dark">
+              {sessions.length} active stream{sessions.length !== 1 ? 's' : ''}{totalBandwidth > 0 ? ` (${formatBitrate(totalBandwidth)})` : ''}
+            </span>
+          )}
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}
+            />
+            <span className="text-xs text-muted dark:text-muted-dark font-mono">
+              {connected ? 'Live' : 'Reconnecting'}
+            </span>
+          </div>
         </div>
       </div>
 
