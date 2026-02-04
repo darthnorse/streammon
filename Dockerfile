@@ -1,7 +1,9 @@
 FROM node:20-slim AS frontend
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json* ./
-RUN npm ci
+# --legacy-peer-deps required: react-leaflet-heatmap-layer-v3 declares peer dep on React 17
+# but works correctly with React 18. The package is a beta version without updated peer deps.
+RUN npm ci --legacy-peer-deps
 COPY web/ ./
 RUN npm run build
 

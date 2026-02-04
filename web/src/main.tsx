@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import '@fontsource-variable/dm-sans'
 import '@fontsource-variable/jetbrains-mono'
+import 'leaflet/dist/leaflet.css'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

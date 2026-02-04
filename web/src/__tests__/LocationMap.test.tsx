@@ -8,18 +8,29 @@ vi.mock('../hooks/useFetch', () => ({
   useFetch: vi.fn(),
 }))
 
-vi.mock('react-simple-maps', () => ({
-  ComposableMap: ({ children }: { children: React.ReactNode }) => <div data-testid="map">{children}</div>,
-  Geographies: ({ children }: { children: (props: { geographies: never[] }) => React.ReactNode }) => <>{children({ geographies: [] })}</>,
-  Geography: () => null,
-  Marker: ({ children }: { children: React.ReactNode }) => <div data-testid="marker">{children}</div>,
+vi.mock('react-leaflet', () => ({
+  MapContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="map">{children}</div>
+  ),
+  TileLayer: () => null,
+  CircleMarker: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="marker">{children}</div>
+  ),
+  Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useMap: () => ({
+    setView: vi.fn(),
+    fitBounds: vi.fn(),
+  }),
+}))
+
+vi.mock('react-leaflet-heatmap-layer-v3', () => ({
+  HeatmapLayer: () => <div data-testid="heatmap" />,
 }))
 
 import { useFetch } from '../hooks/useFetch'
+import { MS_PER_DAY } from '../lib/constants'
 
 const mockUseFetch = vi.mocked(useFetch)
-
-const MS_PER_DAY = 86_400_000
 
 const locations: GeoResult[] = [
   { ip: '1.2.3.4', lat: 40.7, lng: -74.0, city: 'New York', country: 'US', last_seen: new Date().toISOString() },
@@ -56,7 +67,7 @@ describe('LocationMap', () => {
     expect(screen.getByText('London, GB')).toBeInTheDocument()
   })
 
-  it('renders markers for each location', () => {
+  it('renders markers for each location (markers mode)', () => {
     mockUseFetch.mockReturnValue({ data: locations, loading: false, error: null, refetch: vi.fn() })
     const { container } = renderWithRouter(<LocationMap userName="alice" />)
 

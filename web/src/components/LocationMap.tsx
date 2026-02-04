@@ -1,11 +1,9 @@
 import { useFetch } from '../hooks/useFetch'
 import type { GeoResult } from '../types'
-import { WorldMapBase } from './shared/WorldMapBase'
+import { LeafletMap } from './shared/LeafletMap'
+import { LocationTable, type LocationColumn } from './shared/LocationTable'
 import { formatLocation } from '../lib/format'
-
-const MS_PER_MINUTE = 60_000
-const MS_PER_HOUR = 3_600_000
-const MS_PER_DAY = 86_400_000
+import { MS_PER_MINUTE, MS_PER_HOUR, MS_PER_DAY } from '../lib/constants'
 
 const COLOR_RECENT = '#f59e0b'
 const COLOR_OLD = '#3b82f6'
@@ -35,54 +33,26 @@ function isRecentLocation(lastSeen: string | undefined): boolean {
   return Date.now() - new Date(lastSeen).getTime() < MS_PER_DAY
 }
 
-function locationKey(loc: GeoResult, idx: number): string {
-  return `${loc.ip}-${idx}`
+function getLocationColor(loc: GeoResult): string {
+  return isRecentLocation(loc.last_seen) ? COLOR_RECENT : COLOR_OLD
 }
 
-function WorldMap({ locations }: { locations: GeoResult[] }) {
-  return (
-    <WorldMapBase
-      locations={locations}
-      markerKey={locationKey}
-      renderMarker={({ location: loc }) => {
-        const color = isRecentLocation(loc.last_seen) ? COLOR_RECENT : COLOR_OLD
-        return (
-          <>
-            <circle r={6} fill={color} fillOpacity={0.3} />
-            <circle r={3} fill={color} />
-          </>
-        )
-      }}
-    />
-  )
-}
-
-function LocationTable({ locations }: { locations: GeoResult[] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border dark:border-border-dark text-left text-muted dark:text-muted-dark">
-            <th className="py-2 pr-4 font-medium">IP Address</th>
-            <th className="py-2 pr-4 font-medium">Location</th>
-            <th className="py-2 font-medium">Last Seen</th>
-          </tr>
-        </thead>
-        <tbody>
-          {locations.map((loc, idx) => (
-            <tr key={locationKey(loc, idx)} className="border-b border-border/50 dark:border-border-dark/50">
-              <td className="py-2 pr-4 font-mono text-xs">{loc.ip}</td>
-              <td className="py-2 pr-4">{formatLocation(loc, '—')}</td>
-              <td className="py-2 text-muted dark:text-muted-dark">
-                {loc.last_seen ? formatLastSeen(loc.last_seen) : '—'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
+const columns: LocationColumn[] = [
+  {
+    header: 'IP Address',
+    accessor: (loc) => loc.ip,
+    className: 'font-mono text-xs',
+  },
+  {
+    header: 'Location',
+    accessor: (loc) => formatLocation(loc, '—'),
+  },
+  {
+    header: 'Last Seen',
+    accessor: (loc) => loc.last_seen ? formatLastSeen(loc.last_seen) : '—',
+    className: 'text-muted dark:text-muted-dark',
+  },
+]
 
 const placeholderClass = `h-[200px] rounded-lg bg-panel dark:bg-panel-dark
   border border-border dark:border-border-dark flex items-center justify-center`
@@ -111,7 +81,7 @@ export function LocationMap({ userName }: LocationMapProps) {
     return (
       <div className={placeholderClass}>
         <div className="text-center">
-          <div className="text-3xl mb-2 opacity-30">◎</div>
+          <div className="text-3xl mb-2 opacity-30">&#9678;</div>
           <p className="text-muted dark:text-muted-dark text-sm">No location data available</p>
         </div>
       </div>
@@ -120,10 +90,19 @@ export function LocationMap({ userName }: LocationMapProps) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark bg-slate-50 dark:bg-slate-900">
-        <WorldMap locations={data} />
+      <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark">
+        <LeafletMap
+          locations={data}
+          viewMode="markers"
+          height="250px"
+          markerColor={getLocationColor}
+        />
       </div>
-      <LocationTable locations={data} />
+      <LocationTable
+        locations={data}
+        columns={columns}
+        rowKey={(loc, idx) => `${loc.ip}-${idx}`}
+      />
     </div>
   )
 }

@@ -1,20 +1,25 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { LocationsCard } from '../components/stats/LocationsCard'
 import type { GeoResult } from '../types'
 
-// Mock react-simple-maps since it requires canvas/svg rendering
-vi.mock('react-simple-maps', () => ({
-  ComposableMap: ({ children }: { children: React.ReactNode }) => (
+vi.mock('react-leaflet', () => ({
+  MapContainer: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="map">{children}</div>
   ),
-  Geographies: ({ children }: { children: (args: { geographies: [] }) => React.ReactNode }) => (
-    <>{children({ geographies: [] })}</>
+  TileLayer: () => null,
+  CircleMarker: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="marker">{children}</div>
   ),
-  Geography: () => null,
-  Marker: ({ children, coordinates }: { children: React.ReactNode; coordinates: [number, number] }) => (
-    <div data-testid={`marker-${coordinates[0]}-${coordinates[1]}`}>{children}</div>
-  ),
+  Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  useMap: () => ({
+    setView: vi.fn(),
+    fitBounds: vi.fn(),
+  }),
+}))
+
+vi.mock('react-leaflet-heatmap-layer-v3', () => ({
+  HeatmapLayer: () => <div data-testid="heatmap" />,
 }))
 
 const mockLocations: GeoResult[] = [
@@ -48,26 +53,27 @@ describe('LocationsCard', () => {
     expect(screen.getByText('No location data available')).toBeInTheDocument()
   })
 
-  it('renders the map with markers', () => {
+  it('renders the map', () => {
     render(<LocationsCard locations={mockLocations} />)
 
     expect(screen.getByTestId('map')).toBeInTheDocument()
-    expect(screen.getByTestId('marker--74-40.7')).toBeInTheDocument()
-    expect(screen.getByTestId('marker--118.2-34')).toBeInTheDocument()
+  })
+
+  it('renders heatmap by default', () => {
+    render(<LocationsCard locations={mockLocations} />)
+
+    expect(screen.getByTestId('heatmap')).toBeInTheDocument()
   })
 
   it('renders location table with correct data', () => {
     render(<LocationsCard locations={mockLocations} />)
 
-    // Check table headers
     expect(screen.getByText('Location')).toBeInTheDocument()
     expect(screen.getByText('Users')).toBeInTheDocument()
 
-    // Check location data in table
     expect(screen.getByText('New York, US')).toBeInTheDocument()
     expect(screen.getByText('Los Angeles, US')).toBeInTheDocument()
 
-    // Check users in table
     expect(screen.getByText('alice, bob')).toBeInTheDocument()
     expect(screen.getByText('carol')).toBeInTheDocument()
   })
@@ -85,7 +91,6 @@ describe('LocationsCard', () => {
 
     render(<LocationsCard locations={locationsWithMissingCity} />)
 
-    // Should show just country when city is missing
     expect(screen.getByText('US')).toBeInTheDocument()
   })
 
@@ -101,13 +106,12 @@ describe('LocationsCard', () => {
 
     render(<LocationsCard locations={locationsWithoutUsers} />)
 
-    // Table should show dash for missing users
     const cells = screen.getAllByRole('cell')
-    const usersCell = cells.find(cell => cell.textContent === '—')
+    const usersCell = cells.find((cell: HTMLElement) => cell.textContent === '—')
     expect(usersCell).toBeInTheDocument()
   })
 
-  it('truncates long user lists in tooltip format', () => {
+  it('shows all users in table', () => {
     const locationWithManyUsers: GeoResult[] = [
       {
         lat: 40.7,
@@ -120,7 +124,50 @@ describe('LocationsCard', () => {
 
     render(<LocationsCard locations={locationWithManyUsers} />)
 
-    // Table shows all users (not truncated)
     expect(screen.getByText('user1, user2, user3, user4, user5, user6, user7')).toBeInTheDocument()
+  })
+
+  it('shows view mode toggle when locations exist', () => {
+    render(<LocationsCard locations={mockLocations} />)
+
+    expect(screen.getByText('Heatmap')).toBeInTheDocument()
+    expect(screen.getByText('Markers')).toBeInTheDocument()
+  })
+
+  it('switches to markers view when clicking Markers button', () => {
+    render(<LocationsCard locations={mockLocations} />)
+
+    expect(screen.getByTestId('heatmap')).toBeInTheDocument()
+    expect(screen.queryAllByTestId('marker')).toHaveLength(0)
+
+    fireEvent.click(screen.getByText('Markers'))
+
+    expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
+    expect(screen.getAllByTestId('marker')).toHaveLength(2)
+  })
+
+  it('switches back to heatmap view when clicking Heatmap button', () => {
+    render(<LocationsCard locations={mockLocations} />)
+
+    fireEvent.click(screen.getByText('Markers'))
+    expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Heatmap'))
+    expect(screen.getByTestId('heatmap')).toBeInTheDocument()
+  })
+
+  it('has correct aria-pressed attributes on toggle buttons', () => {
+    render(<LocationsCard locations={mockLocations} />)
+
+    const heatmapBtn = screen.getByText('Heatmap')
+    const markersBtn = screen.getByText('Markers')
+
+    expect(heatmapBtn).toHaveAttribute('aria-pressed', 'true')
+    expect(markersBtn).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(markersBtn)
+
+    expect(heatmapBtn).toHaveAttribute('aria-pressed', 'false')
+    expect(markersBtn).toHaveAttribute('aria-pressed', 'true')
   })
 })
