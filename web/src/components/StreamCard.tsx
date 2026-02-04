@@ -148,19 +148,21 @@ export function StreamCard({ stream }: StreamCardProps) {
               <div className="text-xs text-muted dark:text-muted-dark">
                 {stream.player}
               </div>
-              {stream.ip_address && (
-                <GeoIPPopover ip={stream.ip_address}>
-                  <span className="text-xs font-mono text-muted dark:text-muted-dark hover:text-accent dark:hover:text-accent transition-colors inline-block">
-                    {stream.ip_address}
-                  </span>
-                </GeoIPPopover>
-              )}
             </div>
           </div>
 
           <TranscodeInfo stream={stream} />
 
           <div className="mt-auto pt-3">
+            {stream.ip_address && (
+              <div className="flex justify-end mb-1">
+                <GeoIPPopover ip={stream.ip_address}>
+                  <span className="text-xs font-mono text-muted dark:text-muted-dark hover:text-accent dark:hover:text-accent transition-colors">
+                    {stream.ip_address}
+                  </span>
+                </GeoIPPopover>
+              </div>
+            )}
             <div className="flex items-baseline justify-between text-xs font-mono mb-1">
               <span className="text-muted dark:text-muted-dark">{formatTimestamp(stream.progress_ms)} / {formatTimestamp(stream.duration_ms)}</span>
               <Link

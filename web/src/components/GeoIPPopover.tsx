@@ -82,7 +82,7 @@ export function GeoIPPopover({ ip, children }: GeoIPPopoverProps) {
         {children}
       </button>
       {open && (
-        <div className="absolute z-50 top-full mt-1 right-0 w-48 card p-3 text-xs shadow-lg">
+        <div className="absolute z-50 bottom-full mb-1 right-0 w-48 card p-3 text-xs shadow-lg">
           <PopoverContent ip={ip} geo={geo} loading={loading} error={error} />
         </div>
       )}
