@@ -310,3 +310,170 @@ func TestStreamHistoryContextCancellation(t *testing.T) {
 		t.Errorf("expected at least 2 batches before cancellation, got %d", batchCount)
 	}
 }
+
+func TestGetStreamData(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("cmd") != "get_stream_data" {
+			t.Errorf("expected cmd=get_stream_data, got %s", r.URL.Query().Get("cmd"))
+		}
+		if r.URL.Query().Get("session_key") != "12345" {
+			t.Errorf("expected session_key=12345, got %s", r.URL.Query().Get("session_key"))
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"response": map[string]interface{}{
+				"result":  "success",
+				"message": "",
+				"data": map[string]interface{}{
+					"video_codec":          "hevc",
+					"video_width":          3840,
+					"video_height":         2160,
+					"video_bit_depth":      10,
+					"video_dynamic_range":  "HDR",
+					"audio_codec":          "truehd",
+					"audio_channels":       8,
+					"bandwidth":            50000,
+					"transcode_decision":   "direct play",
+					"video_decision":       "direct play",
+					"audio_decision":       "transcode",
+					"transcode_hw_decoding": true,
+					"transcode_hw_encoding": false,
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "testkey")
+	sd, err := c.GetStreamData(context.Background(), "12345")
+	if err != nil {
+		t.Fatalf("GetStreamData failed: %v", err)
+	}
+	if sd == nil {
+		t.Fatal("expected stream data, got nil")
+	}
+	if sd.VideoCodec != "hevc" {
+		t.Errorf("video_codec = %q, want hevc", sd.VideoCodec)
+	}
+	if sd.VideoWidth != 3840 {
+		t.Errorf("video_width = %d, want 3840", sd.VideoWidth)
+	}
+	if sd.VideoHeight != 2160 {
+		t.Errorf("video_height = %d, want 2160", sd.VideoHeight)
+	}
+	if sd.VideoBitDepth != 10 {
+		t.Errorf("video_bit_depth = %d, want 10", sd.VideoBitDepth)
+	}
+	if sd.VideoDynamicRange != "HDR" {
+		t.Errorf("video_dynamic_range = %q, want HDR", sd.VideoDynamicRange)
+	}
+	if sd.AudioCodec != "truehd" {
+		t.Errorf("audio_codec = %q, want truehd", sd.AudioCodec)
+	}
+	if sd.AudioChannels != 8 {
+		t.Errorf("audio_channels = %d, want 8", sd.AudioChannels)
+	}
+	if sd.Bandwidth != 50000 {
+		t.Errorf("bandwidth = %d, want 50000", sd.Bandwidth)
+	}
+	if sd.VideoDecision != "direct play" {
+		t.Errorf("video_decision = %q, want direct play", sd.VideoDecision)
+	}
+	if sd.AudioDecision != "transcode" {
+		t.Errorf("audio_decision = %q, want transcode", sd.AudioDecision)
+	}
+	if !sd.TranscodeHWDecode {
+		t.Error("transcode_hw_decode should be true")
+	}
+	if sd.TranscodeHWEncode {
+		t.Error("transcode_hw_encode should be false")
+	}
+}
+
+func TestGetStreamDataEmpty(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"response": map[string]interface{}{
+				"result":  "success",
+				"message": "",
+				"data":    nil,
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "testkey")
+	sd, err := c.GetStreamData(context.Background(), "99999")
+	if err != nil {
+		t.Fatalf("GetStreamData failed: %v", err)
+	}
+	if sd != nil {
+		t.Errorf("expected nil for empty data, got %+v", sd)
+	}
+}
+
+func TestGetStreamDataFlexibleTypes(t *testing.T) {
+	// Test that string values for numeric fields are handled correctly
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"response": map[string]interface{}{
+				"result":  "success",
+				"message": "",
+				"data": map[string]interface{}{
+					"video_codec":          "h264",
+					"video_width":          "1920",  // string instead of int
+					"video_height":         "1080",  // string instead of int
+					"audio_channels":       "6",     // string instead of int
+					"bandwidth":            "25000", // string instead of int
+					"transcode_hw_decoding": "1",   // string "1" for boolean
+					"transcode_hw_encoding": 0,     // int 0 for boolean
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "testkey")
+	sd, err := c.GetStreamData(context.Background(), "12345")
+	if err != nil {
+		t.Fatalf("GetStreamData failed: %v", err)
+	}
+	if sd.VideoWidth != 1920 {
+		t.Errorf("video_width = %d, want 1920", sd.VideoWidth)
+	}
+	if sd.VideoHeight != 1080 {
+		t.Errorf("video_height = %d, want 1080", sd.VideoHeight)
+	}
+	if sd.AudioChannels != 6 {
+		t.Errorf("audio_channels = %d, want 6", sd.AudioChannels)
+	}
+	if sd.Bandwidth != 25000 {
+		t.Errorf("bandwidth = %d, want 25000", sd.Bandwidth)
+	}
+	if !sd.TranscodeHWDecode {
+		t.Error("transcode_hw_decode should be true for string '1'")
+	}
+	if sd.TranscodeHWEncode {
+		t.Error("transcode_hw_encode should be false for int 0")
+	}
+}
+
+func TestHeightToResolution(t *testing.T) {
+	tests := []struct {
+		height int
+		want   string
+	}{
+		{2160, "4K"},
+		{1080, "1080p"},
+		{720, "720p"},
+		{480, "480p"},
+		{360, "360p"},
+		{0, ""},
+	}
+
+	for _, tt := range tests {
+		got := HeightToResolution(tt.height)
+		if got != tt.want {
+			t.Errorf("HeightToResolution(%d) = %q, want %q", tt.height, got, tt.want)
+		}
+	}
+}

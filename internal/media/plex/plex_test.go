@@ -394,3 +394,61 @@ func TestContextCancellation(t *testing.T) {
 		t.Error("expected context cancellation error")
 	}
 }
+
+func TestDeriveDynamicRange(t *testing.T) {
+	tests := []struct {
+		name   string
+		stream plexStream
+		want   string
+	}{
+		{
+			name:   "SDR default",
+			stream: plexStream{},
+			want:   "SDR",
+		},
+		{
+			name:   "Dolby Vision with profile",
+			stream: plexStream{DOVIPresent: "1", DOVIProfile: "5"},
+			want:   "Dolby Vision 5",
+		},
+		{
+			name:   "Dolby Vision without profile",
+			stream: plexStream{DOVIPresent: "1"},
+			want:   "Dolby Vision",
+		},
+		{
+			name:   "HDR10 via colorTrc smpte2084",
+			stream: plexStream{ColorSpace: "bt2020", ColorTrc: "smpte2084"},
+			want:   "HDR10",
+		},
+		{
+			name:   "HLG via colorTrc arib-std-b67",
+			stream: plexStream{ColorSpace: "bt2020", ColorTrc: "arib-std-b67"},
+			want:   "HLG",
+		},
+		{
+			name:   "Generic HDR via bt2020 colorspace",
+			stream: plexStream{ColorSpace: "bt2020"},
+			want:   "HDR",
+		},
+		{
+			name:   "HDR10 via bit depth only",
+			stream: plexStream{BitDepth: "10", ColorTrc: "smpte2084"},
+			want:   "HDR10",
+		},
+		{
+			name:   "SDR with 8-bit depth",
+			stream: plexStream{BitDepth: "8"},
+			want:   "SDR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := deriveDynamicRange(tt.stream)
+			if got != tt.want {
+				t.Errorf("deriveDynamicRange() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

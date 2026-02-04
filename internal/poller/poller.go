@@ -260,6 +260,15 @@ func (p *Poller) poll(ctx context.Context) {
 }
 
 func (p *Poller) persistHistory(s models.ActiveStream) {
+	// Default to DirectPlay if decision fields are empty
+	videoDecision := s.VideoDecision
+	if videoDecision == "" {
+		videoDecision = models.TranscodeDecisionDirectPlay
+	}
+	audioDecision := s.AudioDecision
+	if audioDecision == "" {
+		audioDecision = models.TranscodeDecisionDirectPlay
+	}
 	entry := &models.WatchHistoryEntry{
 		ServerID:          s.ServerID,
 		ItemID:            s.ItemID,
@@ -280,6 +289,17 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 		SeasonNumber:      s.SeasonNumber,
 		EpisodeNumber:     s.EpisodeNumber,
 		ThumbURL:          s.ThumbURL,
+		VideoResolution:   s.VideoResolution,
+		TranscodeDecision: videoDecision,
+		VideoCodec:        s.VideoCodec,
+		AudioCodec:        s.AudioCodec,
+		AudioChannels:     s.AudioChannels,
+		Bandwidth:         s.Bandwidth,
+		VideoDecision:     videoDecision,
+		AudioDecision:     audioDecision,
+		TranscodeHWDecode: s.TranscodeHWDecode,
+		TranscodeHWEncode: s.TranscodeHWEncode,
+		DynamicRange:      s.DynamicRange,
 	}
 	if err := p.store.InsertHistory(entry); err != nil {
 		log.Printf("persisting history for %s: %v", s.Title, err)

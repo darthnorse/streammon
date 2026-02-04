@@ -697,3 +697,76 @@ func TestGetLibrariesOtherType(t *testing.T) {
 		t.Errorf("item_count = %d, want 42", libs[0].ItemCount)
 	}
 }
+
+func TestDeriveDynamicRange(t *testing.T) {
+	tests := []struct {
+		name   string
+		stream mediaStream
+		want   string
+	}{
+		{
+			name:   "SDR default",
+			stream: mediaStream{},
+			want:   "SDR",
+		},
+		{
+			name:   "Dolby Vision DOVI",
+			stream: mediaStream{VideoRangeType: "DOVI"},
+			want:   "Dolby Vision",
+		},
+		{
+			name:   "Dolby Vision with HDR10",
+			stream: mediaStream{VideoRangeType: "DOVIWithHDR10"},
+			want:   "Dolby Vision",
+		},
+		{
+			name:   "Dolby Vision with HLG",
+			stream: mediaStream{VideoRangeType: "DOVIWithHLG"},
+			want:   "Dolby Vision",
+		},
+		{
+			name:   "Dolby Vision with SDR",
+			stream: mediaStream{VideoRangeType: "DOVIWithSDR"},
+			want:   "Dolby Vision",
+		},
+		{
+			name:   "HDR10",
+			stream: mediaStream{VideoRangeType: "HDR10"},
+			want:   "HDR10",
+		},
+		{
+			name:   "HDR10+",
+			stream: mediaStream{VideoRangeType: "HDR10+"},
+			want:   "HDR10+",
+		},
+		{
+			name:   "HLG",
+			stream: mediaStream{VideoRangeType: "HLG"},
+			want:   "HLG",
+		},
+		{
+			name:   "Generic HDR via VideoRange",
+			stream: mediaStream{VideoRange: "HDR"},
+			want:   "HDR",
+		},
+		{
+			name:   "HDR via VideoRange with bit depth",
+			stream: mediaStream{VideoRange: "HDR", BitDepth: 10},
+			want:   "HDR",
+		},
+		{
+			name:   "SDR explicit",
+			stream: mediaStream{VideoRange: "SDR"},
+			want:   "SDR",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := deriveDynamicRange(tt.stream)
+			if got != tt.want {
+				t.Errorf("deriveDynamicRange() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

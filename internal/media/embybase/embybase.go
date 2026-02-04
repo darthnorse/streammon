@@ -119,11 +119,14 @@ type mediaSource struct {
 }
 
 type mediaStream struct {
-	Type         string `json:"Type"` // Video, Audio, Subtitle
-	Codec        string `json:"Codec"`
-	Channels     int    `json:"Channels"`
-	Height       int    `json:"Height"`
-	DisplayTitle string `json:"DisplayTitle"`
+	Type           string `json:"Type"` // Video, Audio, Subtitle
+	Codec          string `json:"Codec"`
+	Channels       int    `json:"Channels"`
+	Height         int    `json:"Height"`
+	DisplayTitle   string `json:"DisplayTitle"`
+	VideoRange     string `json:"VideoRange"`     // SDR, HDR, etc.
+	VideoRangeType string `json:"VideoRangeType"` // SDR, HDR10, HDR10+, HLG, DOVI, DOVIWithHDR10, DOVIWithHLG, DOVIWithSDR
+	BitDepth       int    `json:"BitDepth"`
 }
 
 type playState struct {
@@ -205,6 +208,9 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 				if ms.Height > 0 {
 					as.VideoResolution = fmt.Sprintf("%dp", ms.Height)
 				}
+				if as.DynamicRange == "" {
+					as.DynamicRange = deriveDynamicRange(ms)
+				}
 			case "Audio":
 				as.AudioCodec = ms.Codec
 				as.AudioChannels = ms.Channels
@@ -271,6 +277,24 @@ func embyMediaType(t string) models.MediaType {
 	default:
 		return models.MediaType(strings.ToLower(t))
 	}
+}
+
+// deriveDynamicRange determines HDR format from Emby/Jellyfin video stream attributes.
+func deriveDynamicRange(ms mediaStream) string {
+	switch ms.VideoRangeType {
+	case "DOVI", "DOVIWithHDR10", "DOVIWithHLG", "DOVIWithSDR":
+		return "Dolby Vision"
+	case "HDR10":
+		return "HDR10"
+	case "HDR10+":
+		return "HDR10+"
+	case "HLG":
+		return "HLG"
+	}
+	if ms.VideoRange == "HDR" {
+		return "HDR"
+	}
+	return "SDR"
 }
 
 type libraryItemsResponse struct {

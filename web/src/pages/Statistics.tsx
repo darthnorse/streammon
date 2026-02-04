@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { DailyChart } from '../components/DailyChart'
 import { LibraryCards } from '../components/stats/LibraryCards'
@@ -5,10 +6,24 @@ import { TopMediaCard } from '../components/stats/TopMediaCard'
 import { TopUsersCard } from '../components/stats/TopUsersCard'
 import { LocationsCard } from '../components/stats/LocationsCard'
 import { SharerAlertsCard } from '../components/stats/SharerAlertsCard'
+import { ActivityByDayChart } from '../components/stats/ActivityByDayChart'
+import { ActivityByHourChart } from '../components/stats/ActivityByHourChart'
+import { DistributionDonut } from '../components/stats/DistributionDonut'
+import { ConcurrentStreamsChart } from '../components/stats/ConcurrentStreamsChart'
 import type { StatsResponse } from '../types'
 
+type DaysFilter = 0 | 7 | 30
+
+const filterOptions: { value: DaysFilter; label: string }[] = [
+  { value: 0, label: 'All time' },
+  { value: 7, label: 'Last 7 days' },
+  { value: 30, label: 'Last 30 days' },
+]
+
 export function Statistics() {
-  const { data, loading, error } = useFetch<StatsResponse>('/api/stats')
+  const [days, setDays] = useState<DaysFilter>(0)
+  const url = days === 0 ? '/api/stats' : `/api/stats?days=${days}`
+  const { data, loading, error } = useFetch<StatsResponse>(url)
 
   if (loading) {
     return (
@@ -30,16 +45,46 @@ export function Statistics() {
 
   return (
     <div className="space-y-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Statistics</h1>
-        <p className="text-sm text-muted dark:text-muted-dark mt-1">
-          Viewing trends and insights
-        </p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Statistics</h1>
+          <p className="text-sm text-muted dark:text-muted-dark mt-1">
+            Viewing trends and insights
+          </p>
+        </div>
+        <div className="flex gap-1">
+          {filterOptions.map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => setDays(opt.value)}
+              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors
+                ${days === opt.value
+                  ? 'bg-accent/15 text-accent-dim dark:text-accent'
+                  : 'text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
+                }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <LibraryCards stats={data.library} concurrentPeak={data.concurrent_peak} />
 
       <DailyChart />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ActivityByDayChart data={data.activity_by_day_of_week} />
+        <ActivityByHourChart data={data.activity_by_hour} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <DistributionDonut title="Platforms" data={data.platform_distribution} />
+        <DistributionDonut title="Players" data={data.player_distribution} />
+        <DistributionDonut title="Stream Quality" data={data.quality_distribution} />
+      </div>
+
+      <ConcurrentStreamsChart data={data.concurrent_time_series} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <TopMediaCard title="Most Popular Movies" items={data.top_movies} icon="▶" />

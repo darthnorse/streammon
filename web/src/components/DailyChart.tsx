@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { useFetch } from '../hooks/useFetch'
 import type { DayStat } from '../types'
+import { CHART_COLORS, LineChartTooltip } from '../lib/chartUtils'
 
 type Range = 7 | 30 | 90
 
@@ -21,12 +22,12 @@ const ranges: { value: Range; label: string }[] = [
 ]
 
 const seriesConfig = [
-  { key: 'movies', label: 'Movies', color: '#00e5ff' },
-  { key: 'tv', label: 'TV', color: '#a78bfa' },
-  { key: 'livetv', label: 'Live TV', color: '#ffab00' },
-  { key: 'music', label: 'Music', color: '#34d399' },
-  { key: 'audiobooks', label: 'Audiobooks', color: '#f472b6' },
-  { key: 'books', label: 'Books', color: '#fb923c' },
+  { key: 'movies', label: 'Movies', color: CHART_COLORS[0] },
+  { key: 'tv', label: 'TV', color: CHART_COLORS[1] },
+  { key: 'livetv', label: 'Live TV', color: CHART_COLORS[3] },
+  { key: 'music', label: 'Music', color: CHART_COLORS[2] },
+  { key: 'audiobooks', label: 'Audiobooks', color: CHART_COLORS[4] },
+  { key: 'books', label: 'Books', color: CHART_COLORS[5] },
 ] as const
 
 function formatDateLabel(dateStr: string): string {
@@ -45,35 +46,6 @@ function buildDateRange(days: Range, today: string): { start: string; end: strin
   const start = new Date(Date.UTC(y, m - 1, d - days + 1))
   const fmt = (dt: Date) => dt.toISOString().slice(0, 10)
   return { start: fmt(start), end: fmt(endExclusive) }
-}
-
-interface TooltipPayloadItem {
-  color: string
-  name: string
-  value: number
-}
-
-function ChartTooltip({ active, payload, label }: {
-  active?: boolean
-  payload?: TooltipPayloadItem[]
-  label?: string
-}) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="bg-panel dark:bg-panel-dark border border-border dark:border-border-dark
-                    rounded-lg px-3 py-2 shadow-lg text-sm">
-      <div className="font-medium mb-1 text-gray-800 dark:text-gray-100">
-        {label && formatDateLabel(label)}
-      </div>
-      {payload.filter(item => item.value > 0).map(item => (
-        <div key={item.name} className="flex items-center gap-2 text-xs">
-          <span className="w-2 h-2 rounded-full" style={{ background: item.color }} />
-          <span className="text-muted dark:text-muted-dark">{item.name}</span>
-          <span className="font-mono ml-auto">{item.value}</span>
-        </div>
-      ))}
-    </div>
-  )
 }
 
 export function DailyChart() {
@@ -162,7 +134,7 @@ export function DailyChart() {
               tickLine={false}
               axisLine={false}
             />
-            <Tooltip content={<ChartTooltip />} />
+            <Tooltip content={<LineChartTooltip labelFormatter={formatDateLabel} />} />
             <Legend
               iconType="circle"
               iconSize={8}

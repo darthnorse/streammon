@@ -45,6 +45,18 @@ export interface WatchHistoryEntry {
   created_at: string
   season_number?: number
   episode_number?: number
+  thumb_url?: string
+  video_resolution?: string
+  transcode_decision?: TranscodeDecision
+  video_codec?: string
+  audio_codec?: string
+  audio_channels?: number
+  bandwidth?: number
+  video_decision?: TranscodeDecision
+  audio_decision?: TranscodeDecision
+  transcode_hw_decode?: boolean
+  transcode_hw_encode?: boolean
+  dynamic_range?: string
   // Geo fields from ip_geo_cache (populated by ListHistory)
   city?: string
   country?: string
@@ -88,6 +100,7 @@ export interface ActiveStream {
   transcode_video_codec?: string
   transcode_audio_codec?: string
   transcode_video_resolution?: string
+  dynamic_range?: string
   season_number?: number
   episode_number?: number
 }
@@ -208,6 +221,30 @@ export interface SharerAlert {
   last_seen: string
 }
 
+export interface DayOfWeekStat {
+  day_of_week: number
+  day_name: string
+  play_count: number
+}
+
+export interface HourStat {
+  hour: number
+  play_count: number
+}
+
+export interface DistributionStat {
+  name: string
+  count: number
+  percentage: number
+}
+
+export interface ConcurrentTimePoint {
+  time: string
+  direct_play: number
+  transcode: number
+  total: number
+}
+
 export interface StatsResponse {
   top_movies: MediaStat[]
   top_tv_shows: MediaStat[]
@@ -217,6 +254,12 @@ export interface StatsResponse {
   concurrent_peak_at?: string
   locations: GeoResult[]
   potential_sharers: SharerAlert[]
+  activity_by_day_of_week: DayOfWeekStat[]
+  activity_by_hour: HourStat[]
+  platform_distribution: DistributionStat[]
+  player_distribution: DistributionStat[]
+  quality_distribution: DistributionStat[]
+  concurrent_time_series: ConcurrentTimePoint[]
 }
 
 export type LibraryType = 'movie' | 'show' | 'music' | 'other'
@@ -271,4 +314,17 @@ export interface TautulliImportResult {
   skipped: number
   total: number
   error?: string
+}
+
+// Shared chart tooltip payload types for Recharts
+export interface ChartTooltipPayloadItem {
+  color: string
+  name: string
+  value: number
+}
+
+export interface PieTooltipPayloadItem<T> {
+  name: string
+  value: number
+  payload: T
 }

@@ -12,43 +12,71 @@ import (
 
 const historyColumns = `id, server_id, item_id, grandparent_item_id, user_name, media_type, title, parent_title, grandparent_title,
 	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at, created_at,
-	season_number, episode_number, thumb_url`
+	season_number, episode_number, thumb_url, video_resolution, transcode_decision,
+	video_codec, audio_codec, audio_channels, bandwidth, video_decision, audio_decision,
+	transcode_hw_decode, transcode_hw_encode, dynamic_range`
 
 const historyColumnsWithGeo = `h.id, h.server_id, h.item_id, h.grandparent_item_id, h.user_name, h.media_type, h.title, h.parent_title,
 	h.grandparent_title, h.year, h.duration_ms, h.watched_ms, h.player, h.platform, h.ip_address,
 	h.started_at, h.stopped_at, h.created_at, h.season_number, h.episode_number, h.thumb_url,
+	h.video_resolution, h.transcode_decision,
+	h.video_codec, h.audio_codec, h.audio_channels, h.bandwidth, h.video_decision, h.audio_decision,
+	h.transcode_hw_decode, h.transcode_hw_encode, h.dynamic_range,
 	COALESCE(g.city, ''), COALESCE(g.country, ''), COALESCE(g.isp, '')`
 
 const historyInsertSQL = `INSERT INTO watch_history (server_id, item_id, grandparent_item_id, user_name, media_type, title, parent_title, grandparent_title,
 	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at,
-	season_number, episode_number, thumb_url)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	season_number, episode_number, thumb_url, video_resolution, transcode_decision,
+	video_codec, audio_codec, audio_channels, bandwidth, video_decision, audio_decision,
+	transcode_hw_decode, transcode_hw_encode, dynamic_range)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 func scanHistoryEntry(scanner interface{ Scan(...any) error }) (models.WatchHistoryEntry, error) {
 	var e models.WatchHistoryEntry
+	var hwDecode, hwEncode int
 	err := scanner.Scan(&e.ID, &e.ServerID, &e.ItemID, &e.GrandparentItemID, &e.UserName, &e.MediaType, &e.Title,
 		&e.ParentTitle, &e.GrandparentTitle, &e.Year, &e.DurationMs, &e.WatchedMs,
 		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
-		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL)
+		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL, &e.VideoResolution, &e.TranscodeDecision,
+		&e.VideoCodec, &e.AudioCodec, &e.AudioChannels, &e.Bandwidth, &e.VideoDecision, &e.AudioDecision,
+		&hwDecode, &hwEncode, &e.DynamicRange)
+	e.TranscodeHWDecode = hwDecode != 0
+	e.TranscodeHWEncode = hwEncode != 0
 	return e, err
 }
 
 func scanHistoryEntryWithGeo(scanner interface{ Scan(...any) error }) (models.WatchHistoryEntry, error) {
 	var e models.WatchHistoryEntry
+	var hwDecode, hwEncode int
 	err := scanner.Scan(&e.ID, &e.ServerID, &e.ItemID, &e.GrandparentItemID, &e.UserName, &e.MediaType, &e.Title,
 		&e.ParentTitle, &e.GrandparentTitle, &e.Year, &e.DurationMs, &e.WatchedMs,
 		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
-		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL, &e.City, &e.Country, &e.ISP)
+		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL, &e.VideoResolution, &e.TranscodeDecision,
+		&e.VideoCodec, &e.AudioCodec, &e.AudioChannels, &e.Bandwidth, &e.VideoDecision, &e.AudioDecision,
+		&hwDecode, &hwEncode, &e.DynamicRange,
+		&e.City, &e.Country, &e.ISP)
+	e.TranscodeHWDecode = hwDecode != 0
+	e.TranscodeHWEncode = hwEncode != 0
 	return e, err
 }
 
 func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
+	hwDecode, hwEncode := 0, 0
+	if entry.TranscodeHWDecode {
+		hwDecode = 1
+	}
+	if entry.TranscodeHWEncode {
+		hwEncode = 1
+	}
 	result, err := s.db.Exec(historyInsertSQL,
 		entry.ServerID, entry.ItemID, entry.GrandparentItemID, entry.UserName, entry.MediaType, entry.Title,
 		entry.ParentTitle, entry.GrandparentTitle, entry.Year,
 		entry.DurationMs, entry.WatchedMs, entry.Player, entry.Platform,
 		entry.IPAddress, entry.StartedAt, entry.StoppedAt,
 		entry.SeasonNumber, entry.EpisodeNumber, entry.ThumbURL,
+		entry.VideoResolution, entry.TranscodeDecision,
+		entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
+		entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting history: %w", err)
@@ -59,6 +87,21 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 	}
 	entry.ID = id
 	return nil
+}
+
+// Valid sort columns for history queries (prevent SQL injection)
+var validHistorySortColumns = map[string]bool{
+	"h.started_at":  true,
+	"h.stopped_at":  true,
+	"h.title":       true,
+	"h.user_name":   true,
+	"h.duration_ms": true,
+	"h.watched_ms":  true,
+	"h.media_type":  true,
+	"h.platform":    true,
+	"h.player":      true,
+	"h.created_at":  true,
+	"g.city":        true,
 }
 
 func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder string) (*models.PaginatedResult[models.WatchHistoryEntry], error) {
@@ -80,8 +123,12 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 	}
 
 	orderBy := "h.started_at DESC"
-	if sortColumn != "" {
-		orderBy = sortColumn + " " + sortOrder
+	if sortColumn != "" && validHistorySortColumns[sortColumn] {
+		order := "DESC"
+		if sortOrder == "ASC" || sortOrder == "asc" {
+			order = "ASC"
+		}
+		orderBy = sortColumn + " " + order
 	}
 
 	offset := (page - 1) * perPage
@@ -97,7 +144,7 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 	}
 	defer rows.Close()
 
-	items := []models.WatchHistoryEntry{}
+	var items []models.WatchHistoryEntry
 	for rows.Next() {
 		e, err := scanHistoryEntryWithGeo(rows)
 		if err != nil {
@@ -179,7 +226,7 @@ func (s *Store) HistoryForTitle(title string, limit int) ([]models.WatchHistoryE
 	}
 	defer rows.Close()
 
-	items := []models.WatchHistoryEntry{}
+	var items []models.WatchHistoryEntry
 	for rows.Next() {
 		e, err := scanHistoryEntry(rows)
 		if err != nil {
@@ -203,6 +250,49 @@ func (s *Store) HistoryExists(serverID int64, userName, title string, startedAt 
 		return false, fmt.Errorf("checking history exists: %w", err)
 	}
 	return true, nil
+}
+
+func (s *Store) UpdateHistoryStreamDetails(id int64, entry *models.WatchHistoryEntry) error {
+	hwDecode, hwEncode := 0, 0
+	if entry.TranscodeHWDecode {
+		hwDecode = 1
+	}
+	if entry.TranscodeHWEncode {
+		hwEncode = 1
+	}
+	_, err := s.db.Exec(`UPDATE watch_history SET
+		video_resolution = ?, video_codec = ?, audio_codec = ?, audio_channels = ?,
+		bandwidth = ?, transcode_decision = ?, video_decision = ?, audio_decision = ?,
+		transcode_hw_decode = ?, transcode_hw_encode = ?, dynamic_range = ?
+		WHERE id = ?`,
+		entry.VideoResolution, entry.VideoCodec, entry.AudioCodec, entry.AudioChannels,
+		entry.Bandwidth, entry.TranscodeDecision, entry.VideoDecision, entry.AudioDecision,
+		hwDecode, hwEncode, entry.DynamicRange, id,
+	)
+	if err != nil {
+		return fmt.Errorf("updating history stream details: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListHistoryNeedingEnrichment(serverID int64, limit int) ([]models.WatchHistoryEntry, error) {
+	rows, err := s.db.Query(`SELECT `+historyColumns+` FROM watch_history
+		WHERE server_id = ? AND (video_resolution = '' OR video_resolution IS NULL)
+		ORDER BY started_at DESC LIMIT ?`, serverID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing history for enrichment: %w", err)
+	}
+	defer rows.Close()
+
+	var items []models.WatchHistoryEntry
+	for rows.Next() {
+		e, err := scanHistoryEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, e)
+	}
+	return items, rows.Err()
 }
 
 func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped int, err error) {
@@ -247,12 +337,22 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			return inserted, skipped, fmt.Errorf("checking if entry exists: %w", err)
 		}
 
+		hwDecode, hwEncode := 0, 0
+		if entry.TranscodeHWDecode {
+			hwDecode = 1
+		}
+		if entry.TranscodeHWEncode {
+			hwEncode = 1
+		}
 		_, err = insertStmt.ExecContext(ctx,
 			entry.ServerID, entry.ItemID, entry.GrandparentItemID, entry.UserName, entry.MediaType, entry.Title,
 			entry.ParentTitle, entry.GrandparentTitle, entry.Year,
 			entry.DurationMs, entry.WatchedMs, entry.Player, entry.Platform,
 			entry.IPAddress, entry.StartedAt, entry.StoppedAt,
 			entry.SeasonNumber, entry.EpisodeNumber, entry.ThumbURL,
+			entry.VideoResolution, entry.TranscodeDecision,
+			entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
+			entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,
 		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("inserting entry: %w", err)

@@ -29,6 +29,7 @@ type tautulliTestResponse struct {
 
 type tautulliImportRequest struct {
 	ServerID int64 `json:"server_id"`
+	Enrich   bool  `json:"enrich"` // If true, fetch stream details for each record
 }
 
 type tautulliImportResponse struct {
@@ -187,10 +188,29 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 
 	var totalInserted, totalSkipped, totalRecords int
 
+	// Rate limiter for enrichment: 10 requests/second to avoid overwhelming Tautulli
+	enrichRateLimiter := time.NewTicker(100 * time.Millisecond)
+	defer enrichRateLimiter.Stop()
+
 	err = client.StreamHistory(ctx, 1000, func(batch tautulli.BatchResult) error {
 		entries := make([]*models.WatchHistoryEntry, 0, len(batch.Records))
 		for _, rec := range batch.Records {
 			entry := convertTautulliRecord(rec, req.ServerID)
+
+			if req.Enrich && string(rec.SessionKey) != "" {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-enrichRateLimiter.C:
+				}
+				streamData, err := client.GetStreamData(ctx, string(rec.SessionKey))
+				if err != nil {
+					log.Printf("Failed to get stream data for session %s: %v", rec.SessionKey, err)
+				} else if streamData != nil {
+					enrichEntryFromStreamData(entry, streamData)
+				}
+			}
+
 			entries = append(entries, entry)
 		}
 
@@ -278,5 +298,49 @@ func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.W
 		SeasonNumber:      int(rec.ParentMediaIndex),
 		EpisodeNumber:     int(rec.MediaIndex),
 		ThumbURL:          rec.Thumb,
+		VideoResolution:   rec.VideoFullResolution,
+		TranscodeDecision: convertTranscodeDecision(rec.TranscodeDecision),
+	}
+}
+
+func convertTranscodeDecision(decision string) models.TranscodeDecision {
+	switch decision {
+	case "transcode":
+		return models.TranscodeDecisionTranscode
+	case "copy":
+		return models.TranscodeDecisionCopy
+	default:
+		return models.TranscodeDecisionDirectPlay
+	}
+}
+
+func enrichEntryFromStreamData(entry *models.WatchHistoryEntry, sd *tautulli.StreamData) {
+	if sd.VideoCodec != "" {
+		entry.VideoCodec = sd.VideoCodec
+	}
+	if sd.AudioCodec != "" {
+		entry.AudioCodec = sd.AudioCodec
+	}
+	if sd.AudioChannels > 0 {
+		entry.AudioChannels = sd.AudioChannels
+	}
+	if sd.Bandwidth > 0 {
+		entry.Bandwidth = sd.Bandwidth
+	}
+	if sd.VideoDecision != "" {
+		entry.VideoDecision = convertTranscodeDecision(sd.VideoDecision)
+	}
+	if sd.AudioDecision != "" {
+		entry.AudioDecision = convertTranscodeDecision(sd.AudioDecision)
+	}
+	entry.TranscodeHWDecode = sd.TranscodeHWDecode
+	entry.TranscodeHWEncode = sd.TranscodeHWEncode
+
+	if sd.VideoDynamicRange != "" {
+		entry.DynamicRange = sd.VideoDynamicRange
+	}
+
+	if entry.VideoResolution == "" && sd.VideoHeight > 0 {
+		entry.VideoResolution = tautulli.HeightToResolution(sd.VideoHeight)
 	}
 }

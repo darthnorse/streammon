@@ -120,7 +120,18 @@ type WatchHistoryEntry struct {
 	CreatedAt        time.Time `json:"created_at"`
 	SeasonNumber     int       `json:"season_number,omitempty"`
 	EpisodeNumber    int       `json:"episode_number,omitempty"`
-	ThumbURL         string    `json:"thumb_url,omitempty"`
+	ThumbURL          string            `json:"thumb_url,omitempty"`
+	VideoResolution   string            `json:"video_resolution,omitempty"`
+	TranscodeDecision TranscodeDecision `json:"transcode_decision,omitempty"`
+	VideoCodec        string            `json:"video_codec,omitempty"`
+	AudioCodec        string            `json:"audio_codec,omitempty"`
+	AudioChannels     int               `json:"audio_channels,omitempty"`
+	Bandwidth         int64             `json:"bandwidth,omitempty"`
+	VideoDecision     TranscodeDecision `json:"video_decision,omitempty"`
+	AudioDecision     TranscodeDecision `json:"audio_decision,omitempty"`
+	TranscodeHWDecode bool              `json:"transcode_hw_decode,omitempty"`
+	TranscodeHWEncode bool              `json:"transcode_hw_encode,omitempty"`
+	DynamicRange      string            `json:"dynamic_range,omitempty"`
 	// Geo fields from ip_geo_cache (optional, populated by ListHistory)
 	City    string `json:"city,omitempty"`
 	Country string `json:"country,omitempty"`
@@ -174,8 +185,9 @@ type ActiveStream struct {
 	TranscodeVideoCodec      string            `json:"transcode_video_codec,omitempty"`
 	TranscodeAudioCodec      string            `json:"transcode_audio_codec,omitempty"`
 	TranscodeVideoResolution string            `json:"transcode_video_resolution,omitempty"`
-	SeasonNumber        int               `json:"season_number,omitempty"`
-	EpisodeNumber       int               `json:"episode_number,omitempty"`
+	DynamicRange             string            `json:"dynamic_range,omitempty"`
+	SeasonNumber             int               `json:"season_number,omitempty"`
+	EpisodeNumber            int               `json:"episode_number,omitempty"`
 }
 
 type SessionState string
@@ -344,4 +356,28 @@ type UserDetailStats struct {
 	TotalHours   float64        `json:"total_hours"`
 	Locations    []LocationStat `json:"locations"`
 	Devices      []DeviceStat   `json:"devices"`
+}
+
+type DayOfWeekStat struct {
+	DayOfWeek int    `json:"day_of_week"` // 0=Sun, 6=Sat
+	DayName   string `json:"day_name"`
+	PlayCount int    `json:"play_count"`
+}
+
+type HourStat struct {
+	Hour      int `json:"hour"` // 0-23
+	PlayCount int `json:"play_count"`
+}
+
+type DistributionStat struct {
+	Name       string  `json:"name"`
+	Count      int     `json:"count"`
+	Percentage float64 `json:"percentage"`
+}
+
+type ConcurrentTimePoint struct {
+	Time       time.Time `json:"time"`
+	DirectPlay int       `json:"direct_play"`
+	Transcode  int       `json:"transcode"`
+	Total      int       `json:"total"`
 }

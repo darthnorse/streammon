@@ -21,6 +21,12 @@ function createMockStats(overrides: Partial<StatsResponse> = {}): StatsResponse 
     concurrent_peak: 0,
     locations: [],
     potential_sharers: [],
+    activity_by_day_of_week: [],
+    activity_by_hour: [],
+    platform_distribution: [],
+    player_distribution: [],
+    quality_distribution: [],
+    concurrent_time_series: [],
     ...overrides,
   }
 }

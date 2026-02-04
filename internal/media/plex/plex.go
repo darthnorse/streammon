@@ -217,11 +217,16 @@ type plexPart struct {
 }
 
 type plexStream struct {
-	StreamType string `xml:"streamType,attr"` // 1=video, 2=audio, 3=subtitle
-	Codec      string `xml:"codec,attr"`
-	Decision   string `xml:"decision,attr"`
-	Height     string `xml:"height,attr"`
-	Width      string `xml:"width,attr"`
+	StreamType  string `xml:"streamType,attr"` // 1=video, 2=audio, 3=subtitle
+	Codec       string `xml:"codec,attr"`
+	Decision    string `xml:"decision,attr"`
+	Height      string `xml:"height,attr"`
+	Width       string `xml:"width,attr"`
+	ColorSpace  string `xml:"colorSpace,attr"`
+	ColorTrc    string `xml:"colorTrc,attr"`
+	DOVIPresent string `xml:"DOVIPresent,attr"`
+	DOVIProfile string `xml:"DOVIProfile,attr"`
+	BitDepth    string `xml:"bitDepth,attr"`
 }
 
 type transcodeSession struct {
@@ -376,6 +381,9 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 
 		for _, p := range m.Parts {
 			for _, st := range p.Streams {
+				if st.StreamType == "1" && as.DynamicRange == "" {
+					as.DynamicRange = deriveDynamicRange(st)
+				}
 				if st.StreamType == "3" && st.Codec != "" {
 					as.SubtitleCodec = st.Codec
 				}
@@ -508,4 +516,30 @@ func atoi64(s string) int64 {
 func atof(s string) float64 {
 	f, _ := strconv.ParseFloat(s, 64)
 	return f
+}
+
+// deriveDynamicRange determines HDR format from Plex stream color attributes.
+// Returns: "Dolby Vision", "Dolby Vision X" (where X is profile), "HDR10", "HLG", "HDR", or "SDR"
+func deriveDynamicRange(stream plexStream) string {
+	if stream.DOVIPresent == "1" {
+		if stream.DOVIProfile != "" {
+			return "Dolby Vision " + stream.DOVIProfile
+		}
+		return "Dolby Vision"
+	}
+
+	bitDepth := atoi(stream.BitDepth)
+	if stream.ColorSpace == "bt2020" || bitDepth >= 10 {
+		switch stream.ColorTrc {
+		case "smpte2084":
+			return "HDR10"
+		case "arib-std-b67":
+			return "HLG"
+		}
+		if stream.ColorSpace == "bt2020" {
+			return "HDR"
+		}
+	}
+
+	return "SDR"
 }

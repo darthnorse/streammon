@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sort"
@@ -9,6 +10,13 @@ import (
 
 	"streammon/internal/models"
 )
+
+// allowedDistributionColumns validates columns for distribution queries to prevent SQL injection
+var allowedDistributionColumns = map[string]bool{
+	"platform":         true,
+	"player":           true,
+	"video_resolution": true,
+}
 
 const (
 	DefaultConcurrentPeakDays = 90
@@ -511,4 +519,235 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 	}
 
 	return stats, nil
+}
+
+var dayNames = []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+
+// allowedStrftimeFormats validates strftime format strings to prevent injection
+var allowedStrftimeFormats = map[string]bool{
+	"%w": true, // day of week (0-6)
+	"%H": true, // hour (00-23)
+}
+
+// activityCounts queries play counts grouped by a strftime expression.
+// Returns a map of bucket -> count. Used by ActivityByDayOfWeek and ActivityByHour.
+func (s *Store) activityCounts(ctx context.Context, days int, strftimeFmt, errContext string) (map[int]int, error) {
+	if !allowedStrftimeFormats[strftimeFmt] {
+		return nil, fmt.Errorf("%s: invalid strftime format %q", errContext, strftimeFmt)
+	}
+
+	cutoff := cutoffTime(days)
+	hasTimeFilter := !cutoff.IsZero()
+
+	query := fmt.Sprintf(`SELECT CAST(strftime('%s', started_at) AS INTEGER) as bucket, COUNT(*) as play_count
+		FROM watch_history`, strftimeFmt)
+	var args []any
+	if hasTimeFilter {
+		query += ` WHERE started_at >= ?`
+		args = append(args, cutoff)
+	}
+	query += ` GROUP BY bucket ORDER BY bucket`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", errContext, err)
+	}
+	defer rows.Close()
+
+	counts := make(map[int]int)
+	for rows.Next() {
+		var bucket, cnt int
+		if err := rows.Scan(&bucket, &cnt); err != nil {
+			return nil, fmt.Errorf("scanning %s: %w", errContext, err)
+		}
+		counts[bucket] = cnt
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating %s: %w", errContext, err)
+	}
+
+	return counts, nil
+}
+
+// ActivityByDayOfWeek returns play counts grouped by day of week (UTC-based).
+// Note: Day/hour calculations are based on UTC timestamps, not user local time.
+func (s *Store) ActivityByDayOfWeek(ctx context.Context, days int) ([]models.DayOfWeekStat, error) {
+	counts, err := s.activityCounts(ctx, days, "%w", "activity by day of week")
+	if err != nil {
+		return nil, err
+	}
+
+	stats := make([]models.DayOfWeekStat, 7)
+	for i := 0; i < 7; i++ {
+		stats[i] = models.DayOfWeekStat{
+			DayOfWeek: i,
+			DayName:   dayNames[i],
+			PlayCount: counts[i],
+		}
+	}
+	return stats, nil
+}
+
+// ActivityByHour returns play counts grouped by hour of day (UTC-based).
+// Note: Day/hour calculations are based on UTC timestamps, not user local time.
+func (s *Store) ActivityByHour(ctx context.Context, days int) ([]models.HourStat, error) {
+	counts, err := s.activityCounts(ctx, days, "%H", "activity by hour")
+	if err != nil {
+		return nil, err
+	}
+
+	stats := make([]models.HourStat, 24)
+	for i := 0; i < 24; i++ {
+		stats[i] = models.HourStat{
+			Hour:      i,
+			PlayCount: counts[i],
+		}
+	}
+	return stats, nil
+}
+
+func (s *Store) PlatformDistribution(ctx context.Context, days int) ([]models.DistributionStat, error) {
+	return s.distribution(ctx, days, "platform", "platform distribution")
+}
+
+func (s *Store) PlayerDistribution(ctx context.Context, days int) ([]models.DistributionStat, error) {
+	return s.distribution(ctx, days, "player", "player distribution")
+}
+
+func (s *Store) QualityDistribution(ctx context.Context, days int) ([]models.DistributionStat, error) {
+	return s.distribution(ctx, days, "video_resolution", "quality distribution")
+}
+
+func (s *Store) distribution(ctx context.Context, days int, column, errMsg string) ([]models.DistributionStat, error) {
+	if !allowedDistributionColumns[column] {
+		return nil, fmt.Errorf("%s: invalid column %q", errMsg, column)
+	}
+
+	cutoff := cutoffTime(days)
+	hasTimeFilter := !cutoff.IsZero()
+
+	query := fmt.Sprintf(`SELECT COALESCE(NULLIF(%s, ''), 'Unknown') as name, COUNT(*) as cnt
+		FROM watch_history`, column)
+	var args []any
+	if hasTimeFilter {
+		query += ` WHERE started_at >= ?`
+		args = append(args, cutoff)
+	}
+	query += ` GROUP BY name ORDER BY cnt DESC`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", errMsg, err)
+	}
+	defer rows.Close()
+
+	stats := make([]models.DistributionStat, 0)
+	var total int
+	for rows.Next() {
+		var stat models.DistributionStat
+		if err := rows.Scan(&stat.Name, &stat.Count); err != nil {
+			return nil, fmt.Errorf("scanning %s: %w", errMsg, err)
+		}
+		total += stat.Count
+		stats = append(stats, stat)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating %s: %w", errMsg, err)
+	}
+
+	for i := range stats {
+		if total > 0 {
+			stats[i].Percentage = float64(stats[i].Count) / float64(total) * 100
+		}
+	}
+
+	return stats, nil
+}
+
+// ConcurrentStreamsOverTime returns hourly-bucketed concurrent stream data.
+// Results are aggregated to hourly intervals to prevent large datasets.
+func (s *Store) ConcurrentStreamsOverTime(ctx context.Context, days int) ([]models.ConcurrentTimePoint, error) {
+	cutoff := cutoffTime(days)
+	if cutoff.IsZero() {
+		cutoff = time.Now().UTC().AddDate(0, 0, -DefaultConcurrentPeakDays)
+	}
+
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT started_at, stopped_at, transcode_decision FROM watch_history WHERE started_at >= ?`,
+		cutoff,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("concurrent streams over time: %w", err)
+	}
+	defer rows.Close()
+
+	type event struct {
+		t         time.Time
+		delta     int
+		transcode bool
+	}
+	var events []event
+
+	for rows.Next() {
+		var start, stop time.Time
+		var decision string
+		if err := rows.Scan(&start, &stop, &decision); err != nil {
+			return nil, fmt.Errorf("scanning concurrent stream: %w", err)
+		}
+		isTranscode := decision == string(models.TranscodeDecisionTranscode)
+		events = append(events, event{t: start, delta: 1, transcode: isTranscode})
+		events = append(events, event{t: stop, delta: -1, transcode: isTranscode})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating concurrent streams: %w", err)
+	}
+
+	if len(events) == 0 {
+		return []models.ConcurrentTimePoint{}, nil
+	}
+
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].t.Equal(events[j].t) {
+			return events[i].delta > events[j].delta
+		}
+		return events[i].t.Before(events[j].t)
+	})
+
+	// Aggregate into hourly buckets to prevent large datasets
+	hourlyMax := make(map[time.Time]models.ConcurrentTimePoint)
+	var directPlay, transcode int
+
+	for _, ev := range events {
+		if ev.transcode {
+			transcode += ev.delta
+		} else {
+			directPlay += ev.delta
+		}
+		total := directPlay + transcode
+
+		// Bucket to the hour
+		hourBucket := ev.t.Truncate(time.Hour)
+
+		// Keep the maximum concurrent count for each hour
+		existing, ok := hourlyMax[hourBucket]
+		if !ok || total > existing.Total {
+			hourlyMax[hourBucket] = models.ConcurrentTimePoint{
+				Time:       hourBucket,
+				DirectPlay: directPlay,
+				Transcode:  transcode,
+				Total:      total,
+			}
+		}
+	}
+
+	// Convert map to sorted slice
+	points := make([]models.ConcurrentTimePoint, 0, len(hourlyMax))
+	for _, p := range hourlyMax {
+		points = append(points, p)
+	}
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].Time.Before(points[j].Time)
+	})
+
+	return points, nil
 }

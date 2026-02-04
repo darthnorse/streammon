@@ -83,6 +83,7 @@ type HistoryRecord struct {
 	Year                 FlexInt    `json:"year"`
 	RatingKey            FlexString `json:"rating_key"`
 	GrandparentRatingKey FlexString `json:"grandparent_rating_key"`
+	SessionKey           FlexString `json:"session_key"`
 	Started              int64      `json:"started"`
 	Stopped              int64      `json:"stopped"`
 	Duration             int64      `json:"duration"`
@@ -93,6 +94,8 @@ type HistoryRecord struct {
 	Thumb                string     `json:"thumb"`
 	ParentMediaIndex     FlexInt    `json:"parent_media_index"`
 	MediaIndex           FlexInt    `json:"media_index"`
+	VideoFullResolution  string     `json:"video_full_resolution"`
+	TranscodeDecision    string     `json:"transcode_decision"`
 }
 
 type historyResponse struct {
@@ -104,6 +107,30 @@ type historyResponse struct {
 			RecordsTotal    int             `json:"recordsTotal"`
 			Data            []HistoryRecord `json:"data"`
 		} `json:"data"`
+	} `json:"response"`
+}
+
+type StreamData struct {
+	VideoCodec        string `json:"video_codec"`
+	VideoWidth        int    `json:"video_width"`
+	VideoHeight       int    `json:"video_height"`
+	VideoBitDepth     int    `json:"video_bit_depth"`
+	VideoDynamicRange string `json:"video_dynamic_range"`
+	AudioCodec        string `json:"audio_codec"`
+	AudioChannels     int    `json:"audio_channels"`
+	Bandwidth         int64  `json:"bandwidth"`
+	TranscodeDecision string `json:"transcode_decision"`
+	VideoDecision     string `json:"video_decision"`
+	AudioDecision     string `json:"audio_decision"`
+	TranscodeHWDecode bool   `json:"transcode_hw_decoding"`
+	TranscodeHWEncode bool   `json:"transcode_hw_encoding"`
+}
+
+type streamDataResponse struct {
+	Response struct {
+		Result  string          `json:"result"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
 	} `json:"response"`
 }
 
@@ -217,6 +244,124 @@ func (c *Client) GetHistory(ctx context.Context, start, length int) ([]HistoryRe
 	}
 
 	return r.Response.Data.Data, r.Response.Data.RecordsTotal, nil
+}
+
+func (c *Client) GetStreamData(ctx context.Context, sessionKey string) (*StreamData, error) {
+	params := url.Values{}
+	params.Set("cmd", "get_stream_data")
+	params.Set("session_key", sessionKey)
+
+	body, err := c.doRequest(ctx, params, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+
+	var r streamDataResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		return nil, fmt.Errorf("parsing response: %w", err)
+	}
+
+	if r.Response.Result != "success" {
+		return nil, fmt.Errorf("Tautulli error: %s", r.Response.Message)
+	}
+
+	if len(r.Response.Data) == 0 || string(r.Response.Data) == "null" || string(r.Response.Data) == "{}" {
+		return nil, nil
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(r.Response.Data, &raw); err != nil {
+		return nil, fmt.Errorf("parsing stream data: %w", err)
+	}
+
+	sd := &StreamData{
+		VideoCodec:        getString(raw, "video_codec"),
+		VideoWidth:        getInt(raw, "video_width"),
+		VideoHeight:       getInt(raw, "video_height"),
+		VideoBitDepth:     getInt(raw, "video_bit_depth"),
+		VideoDynamicRange: getString(raw, "video_dynamic_range"),
+		AudioCodec:        getString(raw, "audio_codec"),
+		AudioChannels:     getInt(raw, "audio_channels"),
+		Bandwidth:         getInt64(raw, "bandwidth"),
+		TranscodeDecision: getString(raw, "transcode_decision"),
+		VideoDecision:     getString(raw, "video_decision"),
+		AudioDecision:     getString(raw, "audio_decision"),
+		TranscodeHWDecode: getBool(raw, "transcode_hw_decoding"),
+		TranscodeHWEncode: getBool(raw, "transcode_hw_encoding"),
+	}
+
+	return sd, nil
+}
+
+func getString(m map[string]any, key string) string {
+	if v, ok := m[key]; ok {
+		switch val := v.(type) {
+		case string:
+			return val
+		case float64:
+			return fmt.Sprintf("%.0f", val)
+		}
+	}
+	return ""
+}
+
+func getInt(m map[string]any, key string) int {
+	if v, ok := m[key]; ok {
+		switch val := v.(type) {
+		case float64:
+			return int(val)
+		case string:
+			var n int
+			fmt.Sscanf(val, "%d", &n)
+			return n
+		}
+	}
+	return 0
+}
+
+func getInt64(m map[string]any, key string) int64 {
+	if v, ok := m[key]; ok {
+		switch val := v.(type) {
+		case float64:
+			return int64(val)
+		case string:
+			var n int64
+			fmt.Sscanf(val, "%d", &n)
+			return n
+		}
+	}
+	return 0
+}
+
+func getBool(m map[string]any, key string) bool {
+	if v, ok := m[key]; ok {
+		switch val := v.(type) {
+		case bool:
+			return val
+		case float64:
+			return val == 1
+		case string:
+			return val == "1" || val == "true"
+		}
+	}
+	return false
+}
+
+func HeightToResolution(height int) string {
+	switch {
+	case height >= 2160:
+		return "4K"
+	case height >= 1080:
+		return "1080p"
+	case height >= 720:
+		return "720p"
+	case height >= 480:
+		return "480p"
+	case height > 0:
+		return fmt.Sprintf("%dp", height)
+	default:
+		return ""
+	}
 }
 
 type BatchResult struct {
