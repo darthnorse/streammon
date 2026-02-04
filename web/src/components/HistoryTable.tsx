@@ -1,11 +1,13 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import type { WatchHistoryEntry } from '../types'
 import { formatDuration, formatDate, formatLocation } from '../lib/format'
 import { mediaTypeLabels } from '../lib/constants'
-import { HISTORY_COLUMNS, EntryTitle } from '../lib/historyColumns'
+import { getHistoryColumns, EntryTitle } from '../lib/historyColumns'
 import { useColumnConfig } from '../hooks/useColumnConfig'
+import { useItemDetails } from '../hooks/useItemDetails'
 import { ColumnSettings } from './ColumnSettings'
+import { MediaDetailModal } from './MediaDetailModal'
 
 interface HistoryTableProps {
   entries: WatchHistoryEntry[]
@@ -36,7 +38,13 @@ function SortIcon({ direction, active }: { direction: SortDirection; active: boo
   )
 }
 
-function HistoryCard({ entry, hideUser }: { entry: WatchHistoryEntry; hideUser?: boolean }) {
+interface HistoryCardProps {
+  entry: WatchHistoryEntry
+  hideUser?: boolean
+  onTitleClick?: (serverId: number, itemId: string) => void
+}
+
+function HistoryCard({ entry, hideUser, onTitleClick }: HistoryCardProps) {
   return (
     <div className="card p-4" data-testid="history-row">
       <div className="flex items-start justify-between gap-3">
@@ -50,7 +58,7 @@ function HistoryCard({ entry, hideUser }: { entry: WatchHistoryEntry; hideUser?:
             </Link>
           )}
           <div className="mt-0.5">
-            <EntryTitle entry={entry} />
+            <EntryTitle entry={entry} onTitleClick={onTitleClick} />
           </div>
         </div>
         <span className="badge badge-muted shrink-0">
@@ -77,24 +85,42 @@ function HistoryCard({ entry, hideUser }: { entry: WatchHistoryEntry; hideUser?:
 const EMPTY_EXCLUDE: string[] = []
 const USER_EXCLUDE = ['user']
 
+interface SelectedItem {
+  serverId: number
+  itemId: string
+}
+
 export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
   const excludeColumns = hideUser ? USER_EXCLUDE : EMPTY_EXCLUDE
+  const [sort, setSort] = useState<SortState | null>(null)
+  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
+
+  const handleTitleClick = useCallback((serverId: number, itemId: string) => {
+    setSelectedItem({ serverId, itemId })
+  }, [])
+
+  const columns = useMemo(() => getHistoryColumns(handleTitleClick), [handleTitleClick])
+
   const { visibleColumns, toggleColumn, moveColumn, resetToDefaults } = useColumnConfig(
-    HISTORY_COLUMNS,
+    columns,
     excludeColumns
   )
-  const [sort, setSort] = useState<SortState | null>(null)
+
+  const { data: itemDetails, loading: detailsLoading } = useItemDetails(
+    selectedItem?.serverId ?? 0,
+    selectedItem?.itemId ?? null
+  )
 
   const orderedColumns = useMemo(() =>
     visibleColumns
-      .map(id => HISTORY_COLUMNS.find(c => c.id === id))
-      .filter((c): c is typeof HISTORY_COLUMNS[number] => c !== undefined),
-    [visibleColumns]
+      .map(id => columns.find(c => c.id === id))
+      .filter((c): c is typeof columns[number] => c !== undefined),
+    [visibleColumns, columns]
   )
 
   const sortedEntries = useMemo(() => {
     if (!sort) return entries
-    const column = HISTORY_COLUMNS.find(c => c.id === sort.columnId)
+    const column = columns.find(c => c.id === sort.columnId)
     if (!column?.sortValue) return entries
 
     return [...entries].sort((a, b) => {
@@ -108,10 +134,10 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
       }
       return sort.direction === 'asc' ? cmp : -cmp
     })
-  }, [entries, sort])
+  }, [entries, sort, columns])
 
   function handleSort(columnId: string) {
-    const column = HISTORY_COLUMNS.find(c => c.id === columnId)
+    const column = columns.find(c => c.id === columnId)
     if (!column?.sortValue) return
 
     setSort(prev => {
@@ -138,7 +164,7 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
     <>
       <div className="md:hidden space-y-3">
         {sortedEntries.map(entry => (
-          <HistoryCard key={entry.id} entry={entry} hideUser={hideUser} />
+          <HistoryCard key={entry.id} entry={entry} hideUser={hideUser} onTitleClick={handleTitleClick} />
         ))}
       </div>
 
@@ -148,7 +174,7 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
             {entries.length} {entries.length === 1 ? 'entry' : 'entries'}
           </span>
           <ColumnSettings
-            columns={HISTORY_COLUMNS}
+            columns={columns}
             visibleColumns={visibleColumns}
             excludeColumns={excludeColumns}
             onToggle={toggleColumn}
@@ -202,6 +228,14 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
           </table>
         </div>
       </div>
+
+      {selectedItem && (
+        <MediaDetailModal
+          item={itemDetails}
+          loading={detailsLoading}
+          onClose={() => setSelectedItem(null)}
+        />
+      )}
     </>
   )
 }
