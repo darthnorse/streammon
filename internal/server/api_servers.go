@@ -68,6 +68,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.syncServerToPoller(srv)
+	s.InvalidateLibraryCache()
 	writeJSON(w, http.StatusCreated, srv)
 }
 
@@ -115,6 +116,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.syncServerToPoller(srv)
+	s.InvalidateLibraryCache()
 	writeJSON(w, http.StatusOK, srv)
 }
 
@@ -131,6 +133,7 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	if s.poller != nil {
 		s.poller.RemoveServer(id)
 	}
+	s.InvalidateLibraryCache()
 	w.WriteHeader(http.StatusNoContent)
 }
 

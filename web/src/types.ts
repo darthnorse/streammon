@@ -218,3 +218,22 @@ export interface StatsResponse {
   locations: GeoResult[]
   potential_sharers: SharerAlert[]
 }
+
+export type LibraryType = 'movie' | 'show' | 'music' | 'other'
+
+export interface Library {
+  id: string
+  server_id: number
+  server_name: string
+  server_type: ServerType
+  name: string
+  type: LibraryType
+  item_count: number
+  child_count: number
+  grandchild_count: number
+}
+
+export interface LibrariesResponse {
+  libraries: Library[]
+  errors?: string[]
+}

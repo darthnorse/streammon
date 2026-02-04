@@ -480,3 +480,220 @@ func TestGetItemDetails_EmptyItems(t *testing.T) {
 		t.Errorf("expected ErrNotFound for empty Items array, got %v", err)
 	}
 }
+
+func TestGetLibraries(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Emby-Token") != "test-key" {
+			t.Error("missing X-Emby-Token header")
+		}
+
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[
+				{"Name": "Movies", "CollectionType": "movies", "ItemId": "lib1"},
+				{"Name": "TV Shows", "CollectionType": "tvshows", "ItemId": "lib2"},
+				{"Name": "Music", "CollectionType": "music", "ItemId": "lib3"}
+			]`))
+		case "/Items":
+			parentID := r.URL.Query().Get("ParentId")
+			itemTypes := r.URL.Query().Get("IncludeItemTypes")
+
+			switch parentID {
+			case "lib1":
+				if itemTypes == "Movie" {
+					w.Write([]byte(`{"TotalRecordCount": 150}`))
+				} else {
+					w.Write([]byte(`{"TotalRecordCount": 0}`))
+				}
+			case "lib2":
+				switch itemTypes {
+				case "Series":
+					w.Write([]byte(`{"TotalRecordCount": 50}`))
+				case "Season":
+					w.Write([]byte(`{"TotalRecordCount": 200}`))
+				case "Episode":
+					w.Write([]byte(`{"TotalRecordCount": 2500}`))
+				default:
+					w.Write([]byte(`{"TotalRecordCount": 0}`))
+				}
+			case "lib3":
+				switch itemTypes {
+				case "MusicArtist":
+					w.Write([]byte(`{"TotalRecordCount": 100}`))
+				case "MusicAlbum":
+					w.Write([]byte(`{"TotalRecordCount": 500}`))
+				case "Audio":
+					w.Write([]byte(`{"TotalRecordCount": 5000}`))
+				default:
+					w.Write([]byte(`{"TotalRecordCount": 0}`))
+				}
+			default:
+				w.Write([]byte(`{"TotalRecordCount": 0}`))
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{
+		ID:     1,
+		Name:   "TestEmby",
+		URL:    ts.URL,
+		APIKey: "test-key",
+	}, models.ServerTypeEmby)
+
+	libs, err := c.GetLibraries(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(libs) != 3 {
+		t.Fatalf("expected 3 libraries, got %d", len(libs))
+	}
+
+	// Movies library
+	movies := libs[0]
+	if movies.ID != "lib1" {
+		t.Errorf("movies id = %q, want lib1", movies.ID)
+	}
+	if movies.Name != "Movies" {
+		t.Errorf("movies name = %q, want Movies", movies.Name)
+	}
+	if movies.Type != models.LibraryTypeMovie {
+		t.Errorf("movies type = %q, want movie", movies.Type)
+	}
+	if movies.ItemCount != 150 {
+		t.Errorf("movies item_count = %d, want 150", movies.ItemCount)
+	}
+	if movies.ChildCount != 0 {
+		t.Errorf("movies child_count = %d, want 0", movies.ChildCount)
+	}
+	if movies.ServerID != 1 {
+		t.Errorf("movies server_id = %d, want 1", movies.ServerID)
+	}
+	if movies.ServerName != "TestEmby" {
+		t.Errorf("movies server_name = %q, want TestEmby", movies.ServerName)
+	}
+	if movies.ServerType != models.ServerTypeEmby {
+		t.Errorf("movies server_type = %q, want emby", movies.ServerType)
+	}
+
+	// TV Shows library
+	tv := libs[1]
+	if tv.Name != "TV Shows" {
+		t.Errorf("tv name = %q, want TV Shows", tv.Name)
+	}
+	if tv.Type != models.LibraryTypeShow {
+		t.Errorf("tv type = %q, want show", tv.Type)
+	}
+	if tv.ItemCount != 50 {
+		t.Errorf("tv item_count = %d, want 50", tv.ItemCount)
+	}
+	if tv.ChildCount != 200 {
+		t.Errorf("tv child_count = %d, want 200", tv.ChildCount)
+	}
+	if tv.GrandchildCount != 2500 {
+		t.Errorf("tv grandchild_count = %d, want 2500", tv.GrandchildCount)
+	}
+
+	// Music library
+	music := libs[2]
+	if music.Name != "Music" {
+		t.Errorf("music name = %q, want Music", music.Name)
+	}
+	if music.Type != models.LibraryTypeMusic {
+		t.Errorf("music type = %q, want music", music.Type)
+	}
+	if music.ItemCount != 100 {
+		t.Errorf("music item_count = %d, want 100", music.ItemCount)
+	}
+	if music.ChildCount != 500 {
+		t.Errorf("music child_count = %d, want 500", music.ChildCount)
+	}
+	if music.GrandchildCount != 5000 {
+		t.Errorf("music grandchild_count = %d, want 5000", music.GrandchildCount)
+	}
+}
+
+func TestGetLibrariesEmpty(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[]`))
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	libs, err := c.GetLibraries(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(libs) != 0 {
+		t.Errorf("expected 0 libraries, got %d", len(libs))
+	}
+}
+
+func TestGetLibrariesServerError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	_, err := c.GetLibraries(context.Background())
+	if err == nil {
+		t.Error("expected error for 500 response")
+	}
+}
+
+func TestGetLibrariesCountError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[{"Name": "Movies", "CollectionType": "movies", "ItemId": "lib1"}]`))
+		case "/Items":
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	_, err := c.GetLibraries(context.Background())
+	if err == nil {
+		t.Error("expected error when count request fails")
+	}
+}
+
+func TestGetLibrariesOtherType(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[{"Name": "Photos", "CollectionType": "photos", "ItemId": "lib1"}]`))
+		case "/Items":
+			// For unknown types, should request without IncludeItemTypes filter
+			if r.URL.Query().Get("IncludeItemTypes") != "" {
+				t.Errorf("expected no IncludeItemTypes for unknown type, got %q", r.URL.Query().Get("IncludeItemTypes"))
+			}
+			w.Write([]byte(`{"TotalRecordCount": 42}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	libs, err := c.GetLibraries(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(libs) != 1 {
+		t.Fatalf("expected 1 library, got %d", len(libs))
+	}
+	if libs[0].Type != models.LibraryTypeOther {
+		t.Errorf("type = %q, want other", libs[0].Type)
+	}
+	if libs[0].ItemCount != 42 {
+		t.Errorf("item_count = %d, want 42", libs[0].ItemCount)
+	}
+}

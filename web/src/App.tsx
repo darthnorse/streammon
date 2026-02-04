@@ -8,6 +8,7 @@ import { History } from './pages/History'
 import { UserDetail } from './pages/UserDetail'
 import { Settings } from './pages/Settings'
 import { Statistics } from './pages/Statistics'
+import { Libraries } from './pages/Libraries'
 import { EmptyState } from './components/EmptyState'
 
 function NotFound() {
@@ -24,6 +25,7 @@ export default function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/history" element={<History />} />
               <Route path="/statistics" element={<Statistics />} />
+              <Route path="/library" element={<Libraries />} />
               <Route path="/users/:name" element={<UserDetail />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<NotFound />} />

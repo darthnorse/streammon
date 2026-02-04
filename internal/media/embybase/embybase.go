@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -393,6 +394,193 @@ type personJSON struct {
 	Type            string `json:"Type"`
 	PrimaryImageTag string `json:"PrimaryImageTag"`
 	ID              string `json:"Id"`
+}
+
+func (c *Client) GetLibraries(ctx context.Context) ([]models.Library, error) {
+	folders, err := c.getVirtualFolders(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	libraries := make([]models.Library, 0, len(folders))
+	for _, folder := range folders {
+		lib := models.Library{
+			ID:         folder.ItemID,
+			ServerID:   c.serverID,
+			ServerName: c.serverName,
+			ServerType: c.serverType,
+			Name:       folder.Name,
+			Type:       embyLibraryType(folder.CollectionType),
+		}
+
+		counts, err := c.getLibraryCounts(ctx, folder.ItemID, folder.CollectionType)
+		if err != nil {
+			return nil, fmt.Errorf("getting counts for library %s: %w", folder.Name, err)
+		}
+		lib.ItemCount = counts.items
+		lib.ChildCount = counts.children
+		lib.GrandchildCount = counts.grandchildren
+
+		libraries = append(libraries, lib)
+	}
+
+	return libraries, nil
+}
+
+type virtualFolder struct {
+	Name           string `json:"Name"`
+	CollectionType string `json:"CollectionType"`
+	ItemID         string `json:"ItemId"`
+}
+
+func (c *Client) getVirtualFolders(ctx context.Context) ([]virtualFolder, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/Library/VirtualFolders", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.client.Do(c.addAuth(req))
+	if err != nil {
+		return nil, fmt.Errorf("%s virtual folders: %w", c.serverType, err)
+	}
+	defer drainBody(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s virtual folders: status %d", c.serverType, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+
+	var folders []virtualFolder
+	if err := json.Unmarshal(body, &folders); err != nil {
+		return nil, fmt.Errorf("%s parse virtual folders: %w", c.serverType, err)
+	}
+
+	return folders, nil
+}
+
+type libraryCounts struct {
+	items        int
+	children     int
+	grandchildren int
+}
+
+func (c *Client) getLibraryCounts(ctx context.Context, parentID, collectionType string) (*libraryCounts, error) {
+	counts := &libraryCounts{}
+
+	switch collectionType {
+	case "movies":
+		count, err := c.countItems(ctx, parentID, "Movie")
+		if err != nil {
+			return nil, err
+		}
+		counts.items = count
+
+	case "tvshows":
+		seriesCount, err := c.countItems(ctx, parentID, "Series")
+		if err != nil {
+			return nil, err
+		}
+		counts.items = seriesCount
+
+		seasonCount, err := c.countItems(ctx, parentID, "Season")
+		if err != nil {
+			return nil, err
+		}
+		counts.children = seasonCount
+
+		episodeCount, err := c.countItems(ctx, parentID, "Episode")
+		if err != nil {
+			return nil, err
+		}
+		counts.grandchildren = episodeCount
+
+	case "music":
+		artistCount, err := c.countItems(ctx, parentID, "MusicArtist")
+		if err != nil {
+			return nil, err
+		}
+		counts.items = artistCount
+
+		albumCount, err := c.countItems(ctx, parentID, "MusicAlbum")
+		if err != nil {
+			return nil, err
+		}
+		counts.children = albumCount
+
+		trackCount, err := c.countItems(ctx, parentID, "Audio")
+		if err != nil {
+			return nil, err
+		}
+		counts.grandchildren = trackCount
+
+	default:
+		count, err := c.countItems(ctx, parentID, "")
+		if err != nil {
+			return nil, err
+		}
+		counts.items = count
+	}
+
+	return counts, nil
+}
+
+type itemCountResponse struct {
+	TotalRecordCount int `json:"TotalRecordCount"`
+}
+
+func (c *Client) countItems(ctx context.Context, parentID, itemTypes string) (int, error) {
+	params := url.Values{
+		"ParentId":  {parentID},
+		"Recursive": {"true"},
+		"Limit":     {"0"},
+	}
+	if itemTypes != "" {
+		params.Set("IncludeItemTypes", itemTypes)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/Items?"+params.Encode(), nil)
+	if err != nil {
+		return 0, err
+	}
+
+	resp, err := c.client.Do(c.addAuth(req))
+	if err != nil {
+		return 0, fmt.Errorf("%s count items: %w", c.serverType, err)
+	}
+	defer drainBody(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("%s count items: status %d", c.serverType, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return 0, err
+	}
+
+	var countResp itemCountResponse
+	if err := json.Unmarshal(body, &countResp); err != nil {
+		return 0, fmt.Errorf("%s parse count: %w", c.serverType, err)
+	}
+
+	return countResp.TotalRecordCount, nil
+}
+
+func embyLibraryType(collectionType string) models.LibraryType {
+	switch collectionType {
+	case "movies":
+		return models.LibraryTypeMovie
+	case "tvshows":
+		return models.LibraryTypeShow
+	case "music":
+		return models.LibraryTypeMusic
+	default:
+		return models.LibraryTypeOther
+	}
 }
 
 func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {

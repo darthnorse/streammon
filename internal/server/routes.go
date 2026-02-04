@@ -48,6 +48,7 @@ func (s *Server) routes() {
 		r.Get("/geoip/{ip}", s.handleGeoIPLookup)
 
 		r.Get("/stats", s.handleGetStats)
+		r.Get("/libraries", s.handleGetLibraries)
 
 		r.Route("/settings/oidc", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))

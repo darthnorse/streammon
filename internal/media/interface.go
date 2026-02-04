@@ -13,6 +13,7 @@ type MediaServer interface {
 	TestConnection(ctx context.Context) error
 	GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error)
 	GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error)
+	GetLibraries(ctx context.Context) ([]models.Library, error)
 }
 
 // RealtimeSubscriber is optionally implemented by adapters that support

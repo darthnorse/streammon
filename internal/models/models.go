@@ -301,3 +301,24 @@ type SharerAlert struct {
 	Locations []string `json:"locations"`
 	LastSeen  string   `json:"last_seen"`
 }
+
+type LibraryType string
+
+const (
+	LibraryTypeMovie LibraryType = "movie"
+	LibraryTypeShow  LibraryType = "show"
+	LibraryTypeMusic LibraryType = "music"
+	LibraryTypeOther LibraryType = "other"
+)
+
+type Library struct {
+	ID              string      `json:"id"`
+	ServerID        int64       `json:"server_id"`
+	ServerName      string      `json:"server_name"`
+	ServerType      ServerType  `json:"server_type"`
+	Name            string      `json:"name"`
+	Type            LibraryType `json:"type"`
+	ItemCount       int         `json:"item_count"`
+	ChildCount      int         `json:"child_count"`
+	GrandchildCount int         `json:"grandchild_count"`
+}

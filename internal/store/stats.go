@@ -205,8 +205,7 @@ func (s *Store) LibraryStats() (*models.LibraryStat, error) {
 
 	err = s.db.QueryRow(
 		`SELECT COUNT(DISTINCT title || '|' || COALESCE(year, 0))
-		FROM watch_history
-		WHERE media_type = ?`,
+		FROM watch_history WHERE media_type = ?`,
 		models.MediaTypeMovie,
 	).Scan(&stats.UniqueMovies)
 	if err != nil {
@@ -215,8 +214,7 @@ func (s *Store) LibraryStats() (*models.LibraryStat, error) {
 
 	err = s.db.QueryRow(
 		`SELECT COUNT(DISTINCT grandparent_title)
-		FROM watch_history
-		WHERE media_type = ? AND grandparent_title != ''`,
+		FROM watch_history WHERE media_type = ? AND grandparent_title != ''`,
 		models.MediaTypeTV,
 	).Scan(&stats.UniqueTVShows)
 	if err != nil {

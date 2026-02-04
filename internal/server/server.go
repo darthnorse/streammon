@@ -26,12 +26,14 @@ type Server struct {
 	corsOrigin  string
 	geoResolver GeoLookup
 	geoUpdater  *geoip.Updater
+	libCache    *libraryCache
 }
 
 func NewServer(s *store.Store, opts ...Option) *Server {
 	srv := &Server{
-		router: chi.NewRouter(),
-		store:  s,
+		router:   chi.NewRouter(),
+		store:    s,
+		libCache: &libraryCache{},
 	}
 	for _, o := range opts {
 		o(srv)
