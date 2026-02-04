@@ -50,6 +50,15 @@ func (u *Updater) ASNDBPath() string {
 }
 
 func (u *Updater) Download() error {
+	return u.download(false)
+}
+
+// ForceDownload downloads databases even if recently updated
+func (u *Updater) ForceDownload() error {
+	return u.download(true)
+}
+
+func (u *Updater) download(force bool) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
@@ -58,32 +67,76 @@ func (u *Updater) Download() error {
 		return fmt.Errorf("getting license key: %w", err)
 	}
 	if key == "" {
+		log.Println("geoip: no license key configured, skipping download")
 		return nil
 	}
+	log.Println("geoip: license key found, checking databases")
 
 	destDir := filepath.Dir(u.geoDBPath)
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return fmt.Errorf("creating geoip dir: %w", err)
 	}
 
-	// Download City database
-	if err := u.downloadDB("GeoLite2-City", key, destDir, u.geoDBPath); err != nil {
-		return err
+	cityExists := fileExists(u.geoDBPath)
+	asnExists := fileExists(u.asnDBPath)
+	recentlyUpdated := u.wasRecentlyUpdated()
+
+	// Load existing databases
+	if cityExists {
+		_ = u.resolver.Reload(u.geoDBPath)
 	}
-	if err := u.resolver.Reload(u.geoDBPath); err != nil {
-		return fmt.Errorf("reloading resolver: %w", err)
+	if asnExists {
+		_ = u.resolver.ReloadASN(u.asnDBPath)
 	}
 
-	// Download ASN database for ISP info
-	if err := u.downloadDB("GeoLite2-ASN", key, destDir, u.asnDBPath); err != nil {
-		log.Printf("geoip: ASN database download failed (ISP info unavailable): %v", err)
-	} else if err := u.resolver.ReloadASN(u.asnDBPath); err != nil {
-		log.Printf("geoip: ASN database reload failed: %v", err)
+	// Skip downloads if both exist and were recently updated (unless forced)
+	if !force && cityExists && asnExists && recentlyUpdated {
+		log.Println("geoip: databases up to date, skipping download")
+		return nil
+	}
+
+	// Download City database if missing or stale
+	if force || !cityExists || !recentlyUpdated {
+		if err := u.downloadDB("GeoLite2-City", key, destDir, u.geoDBPath); err != nil {
+			if !cityExists {
+				return err // Only fail if we don't have any database
+			}
+			log.Printf("geoip: City database update failed: %v", err)
+		} else if err := u.resolver.Reload(u.geoDBPath); err != nil {
+			return fmt.Errorf("reloading resolver: %w", err)
+		}
+	}
+
+	// Download ASN database if missing or stale
+	if force || !asnExists || !recentlyUpdated {
+		if err := u.downloadDB("GeoLite2-ASN", key, destDir, u.asnDBPath); err != nil {
+			log.Printf("geoip: ASN database download failed (ISP info unavailable): %v", err)
+		} else if err := u.resolver.ReloadASN(u.asnDBPath); err != nil {
+			log.Printf("geoip: ASN database reload failed: %v", err)
+		}
 	}
 
 	_ = u.store.SetSetting("maxmind.last_updated", time.Now().UTC().Format(time.RFC3339))
-	log.Println("geoip: database updated successfully")
 	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func (u *Updater) wasRecentlyUpdated() bool {
+	lastUpdated, err := u.store.GetSetting("maxmind.last_updated")
+	if err != nil || lastUpdated == "" {
+		return false
+	}
+
+	t, err := time.Parse(time.RFC3339, lastUpdated)
+	if err != nil {
+		return false
+	}
+
+	return time.Since(t) < 24*time.Hour
 }
 
 func (u *Updater) downloadDB(edition, licenseKey, destDir, destPath string) error {
