@@ -141,7 +141,7 @@ func TestSessionDisappearsCreatesHistory(t *testing.T) {
 
 	p.Stop()
 
-	result, err := s.ListHistory(1, 10, "")
+	result, err := s.ListHistory(1, 10, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -253,7 +253,7 @@ func TestServerErrorPreservesSessions(t *testing.T) {
 	}
 
 	// No history should have been created (session was carried forward)
-	result, err := s.ListHistory(1, 10, "")
+	result, err := s.ListHistory(1, 10, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useFetch } from '../hooks/useFetch'
-import { HistoryTable } from '../components/HistoryTable'
+import { HistoryTable, SortState } from '../components/HistoryTable'
 import { Pagination } from '../components/Pagination'
+import { getHistoryColumns } from '../lib/historyColumns'
 import type { WatchHistoryEntry, PaginatedResult } from '../types'
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
@@ -9,8 +10,25 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 export function History() {
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = useState(20)
+  const [sort, setSort] = useState<SortState | null>(null)
+
+  const columns = useMemo(() => getHistoryColumns(), [])
+
+  // Map column ID to API sort key
+  const sortParams = useMemo(() => {
+    if (!sort) return ''
+    const column = columns.find(c => c.id === sort.columnId)
+    if (!column?.sortKey) return ''
+    return `&sort_by=${column.sortKey}&sort_order=${sort.direction}`
+  }, [sort, columns])
+
+  const handleSort = useCallback((newSort: SortState | null) => {
+    setSort(newSort)
+    setPage(1) // Reset to first page when sorting changes
+  }, [])
+
   const { data, loading, error } = useFetch<PaginatedResult<WatchHistoryEntry>>(
-    `/api/history?page=${page}&per_page=${perPage}`
+    `/api/history?page=${page}&per_page=${perPage}${sortParams}`
   )
 
   const totalPages = data ? Math.ceil(data.total / data.per_page) : 0
@@ -60,7 +78,14 @@ export function History() {
         </div>
       )}
 
-      {data && <HistoryTable entries={data.items} />}
+      {data && (
+        <HistoryTable
+          entries={data.items}
+          sort={sort}
+          onSort={handleSort}
+          serverSideSorting
+        />
+      )}
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>

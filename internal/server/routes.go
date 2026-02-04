@@ -41,6 +41,7 @@ func (s *Server) routes() {
 		r.Get("/users", s.handleListUsers)
 		r.Get("/users/{name}", s.handleGetUser)
 		r.Get("/users/{name}/locations", s.handleGetUserLocations)
+		r.Get("/users/{name}/stats", s.handleGetUserStats)
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
 		r.Get("/dashboard/recent-media", s.handleGetRecentMedia)
@@ -63,6 +64,16 @@ func (s *Server) routes() {
 			sr.Get("/", s.handleGetMaxMindSettings)
 			sr.Put("/", s.handleUpdateMaxMindSettings)
 			sr.Delete("/", s.handleDeleteMaxMindSettings)
+			sr.Post("/backfill", s.handleGeoBackfill)
+		})
+
+		r.Route("/settings/tautulli", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleGetTautulliSettings)
+			sr.Put("/", s.handleUpdateTautulliSettings)
+			sr.Delete("/", s.handleDeleteTautulliSettings)
+			sr.Post("/test", s.handleTestTautulliConnection)
+			sr.Post("/import", s.handleTautulliImport)
 		})
 	})
 

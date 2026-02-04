@@ -45,7 +45,7 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 	switch srv.Type {
 	case models.ServerTypePlex:
 		if strings.Contains(thumbPath, "/") {
-			imgURL = fmt.Sprintf("%s/%s?X-Plex-Token=%s", baseURL, thumbPath, srv.APIKey)
+			imgURL = fmt.Sprintf("%s/%s?X-Plex-Token=%s", baseURL, strings.TrimPrefix(thumbPath, "/"), srv.APIKey)
 		} else {
 			imgURL = fmt.Sprintf("%s/library/metadata/%s/thumb?X-Plex-Token=%s", baseURL, thumbPath, srv.APIKey)
 		}

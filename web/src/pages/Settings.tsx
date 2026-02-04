@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import type { Server, OIDCSettings } from '../types'
+import type { Server, OIDCSettings, TautulliSettings } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { ServerForm } from '../components/ServerForm'
 import { OIDCForm } from '../components/OIDCForm'
 import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
+import { TautulliForm } from '../components/TautulliForm'
 import { EmptyState } from '../components/EmptyState'
 
 const serverTypeColors: Record<string, string> = {
@@ -17,26 +18,30 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'servers', label: 'Servers' },
   { key: 'auth', label: 'Authentication' },
   { key: 'geoip', label: 'GeoIP' },
+  { key: 'import', label: 'Import' },
 ]
 
 const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
 const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
 
-type TabKey = 'servers' | 'auth' | 'geoip'
+type TabKey = 'servers' | 'auth' | 'geoip' | 'import'
 
 export function Settings() {
   const [tab, setTab] = useState<TabKey>('servers')
   const { data: servers, loading, error: fetchError, refetch: refetchServers } = useFetch<Server[]>('/api/servers')
   const { data: oidc, loading: oidcLoading, error: oidcFetchError, refetch: refetchOidc } = useFetch<OIDCSettings>(tab === 'auth' ? '/api/settings/oidc' : null)
   const { data: maxmind, loading: maxmindLoading, refetch: refetchMaxmind } = useFetch<MaxMindSettings>(tab === 'geoip' ? '/api/settings/maxmind' : null)
+  const { data: tautulli, loading: tautulliLoading, error: tautulliFetchError, refetch: refetchTautulli } = useFetch<TautulliSettings>(tab === 'import' ? '/api/settings/tautulli' : null)
 
   const [editingServer, setEditingServer] = useState<Server | undefined>()
   const [showForm, setShowForm] = useState(false)
   const [showOidcForm, setShowOidcForm] = useState(false)
+  const [showTautulliForm, setShowTautulliForm] = useState(false)
   const [actionError, setActionError] = useState('')
 
   const serverList = servers ?? []
   const oidcConfigured = !!oidc?.issuer
+  const tautulliConfigured = !!tautulli?.url
 
   function openAdd() {
     setEditingServer(undefined)
@@ -82,6 +87,22 @@ export function Settings() {
       refetchOidc()
     } catch {
       setActionError('Failed to delete OIDC configuration')
+    }
+  }
+
+  function handleTautulliSaved() {
+    setShowTautulliForm(false)
+    refetchTautulli()
+  }
+
+  async function handleDeleteTautulli() {
+    if (!window.confirm('Remove Tautulli configuration?')) return
+    try {
+      await api.del('/api/settings/tautulli')
+      setActionError('')
+      refetchTautulli()
+    } catch {
+      setActionError('Failed to delete Tautulli configuration')
     }
   }
 
@@ -256,6 +277,61 @@ export function Settings() {
           {maxmindLoading && <EmptyState icon="&#8635;" title="Loading..." />}
           {!maxmindLoading && (
             <MaxMindForm settings={maxmind} onSaved={refetchMaxmind} />
+          )}
+        </>
+      )}
+
+      {tab === 'import' && (
+        <>
+          {tautulliLoading && <EmptyState icon="&#8635;" title="Loading..." />}
+
+          {tautulliFetchError && !tautulliLoading && (
+            <EmptyState icon="!" title="Failed to load Tautulli settings">
+              <button onClick={refetchTautulli} className="text-sm text-accent hover:underline">Retry</button>
+            </EmptyState>
+          )}
+
+          {!tautulliLoading && !tautulliFetchError && !tautulliConfigured && (
+            <EmptyState icon="&#128230;" title="Tautulli Not Configured" description="Connect to Tautulli to import your existing watch history.">
+              <button
+                onClick={() => setShowTautulliForm(true)}
+                className="px-4 py-2.5 text-sm font-semibold rounded-lg
+                           bg-accent text-gray-900 hover:bg-accent/90 transition-colors"
+              >
+                Configure Tautulli
+              </button>
+            </EmptyState>
+          )}
+
+          {!tautulliLoading && !tautulliFetchError && tautulliConfigured && tautulli && (
+            <div className="card p-5">
+              <div className="flex items-start justify-between mb-4">
+                <h3 className="font-semibold text-base">Tautulli</h3>
+                <span className="badge badge-accent">Connected</span>
+              </div>
+              <div className="space-y-2 text-sm mb-4">
+                <div>
+                  <span className="text-muted dark:text-muted-dark">URL: </span>
+                  <span className="font-mono">{tautulli.url}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
+                <button onClick={() => setShowTautulliForm(true)} className={btnOutline}>
+                  Edit
+                </button>
+                <button onClick={handleDeleteTautulli} className={btnDanger}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showTautulliForm && (
+            <TautulliForm
+              settings={tautulli ?? undefined}
+              onClose={() => setShowTautulliForm(false)}
+              onSaved={handleTautulliSaved}
+            />
           )}
         </>
       )}

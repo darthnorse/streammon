@@ -407,3 +407,108 @@ func (s *Store) getLocationsForUsers(userNames []string, cutoff time.Time) (map[
 
 	return result, nil
 }
+
+func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error) {
+	stats := &models.UserDetailStats{
+		Locations: []models.LocationStat{},
+		Devices:   []models.DeviceStat{},
+	}
+
+	var totalHours sql.NullFloat64
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) as session_count,
+			SUM(watched_ms) / 3600000.0 as total_hours
+		FROM watch_history
+		WHERE user_name = ?`,
+		userName,
+	).Scan(&stats.SessionCount, &totalHours)
+	if err != nil {
+		return nil, fmt.Errorf("user stats totals: %w", err)
+	}
+	if totalHours.Valid {
+		stats.TotalHours = totalHours.Float64
+	}
+
+	locRows, err := s.db.Query(
+		`SELECT g.city, g.country, COUNT(*) as session_count,
+			MAX(COALESCE(h.stopped_at, h.started_at)) as last_seen
+		FROM watch_history h
+		JOIN ip_geo_cache g ON h.ip_address = g.ip
+		WHERE h.user_name = ?
+		GROUP BY g.city, g.country
+		ORDER BY session_count DESC
+		LIMIT 10`,
+		userName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("user location stats: %w", err)
+	}
+	defer locRows.Close()
+
+	var totalLocSessions int
+	for locRows.Next() {
+		var loc models.LocationStat
+		var lastSeenStr sql.NullString
+		if err := locRows.Scan(&loc.City, &loc.Country, &loc.SessionCount, &lastSeenStr); err != nil {
+			return nil, fmt.Errorf("scanning location stat: %w", err)
+		}
+		if lastSeenStr.Valid {
+			if t := parseSQLiteTimestamp(lastSeenStr.String); !t.IsZero() {
+				loc.LastSeen = t.Format(time.RFC3339)
+			}
+		}
+		totalLocSessions += loc.SessionCount
+		stats.Locations = append(stats.Locations, loc)
+	}
+	if err := locRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating location stats: %w", err)
+	}
+
+	for i := range stats.Locations {
+		if totalLocSessions > 0 {
+			stats.Locations[i].Percentage = float64(stats.Locations[i].SessionCount) / float64(totalLocSessions) * 100
+		}
+	}
+
+	devRows, err := s.db.Query(
+		`SELECT player, platform, COUNT(*) as session_count,
+			MAX(COALESCE(stopped_at, started_at)) as last_seen
+		FROM watch_history
+		WHERE user_name = ?
+		GROUP BY player, platform
+		ORDER BY session_count DESC
+		LIMIT 10`,
+		userName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("user device stats: %w", err)
+	}
+	defer devRows.Close()
+
+	var totalDevSessions int
+	for devRows.Next() {
+		var dev models.DeviceStat
+		var lastSeenStr sql.NullString
+		if err := devRows.Scan(&dev.Player, &dev.Platform, &dev.SessionCount, &lastSeenStr); err != nil {
+			return nil, fmt.Errorf("scanning device stat: %w", err)
+		}
+		if lastSeenStr.Valid {
+			if t := parseSQLiteTimestamp(lastSeenStr.String); !t.IsZero() {
+				dev.LastSeen = t.Format(time.RFC3339)
+			}
+		}
+		totalDevSessions += dev.SessionCount
+		stats.Devices = append(stats.Devices, dev)
+	}
+	if err := devRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating device stats: %w", err)
+	}
+
+	for i := range stats.Devices {
+		if totalDevSessions > 0 {
+			stats.Devices[i].Percentage = float64(stats.Devices[i].SessionCount) / float64(totalDevSessions) * 100
+		}
+	}
+
+	return stats, nil
+}

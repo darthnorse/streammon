@@ -8,6 +8,18 @@ import (
 
 const maxPerPage = 100
 
+var allowedSortColumns = map[string]string{
+	"started_at": "h.started_at",
+	"user":       "h.user_name",
+	"title":      "h.title",
+	"type":       "h.media_type",
+	"duration":   "h.duration_ms",
+	"watched":    "h.watched_ms",
+	"player":     "h.player",
+	"platform":   "h.platform",
+	"location":   "g.city",
+}
+
 func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
@@ -22,7 +34,18 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	userFilter := r.URL.Query().Get("user")
 
-	result, err := s.store.ListHistory(page, perPage, userFilter)
+	sortBy := r.URL.Query().Get("sort_by")
+	sortOrder := r.URL.Query().Get("sort_order")
+
+	sortColumn := ""
+	if col, ok := allowedSortColumns[sortBy]; ok {
+		sortColumn = col
+	}
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "desc"
+	}
+
+	result, err := s.store.ListHistory(page, perPage, userFilter, sortColumn, sortOrder)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return

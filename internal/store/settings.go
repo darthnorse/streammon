@@ -86,3 +86,47 @@ func (s *Store) SetSetting(key, value string) error {
 	}
 	return nil
 }
+
+type TautulliConfig struct {
+	URL    string
+	APIKey string
+}
+
+func (s *Store) GetTautulliConfig() (TautulliConfig, error) {
+	var cfg TautulliConfig
+	var err error
+	if cfg.URL, err = s.GetSetting("tautulli.url"); err != nil {
+		return cfg, err
+	}
+	if cfg.APIKey, err = s.GetSetting("tautulli.api_key"); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func (s *Store) SetTautulliConfig(cfg TautulliConfig) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(settingUpsert, "tautulli.url", cfg.URL); err != nil {
+		return fmt.Errorf("setting %q: %w", "tautulli.url", err)
+	}
+	if cfg.APIKey != "" {
+		if _, err := tx.Exec(settingUpsert, "tautulli.api_key", cfg.APIKey); err != nil {
+			return fmt.Errorf("setting %q: %w", "tautulli.api_key", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) DeleteTautulliConfig() error {
+	_, err := s.db.Exec(`DELETE FROM settings WHERE key IN ('tautulli.url', 'tautulli.api_key')`)
+	if err != nil {
+		return fmt.Errorf("deleting Tautulli config: %w", err)
+	}
+	return nil
+}

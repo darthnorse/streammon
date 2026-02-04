@@ -89,3 +89,24 @@ func (s *Server) resolveGeo(ipStr string, cached map[string]*models.GeoResult) *
 	}
 	return geo
 }
+
+func (s *Server) handleGetUserStats(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	stats, err := s.store.UserDetailStats(name)
+	if err != nil {
+		log.Printf("UserDetailStats error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+
+	// If no sessions found, check if user exists in users table
+	if stats.SessionCount == 0 {
+		_, err := s.store.GetUser(name)
+		if errors.Is(err, models.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+	}
+
+	writeJSON(w, http.StatusOK, stats)
+}

@@ -9,16 +9,19 @@ import { useItemDetails } from '../hooks/useItemDetails'
 import { ColumnSettings } from './ColumnSettings'
 import { MediaDetailModal } from './MediaDetailModal'
 
+type SortDirection = 'asc' | 'desc'
+
+export interface SortState {
+  columnId: string
+  direction: SortDirection
+}
+
 interface HistoryTableProps {
   entries: WatchHistoryEntry[]
   hideUser?: boolean
-}
-
-type SortDirection = 'asc' | 'desc'
-
-interface SortState {
-  columnId: string
-  direction: SortDirection
+  sort?: SortState | null
+  onSort?: (sort: SortState | null) => void
+  serverSideSorting?: boolean // If true, skip client-side sorting (data already sorted)
 }
 
 function SortIcon({ direction, active }: { direction: SortDirection; active: boolean }) {
@@ -90,10 +93,14 @@ interface SelectedItem {
   itemId: string
 }
 
-export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
+export function HistoryTable({ entries, hideUser, sort: controlledSort, onSort, serverSideSorting }: HistoryTableProps) {
   const excludeColumns = hideUser ? USER_EXCLUDE : EMPTY_EXCLUDE
-  const [sort, setSort] = useState<SortState | null>(null)
+  const [internalSort, setInternalSort] = useState<SortState | null>(null)
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
+
+  // Use controlled state if provided, otherwise use internal state
+  const sort = controlledSort !== undefined ? controlledSort : internalSort
+  const setSort = onSort || setInternalSort
 
   const handleTitleClick = useCallback((serverId: number, itemId: string) => {
     setSelectedItem({ serverId, itemId })
@@ -119,6 +126,7 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
   )
 
   const sortedEntries = useMemo(() => {
+    if (serverSideSorting) return entries
     if (!sort) return entries
     const column = columns.find(c => c.id === sort.columnId)
     if (!column?.sortValue) return entries
@@ -134,21 +142,23 @@ export function HistoryTable({ entries, hideUser }: HistoryTableProps) {
       }
       return sort.direction === 'asc' ? cmp : -cmp
     })
-  }, [entries, sort, columns])
+  }, [entries, sort, columns, serverSideSorting])
 
   function handleSort(columnId: string) {
     const column = columns.find(c => c.id === columnId)
     if (!column?.sortValue) return
 
-    setSort(prev => {
-      if (prev?.columnId === columnId) {
-        if (prev.direction === 'asc') {
-          return { columnId, direction: 'desc' }
-        }
-        return null // Third click removes sort
+    let newSort: SortState | null
+    if (sort?.columnId === columnId) {
+      if (sort.direction === 'asc') {
+        newSort = { columnId, direction: 'desc' }
+      } else {
+        newSort = null // Third click removes sort
       }
-      return { columnId, direction: 'asc' }
-    })
+    } else {
+      newSort = { columnId, direction: 'asc' }
+    }
+    setSort(newSort)
   }
 
   if (entries.length === 0) {

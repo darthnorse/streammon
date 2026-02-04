@@ -556,3 +556,140 @@ func TestTopTVShowsWithItemID(t *testing.T) {
 	}
 }
 
+func TestUserDetailStats(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+
+	// Alice watches from NYC and LA with different devices
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", WatchedMs: 7200000, IPAddress: "1.2.3.4",
+		Player: "Chrome", Platform: "Windows",
+		StartedAt: now.Add(-2 * time.Hour), StoppedAt: now.Add(-1 * time.Hour),
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M2", WatchedMs: 3600000, IPAddress: "1.2.3.4",
+		Player: "Chrome", Platform: "Windows",
+		StartedAt: now.Add(-1 * time.Hour), StoppedAt: now,
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeTV,
+		Title: "E1", WatchedMs: 1800000, IPAddress: "5.6.7.8",
+		Player: "Plex TV", Platform: "Android",
+		StartedAt: now, StoppedAt: now.Add(30 * time.Minute),
+	})
+
+	// Add geo cache for the IPs
+	s.SetCachedGeo(&models.GeoResult{IP: "1.2.3.4", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0})
+	s.SetCachedGeo(&models.GeoResult{IP: "5.6.7.8", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2})
+
+	stats, err := s.UserDetailStats("alice")
+	if err != nil {
+		t.Fatalf("UserDetailStats: %v", err)
+	}
+
+	// Check session count
+	if stats.SessionCount != 3 {
+		t.Errorf("session_count = %d, want 3", stats.SessionCount)
+	}
+
+	// Check total hours: (7200000 + 3600000 + 1800000) / 3600000 = 3.5 hours
+	if stats.TotalHours < 3.4 || stats.TotalHours > 3.6 {
+		t.Errorf("total_hours = %f, want ~3.5", stats.TotalHours)
+	}
+
+	// Check locations (ordered by session_count DESC)
+	if len(stats.Locations) != 2 {
+		t.Fatalf("expected 2 locations, got %d", len(stats.Locations))
+	}
+	if stats.Locations[0].City != "NYC" {
+		t.Errorf("top location city = %q, want NYC", stats.Locations[0].City)
+	}
+	if stats.Locations[0].SessionCount != 2 {
+		t.Errorf("NYC session_count = %d, want 2", stats.Locations[0].SessionCount)
+	}
+	// NYC: 2/3 = 66.67%
+	if stats.Locations[0].Percentage < 66 || stats.Locations[0].Percentage > 67 {
+		t.Errorf("NYC percentage = %f, want ~66.67", stats.Locations[0].Percentage)
+	}
+	if stats.Locations[0].LastSeen == "" {
+		t.Error("NYC last_seen should not be empty")
+	}
+
+	// Check devices (ordered by session_count DESC)
+	if len(stats.Devices) != 2 {
+		t.Fatalf("expected 2 devices, got %d", len(stats.Devices))
+	}
+	if stats.Devices[0].Player != "Chrome" {
+		t.Errorf("top device player = %q, want Chrome", stats.Devices[0].Player)
+	}
+	if stats.Devices[0].Platform != "Windows" {
+		t.Errorf("top device platform = %q, want Windows", stats.Devices[0].Platform)
+	}
+	if stats.Devices[0].SessionCount != 2 {
+		t.Errorf("Chrome session_count = %d, want 2", stats.Devices[0].SessionCount)
+	}
+	// Chrome: 2/3 = 66.67%
+	if stats.Devices[0].Percentage < 66 || stats.Devices[0].Percentage > 67 {
+		t.Errorf("Chrome percentage = %f, want ~66.67", stats.Devices[0].Percentage)
+	}
+}
+
+func TestUserDetailStatsEmpty(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	// User with no watch history
+	stats, err := s.UserDetailStats("nobody")
+	if err != nil {
+		t.Fatalf("UserDetailStats: %v", err)
+	}
+
+	if stats.SessionCount != 0 {
+		t.Errorf("session_count = %d, want 0", stats.SessionCount)
+	}
+	if stats.TotalHours != 0 {
+		t.Errorf("total_hours = %f, want 0", stats.TotalHours)
+	}
+	if len(stats.Locations) != 0 {
+		t.Errorf("expected 0 locations, got %d", len(stats.Locations))
+	}
+	if len(stats.Devices) != 0 {
+		t.Errorf("expected 0 devices, got %d", len(stats.Devices))
+	}
+}
+
+func TestUserDetailStatsNoGeoData(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+
+	// Alice has sessions but IP addresses not in geo cache
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", WatchedMs: 3600000, IPAddress: "9.9.9.9",
+		Player: "Safari", Platform: "macOS",
+		StartedAt: now, StoppedAt: now.Add(time.Hour),
+	})
+
+	stats, err := s.UserDetailStats("alice")
+	if err != nil {
+		t.Fatalf("UserDetailStats: %v", err)
+	}
+
+	// Should have session count and devices but no locations
+	if stats.SessionCount != 1 {
+		t.Errorf("session_count = %d, want 1", stats.SessionCount)
+	}
+	if len(stats.Locations) != 0 {
+		t.Errorf("expected 0 locations (no geo data), got %d", len(stats.Locations))
+	}
+	if len(stats.Devices) != 1 {
+		t.Errorf("expected 1 device, got %d", len(stats.Devices))
+	}
+	if stats.Devices[0].Player != "Safari" {
+		t.Errorf("device player = %q, want Safari", stats.Devices[0].Player)
+	}
+}
+

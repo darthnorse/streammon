@@ -117,6 +117,34 @@ func (s *Store) DistinctIPsForUser(userName string) ([]IPWithLastSeen, error) {
 	return results, rows.Err()
 }
 
+func (s *Store) GetUncachedIPs(limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+	rows, err := s.db.Query(
+		`SELECT DISTINCT h.ip_address
+		FROM watch_history h
+		LEFT JOIN ip_geo_cache g ON h.ip_address = g.ip AND g.cached_at > ?
+		WHERE h.ip_address != '' AND g.ip IS NULL
+		LIMIT ?`,
+		time.Now().UTC().Add(-geoCacheTTL), limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get uncached ips: %w", err)
+	}
+	defer rows.Close()
+
+	var ips []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			return nil, err
+		}
+		ips = append(ips, ip)
+	}
+	return ips, rows.Err()
+}
+
 var sqliteTimeFormats = []string{
 	time.RFC3339,
 	time.RFC3339Nano,

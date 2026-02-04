@@ -140,3 +140,108 @@ func TestDeleteOIDCConfig(t *testing.T) {
 		t.Fatalf("expected zero value after delete, got %+v", got)
 	}
 }
+
+func TestTautulliConfigRoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	cfg := TautulliConfig{
+		URL:    "http://localhost:8181",
+		APIKey: "my-tautulli-api-key",
+	}
+	if err := s.SetTautulliConfig(cfg); err != nil {
+		t.Fatalf("SetTautulliConfig: %v", err)
+	}
+
+	got, err := s.GetTautulliConfig()
+	if err != nil {
+		t.Fatalf("GetTautulliConfig: %v", err)
+	}
+	if got != cfg {
+		t.Fatalf("expected %+v, got %+v", cfg, got)
+	}
+}
+
+func TestTautulliConfigOverwrite(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	cfg1 := TautulliConfig{
+		URL:    "http://localhost:8181",
+		APIKey: "key1",
+	}
+	s.SetTautulliConfig(cfg1)
+
+	cfg2 := TautulliConfig{
+		URL:    "http://newhost:8181",
+		APIKey: "key2",
+	}
+	s.SetTautulliConfig(cfg2)
+
+	got, _ := s.GetTautulliConfig()
+	if got != cfg2 {
+		t.Fatalf("expected %+v, got %+v", cfg2, got)
+	}
+}
+
+func TestTautulliConfigAPIKeyPreservation(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	cfg := TautulliConfig{
+		URL:    "http://localhost:8181",
+		APIKey: "original-key",
+	}
+	if err := s.SetTautulliConfig(cfg); err != nil {
+		t.Fatalf("SetTautulliConfig: %v", err)
+	}
+
+	updated := TautulliConfig{
+		URL:    "http://newhost:8181",
+		APIKey: "",
+	}
+	if err := s.SetTautulliConfig(updated); err != nil {
+		t.Fatalf("SetTautulliConfig: %v", err)
+	}
+
+	got, err := s.GetTautulliConfig()
+	if err != nil {
+		t.Fatalf("GetTautulliConfig: %v", err)
+	}
+	if got.URL != "http://newhost:8181" {
+		t.Fatalf("expected updated URL, got %s", got.URL)
+	}
+	if got.APIKey != "original-key" {
+		t.Fatalf("expected preserved API key, got %s", got.APIKey)
+	}
+}
+
+func TestTautulliConfigDelete(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.SetTautulliConfig(TautulliConfig{
+		URL:    "http://localhost:8181",
+		APIKey: "my-key",
+	})
+
+	if err := s.DeleteTautulliConfig(); err != nil {
+		t.Fatalf("DeleteTautulliConfig: %v", err)
+	}
+
+	got, err := s.GetTautulliConfig()
+	if err != nil {
+		t.Fatalf("GetTautulliConfig: %v", err)
+	}
+	if got != (TautulliConfig{}) {
+		t.Fatalf("expected zero value after delete, got %+v", got)
+	}
+}
+
+func TestTautulliConfigEmpty(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	got, err := s.GetTautulliConfig()
+	if err != nil {
+		t.Fatalf("GetTautulliConfig: %v", err)
+	}
+	if got != (TautulliConfig{}) {
+		t.Fatalf("expected zero value, got %+v", got)
+	}
+}

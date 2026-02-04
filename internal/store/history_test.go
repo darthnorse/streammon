@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -37,7 +39,7 @@ func TestInsertAndListHistory(t *testing.T) {
 		t.Fatal("expected ID to be set")
 	}
 
-	result, err := s.ListHistory(1, 10, "")
+	result, err := s.ListHistory(1, 10, "", "", "")
 	if err != nil {
 		t.Fatalf("ListHistory: %v", err)
 	}
@@ -63,7 +65,7 @@ func TestListHistoryWithUserFilter(t *testing.T) {
 		Title: "B", StartedAt: now, StoppedAt: now,
 	})
 
-	result, err := s.ListHistory(1, 10, "alice")
+	result, err := s.ListHistory(1, 10, "alice", "", "")
 	if err != nil {
 		t.Fatalf("ListHistory(alice): %v", err)
 	}
@@ -84,7 +86,7 @@ func TestListHistoryPagination(t *testing.T) {
 		})
 	}
 
-	result, err := s.ListHistory(2, 2, "")
+	result, err := s.ListHistory(2, 2, "", "", "")
 	if err != nil {
 		t.Fatalf("ListHistory page 2: %v", err)
 	}
@@ -143,5 +145,185 @@ func TestDailyWatchCountsEmpty(t *testing.T) {
 	}
 	if len(stats) != 0 {
 		t.Fatalf("expected 0, got %d", len(stats))
+	}
+}
+
+func TestHistoryExists(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	startedAt := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID:  serverID,
+		UserName:  "alice",
+		MediaType: models.MediaTypeMovie,
+		Title:     "The Matrix",
+		StartedAt: startedAt,
+		StoppedAt: startedAt.Add(2 * time.Hour),
+	})
+
+	exists, err := s.HistoryExists(serverID, "alice", "The Matrix", startedAt)
+	if err != nil {
+		t.Fatalf("HistoryExists: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected entry to exist")
+	}
+
+	exists, err = s.HistoryExists(serverID, "bob", "The Matrix", startedAt)
+	if err != nil {
+		t.Fatalf("HistoryExists (different user): %v", err)
+	}
+	if exists {
+		t.Fatal("expected entry not to exist for different user")
+	}
+
+	exists, err = s.HistoryExists(serverID, "alice", "Different Movie", startedAt)
+	if err != nil {
+		t.Fatalf("HistoryExists (different title): %v", err)
+	}
+	if exists {
+		t.Fatal("expected entry not to exist for different title")
+	}
+
+	differentTime := startedAt.Add(time.Hour)
+	exists, err = s.HistoryExists(serverID, "alice", "The Matrix", differentTime)
+	if err != nil {
+		t.Fatalf("HistoryExists (different time): %v", err)
+	}
+	if exists {
+		t.Fatal("expected entry not to exist for different time")
+	}
+}
+
+func TestInsertHistoryBatch(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	startedAt := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	entries := []*models.WatchHistoryEntry{
+		{
+			ServerID:  serverID,
+			UserName:  "alice",
+			MediaType: models.MediaTypeMovie,
+			Title:     "Movie 1",
+			StartedAt: startedAt,
+			StoppedAt: startedAt.Add(2 * time.Hour),
+		},
+		{
+			ServerID:  serverID,
+			UserName:  "bob",
+			MediaType: models.MediaTypeTV,
+			Title:     "Episode 1",
+			StartedAt: startedAt.Add(time.Hour),
+			StoppedAt: startedAt.Add(2 * time.Hour),
+		},
+	}
+
+	inserted, skipped, err := s.InsertHistoryBatch(context.Background(), entries)
+	if err != nil {
+		t.Fatalf("InsertHistoryBatch: %v", err)
+	}
+	if inserted != 2 {
+		t.Errorf("expected 2 inserted, got %d", inserted)
+	}
+	if skipped != 0 {
+		t.Errorf("expected 0 skipped, got %d", skipped)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "")
+	if result.Total != 2 {
+		t.Fatalf("expected 2 entries in history, got %d", result.Total)
+	}
+}
+
+func TestInsertHistoryBatchSkipsDuplicates(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	startedAt := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID:  serverID,
+		UserName:  "alice",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Existing Movie",
+		StartedAt: startedAt,
+		StoppedAt: startedAt.Add(2 * time.Hour),
+	})
+
+	entries := []*models.WatchHistoryEntry{
+		{
+			ServerID:  serverID,
+			UserName:  "alice",
+			MediaType: models.MediaTypeMovie,
+			Title:     "Existing Movie",
+			StartedAt: startedAt,
+			StoppedAt: startedAt.Add(2 * time.Hour),
+		},
+		{
+			ServerID:  serverID,
+			UserName:  "bob",
+			MediaType: models.MediaTypeTV,
+			Title:     "New Episode",
+			StartedAt: startedAt.Add(time.Hour),
+			StoppedAt: startedAt.Add(2 * time.Hour),
+		},
+	}
+
+	inserted, skipped, err := s.InsertHistoryBatch(context.Background(), entries)
+	if err != nil {
+		t.Fatalf("InsertHistoryBatch: %v", err)
+	}
+	if inserted != 1 {
+		t.Errorf("expected 1 inserted, got %d", inserted)
+	}
+	if skipped != 1 {
+		t.Errorf("expected 1 skipped, got %d", skipped)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "")
+	if result.Total != 2 {
+		t.Fatalf("expected 2 entries in history (1 original + 1 new), got %d", result.Total)
+	}
+}
+
+func TestInsertHistoryBatchEmpty(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	inserted, skipped, err := s.InsertHistoryBatch(context.Background(), []*models.WatchHistoryEntry{})
+	if err != nil {
+		t.Fatalf("InsertHistoryBatch (empty): %v", err)
+	}
+	if inserted != 0 || skipped != 0 {
+		t.Errorf("expected 0/0, got %d/%d", inserted, skipped)
+	}
+}
+
+func TestInsertHistoryBatchContextCancellation(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	startedAt := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	entries := make([]*models.WatchHistoryEntry, 100)
+	for i := range entries {
+		entries[i] = &models.WatchHistoryEntry{
+			ServerID:  serverID,
+			UserName:  "alice",
+			MediaType: models.MediaTypeMovie,
+			Title:     "Movie",
+			StartedAt: startedAt.Add(time.Duration(i) * time.Hour),
+			StoppedAt: startedAt.Add(time.Duration(i+1) * time.Hour),
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := s.InsertHistoryBatch(ctx, entries)
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }

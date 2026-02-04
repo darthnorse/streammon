@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
 	"os"
 )
@@ -91,4 +92,55 @@ func (s *Server) handleDeleteMaxMindSettings(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+type geoBackfillResponse struct {
+	Resolved int `json:"resolved"`
+	Skipped  int `json:"skipped"`
+	Total    int `json:"total"`
+}
+
+func (s *Server) handleGeoBackfill(w http.ResponseWriter, r *http.Request) {
+	if s.geoResolver == nil {
+		writeError(w, http.StatusServiceUnavailable, "GeoIP resolver not configured")
+		return
+	}
+
+	ips, err := s.store.GetUncachedIPs(5000)
+	if err != nil {
+		log.Printf("geo backfill get ips: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to get IPs")
+		return
+	}
+
+	resolved := 0
+	skipped := 0
+
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			skipped++
+			continue
+		}
+
+		geo := s.geoResolver.Lookup(ip)
+		if geo == nil {
+			skipped++
+			continue
+		}
+
+		if err := s.store.SetCachedGeo(geo); err != nil {
+			log.Printf("geo backfill cache %s: %v", ipStr, err)
+			skipped++
+			continue
+		}
+		resolved++
+	}
+
+	log.Printf("geo backfill: resolved %d, skipped %d, total %d", resolved, skipped, len(ips))
+	writeJSON(w, http.StatusOK, geoBackfillResponse{
+		Resolved: resolved,
+		Skipped:  skipped,
+		Total:    len(ips),
+	})
 }

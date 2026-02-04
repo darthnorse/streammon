@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ColumnDef } from '../lib/historyColumns'
 import { getDefaultVisibleColumns } from '../lib/historyColumns'
 
@@ -25,6 +25,20 @@ function safeSetItem(key: string, value: string): void {
   } catch {}
 }
 
+function loadInitialColumns(allColumns: ColumnDef[], excludeColumns: string[]): string[] {
+  const columnIds = new Set(allColumns.map(c => c.id))
+  const excludeSet = new Set(excludeColumns)
+  const stored = safeGetItem(STORAGE_KEY)
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored) as string[]
+      const valid = parsed.filter(id => columnIds.has(id) && !excludeSet.has(id))
+      if (valid.length > 0) return valid
+    } catch {}
+  }
+  return getDefaultVisibleColumns(allColumns, excludeColumns)
+}
+
 export function useColumnConfig(
   allColumns: ColumnDef[],
   excludeColumns: string[] = []
@@ -35,27 +49,23 @@ export function useColumnConfig(
     [allColumns]
   )
 
+  const isInitialMount = useRef(true)
+
   const getDefaults = useCallback(
     () => getDefaultVisibleColumns(allColumns, excludeColumns),
     [allColumns, excludeColumns]
   )
 
-  const [visibleColumns, setVisibleColumnsState] = useState<string[]>(() => {
-    const stored = safeGetItem(STORAGE_KEY)
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as string[]
-        const valid = parsed.filter(
-          id => columnIndexMap.has(id) && !excludeSet.has(id)
-        )
-        if (valid.length > 0) return valid
-      } catch {}
-    }
-    return getDefaults()
-  })
+  const [visibleColumns, setVisibleColumnsState] = useState<string[]>(
+    () => loadInitialColumns(allColumns, excludeColumns)
+  )
 
-  // Re-filter when excludeColumns changes
+  // Re-filter when excludeColumns changes (but not on initial mount)
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return
+    }
     setVisibleColumnsState(prev => {
       const filtered = prev.filter(id => !excludeSet.has(id))
       if (filtered.length === prev.length) return prev

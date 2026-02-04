@@ -97,6 +97,7 @@ type nowPlaying struct {
 	Name              string            `json:"Name"`
 	SeriesName        string            `json:"SeriesName"`
 	SeriesId          string            `json:"SeriesId"`
+	SeriesPrimaryImageTag string        `json:"SeriesPrimaryImageTag"`
 	SeasonName        string            `json:"SeasonName"`
 	Type              string            `json:"Type"`
 	ProductionYear    int               `json:"ProductionYear"`
@@ -177,7 +178,9 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			IPAddress:         s.RemoteIP,
 			StartedAt:         time.Now().UTC(),
 		}
-		if s.NowPlaying.ID != "" && s.NowPlaying.ImageTags["Primary"] != "" {
+		if s.NowPlaying.SeriesId != "" && s.NowPlaying.SeriesPrimaryImageTag != "" {
+			as.ThumbURL = s.NowPlaying.SeriesId
+		} else if s.NowPlaying.ID != "" && s.NowPlaying.ImageTags["Primary"] != "" {
 			as.ThumbURL = s.NowPlaying.ID
 		}
 		var container string
@@ -282,6 +285,8 @@ type libraryItemJSON struct {
 	ImageTags         map[string]string `json:"ImageTags"`
 	DateCreated       string            `json:"DateCreated"`
 	SeriesName        string            `json:"SeriesName,omitempty"`
+	SeriesId          string            `json:"SeriesId,omitempty"`
+	SeriesPrimaryImageTag string        `json:"SeriesPrimaryImageTag,omitempty"`
 	ParentIndexNumber int               `json:"ParentIndexNumber,omitempty"`
 	IndexNumber       int               `json:"IndexNumber,omitempty"`
 }
@@ -328,7 +333,10 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 		}
 
 		var thumbURL string
-		if item.ImageTags["Primary"] != "" {
+		if item.SeriesId != "" && item.SeriesPrimaryImageTag != "" {
+			// For episodes, use series poster instead of episode thumbnail
+			thumbURL = item.SeriesId
+		} else if item.ImageTags["Primary"] != "" {
 			thumbURL = item.ID
 		}
 

@@ -237,3 +237,38 @@ export interface LibrariesResponse {
   libraries: Library[]
   errors?: string[]
 }
+
+export interface LocationStat {
+  city: string
+  country: string
+  session_count: number
+  percentage: number
+  last_seen: string
+}
+
+export interface DeviceStat {
+  player: string
+  platform: string
+  session_count: number
+  percentage: number
+  last_seen: string
+}
+
+export interface UserDetailStats {
+  session_count: number
+  total_hours: number
+  locations: LocationStat[]
+  devices: DeviceStat[]
+}
+
+export interface TautulliSettings {
+  url: string
+  api_key: string
+}
+
+export interface TautulliImportResult {
+  imported: number
+  skipped: number
+  total: number
+  error?: string
+}

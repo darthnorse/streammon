@@ -322,3 +322,26 @@ type Library struct {
 	ChildCount      int         `json:"child_count"`
 	GrandchildCount int         `json:"grandchild_count"`
 }
+
+type LocationStat struct {
+	City         string  `json:"city"`
+	Country      string  `json:"country"`
+	SessionCount int     `json:"session_count"`
+	Percentage   float64 `json:"percentage"`
+	LastSeen     string  `json:"last_seen"`
+}
+
+type DeviceStat struct {
+	Player       string  `json:"player"`
+	Platform     string  `json:"platform"`
+	SessionCount int     `json:"session_count"`
+	Percentage   float64 `json:"percentage"`
+	LastSeen     string  `json:"last_seen"`
+}
+
+type UserDetailStats struct {
+	SessionCount int            `json:"session_count"`
+	TotalHours   float64        `json:"total_hours"`
+	Locations    []LocationStat `json:"locations"`
+	Devices      []DeviceStat   `json:"devices"`
+}

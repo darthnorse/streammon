@@ -1,18 +1,22 @@
-import { useState } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useFetch } from '../hooks/useFetch'
 import { ApiError } from '../lib/api'
 import { PER_PAGE } from '../lib/constants'
-import { HistoryTable } from '../components/HistoryTable'
+import { HistoryTable, SortState } from '../components/HistoryTable'
 import { Pagination } from '../components/Pagination'
 import { LocationMap } from '../components/LocationMap'
-import type { User, WatchHistoryEntry, PaginatedResult, Role } from '../types'
+import { UserStatsCards } from '../components/UserStatsCards'
+import { UserLocationsCard } from '../components/UserLocationsCard'
+import { UserDevicesCard } from '../components/UserDevicesCard'
+import { getHistoryColumns } from '../lib/historyColumns'
+import type { User, WatchHistoryEntry, PaginatedResult, Role, UserDetailStats } from '../types'
 
 type Tab = 'history' | 'locations'
 
 const tabs: { key: Tab; label: string }[] = [
   { key: 'history', label: 'Watch History' },
-  { key: 'locations', label: 'Locations' },
+  { key: 'locations', label: 'Locations Map' },
 ]
 
 const roleBadgeClass: Record<Role, string> = {
@@ -26,19 +30,38 @@ export function UserDetail() {
 
   const [tab, setTab] = useState<Tab>('history')
   const [page, setPage] = useState(1)
+  const [sort, setSort] = useState<SortState | null>(null)
+
+  const columns = useMemo(() => getHistoryColumns(), [])
+
+  const sortParams = useMemo(() => {
+    if (!sort) return ''
+    const column = columns.find(c => c.id === sort.columnId)
+    if (!column?.sortKey) return ''
+    return `&sort_by=${column.sortKey}&sort_order=${sort.direction}`
+  }, [sort, columns])
+
+  const handleSort = useCallback((newSort: SortState | null) => {
+    setSort(newSort)
+    setPage(1)
+  }, [])
 
   const { data: user, loading: userLoading, error: userError } = useFetch<User>(
     decodedName ? `/api/users/${encodeURIComponent(decodedName)}` : null
   )
 
+  const { data: stats, loading: statsLoading, error: statsError } = useFetch<UserDetailStats>(
+    decodedName ? `/api/users/${encodeURIComponent(decodedName)}/stats` : null
+  )
+
   const historyUrl = decodedName
-    ? `/api/history?user=${encodeURIComponent(decodedName)}&page=${page}&per_page=${PER_PAGE}`
+    ? `/api/history?user=${encodeURIComponent(decodedName)}&page=${page}&per_page=${PER_PAGE}${sortParams}`
     : null
   const { data: history, loading: historyLoading } = useFetch<PaginatedResult<WatchHistoryEntry>>(
     tab === 'history' ? historyUrl : null
   )
 
-  if (userLoading) {
+  if (userLoading || statsLoading) {
     return (
       <div className="flex items-center justify-center py-20 text-muted dark:text-muted-dark text-sm">
         Loading user...
@@ -46,8 +69,6 @@ export function UserDetail() {
     )
   }
 
-  // User record may not exist (e.g., Plex user who hasn't logged into StreamMon)
-  // We still show their watch history based on username from session data
   const userNotFound = userError instanceof ApiError && userError.status === 404
   if (userError && !userNotFound) {
     return (
@@ -64,8 +85,8 @@ export function UserDetail() {
   const totalPages = history ? Math.ceil(history.total / history.per_page) : 0
 
   return (
-    <div>
-      <div className="flex items-center gap-4 mb-6">
+    <div className="space-y-6">
+      <div className="flex items-center gap-4">
         {user?.thumb_url && (
           <img
             src={user.thumb_url}
@@ -82,21 +103,34 @@ export function UserDetail() {
               </span>
             )}
           </div>
-          {user && (
+          {user?.email && (
             <p className="text-sm text-muted dark:text-muted-dark mt-0.5">
-              Joined {new Date(user.created_at).toLocaleDateString(undefined, {
-                month: 'long', year: 'numeric',
-              })}
+              {user.email}
             </p>
           )}
         </div>
       </div>
 
-      <div className="flex gap-1 mb-6 border-b border-border dark:border-border-dark">
+      {statsError && !statsLoading && (
+        <div className="text-sm text-red-500 dark:text-red-400">
+          Failed to load user statistics
+        </div>
+      )}
+
+      {stats && <UserStatsCards stats={stats} />}
+
+      {stats && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <UserLocationsCard locations={stats.locations} />
+          <UserDevicesCard devices={stats.devices} />
+        </div>
+      )}
+
+      <div className="flex gap-1 border-b border-border dark:border-border-dark">
         {tabs.map(t => (
           <button
             key={t.key}
-            onClick={() => { setTab(t.key); setPage(1) }}
+            onClick={() => { setTab(t.key); setPage(1); setSort(null) }}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors
               ${tab === t.key
                 ? 'border-accent text-accent-dim dark:text-accent'
@@ -116,7 +150,13 @@ export function UserDetail() {
             </div>
           ) : history ? (
             <>
-              <HistoryTable entries={history.items} hideUser />
+              <HistoryTable
+                entries={history.items}
+                hideUser
+                sort={sort}
+                onSort={handleSort}
+                serverSideSorting
+              />
               <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
             </>
           ) : null}

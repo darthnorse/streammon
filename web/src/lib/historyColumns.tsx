@@ -10,6 +10,7 @@ export interface ColumnDef {
   defaultVisible: boolean
   render: (entry: WatchHistoryEntry) => React.ReactNode
   sortValue?: (entry: WatchHistoryEntry) => string | number
+  sortKey?: string // Backend API sort_by key for server-side sorting
   className?: string
   responsiveClassName?: string
 }
@@ -77,6 +78,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
       defaultVisible: true,
       render: (e) => <UserLink name={e.user_name} />,
       sortValue: (e) => e.user_name.toLowerCase(),
+      sortKey: 'user',
     },
     {
       id: 'title',
@@ -84,6 +86,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
       defaultVisible: true,
       render: (e) => <EntryTitle entry={e} onTitleClick={onTitleClick} />,
       sortValue: (e) => (e.grandparent_title || e.title).toLowerCase(),
+      sortKey: 'title',
       className: 'max-w-[300px]',
     },
     {
@@ -96,6 +99,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
         </span>
       ),
       sortValue: (e) => e.media_type,
+      sortKey: 'type',
     },
     {
       id: 'player',
@@ -103,6 +107,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
       defaultVisible: true,
       render: (e) => e.player,
       sortValue: (e) => e.player.toLowerCase(),
+      sortKey: 'player',
       className: 'text-muted dark:text-muted-dark',
       responsiveClassName: 'hidden lg:table-cell',
     },
@@ -112,6 +117,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
       defaultVisible: true,
       render: (e) => e.platform,
       sortValue: (e) => e.platform.toLowerCase(),
+      sortKey: 'platform',
       className: 'text-muted dark:text-muted-dark',
       responsiveClassName: 'hidden lg:table-cell',
     },
@@ -126,7 +132,6 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
           </span>
         </GeoIPPopover>
       ) : '—',
-      sortValue: (e) => e.ip_address || '',
       className: 'font-mono text-xs',
       responsiveClassName: 'hidden lg:table-cell',
     },
@@ -136,6 +141,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
       defaultVisible: true,
       render: (e) => formatLocation(e.city, e.country),
       sortValue: (e) => formatLocation(e.city, e.country),
+      sortKey: 'location',
       className: 'text-muted dark:text-muted-dark',
       responsiveClassName: 'hidden xl:table-cell',
     },
@@ -144,7 +150,6 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
       label: 'ISP',
       defaultVisible: true,
       render: (e) => e.isp || '—',
-      sortValue: (e) => (e.isp || '').toLowerCase(),
       className: 'text-muted dark:text-muted-dark text-xs',
       responsiveClassName: 'hidden xl:table-cell',
     },
@@ -154,6 +159,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
       defaultVisible: true,
       render: (e) => formatDuration(e.watched_ms),
       sortValue: (e) => e.watched_ms,
+      sortKey: 'watched',
       className: 'font-mono text-xs',
     },
     {
@@ -162,6 +168,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
       defaultVisible: true,
       render: (e) => formatDate(e.started_at),
       sortValue: (e) => new Date(e.started_at).getTime(),
+      sortKey: 'started_at',
       className: 'text-muted dark:text-muted-dark whitespace-nowrap',
     },
   ]
