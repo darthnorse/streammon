@@ -160,18 +160,15 @@ func (s *Server) countLibraryItems(ctx context.Context, sectionKey, typeFilter s
 		return 0, err
 	}
 
+	q := u.Query()
+	q.Set("X-Plex-Container-Start", "0")
+	q.Set("X-Plex-Container-Size", "0")
 	if typeFilter != "" {
-		q := u.Query()
 		q.Set("type", typeFilter)
-		u.RawQuery = q.Encode()
 	}
+	u.RawQuery = q.Encode()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return 0, err
-	}
-	s.setHeaders(req)
-	req.Header.Set("X-Plex-Container-Size", "0")
+	req, err := s.newRequest(ctx, u.String())
 	if err != nil {
 		return 0, err
 	}
