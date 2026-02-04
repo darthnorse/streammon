@@ -316,8 +316,8 @@ func TestGetStreamData(t *testing.T) {
 		if r.URL.Query().Get("cmd") != "get_stream_data" {
 			t.Errorf("expected cmd=get_stream_data, got %s", r.URL.Query().Get("cmd"))
 		}
-		if r.URL.Query().Get("session_key") != "12345" {
-			t.Errorf("expected session_key=12345, got %s", r.URL.Query().Get("session_key"))
+		if r.URL.Query().Get("row_id") != "12345" {
+			t.Errorf("expected row_id=12345, got %s", r.URL.Query().Get("row_id"))
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"response": map[string]interface{}{
@@ -344,7 +344,7 @@ func TestGetStreamData(t *testing.T) {
 	defer ts.Close()
 
 	c, _ := NewClient(ts.URL, "testkey")
-	sd, err := c.GetStreamData(context.Background(), "12345")
+	sd, err := c.GetStreamData(context.Background(), 12345)
 	if err != nil {
 		t.Fatalf("GetStreamData failed: %v", err)
 	}
@@ -402,7 +402,7 @@ func TestGetStreamDataEmpty(t *testing.T) {
 	defer ts.Close()
 
 	c, _ := NewClient(ts.URL, "testkey")
-	sd, err := c.GetStreamData(context.Background(), "99999")
+	sd, err := c.GetStreamData(context.Background(), 99999)
 	if err != nil {
 		t.Fatalf("GetStreamData failed: %v", err)
 	}
@@ -433,7 +433,7 @@ func TestGetStreamDataFlexibleTypes(t *testing.T) {
 	defer ts.Close()
 
 	c, _ := NewClient(ts.URL, "testkey")
-	sd, err := c.GetStreamData(context.Background(), "12345")
+	sd, err := c.GetStreamData(context.Background(), 12345)
 	if err != nil {
 		t.Fatalf("GetStreamData failed: %v", err)
 	}

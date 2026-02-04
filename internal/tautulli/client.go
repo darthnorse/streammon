@@ -84,6 +84,7 @@ type HistoryRecord struct {
 	RatingKey            FlexString `json:"rating_key"`
 	GrandparentRatingKey FlexString `json:"grandparent_rating_key"`
 	SessionKey           FlexString `json:"session_key"`
+	ReferenceID          FlexInt    `json:"reference_id"` // Used to get stream data for historical records
 	Started              int64      `json:"started"`
 	Stopped              int64      `json:"stopped"`
 	Duration             int64      `json:"duration"`
@@ -246,10 +247,10 @@ func (c *Client) GetHistory(ctx context.Context, start, length int) ([]HistoryRe
 	return r.Response.Data.Data, r.Response.Data.RecordsTotal, nil
 }
 
-func (c *Client) GetStreamData(ctx context.Context, sessionKey string) (*StreamData, error) {
+func (c *Client) GetStreamData(ctx context.Context, rowID int) (*StreamData, error) {
 	params := url.Values{}
 	params.Set("cmd", "get_stream_data")
-	params.Set("session_key", sessionKey)
+	params.Set("row_id", fmt.Sprintf("%d", rowID))
 
 	body, err := c.doRequest(ctx, params, 1<<20)
 	if err != nil {

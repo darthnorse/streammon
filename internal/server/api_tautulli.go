@@ -29,7 +29,6 @@ type tautulliTestResponse struct {
 
 type tautulliImportRequest struct {
 	ServerID int64 `json:"server_id"`
-	Enrich   bool  `json:"enrich"` // If true, fetch stream details for each record
 }
 
 type tautulliImportResponse struct {
@@ -197,15 +196,15 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 		for _, rec := range batch.Records {
 			entry := convertTautulliRecord(rec, req.ServerID)
 
-			if req.Enrich && string(rec.SessionKey) != "" {
+			if rec.ReferenceID != 0 {
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				case <-enrichRateLimiter.C:
 				}
-				streamData, err := client.GetStreamData(ctx, string(rec.SessionKey))
+				streamData, err := client.GetStreamData(ctx, int(rec.ReferenceID))
 				if err != nil {
-					log.Printf("Failed to get stream data for session %s: %v", rec.SessionKey, err)
+					log.Printf("Failed to get stream data for reference_id %d: %v", rec.ReferenceID, err)
 				} else if streamData != nil {
 					enrichEntryFromStreamData(entry, streamData)
 				}
