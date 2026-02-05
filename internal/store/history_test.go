@@ -391,3 +391,65 @@ func TestGetLastStreamBeforeTime(t *testing.T) {
 		t.Errorf("expected nil entry for unknown user, got %+v", entry)
 	}
 }
+
+func TestGetDeviceLastStream(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	entries := []models.WatchHistoryEntry{
+		{ServerID: serverID, UserName: "alice", Title: "Movie 1", StartedAt: now.Add(-2 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+		{ServerID: serverID, UserName: "alice", Title: "Movie 2", StartedAt: now.Add(-1 * time.Hour), IPAddress: "2.2.2.2", Player: "Plex for iOS", Platform: "iOS", MediaType: models.MediaTypeMovie},
+		{ServerID: serverID, UserName: "alice", Title: "Movie 3", StartedAt: now.Add(-30 * time.Minute), IPAddress: "3.3.3.3", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+	}
+	for i := range entries {
+		if err := s.InsertHistory(&entries[i]); err != nil {
+			t.Fatalf("InsertHistory: %v", err)
+		}
+	}
+
+	// Test: Get last Chrome stream before now
+	entry, err := s.GetDeviceLastStream("alice", "Plex Web", "Chrome", now, 24)
+	if err != nil {
+		t.Fatalf("GetDeviceLastStream: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected entry, got nil")
+	}
+	if entry.Title != "Movie 3" {
+		t.Errorf("expected Movie 3, got %s", entry.Title)
+	}
+
+	// Test: Get last Chrome stream before Movie 3
+	entry, err = s.GetDeviceLastStream("alice", "Plex Web", "Chrome", now.Add(-30*time.Minute), 24)
+	if err != nil {
+		t.Fatalf("GetDeviceLastStream (before Movie 3): %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected entry, got nil")
+	}
+	if entry.Title != "Movie 1" {
+		t.Errorf("expected Movie 1, got %s", entry.Title)
+	}
+
+	// Test: Get last iOS stream
+	entry, err = s.GetDeviceLastStream("alice", "Plex for iOS", "iOS", now, 24)
+	if err != nil {
+		t.Fatalf("GetDeviceLastStream (iOS): %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected entry, got nil")
+	}
+	if entry.Title != "Movie 2" {
+		t.Errorf("expected Movie 2, got %s", entry.Title)
+	}
+
+	// Test: Unknown device returns nil
+	entry, err = s.GetDeviceLastStream("alice", "Unknown", "Unknown", now, 24)
+	if err != nil {
+		t.Fatalf("GetDeviceLastStream (unknown device): %v", err)
+	}
+	if entry != nil {
+		t.Errorf("expected nil entry for unknown device, got %+v", entry)
+	}
+}

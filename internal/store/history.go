@@ -315,6 +315,28 @@ func (s *Store) GetLastStreamBeforeTime(userName string, beforeTime time.Time, w
 	return &e, nil
 }
 
+// GetDeviceLastStream returns the most recent history entry for a specific device
+// (player+platform) before the specified time, within the given time window.
+func (s *Store) GetDeviceLastStream(userName, player, platform string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
+	since := beforeTime.Add(-time.Duration(withinHours) * time.Hour)
+
+	query := `SELECT ` + historyColumns + `
+		FROM watch_history
+		WHERE user_name = ? AND player = ? AND platform = ?
+		AND started_at < ? AND started_at >= ?
+		ORDER BY started_at DESC LIMIT 1`
+
+	row := s.db.QueryRow(query, userName, player, platform, beforeTime, since)
+	e, err := scanHistoryEntry(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting device last stream: %w", err)
+	}
+	return &e, nil
+}
+
 func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped int, err error) {
 	if len(entries) == 0 {
 		return 0, 0, nil
