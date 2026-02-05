@@ -292,7 +292,7 @@ func TestHaversineDistance(t *testing.T) {
 	nyLat, nyLng := 40.7128, -74.0060
 	lonLat, lonLng := 51.5074, -0.1278
 
-	dist := haversineDistance(nyLat, nyLng, lonLat, lonLng)
+	dist := HaversineDistance(nyLat, nyLng, lonLat, lonLng)
 
 	// Allow 5% tolerance
 	expected := 5570.0

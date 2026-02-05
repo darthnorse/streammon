@@ -2,6 +2,8 @@ package rules
 
 import (
 	"context"
+	"math"
+	"time"
 
 	"streammon/internal/models"
 )
@@ -27,6 +29,14 @@ type GeoResolver interface {
 	Lookup(ctx context.Context, ip string) (*models.GeoResult, error)
 }
 
+// HistoryQuerier provides methods to query watch history for rule evaluation.
+type HistoryQuerier interface {
+	GetLastStreamBeforeTime(userName string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error)
+	GetDeviceLastStream(userName, player, platform string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error)
+	HasDeviceBeenUsed(userName, player, platform string, beforeTime time.Time) (bool, error)
+	GetUserDistinctIPs(userName string, beforeTime time.Time, limit int) ([]string, error)
+}
+
 // trustedHouseholdIPs returns a set of IP addresses from trusted household locations.
 func trustedHouseholdIPs(households []models.HouseholdLocation) map[string]bool {
 	ips := make(map[string]bool)
@@ -47,4 +57,22 @@ func filterStreamsByUser(streams []models.ActiveStream, userName string) []model
 		}
 	}
 	return result
+}
+
+// HaversineDistance calculates the distance in km between two lat/lng points.
+func HaversineDistance(lat1, lng1, lat2, lng2 float64) float64 {
+	const earthRadiusKm = 6371.0
+
+	lat1Rad := lat1 * math.Pi / 180
+	lat2Rad := lat2 * math.Pi / 180
+	deltaLat := (lat2 - lat1) * math.Pi / 180
+	deltaLng := (lng2 - lng1) * math.Pi / 180
+
+	a := math.Sin(deltaLat/2)*math.Sin(deltaLat/2) +
+		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
+			math.Sin(deltaLng/2)*math.Sin(deltaLng/2)
+
+	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
+
+	return earthRadiusKm * c
 }

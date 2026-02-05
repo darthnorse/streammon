@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"time"
 
 	"streammon/internal/models"
@@ -75,7 +74,7 @@ func (e *SimultaneousLocsEvaluator) Evaluate(ctx context.Context, rule *models.R
 	var loc1, loc2 locationInfo
 	for i := 0; i < len(locs); i++ {
 		for j := i + 1; j < len(locs); j++ {
-			dist := haversineDistance(locs[i].lat, locs[i].lng, locs[j].lat, locs[j].lng)
+			dist := HaversineDistance(locs[i].lat, locs[i].lng, locs[j].lat, locs[j].lng)
 			if dist > maxDistance {
 				maxDistance = dist
 				loc1 = locs[i]
@@ -179,21 +178,4 @@ func determineSeverityByDistance(distanceKm float64) models.Severity {
 		return models.SeverityWarning
 	}
 	return models.SeverityInfo
-}
-
-func haversineDistance(lat1, lng1, lat2, lng2 float64) float64 {
-	const earthRadiusKm = 6371.0
-
-	lat1Rad := lat1 * math.Pi / 180
-	lat2Rad := lat2 * math.Pi / 180
-	deltaLat := (lat2 - lat1) * math.Pi / 180
-	deltaLng := (lng2 - lng1) * math.Pi / 180
-
-	a := math.Sin(deltaLat/2)*math.Sin(deltaLat/2) +
-		math.Cos(lat1Rad)*math.Cos(lat2Rad)*
-			math.Sin(deltaLng/2)*math.Sin(deltaLng/2)
-
-	c := 2 * math.Atan2(math.Sqrt(a), math.Sqrt(1-a))
-
-	return earthRadiusKm * c
 }
