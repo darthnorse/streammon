@@ -327,3 +327,67 @@ func TestInsertHistoryBatchContextCancellation(t *testing.T) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
+
+func TestGetLastStreamBeforeTime(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	// Insert test history entries
+	now := time.Now().UTC()
+	entries := []models.WatchHistoryEntry{
+		{ServerID: serverID, UserName: "alice", Title: "Movie 1", StartedAt: now.Add(-2 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+		{ServerID: serverID, UserName: "alice", Title: "Movie 2", StartedAt: now.Add(-1 * time.Hour), IPAddress: "2.2.2.2", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+		{ServerID: serverID, UserName: "bob", Title: "Movie 3", StartedAt: now.Add(-30 * time.Minute), IPAddress: "3.3.3.3", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+	}
+	for i := range entries {
+		if err := s.InsertHistory(&entries[i]); err != nil {
+			t.Fatalf("InsertHistory: %v", err)
+		}
+	}
+
+	// Test: Get alice's last stream before now
+	entry, err := s.GetLastStreamBeforeTime("alice", now, 24)
+	if err != nil {
+		t.Fatalf("GetLastStreamBeforeTime: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected entry, got nil")
+	}
+	if entry.Title != "Movie 2" {
+		t.Errorf("expected Movie 2, got %s", entry.Title)
+	}
+	if entry.IPAddress != "2.2.2.2" {
+		t.Errorf("expected IP 2.2.2.2, got %s", entry.IPAddress)
+	}
+
+	// Test: Get alice's last stream before the second entry
+	entry, err = s.GetLastStreamBeforeTime("alice", now.Add(-1*time.Hour), 24)
+	if err != nil {
+		t.Fatalf("GetLastStreamBeforeTime (before second entry): %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected entry, got nil")
+	}
+	if entry.Title != "Movie 1" {
+		t.Errorf("expected Movie 1, got %s", entry.Title)
+	}
+
+	// Test: No entry found outside window
+	// Query from 3 hours ago with 1 hour window - no entries exist before 3 hours ago
+	entry, err = s.GetLastStreamBeforeTime("alice", now.Add(-3*time.Hour), 1)
+	if err != nil {
+		t.Fatalf("GetLastStreamBeforeTime (outside window): %v", err)
+	}
+	if entry != nil {
+		t.Errorf("expected nil entry for outside window, got %+v", entry)
+	}
+
+	// Test: Unknown user returns nil
+	entry, err = s.GetLastStreamBeforeTime("unknown", now, 24)
+	if err != nil {
+		t.Fatalf("GetLastStreamBeforeTime (unknown user): %v", err)
+	}
+	if entry != nil {
+		t.Errorf("expected nil entry for unknown user, got %+v", entry)
+	}
+}

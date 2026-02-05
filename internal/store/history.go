@@ -294,6 +294,27 @@ func (s *Store) ListHistoryNeedingEnrichment(serverID int64, limit int) ([]model
 	return items, rows.Err()
 }
 
+// GetLastStreamBeforeTime returns the most recent history entry for a user
+// before the specified time, within the given time window (hours).
+func (s *Store) GetLastStreamBeforeTime(userName string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
+	since := beforeTime.Add(-time.Duration(withinHours) * time.Hour)
+
+	query := `SELECT ` + historyColumns + `
+		FROM watch_history
+		WHERE user_name = ? AND started_at < ? AND started_at >= ?
+		ORDER BY started_at DESC LIMIT 1`
+
+	row := s.db.QueryRow(query, userName, beforeTime, since)
+	e, err := scanHistoryEntry(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting last stream: %w", err)
+	}
+	return &e, nil
+}
+
 func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped int, err error) {
 	if len(entries) == 0 {
 		return 0, 0, nil
