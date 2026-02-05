@@ -6,6 +6,7 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrNotImplemented = errors.New("not implemented")
 
 type MediaType string
 
