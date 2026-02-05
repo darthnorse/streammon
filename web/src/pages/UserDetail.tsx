@@ -129,8 +129,8 @@ export function UserDetail() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <UserHouseholdCard userName={decodedName} />
             <UserLocationsCard locations={stats.locations} />
-            <UserDevicesCard devices={stats.devices} />
             <UserISPCard isps={stats.isps} />
+            <UserDevicesCard devices={stats.devices} />
           </div>
         </>
       )}
