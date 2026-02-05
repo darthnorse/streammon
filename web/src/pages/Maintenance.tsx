@@ -556,13 +556,13 @@ function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
   const params = rule.parameters as Record<string, unknown>
   switch (rule.criterion_type) {
     case 'unwatched_movie':
-      return `Movies unwatched for ${params.days_since_added || 90} days`
+      return `Movies unwatched for ${params.days || 365} days`
     case 'unwatched_tv_none':
-      return `TV shows with no plays in ${params.days_since_added || 90} days`
+      return `TV shows with no plays in ${params.days || 365} days`
     case 'unwatched_tv_low':
-      return `TV shows with <${params.min_watched_percent || 20}% watched in ${params.days_since_added || 90} days`
+      return `TV shows with <${params.max_percent || 10}% watched in ${params.days || 365} days`
     case 'low_resolution':
-      return `Resolution below ${params.min_resolution || '1080p'}`
+      return `Resolution at or below ${params.max_height || 720}p`
     default:
       return JSON.stringify(params)
   }

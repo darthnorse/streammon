@@ -71,8 +71,8 @@ func (s *Store) UpsertLibraryItems(ctx context.Context, items []models.LibraryIt
 }
 
 // GetLibraryItem returns a single cached library item
-func (s *Store) GetLibraryItem(id int64) (*models.LibraryItemCache, error) {
-	item, err := scanLibraryItem(s.db.QueryRow(
+func (s *Store) GetLibraryItem(ctx context.Context, id int64) (*models.LibraryItemCache, error) {
+	item, err := scanLibraryItem(s.db.QueryRowContext(ctx,
 		`SELECT `+libraryItemColumns+` FROM library_items WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("library item %d: %w", id, models.ErrNotFound)
@@ -105,9 +105,9 @@ func (s *Store) ListLibraryItems(ctx context.Context, serverID int64, libraryID 
 }
 
 // GetLastSyncTime returns the most recent sync time for a library
-func (s *Store) GetLastSyncTime(serverID int64, libraryID string) (*time.Time, error) {
+func (s *Store) GetLastSyncTime(ctx context.Context, serverID int64, libraryID string) (*time.Time, error) {
 	var syncedAt sql.NullTime
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT MAX(synced_at) FROM library_items WHERE server_id = ? AND library_id = ?`,
 		serverID, libraryID).Scan(&syncedAt)
 	if err != nil {
@@ -120,8 +120,8 @@ func (s *Store) GetLastSyncTime(serverID int64, libraryID string) (*time.Time, e
 }
 
 // DeleteStaleLibraryItems removes items not seen since the given time
-func (s *Store) DeleteStaleLibraryItems(serverID int64, libraryID string, before time.Time) (int64, error) {
-	result, err := s.db.Exec(
+func (s *Store) DeleteStaleLibraryItems(ctx context.Context, serverID int64, libraryID string, before time.Time) (int64, error) {
+	result, err := s.db.ExecContext(ctx,
 		`DELETE FROM library_items WHERE server_id = ? AND library_id = ? AND synced_at < ?`,
 		serverID, libraryID, before)
 	if err != nil {
@@ -131,9 +131,9 @@ func (s *Store) DeleteStaleLibraryItems(serverID int64, libraryID string, before
 }
 
 // CountLibraryItems returns the count of cached items for a library
-func (s *Store) CountLibraryItems(serverID int64, libraryID string) (int, error) {
+func (s *Store) CountLibraryItems(ctx context.Context, serverID int64, libraryID string) (int, error) {
 	var count int
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM library_items WHERE server_id = ? AND library_id = ?`,
 		serverID, libraryID).Scan(&count)
 	return count, err

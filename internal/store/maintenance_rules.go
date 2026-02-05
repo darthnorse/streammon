@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -27,7 +28,7 @@ func scanMaintenanceRule(scanner interface{ Scan(...any) error }) (models.Mainte
 }
 
 // CreateMaintenanceRule creates a new maintenance rule
-func (s *Store) CreateMaintenanceRule(input *models.MaintenanceRuleInput) (*models.MaintenanceRule, error) {
+func (s *Store) CreateMaintenanceRule(ctx context.Context, input *models.MaintenanceRuleInput) (*models.MaintenanceRule, error) {
 	if err := input.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid maintenance rule: %w", err)
 	}
@@ -38,7 +39,7 @@ func (s *Store) CreateMaintenanceRule(input *models.MaintenanceRuleInput) (*mode
 	enabled := boolToInt(input.Enabled)
 	now := time.Now().UTC()
 
-	result, err := s.db.Exec(`
+	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO maintenance_rules (server_id, library_id, name, criterion_type, parameters, enabled, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		input.ServerID, input.LibraryID, input.Name, input.CriterionType, params, enabled, now, now)
@@ -61,8 +62,8 @@ func (s *Store) CreateMaintenanceRule(input *models.MaintenanceRuleInput) (*mode
 }
 
 // GetMaintenanceRule returns a rule by ID
-func (s *Store) GetMaintenanceRule(id int64) (*models.MaintenanceRule, error) {
-	rule, err := scanMaintenanceRule(s.db.QueryRow(
+func (s *Store) GetMaintenanceRule(ctx context.Context, id int64) (*models.MaintenanceRule, error) {
+	rule, err := scanMaintenanceRule(s.db.QueryRowContext(ctx,
 		`SELECT `+maintenanceRuleColumns+` FROM maintenance_rules WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, models.ErrNotFound
@@ -74,7 +75,7 @@ func (s *Store) GetMaintenanceRule(id int64) (*models.MaintenanceRule, error) {
 }
 
 // UpdateMaintenanceRule updates an existing rule
-func (s *Store) UpdateMaintenanceRule(id int64, input *models.MaintenanceRuleInput) (*models.MaintenanceRule, error) {
+func (s *Store) UpdateMaintenanceRule(ctx context.Context, id int64, input *models.MaintenanceRuleInput) (*models.MaintenanceRule, error) {
 	if err := input.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid maintenance rule: %w", err)
 	}
@@ -85,7 +86,7 @@ func (s *Store) UpdateMaintenanceRule(id int64, input *models.MaintenanceRuleInp
 	enabled := boolToInt(input.Enabled)
 	now := time.Now().UTC()
 
-	result, err := s.db.Exec(`
+	result, err := s.db.ExecContext(ctx, `
 		UPDATE maintenance_rules SET name = ?, criterion_type = ?, parameters = ?, enabled = ?, updated_at = ?
 		WHERE id = ?`,
 		input.Name, input.CriterionType, params, enabled, now, id)
@@ -101,12 +102,12 @@ func (s *Store) UpdateMaintenanceRule(id int64, input *models.MaintenanceRuleInp
 		return nil, fmt.Errorf("maintenance rule %d: %w", id, models.ErrNotFound)
 	}
 
-	return s.GetMaintenanceRule(id)
+	return s.GetMaintenanceRule(ctx, id)
 }
 
 // DeleteMaintenanceRule deletes a rule and its candidates
-func (s *Store) DeleteMaintenanceRule(id int64) error {
-	_, err := s.db.Exec(`DELETE FROM maintenance_rules WHERE id = ?`, id)
+func (s *Store) DeleteMaintenanceRule(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM maintenance_rules WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete maintenance rule: %w", err)
 	}
@@ -114,7 +115,7 @@ func (s *Store) DeleteMaintenanceRule(id int64) error {
 }
 
 // ListMaintenanceRules returns all rules, optionally filtered by server/library
-func (s *Store) ListMaintenanceRules(serverID int64, libraryID string) ([]models.MaintenanceRule, error) {
+func (s *Store) ListMaintenanceRules(ctx context.Context, serverID int64, libraryID string) ([]models.MaintenanceRule, error) {
 	query := `SELECT ` + maintenanceRuleColumns + ` FROM maintenance_rules WHERE 1=1`
 	var args []any
 
@@ -128,7 +129,7 @@ func (s *Store) ListMaintenanceRules(serverID int64, libraryID string) ([]models
 	}
 	query += ` ORDER BY created_at DESC`
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list maintenance rules: %w", err)
 	}
@@ -146,7 +147,7 @@ func (s *Store) ListMaintenanceRules(serverID int64, libraryID string) ([]models
 }
 
 // ListMaintenanceRulesWithCounts returns rules with candidate counts
-func (s *Store) ListMaintenanceRulesWithCounts(serverID int64, libraryID string) ([]models.MaintenanceRuleWithCount, error) {
+func (s *Store) ListMaintenanceRulesWithCounts(ctx context.Context, serverID int64, libraryID string) ([]models.MaintenanceRuleWithCount, error) {
 	query := `SELECT r.id, r.server_id, r.library_id, r.name, r.criterion_type, r.parameters,
 		r.enabled, r.created_at, r.updated_at, COUNT(c.id) as candidate_count
 		FROM maintenance_rules r
@@ -164,7 +165,7 @@ func (s *Store) ListMaintenanceRulesWithCounts(serverID int64, libraryID string)
 	}
 	query += ` GROUP BY r.id ORDER BY r.created_at DESC`
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list maintenance rules with counts: %w", err)
 	}

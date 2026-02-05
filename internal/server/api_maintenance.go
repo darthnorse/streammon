@@ -52,14 +52,14 @@ func (s *Server) handleGetMaintenanceDashboard(w http.ResponseWriter, r *http.Re
 				continue
 			}
 
-			rules, err := s.store.ListMaintenanceRulesWithCounts(srv.ID, lib.ID)
+			rules, err := s.store.ListMaintenanceRulesWithCounts(r.Context(), srv.ID, lib.ID)
 			if err != nil {
 				log.Printf("maintenance dashboard: get rules for %s/%s: %v", srv.Name, lib.Name, err)
 				continue
 			}
 
-			lastSync, _ := s.store.GetLastSyncTime(srv.ID, lib.ID)
-			itemCount, _ := s.store.CountLibraryItems(srv.ID, lib.ID)
+			lastSync, _ := s.store.GetLastSyncTime(r.Context(), srv.ID, lib.ID)
+			itemCount, _ := s.store.CountLibraryItems(r.Context(), srv.ID, lib.ID)
 
 			libraries = append(libraries, models.LibraryMaintenance{
 				ServerID:     srv.ID,
@@ -112,10 +112,13 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Delete items not seen in this sync
-	deleted, _ := s.store.DeleteStaleLibraryItems(req.ServerID, req.LibraryID, syncStart)
+	deleted, err := s.store.DeleteStaleLibraryItems(ctx, req.ServerID, req.LibraryID, syncStart)
+	if err != nil {
+		log.Printf("failed to delete stale items: %v", err)
+	}
 
 	// Re-evaluate all enabled rules for this library
-	rules, err := s.store.ListMaintenanceRules(req.ServerID, req.LibraryID)
+	rules, err := s.store.ListMaintenanceRules(ctx, req.ServerID, req.LibraryID)
 	if err == nil {
 		evaluator := maintenance.NewEvaluator(s.store)
 		for _, rule := range rules {
@@ -155,7 +158,7 @@ func (s *Server) handleListMaintenanceRules(w http.ResponseWriter, r *http.Reque
 	serverID, _ := strconv.ParseInt(r.URL.Query().Get("server_id"), 10, 64)
 	libraryID := r.URL.Query().Get("library_id")
 
-	rules, err := s.store.ListMaintenanceRulesWithCounts(serverID, libraryID)
+	rules, err := s.store.ListMaintenanceRulesWithCounts(r.Context(), serverID, libraryID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list rules")
 		return
@@ -172,7 +175,7 @@ func (s *Server) handleCreateMaintenanceRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	rule, err := s.store.CreateMaintenanceRule(&input)
+	rule, err := s.store.CreateMaintenanceRule(r.Context(), &input)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to create rule")
 		return
@@ -183,9 +186,13 @@ func (s *Server) handleCreateMaintenanceRule(w http.ResponseWriter, r *http.Requ
 
 // GET /api/maintenance/rules/{id}
 func (s *Server) handleGetMaintenanceRule(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
 
-	rule, err := s.store.GetMaintenanceRule(id)
+	rule, err := s.store.GetMaintenanceRule(r.Context(), id)
 	if errors.Is(err, models.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
@@ -200,7 +207,11 @@ func (s *Server) handleGetMaintenanceRule(w http.ResponseWriter, r *http.Request
 
 // PUT /api/maintenance/rules/{id}
 func (s *Server) handleUpdateMaintenanceRule(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
 
 	var input models.MaintenanceRuleInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -208,7 +219,7 @@ func (s *Server) handleUpdateMaintenanceRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	rule, err := s.store.UpdateMaintenanceRule(id, &input)
+	rule, err := s.store.UpdateMaintenanceRule(r.Context(), id, &input)
 	if errors.Is(err, models.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
@@ -223,9 +234,13 @@ func (s *Server) handleUpdateMaintenanceRule(w http.ResponseWriter, r *http.Requ
 
 // DELETE /api/maintenance/rules/{id}
 func (s *Server) handleDeleteMaintenanceRule(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
 
-	if err := s.store.DeleteMaintenanceRule(id); err != nil {
+	if err := s.store.DeleteMaintenanceRule(r.Context(), id); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete rule")
 		return
 	}
@@ -235,9 +250,13 @@ func (s *Server) handleDeleteMaintenanceRule(w http.ResponseWriter, r *http.Requ
 
 // POST /api/maintenance/rules/{id}/evaluate
 func (s *Server) handleEvaluateRule(w http.ResponseWriter, r *http.Request) {
-	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
 
-	rule, err := s.store.GetMaintenanceRule(id)
+	rule, err := s.store.GetMaintenanceRule(r.Context(), id)
 	if errors.Is(err, models.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "rule not found")
 		return
@@ -278,7 +297,11 @@ func (s *Server) handleEvaluateRule(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/maintenance/rules/{id}/candidates
 func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
-	ruleID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	ruleID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || ruleID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
