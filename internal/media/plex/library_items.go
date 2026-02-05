@@ -1,0 +1,140 @@
+package plex
+
+import (
+	"context"
+	"encoding/xml"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"time"
+
+	"streammon/internal/httputil"
+	"streammon/internal/models"
+)
+
+type libraryItemsContainer struct {
+	XMLName     xml.Name         `xml:"MediaContainer"`
+	TotalSize   int              `xml:"totalSize,attr"`
+	Videos      []libraryItemXML `xml:"Video"`
+	Directories []libraryItemXML `xml:"Directory"`
+}
+
+type libraryItemXML struct {
+	RatingKey string         `xml:"ratingKey,attr"`
+	Type      string         `xml:"type,attr"`
+	Title     string         `xml:"title,attr"`
+	Year      string         `xml:"year,attr"`
+	AddedAt   string         `xml:"addedAt,attr"`
+	LeafCount string         `xml:"leafCount,attr"`
+	Media     []mediaInfoXML `xml:"Media"`
+}
+
+type mediaInfoXML struct {
+	VideoResolution string `xml:"videoResolution,attr"`
+	Height          string `xml:"height,attr"`
+}
+
+func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
+	var allItems []models.LibraryItemCache
+
+	// Fetch movies (type=1)
+	movies, err := s.fetchLibraryItemsPage(ctx, libraryID, "1")
+	if err != nil {
+		return nil, fmt.Errorf("fetch movies: %w", err)
+	}
+	allItems = append(allItems, movies...)
+
+	// Fetch shows (type=2)
+	shows, err := s.fetchLibraryItemsPage(ctx, libraryID, "2")
+	if err != nil {
+		return nil, fmt.Errorf("fetch shows: %w", err)
+	}
+	allItems = append(allItems, shows...)
+
+	return allItems, nil
+}
+
+func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilter string) ([]models.LibraryItemCache, error) {
+	const batchSize = 100
+	var allItems []models.LibraryItemCache
+	offset := 0
+
+	for {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		u, _ := url.Parse(fmt.Sprintf("%s/library/sections/%s/all", s.url, libraryID))
+		q := u.Query()
+		q.Set("type", typeFilter)
+		q.Set("X-Plex-Container-Start", strconv.Itoa(offset))
+		q.Set("X-Plex-Container-Size", strconv.Itoa(batchSize))
+		u.RawQuery = q.Encode()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			return nil, err
+		}
+		s.setHeaders(req)
+
+		resp, err := s.client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("plex library items: %w", err)
+		}
+		defer httputil.DrainBody(resp)
+
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("plex library items: status %d", resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+		if err != nil {
+			return nil, err
+		}
+
+		var container libraryItemsContainer
+		if err := xml.Unmarshal(body, &container); err != nil {
+			return nil, fmt.Errorf("parse library items: %w", err)
+		}
+
+		items := append(container.Videos, container.Directories...)
+		if len(items) == 0 {
+			break
+		}
+
+		for _, item := range items {
+			var resolution string
+			if len(item.Media) > 0 {
+				resolution = normalizeResolution(item.Media[0].VideoResolution)
+				if resolution == "" && item.Media[0].Height != "" {
+					resolution = heightToResolution(item.Media[0].Height)
+				}
+			}
+
+			mediaType := plexMediaType(item.Type)
+			episodeCount := atoi(item.LeafCount)
+
+			allItems = append(allItems, models.LibraryItemCache{
+				ServerID:        s.serverID,
+				LibraryID:       libraryID,
+				ItemID:          item.RatingKey,
+				MediaType:       mediaType,
+				Title:           item.Title,
+				Year:            atoi(item.Year),
+				AddedAt:         time.Unix(atoi64(item.AddedAt), 0).UTC(),
+				VideoResolution: resolution,
+				EpisodeCount:    episodeCount,
+				ThumbURL:        item.RatingKey,
+			})
+		}
+
+		offset += len(items)
+		if len(items) < batchSize {
+			break
+		}
+	}
+
+	return allItems, nil
+}
