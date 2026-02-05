@@ -209,7 +209,7 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
 function getDefaultConfig(type: RuleType): Record<string, unknown> {
   switch (type) {
     case 'concurrent_streams':
-      return { max_streams: 2, exempt_household: true }
+      return { max_streams: 2, exempt_household: true, count_paused_as_one: false }
     case 'geo_restriction':
       return { allowed_countries: [], blocked_countries: [] }
     case 'simultaneous_locations':
@@ -261,6 +261,16 @@ function renderConfigFields(
               className="w-4 h-4 rounded"
             />
             <label htmlFor="cfg-exempt-household" className="text-sm">Exempt household (trusted locations)</label>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              id="cfg-count-paused-as-one"
+              type="checkbox"
+              checked={(config.count_paused_as_one as boolean) ?? false}
+              onChange={e => updateField('count_paused_as_one', e.target.checked)}
+              className="w-4 h-4 rounded"
+            />
+            <label htmlFor="cfg-count-paused-as-one" className="text-sm">Count paused streams as one</label>
           </div>
         </div>
       )

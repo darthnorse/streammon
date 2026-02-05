@@ -405,12 +405,27 @@ func CalculateConfidence(signals []ViolationSignal) float64 {
 	totalWeight := 0.0
 	weightedSum := 0.0
 	for _, s := range signals {
-		totalWeight += s.Weight
-		if v, ok := s.Value.(float64); ok {
-			weightedSum += v * s.Weight
-		} else if v, ok := s.Value.(bool); ok && v {
-			weightedSum += 100 * s.Weight
+		var value float64
+		switch v := s.Value.(type) {
+		case float64:
+			value = v
+		case float32:
+			value = float64(v)
+		case int:
+			value = float64(v)
+		case int64:
+			value = float64(v)
+		case bool:
+			if v {
+				value = 100
+			}
+			// false contributes 0
+		default:
+			// Skip unknown types - don't add to totalWeight
+			continue
 		}
+		totalWeight += s.Weight
+		weightedSum += value * s.Weight
 	}
 	if totalWeight == 0 {
 		return 0

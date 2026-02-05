@@ -87,7 +87,7 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
             <div key={loc.id} className="flex items-start justify-between gap-2 text-sm">
               <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">
-                  {loc.city || loc.ip_address}{loc.country && `, ${loc.country}`}
+                  {loc.city || loc.ip_address || 'Unknown location'}{loc.country && `, ${loc.country}`}
                 </div>
                 <div className="text-xs text-muted dark:text-muted-dark flex items-center gap-2 mt-0.5">
                   {loc.auto_learned ? (
@@ -102,6 +102,7 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
                 <button
                   onClick={() => handleToggleTrusted(loc)}
                   disabled={updating === loc.id}
+                  aria-label={loc.trusted ? 'Mark as untrusted' : 'Mark as trusted'}
                   className={`px-2 py-1 text-xs font-medium rounded transition-colors
                     ${loc.trusted
                       ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'

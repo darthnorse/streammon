@@ -522,6 +522,36 @@ func TestCalculateConfidence(t *testing.T) {
 			},
 			want: 100,
 		},
+		{
+			name: "bool false contributes 0",
+			signals: []ViolationSignal{
+				{Name: "a", Weight: 0.5, Value: true},
+				{Name: "b", Weight: 0.5, Value: false},
+			},
+			want: 50, // true=100, false=0, average=50
+		},
+		{
+			name: "int values",
+			signals: []ViolationSignal{
+				{Name: "a", Weight: 1.0, Value: 75},
+			},
+			want: 75,
+		},
+		{
+			name: "int64 values",
+			signals: []ViolationSignal{
+				{Name: "a", Weight: 1.0, Value: int64(60)},
+			},
+			want: 60,
+		},
+		{
+			name: "unknown types skipped",
+			signals: []ViolationSignal{
+				{Name: "a", Weight: 1.0, Value: 80.0},
+				{Name: "b", Weight: 1.0, Value: "ignored"},
+			},
+			want: 80, // string signal skipped, only float64 counted
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

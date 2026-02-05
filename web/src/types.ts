@@ -429,6 +429,17 @@ export interface DeviceVelocityConfig {
   time_window_hours: number
 }
 
+export interface NewDeviceConfig {
+  notify_on_new: boolean
+}
+
+export interface NewLocationConfig {
+  notify_on_new: boolean
+  min_distance_km: number
+  severity_threshold_km: number
+  exempt_household?: boolean
+}
+
 // Notification channel configs
 export interface DiscordConfig {
   webhook_url: string
