@@ -453,3 +453,59 @@ func TestGetDeviceLastStream(t *testing.T) {
 		t.Errorf("expected nil entry for unknown device, got %+v", entry)
 	}
 }
+
+func TestHasDeviceBeenUsed(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	entry := models.WatchHistoryEntry{
+		ServerID:  serverID,
+		UserName:  "alice",
+		Title:     "Movie 1",
+		MediaType: models.MediaTypeMovie,
+		StartedAt: now.Add(-1 * time.Hour),
+		IPAddress: "1.1.1.1",
+		Player:    "Plex Web",
+		Platform:  "Chrome",
+	}
+	if err := s.InsertHistory(&entry); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+
+	// Test: Device has been used before now
+	used, err := s.HasDeviceBeenUsed("alice", "Plex Web", "Chrome", now)
+	if err != nil {
+		t.Fatalf("HasDeviceBeenUsed: %v", err)
+	}
+	if !used {
+		t.Error("expected device to have been used")
+	}
+
+	// Test: Device not used before the entry was created
+	used, err = s.HasDeviceBeenUsed("alice", "Plex Web", "Chrome", now.Add(-2*time.Hour))
+	if err != nil {
+		t.Fatalf("HasDeviceBeenUsed (before entry): %v", err)
+	}
+	if used {
+		t.Error("expected device not to have been used before entry time")
+	}
+
+	// Test: Different device not used
+	used, err = s.HasDeviceBeenUsed("alice", "Plex for iOS", "iOS", now)
+	if err != nil {
+		t.Fatalf("HasDeviceBeenUsed (different device): %v", err)
+	}
+	if used {
+		t.Error("expected different device not to have been used")
+	}
+
+	// Test: Different user not used this device
+	used, err = s.HasDeviceBeenUsed("bob", "Plex Web", "Chrome", now)
+	if err != nil {
+		t.Fatalf("HasDeviceBeenUsed (different user): %v", err)
+	}
+	if used {
+		t.Error("expected different user not to have used this device")
+	}
+}

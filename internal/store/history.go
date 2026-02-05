@@ -337,6 +337,21 @@ func (s *Store) GetDeviceLastStream(userName, player, platform string, beforeTim
 	return &e, nil
 }
 
+// HasDeviceBeenUsed checks if a device (player+platform) has been used by a user
+// before the specified time.
+func (s *Store) HasDeviceBeenUsed(userName, player, platform string, beforeTime time.Time) (bool, error) {
+	var count int
+	err := s.db.QueryRow(
+		`SELECT COUNT(*) FROM watch_history
+		WHERE user_name = ? AND player = ? AND platform = ? AND started_at < ? LIMIT 1`,
+		userName, player, platform, beforeTime,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("checking device usage: %w", err)
+	}
+	return count > 0, nil
+}
+
 func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped int, err error) {
 	if len(entries) == 0 {
 		return 0, 0, nil
