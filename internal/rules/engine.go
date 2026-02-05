@@ -82,6 +82,10 @@ func NewEngine(s *store.Store, geo GeoResolver, config EngineConfig) *Engine {
 	e.RegisterEvaluator(NewConcurrentStreamsEvaluator())
 	e.RegisterEvaluator(NewGeoRestrictionEvaluator())
 	e.RegisterEvaluator(NewSimultaneousLocsEvaluator(geo))
+	e.RegisterEvaluator(NewImpossibleTravelEvaluator(geo, s))
+	e.RegisterEvaluator(NewDeviceVelocityEvaluator(s))
+	e.RegisterEvaluator(NewNewDeviceEvaluator(s))
+	e.RegisterEvaluator(NewNewLocationEvaluator(geo, s))
 
 	return e
 }
