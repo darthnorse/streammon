@@ -105,6 +105,21 @@ func (s *Server) routes() {
 			sr.Post("/{id}/test", s.handleTestNotificationChannel)
 		})
 
+		// Maintenance routes (admin only)
+		r.Route("/maintenance", func(mr chi.Router) {
+			mr.Use(RequireRole(models.RoleAdmin))
+			mr.Get("/criterion-types", s.handleGetCriterionTypes)
+			mr.Get("/dashboard", s.handleGetMaintenanceDashboard)
+			mr.Post("/sync", s.handleSyncLibraryItems)
+			mr.Get("/rules", s.handleListMaintenanceRules)
+			mr.Post("/rules", s.handleCreateMaintenanceRule)
+			mr.Get("/rules/{id}", s.handleGetMaintenanceRule)
+			mr.Put("/rules/{id}", s.handleUpdateMaintenanceRule)
+			mr.Delete("/rules/{id}", s.handleDeleteMaintenanceRule)
+			mr.Post("/rules/{id}/evaluate", s.handleEvaluateRule)
+			mr.Get("/rules/{id}/candidates", s.handleListCandidates)
+		})
+
 		r.Get("/users/{name}/trust", s.handleGetUserTrustScore)
 		r.Route("/users/{name}/household", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
