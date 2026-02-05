@@ -113,6 +113,21 @@ func (c *ImpossibleTravelConfig) Validate() error {
 	return nil
 }
 
+type DeviceVelocityConfig struct {
+	MaxDevicesPerHour int `json:"max_devices_per_hour"`
+	TimeWindowHours   int `json:"time_window_hours"`
+}
+
+func (c *DeviceVelocityConfig) Validate() error {
+	if c.MaxDevicesPerHour <= 0 {
+		c.MaxDevicesPerHour = 3
+	}
+	if c.TimeWindowHours <= 0 {
+		c.TimeWindowHours = 1
+	}
+	return nil
+}
+
 type ConcurrentStreamsConfig struct {
 	MaxStreams       int  `json:"max_streams"`
 	ExemptHousehold  bool `json:"exempt_household"`
