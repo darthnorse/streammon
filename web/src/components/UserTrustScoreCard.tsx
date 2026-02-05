@@ -1,4 +1,5 @@
 import { useFetch } from '../hooks/useFetch'
+import { formatRelativeTime } from '../lib/format'
 import type { UserTrustScore } from '../types'
 
 interface UserTrustScoreCardProps {
@@ -11,10 +12,18 @@ function getScoreColor(score: number): string {
   return 'text-red-400'
 }
 
-function getScoreBgColor(score: number): string {
-  if (score >= 80) return 'bg-green-500/20'
-  if (score >= 50) return 'bg-amber-500/20'
-  return 'bg-red-500/20'
+function getScoreBarColor(score: number): string {
+  if (score >= 80) return 'bg-green-500'
+  if (score >= 50) return 'bg-amber-500'
+  return 'bg-red-500'
+}
+
+function CardHeader() {
+  return (
+    <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">
+      Trust Score
+    </h3>
+  )
 }
 
 export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
@@ -25,10 +34,16 @@ export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
   if (loading) {
     return (
       <div className="card p-4">
-        <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">
-          Trust Score
-        </h3>
-        <div className="text-sm text-muted dark:text-muted-dark">Loading...</div>
+        <CardHeader />
+        <div className="flex items-center gap-4 animate-pulse">
+          <div className="h-10 w-12 rounded bg-gray-200 dark:bg-white/10" />
+          <div className="flex-1">
+            <div className="h-2 rounded-full bg-gray-200 dark:bg-white/10" />
+          </div>
+        </div>
+        <div className="mt-4 space-y-1 animate-pulse">
+          <div className="h-4 w-24 rounded bg-gray-200 dark:bg-white/10" />
+        </div>
       </div>
     )
   }
@@ -36,9 +51,7 @@ export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
   if (error) {
     return (
       <div className="card p-4">
-        <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">
-          Trust Score
-        </h3>
+        <CardHeader />
         <div className="text-sm text-red-500 dark:text-red-400">Failed to load</div>
       </div>
     )
@@ -48,9 +61,7 @@ export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
 
   return (
     <div className="card p-4">
-      <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">
-        Trust Score
-      </h3>
+      <CardHeader />
 
       <div className="flex items-center gap-4">
         <div className={`text-4xl font-bold ${getScoreColor(score)}`}>
@@ -59,7 +70,7 @@ export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
         <div className="flex-1">
           <div className="h-2 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden">
             <div
-              className={`h-full rounded-full ${getScoreBgColor(score).replace('/20', '')}`}
+              className={`h-full rounded-full ${getScoreBarColor(score)}`}
               style={{ width: `${score}%` }}
             />
           </div>
@@ -76,7 +87,7 @@ export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
         {trustScore?.last_violation_at && (
           <div className="flex justify-between">
             <span className="text-muted dark:text-muted-dark">Last violation</span>
-            <span>{new Date(trustScore.last_violation_at).toLocaleDateString()}</span>
+            <span>{formatRelativeTime(trustScore.last_violation_at)}</span>
           </div>
         )}
       </div>
