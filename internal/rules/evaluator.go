@@ -35,6 +35,7 @@ type HistoryQuerier interface {
 	GetDeviceLastStream(userName, player, platform string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error)
 	HasDeviceBeenUsed(userName, player, platform string, beforeTime time.Time) (bool, error)
 	GetUserDistinctIPs(userName string, beforeTime time.Time, limit int) ([]string, error)
+	GetRecentDevices(userName string, beforeTime time.Time, withinHours int) ([]models.DeviceInfo, error)
 }
 
 // trustedHouseholdIPs returns a set of IP addresses from trusted household locations.

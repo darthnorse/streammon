@@ -384,6 +384,11 @@ type ViolationSignal struct {
 	Value  interface{} `json:"value"`
 }
 
+type DeviceInfo struct {
+	Player   string `json:"player"`
+	Platform string `json:"platform"`
+}
+
 func CalculateConfidence(signals []ViolationSignal) float64 {
 	if len(signals) == 0 {
 		return 0

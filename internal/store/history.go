@@ -376,6 +376,31 @@ func (s *Store) GetUserDistinctIPs(userName string, beforeTime time.Time, limit 
 	return ips, rows.Err()
 }
 
+// GetRecentDevices returns distinct devices (player+platform) used by a user
+// in the time window before the specified time.
+func (s *Store) GetRecentDevices(userName string, beforeTime time.Time, withinHours int) ([]models.DeviceInfo, error) {
+	since := beforeTime.Add(-time.Duration(withinHours) * time.Hour)
+
+	query := `SELECT DISTINCT player, platform FROM watch_history
+		WHERE user_name = ? AND started_at >= ? AND started_at < ?`
+
+	rows, err := s.db.Query(query, userName, since, beforeTime)
+	if err != nil {
+		return nil, fmt.Errorf("getting recent devices: %w", err)
+	}
+	defer rows.Close()
+
+	var devices []models.DeviceInfo
+	for rows.Next() {
+		var d models.DeviceInfo
+		if err := rows.Scan(&d.Player, &d.Platform); err != nil {
+			return nil, err
+		}
+		devices = append(devices, d)
+	}
+	return devices, rows.Err()
+}
+
 func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped int, err error) {
 	if len(entries) == 0 {
 		return 0, 0, nil
