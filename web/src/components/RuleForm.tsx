@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import type { Rule, RuleType } from '../types'
+import type { Rule, RuleType, NotificationChannel } from '../types'
 import { RULE_TYPES } from '../types'
 import { api } from '../lib/api'
+import { useFetch } from '../hooks/useFetch'
+import { MultiSelectChannels } from './MultiSelectChannels'
 
 interface RuleFormProps {
   rule?: Rule | null
@@ -31,6 +33,7 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   const [config, setConfig] = useState<Record<string, unknown>>(rule?.config ?? {})
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [selectedChannels, setSelectedChannels] = useState<number[]>([])
 
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -47,6 +50,16 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
     }
   }, [ruleType, rule])
 
+  const { data: linkedChannels } = useFetch<NotificationChannel[]>(
+    rule?.id ? `/api/rules/${rule.id}/channels` : null
+  )
+
+  useEffect(() => {
+    if (linkedChannels) {
+      setSelectedChannels(linkedChannels.map(c => c.id))
+    }
+  }, [linkedChannels])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!name.trim()) {
@@ -58,11 +71,26 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
     setError('')
     try {
       const payload = { name, type: ruleType, enabled, config }
+      let ruleId: number
+
       if (isEdit) {
         await api.put(`/api/rules/${rule.id}`, payload)
+        ruleId = rule.id
       } else {
-        await api.post('/api/rules', payload)
+        const created = await api.post<{ id: number }>('/api/rules', payload)
+        ruleId = created.id
       }
+
+      // Sync channel links
+      const currentChannels = linkedChannels?.map(c => c.id) ?? []
+      const toAdd = selectedChannels.filter(id => !currentChannels.includes(id))
+      const toRemove = currentChannels.filter(id => !selectedChannels.includes(id))
+
+      await Promise.all([
+        ...toAdd.map(channelId => api.post(`/api/rules/${ruleId}/channels`, { channel_id: channelId })),
+        ...toRemove.map(channelId => api.del(`/api/rules/${ruleId}/channels/${channelId}`)),
+      ])
+
       onSaved()
     } catch (err) {
       setError((err as Error).message)
@@ -138,6 +166,17 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
           <div className="border-t border-border dark:border-border-dark pt-4">
             <h3 className="text-sm font-semibold mb-3">Configuration</h3>
             {renderConfigFields(ruleType, config, setConfig)}
+          </div>
+
+          <div className="border-t border-border dark:border-border-dark pt-4">
+            <h3 className="text-sm font-semibold mb-3">Notification Channels</h3>
+            <p className="text-xs text-muted dark:text-muted-dark mb-3">
+              Select channels to notify when this rule is violated.
+            </p>
+            <MultiSelectChannels
+              selectedIds={selectedChannels}
+              onChange={setSelectedChannels}
+            />
           </div>
 
           {error && (
