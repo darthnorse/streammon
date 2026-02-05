@@ -300,21 +300,22 @@ type libraryItemsResponse struct {
 }
 
 type libraryItemJSON struct {
-	ID                string            `json:"Id"`
-	Name              string            `json:"Name"`
-	ProductionYear    int               `json:"ProductionYear"`
-	Type              string            `json:"Type"`
-	ImageTags         map[string]string `json:"ImageTags"`
-	DateCreated       string            `json:"DateCreated"`
-	SeriesName        string            `json:"SeriesName,omitempty"`
-	SeriesId          string            `json:"SeriesId,omitempty"`
-	SeriesPrimaryImageTag string        `json:"SeriesPrimaryImageTag,omitempty"`
-	ParentIndexNumber int               `json:"ParentIndexNumber,omitempty"`
-	IndexNumber       int               `json:"IndexNumber,omitempty"`
+	ID                    string            `json:"Id"`
+	Name                  string            `json:"Name"`
+	ProductionYear        int               `json:"ProductionYear"`
+	Type                  string            `json:"Type"`
+	ImageTags             map[string]string `json:"ImageTags"`
+	DateCreated           string            `json:"DateCreated"`
+	SeriesName            string            `json:"SeriesName,omitempty"`
+	SeriesId              string            `json:"SeriesId,omitempty"`
+	SeriesPrimaryImageTag string            `json:"SeriesPrimaryImageTag,omitempty"`
+	ParentIndexNumber     int               `json:"ParentIndexNumber,omitempty"`
+	IndexNumber           int               `json:"IndexNumber,omitempty"`
+	ProviderIds           map[string]string `json:"ProviderIds,omitempty"`
 }
 
 func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
-	url := fmt.Sprintf("%s/Items?Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=%d&IncludeItemTypes=Movie,Episode&Fields=DateCreated",
+	url := fmt.Sprintf("%s/Items?Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=%d&IncludeItemTypes=Movie,Episode&Fields=DateCreated,ProviderIds,ProductionYear",
 		c.url, limit)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -371,6 +372,11 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 			ServerType:    c.serverType,
 			SeasonNumber:  item.ParentIndexNumber,
 			EpisodeNumber: item.IndexNumber,
+			ExternalIDs: models.ExternalIDs{
+				IMDB: item.ProviderIds["Imdb"],
+				TMDB: item.ProviderIds["Tmdb"],
+				TVDB: item.ProviderIds["Tvdb"],
+			},
 		})
 	}
 

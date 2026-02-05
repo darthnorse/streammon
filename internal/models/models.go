@@ -247,18 +247,38 @@ type GeoResult struct {
 	Users    []string `json:"users,omitempty"`
 }
 
+type ExternalIDs struct {
+	IMDB string `json:"imdb,omitempty"`
+	TMDB string `json:"tmdb,omitempty"`
+	TVDB string `json:"tvdb,omitempty"`
+}
+
+func (e ExternalIDs) DedupeKey() string {
+	if e.TMDB != "" {
+		return "tmdb:" + e.TMDB
+	}
+	if e.TVDB != "" {
+		return "tvdb:" + e.TVDB
+	}
+	if e.IMDB != "" {
+		return "imdb:" + e.IMDB
+	}
+	return ""
+}
+
 type LibraryItem struct {
-	ItemID        string     `json:"item_id"`
-	Title         string     `json:"title"`
-	Year          int        `json:"year,omitempty"`
-	MediaType     MediaType  `json:"media_type"`
-	ThumbURL      string     `json:"thumb_url,omitempty"`
-	AddedAt       time.Time  `json:"added_at"`
-	ServerID      int64      `json:"server_id"`
-	ServerName    string     `json:"server_name"`
-	ServerType    ServerType `json:"server_type"`
-	SeasonNumber  int        `json:"season_number,omitempty"`
-	EpisodeNumber int        `json:"episode_number,omitempty"`
+	ItemID        string      `json:"item_id"`
+	Title         string      `json:"title"`
+	Year          int         `json:"year,omitempty"`
+	MediaType     MediaType   `json:"media_type"`
+	ThumbURL      string      `json:"thumb_url,omitempty"`
+	AddedAt       time.Time   `json:"added_at"`
+	ServerID      int64       `json:"server_id"`
+	ServerName    string      `json:"server_name"`
+	ServerType    ServerType  `json:"server_type"`
+	SeasonNumber  int         `json:"season_number,omitempty"`
+	EpisodeNumber int         `json:"episode_number,omitempty"`
+	ExternalIDs   ExternalIDs `json:"external_ids,omitempty"`
 }
 
 type CastMember struct {

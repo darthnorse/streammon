@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"streammon/internal/httputil"
@@ -20,17 +21,22 @@ type recentlyAddedContainer struct {
 }
 
 type recentlyAddedItem struct {
-	Title            string `xml:"title,attr"`
-	Year             string `xml:"year,attr"`
-	Type             string `xml:"type,attr"`
-	Thumb            string `xml:"thumb,attr"`
-	GrandparentThumb string `xml:"grandparentThumb,attr"`
-	AddedAt          string `xml:"addedAt,attr"`
-	GrandparentTitle string `xml:"grandparentTitle,attr"`
-	RatingKey        string `xml:"ratingKey,attr"`
-	GrandparentKey   string `xml:"grandparentRatingKey,attr"`
-	ParentIndex      string `xml:"parentIndex,attr"`
-	Index            string `xml:"index,attr"`
+	Title            string     `xml:"title,attr"`
+	Year             string     `xml:"year,attr"`
+	Type             string     `xml:"type,attr"`
+	Thumb            string     `xml:"thumb,attr"`
+	GrandparentThumb string     `xml:"grandparentThumb,attr"`
+	AddedAt          string     `xml:"addedAt,attr"`
+	GrandparentTitle string     `xml:"grandparentTitle,attr"`
+	RatingKey        string     `xml:"ratingKey,attr"`
+	GrandparentKey   string     `xml:"grandparentRatingKey,attr"`
+	ParentIndex      string     `xml:"parentIndex,attr"`
+	Index            string     `xml:"index,attr"`
+	Guids            []plexGuid `xml:"Guid"`
+}
+
+type plexGuid struct {
+	ID string `xml:"id,attr"`
 }
 
 // Plex hub media types
@@ -120,8 +126,24 @@ func (s *Server) fetchHubRecentlyAdded(ctx context.Context, mediaType string, li
 			ServerType:    models.ServerTypePlex,
 			SeasonNumber:  atoi(item.ParentIndex),
 			EpisodeNumber: atoi(item.Index),
+			ExternalIDs:   parsePlexGuids(item.Guids),
 		})
 	}
 
 	return items, nil
+}
+
+func parsePlexGuids(guids []plexGuid) models.ExternalIDs {
+	var ids models.ExternalIDs
+	for _, g := range guids {
+		switch {
+		case strings.HasPrefix(g.ID, "imdb://"):
+			ids.IMDB = strings.TrimPrefix(g.ID, "imdb://")
+		case strings.HasPrefix(g.ID, "tmdb://"):
+			ids.TMDB = strings.TrimPrefix(g.ID, "tmdb://")
+		case strings.HasPrefix(g.ID, "tvdb://"):
+			ids.TVDB = strings.TrimPrefix(g.ID, "tvdb://")
+		}
+	}
+	return ids
 }
