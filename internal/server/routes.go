@@ -89,6 +89,7 @@ func (s *Server) routes() {
 		})
 
 		r.Route("/violations", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleListViolations)
 		})
 

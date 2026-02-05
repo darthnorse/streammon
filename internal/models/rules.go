@@ -30,9 +30,7 @@ func (rt RuleType) Valid() bool {
 	return false
 }
 
-// IsRealTime returns true if this rule type should be evaluated in real-time
-// (on each stream event). Currently all rule types are real-time, but this method
-// exists to support future batch-only rule types (e.g., daily usage limits).
+// IsRealTime returns whether this rule type is evaluated on each stream event.
 func (rt RuleType) IsRealTime() bool {
 	switch rt {
 	case RuleTypeConcurrentStreams, RuleTypeSimultaneousLocs,
@@ -89,6 +87,9 @@ type Rule struct {
 func (r *Rule) Validate() error {
 	if r.Name == "" {
 		return errors.New("name is required")
+	}
+	if len(r.Name) > 255 {
+		return errors.New("name must be 255 characters or less")
 	}
 	if !r.Type.Valid() {
 		return errors.New("invalid rule type")
@@ -218,6 +219,9 @@ func (v *RuleViolation) Validate() error {
 	}
 	if v.Message == "" {
 		return errors.New("message is required")
+	}
+	if len(v.Message) > 1000 {
+		return errors.New("message must be 1000 characters or less")
 	}
 	if v.OccurredAt.IsZero() {
 		v.OccurredAt = time.Now().UTC()

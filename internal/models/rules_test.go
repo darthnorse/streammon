@@ -561,7 +561,21 @@ func TestCalculateConfidence(t *testing.T) {
 				{Name: "a", Weight: 1.0, Value: 80.0},
 				{Name: "b", Weight: 1.0, Value: "ignored"},
 			},
-			want: 80, // string signal skipped, only float64 counted
+			want: 80,
+		},
+		{
+			name: "float32 values",
+			signals: []ViolationSignal{
+				{Name: "a", Weight: 1.0, Value: float32(85)},
+			},
+			want: 85,
+		},
+		{
+			name: "negative values floored at 0",
+			signals: []ViolationSignal{
+				{Name: "a", Weight: 1.0, Value: -50.0},
+			},
+			want: 0,
 		},
 	}
 	for _, tt := range tests {
