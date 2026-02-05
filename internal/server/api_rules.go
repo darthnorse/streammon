@@ -370,6 +370,29 @@ func (s *Server) handleDeleteHouseholdLocation(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleCalculateHouseholdLocations(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		MinSessions int `json:"min_sessions"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		body.MinSessions = 10
+	}
+	if body.MinSessions <= 0 {
+		body.MinSessions = 10
+	}
+
+	created, err := s.store.CalculateAllHouseholdLocations(body.MinSessions)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to calculate household locations")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"created":      created,
+		"min_sessions": body.MinSessions,
+	})
+}
+
 func (s *Server) handleLinkRuleToChannel(w http.ResponseWriter, r *http.Request) {
 	ruleID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {

@@ -22,6 +22,26 @@ func boolToInt(b bool) int {
 	return 0
 }
 
+// parseSQLiteTime parses a timestamp string returned by SQLite aggregate functions.
+// SQLite returns timestamps with a space instead of 'T' between date and time.
+func parseSQLiteTime(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	// Try RFC3339Nano first (standard format)
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, nil
+	}
+	// Try SQLite format (space instead of T)
+	const sqliteFormat = "2006-01-02 15:04:05.999999999-07:00"
+	if t, err := time.Parse(sqliteFormat, s); err == nil {
+		return t, nil
+	}
+	// Try SQLite format with +00:00 style timezone
+	const sqliteFormatAlt = "2006-01-02 15:04:05.999999999+00:00"
+	return time.Parse(sqliteFormatAlt, s)
+}
+
 func scanRule(scanner interface{ Scan(...any) error }) (models.Rule, error) {
 	var r models.Rule
 	var enabled int
@@ -416,8 +436,14 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 	if err != nil {
 		return false, fmt.Errorf("getting time range: %w", err)
 	}
-	firstSeen, _ := time.Parse(time.RFC3339Nano, firstSeenStr)
-	lastSeen, _ := time.Parse(time.RFC3339Nano, lastSeenStr)
+	firstSeen, err := parseSQLiteTime(firstSeenStr)
+	if err != nil {
+		log.Printf("warning: failed to parse first_seen time %q for user %s: %v", firstSeenStr, userName, err)
+	}
+	lastSeen, err := parseSQLiteTime(lastSeenStr)
+	if err != nil {
+		log.Printf("warning: failed to parse last_seen time %q for user %s: %v", lastSeenStr, userName, err)
+	}
 	if firstSeen.IsZero() {
 		firstSeen = time.Now().UTC()
 	}
@@ -443,6 +469,46 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 
 	// Another goroutine beat us to it - that's fine, the location exists now
 	return false, nil
+}
+
+// CalculateAllHouseholdLocations scans watch_history for all user/IP combinations
+// with at least minSessions and auto-learns them as household locations.
+// Returns the number of new locations created.
+func (s *Store) CalculateAllHouseholdLocations(minSessions int) (int, error) {
+	if minSessions <= 0 {
+		minSessions = 10
+	}
+
+	rows, err := s.db.Query(`
+		SELECT user_name, ip_address, COUNT(*) as session_count
+		FROM watch_history
+		WHERE ip_address != ''
+		GROUP BY user_name, ip_address
+		HAVING COUNT(*) >= ?`, minSessions)
+	if err != nil {
+		return 0, fmt.Errorf("querying user/IP combinations: %w", err)
+	}
+	defer rows.Close()
+
+	var created int
+	for rows.Next() {
+		var userName, ipAddress string
+		var sessionCount int
+		if err := rows.Scan(&userName, &ipAddress, &sessionCount); err != nil {
+			continue
+		}
+
+		wasCreated, err := s.AutoLearnHouseholdLocation(userName, ipAddress, minSessions)
+		if err != nil {
+			log.Printf("failed to auto-learn household for %s/%s: %v", userName, ipAddress, err)
+			continue
+		}
+		if wasCreated {
+			created++
+		}
+	}
+
+	return created, rows.Err()
 }
 
 func (s *Store) GetUserTrustScore(userName string) (*models.UserTrustScore, error) {

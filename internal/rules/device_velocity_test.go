@@ -13,23 +13,8 @@ import (
 )
 
 type mockHistoryQuerierForDeviceVelocity struct {
+	baseHistoryQuerier
 	deviceStreams []*models.WatchHistoryEntry
-}
-
-func (m *mockHistoryQuerierForDeviceVelocity) GetLastStreamBeforeTime(userName string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
-	return nil, nil
-}
-
-func (m *mockHistoryQuerierForDeviceVelocity) GetDeviceLastStream(userName, player, platform string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
-	return nil, nil
-}
-
-func (m *mockHistoryQuerierForDeviceVelocity) HasDeviceBeenUsed(userName, player, platform string, beforeTime time.Time) (bool, error) {
-	return false, nil
-}
-
-func (m *mockHistoryQuerierForDeviceVelocity) GetUserDistinctIPs(userName string, beforeTime time.Time, limit int) ([]string, error) {
-	return nil, nil
 }
 
 func (m *mockHistoryQuerierForDeviceVelocity) GetRecentDevices(userName string, beforeTime time.Time, withinHours int) ([]models.DeviceInfo, error) {
@@ -48,10 +33,6 @@ func (m *mockHistoryQuerierForDeviceVelocity) GetRecentDevices(userName string, 
 		}
 	}
 	return devices, nil
-}
-
-func (m *mockHistoryQuerierForDeviceVelocity) GetRecentISPs(userName string, beforeTime time.Time, withinHours int) ([]string, error) {
-	return nil, nil
 }
 
 func TestDeviceVelocityEvaluator_TooManyDevices(t *testing.T) {

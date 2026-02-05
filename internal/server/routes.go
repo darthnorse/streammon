@@ -111,6 +111,8 @@ func (s *Server) routes() {
 			sr.Put("/{id}", s.handleUpdateHouseholdTrusted)
 			sr.Delete("/{id}", s.handleDeleteHouseholdLocation)
 		})
+
+		r.With(RequireRole(models.RoleAdmin)).Post("/household/calculate", s.handleCalculateHouseholdLocations)
 	})
 
 	s.router.Group(func(r chi.Router) {

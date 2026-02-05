@@ -301,3 +301,27 @@ func TestHaversineDistance(t *testing.T) {
 		t.Errorf("expected ~%.0fkm, got %.0fkm", expected, dist)
 	}
 }
+
+func TestFormatTimeWindow(t *testing.T) {
+	tests := []struct {
+		hours        int
+		expectedVal  int
+		expectedUnit string
+	}{
+		{1, 1, "hour"},
+		{12, 12, "hours"},
+		{24, 1, "day"},
+		{48, 2, "days"},
+		{168, 1, "week"},
+		{72, 3, "days"},
+		{36, 36, "hours"},
+	}
+
+	for _, tc := range tests {
+		val, unit := formatTimeWindow(tc.hours)
+		if val != tc.expectedVal || unit != tc.expectedUnit {
+			t.Errorf("formatTimeWindow(%d) = (%d, %q), want (%d, %q)",
+				tc.hours, val, unit, tc.expectedVal, tc.expectedUnit)
+		}
+	}
+}

@@ -13,27 +13,8 @@ import (
 )
 
 type mockHistoryQuerierForISPVelocity struct {
+	baseHistoryQuerier
 	isps []string
-}
-
-func (m *mockHistoryQuerierForISPVelocity) GetLastStreamBeforeTime(userName string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
-	return nil, nil
-}
-
-func (m *mockHistoryQuerierForISPVelocity) GetDeviceLastStream(userName, player, platform string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
-	return nil, nil
-}
-
-func (m *mockHistoryQuerierForISPVelocity) HasDeviceBeenUsed(userName, player, platform string, beforeTime time.Time) (bool, error) {
-	return false, nil
-}
-
-func (m *mockHistoryQuerierForISPVelocity) GetUserDistinctIPs(userName string, beforeTime time.Time, limit int) ([]string, error) {
-	return nil, nil
-}
-
-func (m *mockHistoryQuerierForISPVelocity) GetRecentDevices(userName string, beforeTime time.Time, withinHours int) ([]models.DeviceInfo, error) {
-	return nil, nil
 }
 
 func (m *mockHistoryQuerierForISPVelocity) GetRecentISPs(userName string, beforeTime time.Time, withinHours int) ([]string, error) {
@@ -199,8 +180,40 @@ func TestISPVelocityEvaluator_Type(t *testing.T) {
 	assert.Equal(t, models.RuleTypeISPVelocity, evaluator.Type())
 }
 
-func TestISPVelocityEvaluator_SeverityEscalation(t *testing.T) {
-	// 6 ISPs when max is 3 should be critical (2x the limit)
+func TestISPVelocityEvaluator_SeverityWarning(t *testing.T) {
+	// 5 ISPs when max is 3 should be warning (>= max+2)
+	mock := &mockHistoryQuerierForISPVelocity{
+		isps: []string{"Comcast", "Verizon", "AT&T", "T-Mobile"},
+	}
+	geo := &mockGeoResolverForISP{isp: "Sprint"}
+
+	evaluator := NewISPVelocityEvaluator(geo, mock)
+
+	rule := &models.Rule{
+		ID:     1,
+		Name:   "ISP Velocity",
+		Type:   models.RuleTypeISPVelocity,
+		Config: json.RawMessage(`{"max_isps": 3, "time_window_hours": 168}`),
+	}
+
+	input := &EvaluationInput{
+		Stream: &models.ActiveStream{
+			UserName:  "alice",
+			IPAddress: "1.2.3.4",
+			StartedAt: time.Now().UTC(),
+		},
+		GeoData: &models.GeoResult{ISP: "Sprint"},
+	}
+
+	result, err := evaluator.Evaluate(context.Background(), rule, input)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Violation)
+	assert.Equal(t, models.SeverityWarning, result.Violation.Severity)
+}
+
+func TestISPVelocityEvaluator_SeverityCritical(t *testing.T) {
+	// 6 ISPs when max is 3 should be critical (>= 2x the limit)
 	mock := &mockHistoryQuerierForISPVelocity{
 		isps: []string{"Comcast", "Verizon", "AT&T", "T-Mobile", "Sprint"},
 	}

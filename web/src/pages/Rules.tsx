@@ -365,6 +365,12 @@ function formatRuleConfig(rule: Rule): string {
       return `Min distance: ${config.min_distance_km || 50} km${config.exempt_household ? ' (household exempt)' : ''}`
     case 'device_velocity':
       return `Max ${config.max_devices_per_hour || 3} devices per ${config.time_window_hours || 1}h`
+    case 'isp_velocity': {
+      const hours = (config.time_window_hours as number) || 168
+      const days = Math.floor(hours / 24)
+      const timeStr = days >= 1 && hours % 24 === 0 ? `${days} day${days > 1 ? 's' : ''}` : `${hours}h`
+      return `Max ${config.max_isps || 3} ISPs per ${timeStr}`
+    }
     case 'new_device':
       return 'Alert on new device'
     case 'new_location':

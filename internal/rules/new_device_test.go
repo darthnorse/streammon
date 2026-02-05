@@ -13,31 +13,12 @@ import (
 )
 
 type mockHistoryQuerier struct {
+	baseHistoryQuerier
 	hasDeviceBeenUsed bool
-}
-
-func (m *mockHistoryQuerier) GetLastStreamBeforeTime(userName string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
-	return nil, nil
-}
-
-func (m *mockHistoryQuerier) GetDeviceLastStream(userName, player, platform string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
-	return nil, nil
 }
 
 func (m *mockHistoryQuerier) HasDeviceBeenUsed(userName, player, platform string, beforeTime time.Time) (bool, error) {
 	return m.hasDeviceBeenUsed, nil
-}
-
-func (m *mockHistoryQuerier) GetUserDistinctIPs(userName string, beforeTime time.Time, limit int) ([]string, error) {
-	return nil, nil
-}
-
-func (m *mockHistoryQuerier) GetRecentDevices(userName string, beforeTime time.Time, withinHours int) ([]models.DeviceInfo, error) {
-	return nil, nil
-}
-
-func (m *mockHistoryQuerier) GetRecentISPs(userName string, beforeTime time.Time, withinHours int) ([]string, error) {
-	return nil, nil
 }
 
 func TestNewDeviceEvaluator_NewDevice(t *testing.T) {

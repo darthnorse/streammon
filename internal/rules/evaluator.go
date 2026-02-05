@@ -61,6 +61,24 @@ func filterStreamsByUser(streams []models.ActiveStream, userName string) []model
 	return result
 }
 
+// formatTimeWindow converts hours into a human-readable time value and unit.
+func formatTimeWindow(hours int) (int, string) {
+	days := hours / 24
+	if days >= 1 && hours%24 == 0 {
+		if days == 7 {
+			return 1, "week"
+		}
+		if days == 1 {
+			return 1, "day"
+		}
+		return days, "days"
+	}
+	if hours == 1 {
+		return 1, "hour"
+	}
+	return hours, "hours"
+}
+
 // HaversineDistance calculates the distance in km between two lat/lng points.
 func HaversineDistance(lat1, lng1, lat2, lng2 float64) float64 {
 	const earthRadiusKm = 6371.0

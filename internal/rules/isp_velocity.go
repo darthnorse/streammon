@@ -37,7 +37,6 @@ func (e *ISPVelocityEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 
 	stream := input.Stream
 
-	// Get ISP for the current stream
 	var currentISP string
 	if input.GeoData != nil && input.GeoData.ISP != "" {
 		currentISP = input.GeoData.ISP
@@ -48,7 +47,6 @@ func (e *ISPVelocityEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 		}
 	}
 
-	// If we can't determine ISP, skip evaluation
 	if currentISP == "" {
 		return nil, nil
 	}
@@ -64,7 +62,6 @@ func (e *ISPVelocityEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 		return nil, fmt.Errorf("getting recent ISPs: %w", err)
 	}
 
-	// Check if current ISP is already in the list
 	found := false
 	for _, isp := range recentISPs {
 		if isp == currentISP {
@@ -89,18 +86,7 @@ func (e *ISPVelocityEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 		severity = models.SeverityWarning
 	}
 
-	// Calculate time window in days for clearer message
-	timeWindowDays := config.TimeWindowHours / 24
-	timeUnit := "hours"
-	timeValue := config.TimeWindowHours
-	if timeWindowDays >= 1 && config.TimeWindowHours%24 == 0 {
-		timeUnit = "days"
-		timeValue = timeWindowDays
-		if timeWindowDays == 7 {
-			timeUnit = "week"
-			timeValue = 1
-		}
-	}
+	timeValue, timeUnit := formatTimeWindow(config.TimeWindowHours)
 
 	violation := &models.RuleViolation{
 		RuleID:   rule.ID,

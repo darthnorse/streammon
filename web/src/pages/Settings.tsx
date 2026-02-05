@@ -38,6 +38,8 @@ export function Settings() {
   const [showOidcForm, setShowOidcForm] = useState(false)
   const [showTautulliForm, setShowTautulliForm] = useState(false)
   const [actionError, setActionError] = useState('')
+  const [calculatingHouseholds, setCalculatingHouseholds] = useState(false)
+  const [householdResult, setHouseholdResult] = useState<{ created: number } | null>(null)
 
   const serverList = servers ?? []
   const oidcConfigured = !!oidc?.issuer
@@ -103,6 +105,20 @@ export function Settings() {
       refetchTautulli()
     } catch {
       setActionError('Failed to delete Tautulli configuration')
+    }
+  }
+
+  async function handleCalculateHouseholds() {
+    setCalculatingHouseholds(true)
+    setHouseholdResult(null)
+    setActionError('')
+    try {
+      const result = await api.post<{ created: number }>('/api/household/calculate', { min_sessions: 10 })
+      setHouseholdResult(result)
+    } catch {
+      setActionError('Failed to calculate household locations')
+    } finally {
+      setCalculatingHouseholds(false)
     }
   }
 
@@ -333,6 +349,30 @@ export function Settings() {
               onSaved={handleTautulliSaved}
             />
           )}
+
+          <div className="card p-5 mt-4">
+            <h3 className="font-semibold text-base mb-2">Household Locations</h3>
+            <p className="text-sm text-muted dark:text-muted-dark mb-4">
+              Scan watch history to auto-detect home locations based on frequently used IPs (10+ sessions).
+              This is useful after importing history from Tautulli.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleCalculateHouseholds}
+                disabled={calculatingHouseholds}
+                className={btnOutline + (calculatingHouseholds ? ' opacity-50 cursor-not-allowed' : '')}
+              >
+                {calculatingHouseholds ? 'Calculating...' : 'Calculate Household Locations'}
+              </button>
+              {householdResult && (
+                <span className="text-sm text-green-500">
+                  {householdResult.created === 0
+                    ? 'No new locations found'
+                    : `Created ${householdResult.created} new location${householdResult.created > 1 ? 's' : ''}`}
+                </span>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>
