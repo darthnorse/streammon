@@ -508,3 +508,86 @@ export const RULE_TYPES: { value: RuleType; label: string; description: string }
 export const RULE_TYPE_LABELS: Record<RuleType, string> = Object.fromEntries(
   RULE_TYPES.map(rt => [rt.value, rt.label])
 ) as Record<RuleType, string>
+
+// Maintenance types
+export type CriterionType = 'unwatched_movie' | 'unwatched_tv_none' | 'unwatched_tv_low' | 'low_resolution'
+
+export interface ParamSpec {
+  name: string
+  type: 'int' | 'string'
+  label: string
+  default: number | string
+  min?: number
+  max?: number
+}
+
+export interface CriterionTypeInfo {
+  type: CriterionType
+  name: string
+  description: string
+  media_types: MediaType[]
+  parameters: ParamSpec[]
+}
+
+export interface LibraryItemCache {
+  id: number
+  server_id: number
+  library_id: string
+  item_id: string
+  media_type: MediaType
+  title: string
+  year: number
+  added_at: string
+  video_resolution?: string
+  file_size?: number
+  episode_count?: number
+  thumb_url?: string
+  synced_at: string
+}
+
+export interface MaintenanceRule {
+  id: number
+  server_id: number
+  library_id: string
+  name: string
+  criterion_type: CriterionType
+  parameters: Record<string, unknown>
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface MaintenanceRuleWithCount extends MaintenanceRule {
+  candidate_count: number
+}
+
+export interface MaintenanceCandidate {
+  id: number
+  rule_id: number
+  library_item_id: number
+  reason: string
+  computed_at: string
+  item?: LibraryItemCache
+}
+
+export interface LibraryMaintenance {
+  server_id: number
+  server_name: string
+  library_id: string
+  library_name: string
+  library_type: LibraryType
+  total_items: number
+  last_synced_at: string | null
+  rules: MaintenanceRuleWithCount[]
+}
+
+export interface MaintenanceDashboard {
+  libraries: LibraryMaintenance[]
+}
+
+export interface MaintenanceCandidatesResponse {
+  items: MaintenanceCandidate[]
+  total: number
+  page: number
+  per_page: number
+}
