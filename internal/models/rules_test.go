@@ -425,6 +425,53 @@ func TestConfigValidation(t *testing.T) {
 			t.Errorf("Method = %v, want POST", c.Method)
 		}
 	})
+
+	t.Run("SimultaneousLocsConfig defaults", func(t *testing.T) {
+		c := &SimultaneousLocsConfig{}
+		if err := c.Validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if c.MinDistanceKm != 50 {
+			t.Errorf("MinDistanceKm = %v, want 50", c.MinDistanceKm)
+		}
+	})
+
+	t.Run("DeviceVelocityConfig defaults", func(t *testing.T) {
+		c := &DeviceVelocityConfig{}
+		if err := c.Validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if c.MaxDevicesPerHour != 3 {
+			t.Errorf("MaxDevicesPerHour = %v, want 3", c.MaxDevicesPerHour)
+		}
+		if c.TimeWindowHours != 1 {
+			t.Errorf("TimeWindowHours = %v, want 1", c.TimeWindowHours)
+		}
+	})
+
+	t.Run("NewDeviceConfig validation", func(t *testing.T) {
+		c := &NewDeviceConfig{}
+		if err := c.Validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		// NotifyOnNew defaults to false (zero value)
+		if c.NotifyOnNew != false {
+			t.Errorf("NotifyOnNew = %v, want false", c.NotifyOnNew)
+		}
+	})
+
+	t.Run("NewLocationConfig defaults", func(t *testing.T) {
+		c := &NewLocationConfig{}
+		if err := c.Validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if c.MinDistanceKm != 50 {
+			t.Errorf("MinDistanceKm = %v, want 50", c.MinDistanceKm)
+		}
+		if c.SeverityThresholdKm != 500 {
+			t.Errorf("SeverityThresholdKm = %v, want 500", c.SeverityThresholdKm)
+		}
+	})
 }
 
 func TestCalculateConfidence(t *testing.T) {

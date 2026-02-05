@@ -51,6 +51,8 @@ export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
     )
   }
 
+  // Default to 100 (perfect trust) when no violations have been recorded
+  const hasData = trustScore !== null && trustScore !== undefined
   const score = trustScore?.score ?? 100
   const colors = getScoreColors(score)
 
@@ -73,17 +75,23 @@ export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
       </div>
 
       <div className="mt-4 space-y-1 text-sm">
-        <div className="flex justify-between">
-          <span className="text-muted dark:text-muted-dark">Violations</span>
-          <span className={trustScore?.violation_count ? 'text-amber-400' : ''}>
-            {trustScore?.violation_count ?? 0}
-          </span>
-        </div>
-        {trustScore?.last_violation_at && (
-          <div className="flex justify-between">
-            <span className="text-muted dark:text-muted-dark">Last violation</span>
-            <span>{formatRelativeTime(trustScore.last_violation_at)}</span>
-          </div>
+        {!hasData ? (
+          <div className="text-muted dark:text-muted-dark">No violations recorded</div>
+        ) : (
+          <>
+            <div className="flex justify-between">
+              <span className="text-muted dark:text-muted-dark">Violations</span>
+              <span className={trustScore?.violation_count ? 'text-amber-400' : ''}>
+                {trustScore?.violation_count ?? 0}
+              </span>
+            </div>
+            {trustScore?.last_violation_at && (
+              <div className="flex justify-between">
+                <span className="text-muted dark:text-muted-dark">Last violation</span>
+                <span>{formatRelativeTime(trustScore.last_violation_at)}</span>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

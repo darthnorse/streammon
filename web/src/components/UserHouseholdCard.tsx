@@ -20,9 +20,11 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
     `/api/users/${encodeURIComponent(userName)}/household`
   )
   const [updating, setUpdating] = useState<number | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const handleToggleTrusted = async (location: HouseholdLocation) => {
     setUpdating(location.id)
+    setActionError(null)
     try {
       await api.put(
         `/api/users/${encodeURIComponent(userName)}/household/${location.id}`,
@@ -30,6 +32,7 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
       )
       refetch()
     } catch (err) {
+      setActionError('Failed to update location')
       console.error('Failed to update location:', err)
     } finally {
       setUpdating(null)
@@ -38,10 +41,12 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
 
   const handleDelete = async (id: number) => {
     if (!confirm('Delete this household location?')) return
+    setActionError(null)
     try {
       await api.del(`/api/users/${encodeURIComponent(userName)}/household/${id}`)
       refetch()
     } catch (err) {
+      setActionError('Failed to delete location')
       console.error('Failed to delete location:', err)
     }
   }
@@ -67,6 +72,10 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
   return (
     <div className="card p-4">
       <CardHeader />
+
+      {actionError && (
+        <div className="text-sm text-red-500 dark:text-red-400 mb-3">{actionError}</div>
+      )}
 
       {!locations?.length ? (
         <div className="text-sm text-muted dark:text-muted-dark">

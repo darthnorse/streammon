@@ -9,6 +9,10 @@ import (
 	"streammon/internal/models"
 )
 
+// maxHistoricalIPsToCheck limits the number of historical IPs to check for new location detection.
+// GeoIP lookups are cached, so this primarily limits memory usage rather than network calls.
+const maxHistoricalIPsToCheck = 100
+
 type NewLocationEvaluator struct {
 	geoResolver GeoResolver
 	store       HistoryQuerier
@@ -60,7 +64,7 @@ func (e *NewLocationEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 	}
 
 	// Get historical IPs
-	historicalIPs, err := e.store.GetUserDistinctIPs(stream.UserName, stream.StartedAt, 100)
+	historicalIPs, err := e.store.GetUserDistinctIPs(stream.UserName, stream.StartedAt, maxHistoricalIPsToCheck)
 	if err != nil {
 		return nil, fmt.Errorf("getting historical IPs: %w", err)
 	}
@@ -99,8 +103,13 @@ func (e *NewLocationEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 	}
 
 	severity := models.SeverityInfo
-	if minDistance >= 500 {
+	if minDistance >= config.SeverityThresholdKm {
 		severity = models.SeverityWarning
+	}
+
+	signals := []models.ViolationSignal{
+		{Name: "distance_km", Weight: 0.7, Value: minDistance},
+		{Name: "new_location", Weight: 0.3, Value: true},
 	}
 
 	violation := &models.RuleViolation{
@@ -114,15 +123,12 @@ func (e *NewLocationEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 			"ip":           stream.IPAddress,
 			"min_distance": minDistance,
 		},
-		ConfidenceScore: 90,
+		ConfidenceScore: models.CalculateConfidence(signals),
 		OccurredAt:      time.Now().UTC(),
 	}
 
 	return &EvaluationResult{
 		Violation: violation,
-		Signals: []models.ViolationSignal{
-			{Name: "distance_km", Weight: 0.7, Value: minDistance},
-			{Name: "new_location", Weight: 0.3, Value: true},
-		},
+		Signals:   signals,
 	}, nil
 }

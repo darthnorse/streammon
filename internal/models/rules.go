@@ -167,15 +167,23 @@ type NewDeviceConfig struct {
 	NotifyOnNew bool `json:"notify_on_new"`
 }
 
+func (c *NewDeviceConfig) Validate() error {
+	return nil
+}
+
 type NewLocationConfig struct {
-	NotifyOnNew     bool    `json:"notify_on_new"`
-	MinDistanceKm   float64 `json:"min_distance_km"`
-	ExemptHousehold bool    `json:"exempt_household"`
+	NotifyOnNew         bool    `json:"notify_on_new"`
+	MinDistanceKm       float64 `json:"min_distance_km"`
+	SeverityThresholdKm float64 `json:"severity_threshold_km"`
+	ExemptHousehold     bool    `json:"exempt_household"`
 }
 
 func (c *NewLocationConfig) Validate() error {
 	if c.MinDistanceKm <= 0 {
 		c.MinDistanceKm = 50
+	}
+	if c.SeverityThresholdKm <= 0 {
+		c.SeverityThresholdKm = 500
 	}
 	return nil
 }

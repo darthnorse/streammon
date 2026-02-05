@@ -17,6 +17,11 @@ const fieldClass = `w-full px-3 py-2.5 rounded-lg text-sm
   focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
   transition-colors`
 
+function parseIntOrDefault(value: string, defaultValue: number): number {
+  const parsed = parseInt(value, 10)
+  return Number.isNaN(parsed) ? defaultValue : parsed
+}
+
 export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   const isEdit = !!rule?.id
   const modalRef = useRef<HTMLDivElement>(null)
@@ -216,7 +221,7 @@ function getDefaultConfig(type: RuleType): Record<string, unknown> {
     case 'new_device':
       return { notify_on_new: true }
     case 'new_location':
-      return { notify_on_new: true, min_distance_km: 50, exempt_household: true }
+      return { notify_on_new: true, min_distance_km: 50, severity_threshold_km: 500, exempt_household: true }
     default:
       return {}
   }
@@ -236,24 +241,26 @@ function renderConfigFields(
       return (
         <div className="space-y-3">
           <div>
-            <label className="block text-sm mb-1">Max Streams</label>
+            <label htmlFor="cfg-max-streams" className="block text-sm mb-1">Max Streams</label>
             <input
+              id="cfg-max-streams"
               type="number"
               min={1}
               max={10}
               value={(config.max_streams as number) ?? 2}
-              onChange={e => updateField('max_streams', parseInt(e.target.value) || 2)}
+              onChange={e => updateField('max_streams', parseIntOrDefault(e.target.value, 2))}
               className={fieldClass}
             />
           </div>
           <div className="flex items-center gap-2">
             <input
+              id="cfg-exempt-household"
               type="checkbox"
               checked={(config.exempt_household as boolean) ?? true}
               onChange={e => updateField('exempt_household', e.target.checked)}
               className="w-4 h-4 rounded"
             />
-            <label className="text-sm">Exempt household (trusted locations)</label>
+            <label htmlFor="cfg-exempt-household" className="text-sm">Exempt household (trusted locations)</label>
           </div>
         </div>
       )
@@ -262,8 +269,9 @@ function renderConfigFields(
       return (
         <div className="space-y-3">
           <div>
-            <label className="block text-sm mb-1">Allowed Countries (comma-separated)</label>
+            <label htmlFor="cfg-allowed-countries" className="block text-sm mb-1">Allowed Countries (comma-separated)</label>
             <input
+              id="cfg-allowed-countries"
               type="text"
               value={((config.allowed_countries as string[]) || []).join(', ')}
               onChange={e => updateField('allowed_countries', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
@@ -273,8 +281,9 @@ function renderConfigFields(
             <p className="text-xs text-muted dark:text-muted-dark mt-1">Leave empty to allow all countries</p>
           </div>
           <div>
-            <label className="block text-sm mb-1">Blocked Countries (comma-separated)</label>
+            <label htmlFor="cfg-blocked-countries" className="block text-sm mb-1">Blocked Countries (comma-separated)</label>
             <input
+              id="cfg-blocked-countries"
               type="text"
               value={((config.blocked_countries as string[]) || []).join(', ')}
               onChange={e => updateField('blocked_countries', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
@@ -289,23 +298,25 @@ function renderConfigFields(
       return (
         <div className="space-y-3">
           <div>
-            <label className="block text-sm mb-1">Minimum Distance (km)</label>
+            <label htmlFor="cfg-sim-min-distance" className="block text-sm mb-1">Minimum Distance (km)</label>
             <input
+              id="cfg-sim-min-distance"
               type="number"
               min={10}
               value={(config.min_distance_km as number) ?? 50}
-              onChange={e => updateField('min_distance_km', parseInt(e.target.value) || 50)}
+              onChange={e => updateField('min_distance_km', parseIntOrDefault(e.target.value, 50))}
               className={fieldClass}
             />
           </div>
           <div className="flex items-center gap-2">
             <input
+              id="cfg-sim-exempt-household"
               type="checkbox"
               checked={(config.exempt_household as boolean) ?? true}
               onChange={e => updateField('exempt_household', e.target.checked)}
               className="w-4 h-4 rounded"
             />
-            <label className="text-sm">Exempt household locations</label>
+            <label htmlFor="cfg-sim-exempt-household" className="text-sm">Exempt household locations</label>
           </div>
         </div>
       )
@@ -314,34 +325,37 @@ function renderConfigFields(
       return (
         <div className="space-y-3">
           <div>
-            <label className="block text-sm mb-1">Max Speed (km/h)</label>
+            <label htmlFor="cfg-max-speed" className="block text-sm mb-1">Max Speed (km/h)</label>
             <input
+              id="cfg-max-speed"
               type="number"
               min={100}
               value={(config.max_speed_km_h as number) ?? 800}
-              onChange={e => updateField('max_speed_km_h', parseInt(e.target.value) || 800)}
+              onChange={e => updateField('max_speed_km_h', parseIntOrDefault(e.target.value, 800))}
               className={fieldClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">~800 km/h is typical commercial flight speed</p>
           </div>
           <div>
-            <label className="block text-sm mb-1">Min Distance (km)</label>
+            <label htmlFor="cfg-it-min-distance" className="block text-sm mb-1">Min Distance (km)</label>
             <input
+              id="cfg-it-min-distance"
               type="number"
               min={10}
               value={(config.min_distance_km as number) ?? 100}
-              onChange={e => updateField('min_distance_km', parseInt(e.target.value) || 100)}
+              onChange={e => updateField('min_distance_km', parseIntOrDefault(e.target.value, 100))}
               className={fieldClass}
             />
           </div>
           <div>
-            <label className="block text-sm mb-1">Time Window (hours)</label>
+            <label htmlFor="cfg-it-time-window" className="block text-sm mb-1">Time Window (hours)</label>
             <input
+              id="cfg-it-time-window"
               type="number"
               min={1}
               max={72}
               value={(config.time_window_hours as number) ?? 24}
-              onChange={e => updateField('time_window_hours', parseInt(e.target.value) || 24)}
+              onChange={e => updateField('time_window_hours', parseIntOrDefault(e.target.value, 24))}
               className={fieldClass}
             />
           </div>
@@ -352,25 +366,27 @@ function renderConfigFields(
       return (
         <div className="space-y-3">
           <div>
-            <label className="block text-sm mb-1">Max Devices</label>
+            <label htmlFor="cfg-max-devices" className="block text-sm mb-1">Max Devices</label>
             <input
+              id="cfg-max-devices"
               type="number"
               min={1}
               max={20}
               value={(config.max_devices_per_hour as number) ?? 3}
-              onChange={e => updateField('max_devices_per_hour', parseInt(e.target.value) || 3)}
+              onChange={e => updateField('max_devices_per_hour', parseIntOrDefault(e.target.value, 3))}
               className={fieldClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">Alert if user exceeds this many devices in the time window</p>
           </div>
           <div>
-            <label className="block text-sm mb-1">Time Window (hours)</label>
+            <label htmlFor="cfg-dv-time-window" className="block text-sm mb-1">Time Window (hours)</label>
             <input
+              id="cfg-dv-time-window"
               type="number"
               min={1}
               max={24}
               value={(config.time_window_hours as number) ?? 1}
-              onChange={e => updateField('time_window_hours', parseInt(e.target.value) || 1)}
+              onChange={e => updateField('time_window_hours', parseIntOrDefault(e.target.value, 1))}
               className={fieldClass}
             />
           </div>
@@ -382,12 +398,13 @@ function renderConfigFields(
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <input
+              id="cfg-nd-notify"
               type="checkbox"
               checked={(config.notify_on_new as boolean) ?? true}
               onChange={e => updateField('notify_on_new', e.target.checked)}
               className="w-4 h-4 rounded"
             />
-            <label className="text-sm">Notify on new device</label>
+            <label htmlFor="cfg-nd-notify" className="text-sm">Notify on new device</label>
           </div>
           <p className="text-xs text-muted dark:text-muted-dark">
             Alert when a user streams from a device they haven't used before.
@@ -400,32 +417,47 @@ function renderConfigFields(
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <input
+              id="cfg-nl-notify"
               type="checkbox"
               checked={(config.notify_on_new as boolean) ?? true}
               onChange={e => updateField('notify_on_new', e.target.checked)}
               className="w-4 h-4 rounded"
             />
-            <label className="text-sm">Notify on new location</label>
+            <label htmlFor="cfg-nl-notify" className="text-sm">Notify on new location</label>
           </div>
           <div>
-            <label className="block text-sm mb-1">Minimum Distance (km)</label>
+            <label htmlFor="cfg-nl-min-distance" className="block text-sm mb-1">Minimum Distance (km)</label>
             <input
+              id="cfg-nl-min-distance"
               type="number"
               min={10}
               value={(config.min_distance_km as number) ?? 50}
-              onChange={e => updateField('min_distance_km', parseInt(e.target.value) || 50)}
+              onChange={e => updateField('min_distance_km', parseIntOrDefault(e.target.value, 50))}
               className={fieldClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">Only alert if new location is at least this far from known locations</p>
           </div>
+          <div>
+            <label htmlFor="cfg-nl-severity-threshold" className="block text-sm mb-1">Warning Threshold (km)</label>
+            <input
+              id="cfg-nl-severity-threshold"
+              type="number"
+              min={100}
+              value={(config.severity_threshold_km as number) ?? 500}
+              onChange={e => updateField('severity_threshold_km', parseIntOrDefault(e.target.value, 500))}
+              className={fieldClass}
+            />
+            <p className="text-xs text-muted dark:text-muted-dark mt-1">Severity escalates to warning if distance exceeds this threshold</p>
+          </div>
           <div className="flex items-center gap-2">
             <input
+              id="cfg-nl-exempt-household"
               type="checkbox"
               checked={(config.exempt_household as boolean) ?? true}
               onChange={e => updateField('exempt_household', e.target.checked)}
               className="w-4 h-4 rounded"
             />
-            <label className="text-sm">Exempt household locations</label>
+            <label htmlFor="cfg-nl-exempt-household" className="text-sm">Exempt household locations</label>
           </div>
         </div>
       )
