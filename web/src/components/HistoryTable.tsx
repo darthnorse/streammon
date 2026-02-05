@@ -93,7 +93,8 @@ interface SelectedItem {
   itemId: string
 }
 
-export function HistoryTable({ entries, hideUser, sort: controlledSort, onSort, serverSideSorting }: HistoryTableProps) {
+export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSort, onSort, serverSideSorting }: HistoryTableProps) {
+  const entries = rawEntries ?? []
   const excludeColumns = hideUser ? USER_EXCLUDE : EMPTY_EXCLUDE
   const [internalSort, setInternalSort] = useState<SortState | null>(null)
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)

@@ -336,8 +336,8 @@ func (s *Store) PotentialSharers(minIPs int, windowDays int) ([]models.SharerAle
 	}
 	defer rows.Close()
 
-	var alerts []models.SharerAlert
-	var userNames []string
+	alerts := []models.SharerAlert{}
+	userNames := []string{}
 	for rows.Next() {
 		var alert models.SharerAlert
 		var lastSeenStr sql.NullString

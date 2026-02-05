@@ -38,7 +38,7 @@ func scanRule(scanner interface{ Scan(...any) error }) (models.Rule, error) {
 // scanRuleRows iterates over rows and scans them into rules.
 func scanRuleRows(rows *sql.Rows) ([]models.Rule, error) {
 	defer rows.Close()
-	var rules []models.Rule
+	rules := []models.Rule{}
 	for rows.Next() {
 		r, err := scanRule(rows)
 		if err != nil {
@@ -234,7 +234,7 @@ func (s *Store) ListViolations(page, perPage int, filters ViolationFilters) (*mo
 	}
 	defer rows.Close()
 
-	var items []models.RuleViolation
+	items := []models.RuleViolation{}
 	for rows.Next() {
 		v, err := scanViolationWithRule(rows)
 		if err != nil {
@@ -269,7 +269,7 @@ func (s *Store) GetRecentViolationsForUser(userName string, limit int) ([]models
 	}
 	defer rows.Close()
 
-	var violations []models.RuleViolation
+	violations := []models.RuleViolation{}
 	for rows.Next() {
 		v, err := scanViolationWithRule(rows)
 		if err != nil {
@@ -321,7 +321,7 @@ func (s *Store) ListHouseholdLocations(userName string) ([]models.HouseholdLocat
 	}
 	defer rows.Close()
 
-	var locations []models.HouseholdLocation
+	locations := []models.HouseholdLocation{}
 	for rows.Next() {
 		h, err := scanHousehold(rows)
 		if err != nil {
@@ -340,7 +340,7 @@ func (s *Store) ListTrustedHouseholdLocations(userName string) ([]models.Househo
 	}
 	defer rows.Close()
 
-	var locations []models.HouseholdLocation
+	locations := []models.HouseholdLocation{}
 	for rows.Next() {
 		h, err := scanHousehold(rows)
 		if err != nil {
@@ -479,7 +479,7 @@ func (s *Store) ListNotificationChannels() ([]models.NotificationChannel, error)
 	}
 	defer rows.Close()
 
-	var channels []models.NotificationChannel
+	channels := []models.NotificationChannel{}
 	for rows.Next() {
 		c, err := scanChannel(rows)
 		if err != nil {
@@ -497,7 +497,7 @@ func (s *Store) ListEnabledNotificationChannels() ([]models.NotificationChannel,
 	}
 	defer rows.Close()
 
-	var channels []models.NotificationChannel
+	channels := []models.NotificationChannel{}
 	for rows.Next() {
 		c, err := scanChannel(rows)
 		if err != nil {
@@ -533,7 +533,7 @@ func (s *Store) GetChannelsForRule(ruleID int64) ([]models.NotificationChannel, 
 	}
 	defer rows.Close()
 
-	var channels []models.NotificationChannel
+	channels := []models.NotificationChannel{}
 	for rows.Next() {
 		c, err := scanChannel(rows)
 		if err != nil {

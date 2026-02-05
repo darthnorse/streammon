@@ -138,7 +138,7 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 	}
 	defer rows.Close()
 
-	var items []models.WatchHistoryEntry
+	items := []models.WatchHistoryEntry{}
 	for rows.Next() {
 		e, err := scanHistoryEntryWithGeo(rows)
 		if err != nil {
@@ -220,7 +220,7 @@ func (s *Store) HistoryForTitle(title string, limit int) ([]models.WatchHistoryE
 	}
 	defer rows.Close()
 
-	var items []models.WatchHistoryEntry
+	items := []models.WatchHistoryEntry{}
 	for rows.Next() {
 		e, err := scanHistoryEntry(rows)
 		if err != nil {
@@ -273,7 +273,7 @@ func (s *Store) ListHistoryNeedingEnrichment(serverID int64, limit int) ([]model
 	}
 	defer rows.Close()
 
-	var items []models.WatchHistoryEntry
+	items := []models.WatchHistoryEntry{}
 	for rows.Next() {
 		e, err := scanHistoryEntry(rows)
 		if err != nil {
@@ -383,7 +383,7 @@ func (s *Store) GetRecentDevices(userName string, beforeTime time.Time, withinHo
 	}
 	defer rows.Close()
 
-	var devices []models.DeviceInfo
+	devices := []models.DeviceInfo{}
 	for rows.Next() {
 		var d models.DeviceInfo
 		if err := rows.Scan(&d.Player, &d.Platform); err != nil {

@@ -25,16 +25,23 @@ function safeSetItem(key: string, value: string): void {
   } catch {}
 }
 
-function loadInitialColumns(allColumns: ColumnDef[], excludeColumns: string[]): string[] {
-  const columnIds = new Set(allColumns.map(c => c.id))
-  const excludeSet = new Set(excludeColumns)
+function loadStoredColumns(): string[] | null {
   const stored = safeGetItem(STORAGE_KEY)
   if (stored) {
     try {
-      const parsed = JSON.parse(stored) as string[]
-      const valid = parsed.filter(id => columnIds.has(id) && !excludeSet.has(id))
-      if (valid.length > 0) return valid
+      return JSON.parse(stored) as string[]
     } catch {}
+  }
+  return null
+}
+
+function loadInitialColumns(allColumns: ColumnDef[], excludeColumns: string[]): string[] {
+  const columnIds = new Set(allColumns.map(c => c.id))
+  const excludeSet = new Set(excludeColumns)
+  const stored = loadStoredColumns()
+  if (stored) {
+    const valid = stored.filter(id => columnIds.has(id) && !excludeSet.has(id))
+    if (valid.length > 0) return valid
   }
   return getDefaultVisibleColumns(allColumns, excludeColumns)
 }
@@ -73,9 +80,14 @@ export function useColumnConfig(
     })
   }, [excludeSet, getDefaults])
 
+  // When saving, preserve any excluded columns that were in the stored config
+  // This prevents losing column preferences when viewing contexts that exclude certain columns
   useEffect(() => {
-    safeSetItem(STORAGE_KEY, JSON.stringify(visibleColumns))
-  }, [visibleColumns])
+    const stored = loadStoredColumns() ?? []
+    const excludedFromStored = stored.filter(id => excludeSet.has(id))
+    const toSave = [...visibleColumns, ...excludedFromStored]
+    safeSetItem(STORAGE_KEY, JSON.stringify(toSave))
+  }, [visibleColumns, excludeSet])
 
   const toggleColumn = useCallback((id: string) => {
     if (excludeSet.has(id)) return
