@@ -84,8 +84,8 @@ func (s *Store) GetLibraryItem(id int64) (*models.LibraryItemCache, error) {
 }
 
 // ListLibraryItems returns cached items for a library
-func (s *Store) ListLibraryItems(serverID int64, libraryID string) ([]models.LibraryItemCache, error) {
-	rows, err := s.db.Query(
+func (s *Store) ListLibraryItems(ctx context.Context, serverID int64, libraryID string) ([]models.LibraryItemCache, error) {
+	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+libraryItemColumns+` FROM library_items WHERE server_id = ? AND library_id = ? ORDER BY added_at DESC`,
 		serverID, libraryID)
 	if err != nil {
@@ -97,7 +97,7 @@ func (s *Store) ListLibraryItems(serverID int64, libraryID string) ([]models.Lib
 	for rows.Next() {
 		item, err := scanLibraryItem(rows)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan library item: %w", err)
 		}
 		items = append(items, item)
 	}
