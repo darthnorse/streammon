@@ -40,6 +40,9 @@ func TestRuleTypeIsRealTime(t *testing.T) {
 		{RuleTypeNewLocation, true},
 		{RuleTypeImpossibleTravel, true},
 		{RuleTypeDeviceVelocity, true},
+		// Invalid/unknown rule types return false (for future batch-only rules)
+		{"invalid", false},
+		{"", false},
 	}
 	for _, tt := range tests {
 		if got := tt.rt.IsRealTime(); got != tt.realtime {
@@ -449,13 +452,21 @@ func TestConfigValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("GeoRestrictionConfig validation", func(t *testing.T) {
+		c := &GeoRestrictionConfig{}
+		if err := c.Validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		// Empty allowed/blocked countries is valid (means no restrictions)
+	})
+
 	t.Run("NewDeviceConfig validation", func(t *testing.T) {
 		c := &NewDeviceConfig{}
 		if err := c.Validate(); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 		// NotifyOnNew defaults to false (zero value)
-		if c.NotifyOnNew != false {
+		if c.NotifyOnNew {
 			t.Errorf("NotifyOnNew = %v, want false", c.NotifyOnNew)
 		}
 	})

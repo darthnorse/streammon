@@ -206,6 +206,9 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   )
 }
 
+// Default config values for each rule type.
+// NOTE: These defaults are duplicated from the Go backend (internal/models/rules.go).
+// If you change defaults here, update the corresponding Validate() method in Go.
 function getDefaultConfig(type: RuleType): Record<string, unknown> {
   switch (type) {
     case 'concurrent_streams':

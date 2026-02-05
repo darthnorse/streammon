@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/url"
 	"time"
 )
@@ -29,6 +30,9 @@ func (rt RuleType) Valid() bool {
 	return false
 }
 
+// IsRealTime returns true if this rule type should be evaluated in real-time
+// (on each stream event). Currently all rule types are real-time, but this method
+// exists to support future batch-only rule types (e.g., daily usage limits).
 func (rt RuleType) IsRealTime() bool {
 	switch rt {
 	case RuleTypeConcurrentStreams, RuleTypeSimultaneousLocs,
@@ -437,5 +441,6 @@ func CalculateConfidence(signals []ViolationSignal) float64 {
 	if score < 0 {
 		return 0
 	}
-	return score
+	// Round to 2 decimal places for consistent display
+	return math.Round(score*100) / 100
 }
