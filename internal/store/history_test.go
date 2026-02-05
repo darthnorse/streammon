@@ -509,3 +509,58 @@ func TestHasDeviceBeenUsed(t *testing.T) {
 		t.Error("expected different user not to have used this device")
 	}
 }
+
+func TestGetUserDistinctIPs(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	entries := []models.WatchHistoryEntry{
+		{ServerID: serverID, UserName: "alice", Title: "Movie 1", StartedAt: now.Add(-3 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+		{ServerID: serverID, UserName: "alice", Title: "Movie 2", StartedAt: now.Add(-2 * time.Hour), IPAddress: "2.2.2.2", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+		{ServerID: serverID, UserName: "alice", Title: "Movie 3", StartedAt: now.Add(-1 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie}, // duplicate IP
+		{ServerID: serverID, UserName: "bob", Title: "Movie 4", StartedAt: now.Add(-30 * time.Minute), IPAddress: "3.3.3.3", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+	}
+	for i := range entries {
+		if err := s.InsertHistory(&entries[i]); err != nil {
+			t.Fatalf("InsertHistory: %v", err)
+		}
+	}
+
+	// Test: Get alice's distinct IPs
+	ips, err := s.GetUserDistinctIPs("alice", now, 100)
+	if err != nil {
+		t.Fatalf("GetUserDistinctIPs: %v", err)
+	}
+	if len(ips) != 2 {
+		t.Errorf("expected 2 distinct IPs, got %d", len(ips))
+	}
+	ipSet := make(map[string]bool)
+	for _, ip := range ips {
+		ipSet[ip] = true
+	}
+	if !ipSet["1.1.1.1"] {
+		t.Error("expected IP 1.1.1.1 to be in result")
+	}
+	if !ipSet["2.2.2.2"] {
+		t.Error("expected IP 2.2.2.2 to be in result")
+	}
+
+	// Test: Limit works
+	ips, err = s.GetUserDistinctIPs("alice", now, 1)
+	if err != nil {
+		t.Fatalf("GetUserDistinctIPs (limit 1): %v", err)
+	}
+	if len(ips) != 1 {
+		t.Errorf("expected 1 IP with limit, got %d", len(ips))
+	}
+
+	// Test: Unknown user returns empty
+	ips, err = s.GetUserDistinctIPs("unknown", now, 100)
+	if err != nil {
+		t.Fatalf("GetUserDistinctIPs (unknown user): %v", err)
+	}
+	if len(ips) != 0 {
+		t.Errorf("expected 0 IPs for unknown user, got %d", len(ips))
+	}
+}

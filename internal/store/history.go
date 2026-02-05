@@ -352,6 +352,30 @@ func (s *Store) HasDeviceBeenUsed(userName, player, platform string, beforeTime 
 	return count > 0, nil
 }
 
+// GetUserDistinctIPs returns distinct IP addresses used by a user before the specified time.
+func (s *Store) GetUserDistinctIPs(userName string, beforeTime time.Time, limit int) ([]string, error) {
+	query := `SELECT ip_address FROM watch_history
+		WHERE user_name = ? AND started_at < ? AND ip_address != ''
+		GROUP BY ip_address
+		ORDER BY MAX(started_at) DESC LIMIT ?`
+
+	rows, err := s.db.Query(query, userName, beforeTime, limit)
+	if err != nil {
+		return nil, fmt.Errorf("getting distinct IPs: %w", err)
+	}
+	defer rows.Close()
+
+	var ips []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			return nil, err
+		}
+		ips = append(ips, ip)
+	}
+	return ips, rows.Err()
+}
+
 func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped int, err error) {
 	if len(entries) == 0 {
 		return 0, 0, nil
