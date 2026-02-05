@@ -119,15 +119,18 @@ export function UserDetail() {
         </div>
       )}
 
-      {stats && <UserStatsCards stats={stats} />}
-
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <UserTrustScoreCard userName={decodedName} />
-          <UserHouseholdCard userName={decodedName} />
-          <UserLocationsCard locations={stats.locations} />
-          <UserDevicesCard devices={stats.devices} />
-        </div>
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <UserStatsCards stats={stats} />
+            <UserTrustScoreCard userName={decodedName} />
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <UserHouseholdCard userName={decodedName} />
+            <UserLocationsCard locations={stats.locations} />
+            <UserDevicesCard devices={stats.devices} />
+          </div>
+        </>
       )}
 
       <div className="flex gap-1 border-b border-border dark:border-border-dark">

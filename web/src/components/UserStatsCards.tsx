@@ -7,7 +7,7 @@ interface StatCardProps {
   icon: string
 }
 
-function StatCard({ label, value, icon }: StatCardProps) {
+export function StatCard({ label, value, icon }: StatCardProps) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-3">
@@ -27,7 +27,7 @@ interface UserStatsCardsProps {
 
 export function UserStatsCards({ stats }: UserStatsCardsProps) {
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <>
       <StatCard
         label="Sessions"
         value={stats.session_count.toLocaleString()}
@@ -38,6 +38,6 @@ export function UserStatsCards({ stats }: UserStatsCardsProps) {
         value={formatHours(stats.total_hours)}
         icon="◷"
       />
-    </div>
+    </>
   )
 }
