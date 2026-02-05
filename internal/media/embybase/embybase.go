@@ -354,7 +354,6 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 
 		var thumbURL string
 		if item.SeriesId != "" && item.SeriesPrimaryImageTag != "" {
-			// For episodes, use series poster instead of episode thumbnail
 			thumbURL = item.SeriesId
 		} else if item.ImageTags["Primary"] != "" {
 			thumbURL = item.ID

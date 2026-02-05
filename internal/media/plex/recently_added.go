@@ -105,10 +105,8 @@ func (s *Server) fetchHubRecentlyAdded(ctx context.Context, mediaType string, li
 			title = item.GrandparentTitle + " - " + item.Title
 		}
 
-		// For episodes, use series poster (grandparentThumb) instead of episode thumbnail
 		var thumbURL string
 		if item.GrandparentThumb != "" && item.GrandparentKey != "" {
-			// Use series rating key for the thumb proxy
 			thumbURL = item.GrandparentKey
 		} else if item.Thumb != "" {
 			thumbURL = item.RatingKey

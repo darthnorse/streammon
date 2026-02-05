@@ -58,7 +58,6 @@ func dedupeLibraryItems(items []models.LibraryItem) []models.LibraryItem {
 		keys := fallbackDedupeKeys(item)
 		extKey := item.ExternalIDs.DedupeKey()
 
-		// Check if we've seen this item by any key
 		isDupe := false
 		for _, k := range keys {
 			if seen[k] {
@@ -74,7 +73,6 @@ func dedupeLibraryItems(items []models.LibraryItem) []models.LibraryItem {
 			continue
 		}
 
-		// Mark all keys as seen
 		for _, k := range keys {
 			seen[k] = true
 		}
