@@ -351,11 +351,19 @@ type DeviceStat struct {
 	LastSeen     string  `json:"last_seen"`
 }
 
+type ISPStat struct {
+	ISP          string  `json:"isp"`
+	SessionCount int     `json:"session_count"`
+	Percentage   float64 `json:"percentage"`
+	LastSeen     string  `json:"last_seen"`
+}
+
 type UserDetailStats struct {
 	SessionCount int            `json:"session_count"`
 	TotalHours   float64        `json:"total_hours"`
 	Locations    []LocationStat `json:"locations"`
 	Devices      []DeviceStat   `json:"devices"`
+	ISPs         []ISPStat      `json:"isps"`
 }
 
 type DayOfWeekStat struct {

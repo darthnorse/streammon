@@ -297,11 +297,19 @@ export interface DeviceStat {
   last_seen: string
 }
 
+export interface ISPStat {
+  isp: string
+  session_count: number
+  percentage: number
+  last_seen: string
+}
+
 export interface UserDetailStats {
   session_count: number
   total_hours: number
   locations: LocationStat[]
   devices: DeviceStat[]
+  isps: ISPStat[]
 }
 
 export interface TautulliSettings {

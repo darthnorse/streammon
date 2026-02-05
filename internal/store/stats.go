@@ -420,6 +420,7 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 	stats := &models.UserDetailStats{
 		Locations: []models.LocationStat{},
 		Devices:   []models.DeviceStat{},
+		ISPs:      []models.ISPStat{},
 	}
 
 	var totalHours sql.NullFloat64
@@ -515,6 +516,47 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 	for i := range stats.Devices {
 		if totalDevSessions > 0 {
 			stats.Devices[i].Percentage = float64(stats.Devices[i].SessionCount) / float64(totalDevSessions) * 100
+		}
+	}
+
+	ispRows, err := s.db.Query(
+		`SELECT g.isp, COUNT(*) as session_count,
+			MAX(COALESCE(h.stopped_at, h.started_at)) as last_seen
+		FROM watch_history h
+		JOIN ip_geo_cache g ON h.ip_address = g.ip
+		WHERE h.user_name = ? AND g.isp != ''
+		GROUP BY g.isp
+		ORDER BY session_count DESC
+		LIMIT 10`,
+		userName,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("user isp stats: %w", err)
+	}
+	defer ispRows.Close()
+
+	var totalISPSessions int
+	for ispRows.Next() {
+		var isp models.ISPStat
+		var lastSeenStr sql.NullString
+		if err := ispRows.Scan(&isp.ISP, &isp.SessionCount, &lastSeenStr); err != nil {
+			return nil, fmt.Errorf("scanning isp stat: %w", err)
+		}
+		if lastSeenStr.Valid {
+			if t := parseSQLiteTimestamp(lastSeenStr.String); !t.IsZero() {
+				isp.LastSeen = t.Format(time.RFC3339)
+			}
+		}
+		totalISPSessions += isp.SessionCount
+		stats.ISPs = append(stats.ISPs, isp)
+	}
+	if err := ispRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating isp stats: %w", err)
+	}
+
+	for i := range stats.ISPs {
+		if totalISPSessions > 0 {
+			stats.ISPs[i].Percentage = float64(stats.ISPs[i].SessionCount) / float64(totalISPSessions) * 100
 		}
 	}
 

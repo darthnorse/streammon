@@ -9,6 +9,7 @@ import { LocationMap } from '../components/LocationMap'
 import { UserStatsCards } from '../components/UserStatsCards'
 import { UserLocationsCard } from '../components/UserLocationsCard'
 import { UserDevicesCard } from '../components/UserDevicesCard'
+import { UserISPCard } from '../components/UserISPCard'
 import { UserTrustScoreCard } from '../components/UserTrustScoreCard'
 import { UserHouseholdCard } from '../components/UserHouseholdCard'
 import { getHistoryColumns } from '../lib/historyColumns'
@@ -125,10 +126,11 @@ export function UserDetail() {
             <UserStatsCards stats={stats} />
             <UserTrustScoreCard userName={decodedName} />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <UserHouseholdCard userName={decodedName} />
             <UserLocationsCard locations={stats.locations} />
             <UserDevicesCard devices={stats.devices} />
+            <UserISPCard isps={stats.isps} />
           </div>
         </>
       )}
