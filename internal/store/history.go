@@ -486,3 +486,33 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 
 	return inserted, skipped, nil
 }
+
+// IsItemWatched checks if an item has been watched by any user
+func (s *Store) IsItemWatched(ctx context.Context, serverID int64, itemID string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT 1 FROM watch_history
+		WHERE server_id = ? AND (item_id = ? OR grandparent_item_id = ?)
+		LIMIT 1`,
+		serverID, itemID, itemID).Scan(&count)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("check item watched: %w", err)
+	}
+	return true, nil
+}
+
+// GetWatchedEpisodeCount returns the count of watched episodes for a show
+func (s *Store) GetWatchedEpisodeCount(ctx context.Context, serverID int64, showItemID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT item_id) FROM watch_history
+		WHERE server_id = ? AND grandparent_item_id = ?`,
+		serverID, showItemID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("get watched episode count: %w", err)
+	}
+	return count, nil
+}
