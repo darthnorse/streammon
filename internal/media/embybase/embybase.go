@@ -38,12 +38,6 @@ func (c *Client) Name() string            { return c.serverName }
 func (c *Client) Type() models.ServerType { return c.serverType }
 func (c *Client) ServerID() int64         { return c.serverID }
 
-// GetLibraryItems fetches all items from an Emby/Jellyfin library.
-// TODO: Implement in Task 11
-func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
-	return nil, models.ErrNotImplemented
-}
-
 func (c *Client) TestConnection(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/System/Info/Public", nil)
 	if err != nil {
