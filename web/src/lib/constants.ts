@@ -22,5 +22,6 @@ export const navLinks = [
   { to: '/history', label: 'History', icon: '☰' },
   { to: '/library', label: 'Library', icon: '▤' },
   { to: '/statistics', label: 'Statistics', icon: '◐' },
+  { to: '/rules', label: 'Rules', icon: '⚑' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ] as const

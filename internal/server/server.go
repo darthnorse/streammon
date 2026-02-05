@@ -18,6 +18,11 @@ type GeoLookup interface {
 	Lookup(ip net.IP) *models.GeoResult
 }
 
+// RulesEngine allows the server to invalidate the rules cache when rules are modified.
+type RulesEngine interface {
+	InvalidateCache()
+}
+
 type Server struct {
 	router      chi.Router
 	store       *store.Store
@@ -27,6 +32,7 @@ type Server struct {
 	geoResolver GeoLookup
 	geoUpdater  *geoip.Updater
 	libCache    *libraryCache
+	rulesEngine RulesEngine
 }
 
 func NewServer(s *store.Store, opts ...Option) *Server {
@@ -64,6 +70,10 @@ func WithAuth(a *auth.Service) Option {
 
 func WithGeoUpdater(u *geoip.Updater) Option {
 	return func(s *Server) { s.geoUpdater = u }
+}
+
+func WithRulesEngine(r RulesEngine) Option {
+	return func(s *Server) { s.rulesEngine = r }
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

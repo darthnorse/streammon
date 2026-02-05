@@ -9,6 +9,7 @@ import (
 
 	"streammon/internal/media"
 	"streammon/internal/models"
+	"streammon/internal/rules"
 	"streammon/internal/store"
 )
 
@@ -31,10 +32,20 @@ type Poller struct {
 	wsCancel    map[int64]context.CancelFunc
 	triggerPoll chan struct{}
 	pollNotify  chan struct{}
+
+	rulesEngine *rules.Engine
 }
 
-func New(s *store.Store, interval time.Duration) *Poller {
-	return &Poller{
+type PollerOption func(*Poller)
+
+func WithRulesEngine(e *rules.Engine) PollerOption {
+	return func(p *Poller) {
+		p.rulesEngine = e
+	}
+}
+
+func New(s *store.Store, interval time.Duration, opts ...PollerOption) *Poller {
+	p := &Poller{
 		store:       s,
 		interval:    interval,
 		servers:     make(map[int64]media.MediaServer),
@@ -42,6 +53,10 @@ func New(s *store.Store, interval time.Duration) *Poller {
 		subscribers: make(map[chan []models.ActiveStream]struct{}),
 		wsCancel:    make(map[int64]context.CancelFunc),
 	}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
 }
 
 func (p *Poller) AddServer(id int64, ms media.MediaServer) {
@@ -250,6 +265,13 @@ func (p *Poller) poll(ctx context.Context) {
 
 	snapshot := p.CurrentSessions()
 	p.publish(snapshot)
+
+	// Evaluate active sessions against rules
+	if p.rulesEngine != nil {
+		for i := range snapshot {
+			p.rulesEngine.EvaluateSession(ctx, &snapshot[i], snapshot)
+		}
+	}
 
 	if p.pollNotify != nil {
 		select {

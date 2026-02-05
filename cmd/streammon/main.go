@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,7 +14,10 @@ import (
 	"streammon/internal/auth"
 	"streammon/internal/geoip"
 	"streammon/internal/media"
+	"streammon/internal/models"
+	"streammon/internal/notifier"
 	"streammon/internal/poller"
+	"streammon/internal/rules"
 	"streammon/internal/server"
 	"streammon/internal/store"
 )
@@ -59,13 +63,18 @@ func main() {
 		log.Println("OIDC not configured — authentication disabled")
 	}
 
+	// Initialize rules engine
+	rulesGeo := &geoAdapter{resolver: geoResolver}
+	rulesEngine := rules.NewEngine(s, rulesGeo, rules.DefaultEngineConfig())
+	rulesEngine.SetNotifier(notifier.New())
+
 	pollInterval := 5 * time.Second
 	if v := os.Getenv("POLL_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d >= 2*time.Second {
 			pollInterval = d
 		}
 	}
-	p := poller.New(s, pollInterval)
+	p := poller.New(s, pollInterval, poller.WithRulesEngine(rulesEngine))
 
 	servers, err := s.ListServers()
 	if err != nil {
@@ -91,6 +100,7 @@ func main() {
 		server.WithGeoResolver(geoResolver),
 		server.WithAuth(authSvc),
 		server.WithGeoUpdater(geoUpdater),
+		server.WithRulesEngine(rulesEngine),
 	}
 	if corsOrigin != "" {
 		opts = append(opts, server.WithCORSOrigin(corsOrigin))
@@ -129,4 +139,21 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// geoAdapter adapts geoip.Resolver to the rules.GeoResolver interface.
+type geoAdapter struct {
+	resolver *geoip.Resolver
+}
+
+func (g *geoAdapter) Lookup(_ context.Context, ip string) (*models.GeoResult, error) {
+	if g.resolver == nil {
+		return nil, nil
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return nil, nil
+	}
+	result := g.resolver.Lookup(parsed)
+	return result, nil
 }

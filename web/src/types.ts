@@ -328,3 +328,141 @@ export interface PieTooltipPayloadItem<T> {
   value: number
   payload: T
 }
+
+// Rules system types
+export type RuleType =
+  | 'impossible_travel'
+  | 'concurrent_streams'
+  | 'simultaneous_locations'
+  | 'device_velocity'
+  | 'geo_restriction'
+  | 'new_device'
+  | 'new_location'
+
+export type Severity = 'info' | 'warning' | 'critical'
+
+export type ChannelType = 'discord' | 'webhook' | 'pushover' | 'ntfy'
+
+export interface Rule {
+  id: number
+  name: string
+  type: RuleType
+  enabled: boolean
+  config: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export interface RuleViolation {
+  id: number
+  rule_id: number
+  rule_name?: string
+  rule_type?: RuleType
+  user_name: string
+  severity: Severity
+  message: string
+  details?: Record<string, unknown>
+  confidence_score: number
+  occurred_at: string
+  created_at: string
+}
+
+export interface HouseholdLocation {
+  id: number
+  user_name: string
+  ip_address?: string
+  city?: string
+  country?: string
+  latitude?: number
+  longitude?: number
+  auto_learned: boolean
+  trusted: boolean
+  session_count: number
+  first_seen: string
+  last_seen: string
+  created_at: string
+}
+
+export interface UserTrustScore {
+  user_name: string
+  score: number
+  violation_count: number
+  last_violation_at?: string
+  updated_at: string
+}
+
+export interface NotificationChannel {
+  id: number
+  name: string
+  channel_type: ChannelType
+  config: Record<string, unknown>
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+// Rule config types
+export interface ConcurrentStreamsConfig {
+  max_streams: number
+  exempt_household?: boolean
+  count_paused_as_one?: boolean
+}
+
+export interface GeoRestrictionConfig {
+  allowed_countries?: string[]
+  blocked_countries?: string[]
+}
+
+export interface ImpossibleTravelConfig {
+  max_speed_km_h: number
+  min_distance_km: number
+  time_window_hours: number
+}
+
+export interface SimultaneousLocsConfig {
+  min_distance_km: number
+  exempt_household?: boolean
+}
+
+export interface DeviceVelocityConfig {
+  max_devices_per_hour: number
+  time_window_hours: number
+}
+
+// Notification channel configs
+export interface DiscordConfig {
+  webhook_url: string
+}
+
+export interface WebhookConfig {
+  url: string
+  method?: string
+  headers?: Record<string, string>
+}
+
+export interface PushoverConfig {
+  user_key: string
+  api_token: string
+}
+
+export interface NtfyConfig {
+  server_url?: string
+  topic: string
+  token?: string
+}
+
+// Rule type metadata for UI display
+export const RULE_TYPES: { value: RuleType; label: string; description: string }[] = [
+  { value: 'concurrent_streams', label: 'Concurrent Streams', description: 'Limit simultaneous streams per user' },
+  { value: 'geo_restriction', label: 'Geo Restriction', description: 'Restrict streaming by country' },
+  { value: 'simultaneous_locations', label: 'Simultaneous Locations', description: 'Detect streaming from multiple locations at once' },
+  { value: 'impossible_travel', label: 'Impossible Travel', description: 'Detect physically impossible location changes' },
+  { value: 'device_velocity', label: 'Device Velocity', description: 'Detect too many new devices in a short time' },
+  { value: 'new_device', label: 'New Device', description: 'Alert when user streams from new device' },
+  { value: 'new_location', label: 'New Location', description: 'Alert when user streams from new location' },
+]
+
+// Lookup map for rule type labels
+export const RULE_TYPE_LABELS: Record<RuleType, string> = Object.fromEntries(
+  RULE_TYPES.map(rt => [rt.value, rt.label])
+) as Record<RuleType, string>

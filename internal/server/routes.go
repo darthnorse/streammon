@@ -75,6 +75,41 @@ func (s *Server) routes() {
 			sr.Post("/test", s.handleTestTautulliConnection)
 			sr.Post("/import", s.handleTautulliImport)
 		})
+
+		r.Route("/rules", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleListRules)
+			sr.Post("/", s.handleCreateRule)
+			sr.Get("/{id}", s.handleGetRule)
+			sr.Put("/{id}", s.handleUpdateRule)
+			sr.Delete("/{id}", s.handleDeleteRule)
+			sr.Post("/{id}/channels", s.handleLinkRuleToChannel)
+			sr.Delete("/{id}/channels/{channelId}", s.handleUnlinkRuleFromChannel)
+			sr.Get("/{id}/channels", s.handleGetRuleChannels)
+		})
+
+		r.Route("/violations", func(sr chi.Router) {
+			sr.Get("/", s.handleListViolations)
+		})
+
+		r.Route("/notifications", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleListNotificationChannels)
+			sr.Post("/", s.handleCreateNotificationChannel)
+			sr.Get("/{id}", s.handleGetNotificationChannel)
+			sr.Put("/{id}", s.handleUpdateNotificationChannel)
+			sr.Delete("/{id}", s.handleDeleteNotificationChannel)
+			sr.Post("/{id}/test", s.handleTestNotificationChannel)
+		})
+
+		r.Get("/users/{name}/trust", s.handleGetUserTrustScore)
+		r.Route("/users/{name}/household", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleListHouseholdLocations)
+			sr.Post("/", s.handleCreateHouseholdLocation)
+			sr.Put("/{id}", s.handleUpdateHouseholdTrusted)
+			sr.Delete("/{id}", s.handleDeleteHouseholdLocation)
+		})
 	})
 
 	s.router.Group(func(r chi.Router) {
