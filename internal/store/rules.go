@@ -369,28 +369,25 @@ func (s *Store) DeleteHouseholdLocation(id int64) error {
 
 // AutoLearnHouseholdLocation checks if an IP has been used enough times by a user
 // to be automatically added as a household location. Returns true if a new location was created.
+// This method is safe to call concurrently - it uses atomic operations to prevent race conditions.
 func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessions int) (bool, error) {
 	if ipAddress == "" {
 		return false, nil
 	}
 
-	// Check if this IP is already a household location for this user
-	var existingCount int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM household_locations WHERE user_name = ? AND ip_address = ?`,
-		userName, ipAddress).Scan(&existingCount)
+	// First, try to update an existing household location (atomic operation)
+	result, err := s.db.Exec(`UPDATE household_locations SET session_count = session_count + 1, last_seen = CURRENT_TIMESTAMP WHERE user_name = ? AND ip_address = ?`,
+		userName, ipAddress)
 	if err != nil {
-		return false, fmt.Errorf("checking existing household: %w", err)
+		return false, fmt.Errorf("updating household location: %w", err)
 	}
-	if existingCount > 0 {
-		// Update last_seen and session_count for existing location
-		_, err = s.db.Exec(`UPDATE household_locations SET session_count = session_count + 1, last_seen = CURRENT_TIMESTAMP WHERE user_name = ? AND ip_address = ?`,
-			userName, ipAddress)
-		if err != nil {
-			return false, fmt.Errorf("updating household location: %w", err)
-		}
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected > 0 {
+		// Existing location was updated
 		return false, nil
 	}
 
+	// No existing location - check if we should create one
 	// Count sessions from this IP for this user
 	var sessionCount int
 	err = s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE user_name = ? AND ip_address = ?`,
@@ -412,16 +409,25 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 		return false, fmt.Errorf("getting geo data: %w", err)
 	}
 
-	// Get first and last seen times
-	var firstSeen, lastSeen time.Time
+	// Get first and last seen times (scan as strings due to SQLite returning strings for aggregates)
+	var firstSeenStr, lastSeenStr string
 	err = s.db.QueryRow(`SELECT MIN(started_at), MAX(COALESCE(stopped_at, started_at)) FROM watch_history WHERE user_name = ? AND ip_address = ?`,
-		userName, ipAddress).Scan(&firstSeen, &lastSeen)
+		userName, ipAddress).Scan(&firstSeenStr, &lastSeenStr)
 	if err != nil {
 		return false, fmt.Errorf("getting time range: %w", err)
 	}
+	firstSeen, _ := time.Parse(time.RFC3339Nano, firstSeenStr)
+	lastSeen, _ := time.Parse(time.RFC3339Nano, lastSeenStr)
+	if firstSeen.IsZero() {
+		firstSeen = time.Now().UTC()
+	}
+	if lastSeen.IsZero() {
+		lastSeen = firstSeen
+	}
 
-	// Create auto-learned household location (trusted=false by default)
-	_, err = s.db.Exec(`INSERT INTO household_locations
+	// Create auto-learned household location with INSERT OR IGNORE to handle race conditions
+	// If another goroutine already inserted this row, this will be a no-op
+	result, err = s.db.Exec(`INSERT OR IGNORE INTO household_locations
 		(user_name, ip_address, city, country, latitude, longitude, auto_learned, trusted, session_count, first_seen, last_seen)
 		VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)`,
 		userName, ipAddress, city, country, lat.Float64, lng.Float64, sessionCount, firstSeen, lastSeen)
@@ -429,8 +435,14 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 		return false, fmt.Errorf("creating household location: %w", err)
 	}
 
-	log.Printf("auto-learned household location for user %s from IP %s (%d sessions)", userName, ipAddress, sessionCount)
-	return true, nil
+	rowsAffected, _ = result.RowsAffected()
+	if rowsAffected > 0 {
+		log.Printf("auto-learned household location for user %s from IP %s (%d sessions)", userName, ipAddress, sessionCount)
+		return true, nil
+	}
+
+	// Another goroutine beat us to it - that's fine, the location exists now
+	return false, nil
 }
 
 func (s *Store) GetUserTrustScore(userName string) (*models.UserTrustScore, error) {

@@ -495,3 +495,135 @@ func TestInsertViolationWithTx(t *testing.T) {
 		t.Errorf("ViolationCount = %d, want 1", ts.ViolationCount)
 	}
 }
+
+func TestAutoLearnHouseholdLocation(t *testing.T) {
+	s := setupTestStore(t)
+
+	now := time.Now().UTC()
+	serverID := seedTestServer(t, s)
+
+	// Seed geo cache for the test IP
+	_, err := s.db.Exec(`INSERT INTO ip_geo_cache (ip, lat, lng, city, country, isp, cached_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"1.1.1.1", 40.7128, -74.0060, "New York", "US", "Comcast", now)
+	if err != nil {
+		t.Fatalf("seed geo cache: %v", err)
+	}
+
+	// Test: Not enough sessions - should not create household location
+	// Seed only 5 sessions
+	for i := 0; i < 5; i++ {
+		entry := &models.WatchHistoryEntry{
+			ServerID:  serverID,
+			UserName:  "alice",
+			Title:     "Movie",
+			StartedAt: now.Add(-time.Duration(i) * time.Hour),
+			IPAddress: "1.1.1.1",
+			Player:    "Plex Web",
+			Platform:  "Chrome",
+			MediaType: models.MediaTypeMovie,
+		}
+		if err := s.InsertHistory(entry); err != nil {
+			t.Fatalf("InsertHistory: %v", err)
+		}
+	}
+
+	created, err := s.AutoLearnHouseholdLocation("alice", "1.1.1.1", 10)
+	if err != nil {
+		t.Fatalf("AutoLearnHouseholdLocation (not enough sessions): %v", err)
+	}
+	if created {
+		t.Error("expected created=false when below session threshold")
+	}
+
+	locations, err := s.ListHouseholdLocations("alice")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations: %v", err)
+	}
+	if len(locations) != 0 {
+		t.Errorf("expected 0 household locations, got %d", len(locations))
+	}
+
+	// Add more sessions to reach threshold
+	for i := 5; i < 12; i++ {
+		entry := &models.WatchHistoryEntry{
+			ServerID:  serverID,
+			UserName:  "alice",
+			Title:     "Movie",
+			StartedAt: now.Add(-time.Duration(i) * time.Hour),
+			IPAddress: "1.1.1.1",
+			Player:    "Plex Web",
+			Platform:  "Chrome",
+			MediaType: models.MediaTypeMovie,
+		}
+		if err := s.InsertHistory(entry); err != nil {
+			t.Fatalf("InsertHistory: %v", err)
+		}
+	}
+
+	// Test: Enough sessions - should create household location
+	created, err = s.AutoLearnHouseholdLocation("alice", "1.1.1.1", 10)
+	if err != nil {
+		t.Fatalf("AutoLearnHouseholdLocation (enough sessions): %v", err)
+	}
+	if !created {
+		t.Error("expected created=true when above session threshold")
+	}
+
+	locations, err = s.ListHouseholdLocations("alice")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations after auto-learn: %v", err)
+	}
+	if len(locations) != 1 {
+		t.Fatalf("expected 1 household location, got %d", len(locations))
+	}
+	if !locations[0].AutoLearned {
+		t.Error("expected AutoLearned=true")
+	}
+	if locations[0].Trusted {
+		t.Error("expected Trusted=false for auto-learned location")
+	}
+	if locations[0].City != "New York" {
+		t.Errorf("City = %q, want %q", locations[0].City, "New York")
+	}
+
+	// Test: Calling again should update session count, not create new
+	created, err = s.AutoLearnHouseholdLocation("alice", "1.1.1.1", 10)
+	if err != nil {
+		t.Fatalf("AutoLearnHouseholdLocation (update): %v", err)
+	}
+	if created {
+		t.Error("expected created=false when location already exists")
+	}
+
+	locations, err = s.ListHouseholdLocations("alice")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations after update: %v", err)
+	}
+	if len(locations) != 1 {
+		t.Errorf("expected still 1 household location, got %d", len(locations))
+	}
+
+	// Test: Empty IP should be a no-op
+	created, err = s.AutoLearnHouseholdLocation("alice", "", 10)
+	if err != nil {
+		t.Fatalf("AutoLearnHouseholdLocation (empty IP): %v", err)
+	}
+	if created {
+		t.Error("expected created=false for empty IP")
+	}
+}
+
+func seedTestServer(t *testing.T, s *Store) int64 {
+	t.Helper()
+	srv := &models.Server{
+		Name:    "Test Server",
+		Type:    models.ServerTypePlex,
+		URL:     "http://localhost:32400",
+		APIKey:  "test-key",
+		Enabled: true,
+	}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatalf("CreateServer: %v", err)
+	}
+	return srv.ID
+}

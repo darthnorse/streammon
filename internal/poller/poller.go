@@ -40,6 +40,9 @@ type Poller struct {
 	autoLearnMinSessions  int
 }
 
+// DefaultAutoLearnMinSessions is the default threshold for auto-learning household locations.
+const DefaultAutoLearnMinSessions = 10
+
 type PollerOption func(*Poller)
 
 func WithRulesEngine(e *rules.Engine) PollerOption {
@@ -49,14 +52,18 @@ func WithRulesEngine(e *rules.Engine) PollerOption {
 }
 
 // WithHouseholdAutoLearn enables automatic learning of household locations
-// based on IP usage frequency. minSessions is the threshold for auto-learning
-// (default: 10 sessions from the same IP).
+// based on IP usage frequency. minSessions is the threshold for auto-learning.
+// Pass 0 or negative to disable auto-learning entirely.
+// Default threshold is DefaultAutoLearnMinSessions (10 sessions from the same IP).
 func WithHouseholdAutoLearn(minSessions int) PollerOption {
 	return func(p *Poller) {
-		p.autoLearnHousehold = true
-		p.autoLearnMinSessions = minSessions
-		if p.autoLearnMinSessions <= 0 {
-			p.autoLearnMinSessions = 10
+		if minSessions <= 0 {
+			// Disabled
+			p.autoLearnHousehold = false
+			p.autoLearnMinSessions = 0
+		} else {
+			p.autoLearnHousehold = true
+			p.autoLearnMinSessions = minSessions
 		}
 	}
 }

@@ -50,6 +50,10 @@ func (m *mockHistoryQuerierForDeviceVelocity) GetRecentDevices(userName string, 
 	return devices, nil
 }
 
+func (m *mockHistoryQuerierForDeviceVelocity) GetRecentISPs(userName string, beforeTime time.Time, withinHours int) ([]string, error) {
+	return nil, nil
+}
+
 func TestDeviceVelocityEvaluator_TooManyDevices(t *testing.T) {
 	now := time.Now().UTC()
 

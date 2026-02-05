@@ -77,9 +77,10 @@ func main() {
 	}
 
 	// Household auto-learning: enabled by default with 10 sessions threshold
-	autoLearnMinSessions := 10
+	// Set HOUSEHOLD_AUTOLEARN_MIN_SESSIONS=0 to disable auto-learning
+	autoLearnMinSessions := poller.DefaultAutoLearnMinSessions
 	if v := os.Getenv("HOUSEHOLD_AUTOLEARN_MIN_SESSIONS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 			autoLearnMinSessions = n
 		}
 	}

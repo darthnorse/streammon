@@ -564,3 +564,82 @@ func TestGetUserDistinctIPs(t *testing.T) {
 		t.Errorf("expected 0 IPs for unknown user, got %d", len(ips))
 	}
 }
+
+func TestGetRecentISPs(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+
+	// Seed geo cache with ISP data
+	geoEntries := []*models.GeoResult{
+		{IP: "1.1.1.1", Lat: 40.7, Lng: -74.0, City: "New York", Country: "US", ISP: "Comcast"},
+		{IP: "2.2.2.2", Lat: 34.0, Lng: -118.2, City: "Los Angeles", Country: "US", ISP: "Verizon"},
+		{IP: "3.3.3.3", Lat: 41.8, Lng: -87.6, City: "Chicago", Country: "US", ISP: "AT&T"},
+		{IP: "4.4.4.4", Lat: 47.6, Lng: -122.3, City: "Seattle", Country: "US", ISP: ""}, // Empty ISP
+	}
+	for _, geo := range geoEntries {
+		if err := s.SetCachedGeo(geo); err != nil {
+			t.Fatalf("SetCachedGeo: %v", err)
+		}
+	}
+
+	// Seed watch history
+	entries := []models.WatchHistoryEntry{
+		{ServerID: serverID, UserName: "alice", Title: "Movie 1", StartedAt: now.Add(-3 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+		{ServerID: serverID, UserName: "alice", Title: "Movie 2", StartedAt: now.Add(-2 * time.Hour), IPAddress: "2.2.2.2", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+		{ServerID: serverID, UserName: "alice", Title: "Movie 3", StartedAt: now.Add(-1 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie}, // duplicate ISP
+		{ServerID: serverID, UserName: "alice", Title: "Movie 4", StartedAt: now.Add(-30 * time.Minute), IPAddress: "4.4.4.4", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie}, // Empty ISP - should not be counted
+		{ServerID: serverID, UserName: "bob", Title: "Movie 5", StartedAt: now.Add(-30 * time.Minute), IPAddress: "3.3.3.3", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
+	}
+	for i := range entries {
+		if err := s.InsertHistory(&entries[i]); err != nil {
+			t.Fatalf("InsertHistory: %v", err)
+		}
+	}
+
+	// Test: Get alice's recent ISPs (within time window)
+	isps, err := s.GetRecentISPs("alice", now, 24)
+	if err != nil {
+		t.Fatalf("GetRecentISPs: %v", err)
+	}
+	if len(isps) != 2 {
+		t.Errorf("expected 2 distinct ISPs, got %d: %v", len(isps), isps)
+	}
+	ispSet := make(map[string]bool)
+	for _, isp := range isps {
+		ispSet[isp] = true
+	}
+	if !ispSet["Comcast"] {
+		t.Error("expected ISP Comcast to be in result")
+	}
+	if !ispSet["Verizon"] {
+		t.Error("expected ISP Verizon to be in result")
+	}
+
+	// Test: Time window filtering
+	isps, err = s.GetRecentISPs("alice", now.Add(-2*time.Hour), 1) // Only entries from 3 hours ago
+	if err != nil {
+		t.Fatalf("GetRecentISPs (time window): %v", err)
+	}
+	if len(isps) != 1 {
+		t.Errorf("expected 1 ISP in time window, got %d: %v", len(isps), isps)
+	}
+
+	// Test: Unknown user returns empty
+	isps, err = s.GetRecentISPs("unknown", now, 24)
+	if err != nil {
+		t.Fatalf("GetRecentISPs (unknown user): %v", err)
+	}
+	if len(isps) != 0 {
+		t.Errorf("expected 0 ISPs for unknown user, got %d", len(isps))
+	}
+
+	// Test: Empty ISPs are not included
+	// Alice used IP 4.4.4.4 which has empty ISP - should not appear
+	for _, isp := range isps {
+		if isp == "" {
+			t.Error("empty ISP should not be in result")
+		}
+	}
+}

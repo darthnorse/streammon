@@ -36,6 +36,10 @@ func (m *mockHistoryQuerier) GetRecentDevices(userName string, beforeTime time.T
 	return nil, nil
 }
 
+func (m *mockHistoryQuerier) GetRecentISPs(userName string, beforeTime time.Time, withinHours int) ([]string, error) {
+	return nil, nil
+}
+
 func TestNewDeviceEvaluator_NewDevice(t *testing.T) {
 	mock := &mockHistoryQuerier{hasDeviceBeenUsed: false}
 	evaluator := NewNewDeviceEvaluator(mock)

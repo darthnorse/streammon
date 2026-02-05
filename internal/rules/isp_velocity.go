@@ -53,7 +53,13 @@ func (e *ISPVelocityEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 		return nil, nil
 	}
 
-	recentISPs, err := e.store.GetRecentISPs(stream.UserName, stream.StartedAt, config.TimeWindowHours)
+	// Use current time if StartedAt is zero (new stream not yet tracked)
+	beforeTime := stream.StartedAt
+	if beforeTime.IsZero() {
+		beforeTime = time.Now().UTC()
+	}
+
+	recentISPs, err := e.store.GetRecentISPs(stream.UserName, beforeTime, config.TimeWindowHours)
 	if err != nil {
 		return nil, fmt.Errorf("getting recent ISPs: %w", err)
 	}
