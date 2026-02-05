@@ -19,6 +19,7 @@ export const plexBtnClass = 'px-4 py-2.5 text-sm font-semibold rounded-lg bg-[#e
 
 export const navLinks = [
   { to: '/', label: 'Dashboard', icon: '▣' },
+  { to: '/users', label: 'Users', icon: '◉' },
   { to: '/history', label: 'History', icon: '☰' },
   { to: '/library', label: 'Library', icon: '▤' },
   { to: '/statistics', label: 'Statistics', icon: '◐' },

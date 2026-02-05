@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"streammon/internal/httputil"
 	"streammon/internal/models"
 )
 
@@ -72,7 +73,7 @@ func (s *Server) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 	if err != nil {
 		return nil, fmt.Errorf("plex item details: %w", err)
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, models.ErrNotFound

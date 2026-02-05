@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"streammon/internal/models"
 )
@@ -81,6 +82,92 @@ func (s *Store) UpdateUserRole(name string, role models.Role) error {
 	return nil
 }
 
+type UserSummary struct {
+	Name                       string  `json:"name"`
+	ThumbURL                   string  `json:"thumb_url"`
+	LastStreamedAt             *string `json:"last_streamed_at"`
+	LastIP                     string  `json:"last_ip"`
+	TotalPlays                 int     `json:"total_plays"`
+	TotalWatchedMs             int64   `json:"total_watched_ms"`
+	TrustScore                 int     `json:"trust_score"`
+	LastPlayedTitle            string  `json:"last_played_title"`
+	LastPlayedGrandparentTitle string  `json:"last_played_grandparent_title"`
+	LastPlayedMediaType        string  `json:"last_played_media_type"`
+	LastPlayedServerID         int     `json:"last_played_server_id"`
+	LastPlayedItemID           string  `json:"last_played_item_id"`
+	LastPlayedGrandparentID    string  `json:"last_played_grandparent_item_id"`
+}
+
+func (s *Store) ListUserSummaries() ([]UserSummary, error) {
+	// Users derived from watch_history (source of truth); users table only has OIDC logins
+	rows, err := s.db.Query(`
+		WITH ranked AS (
+			SELECT
+				user_name,
+				ip_address,
+				title,
+				grandparent_title,
+				media_type,
+				server_id,
+				item_id,
+				grandparent_item_id,
+				ROW_NUMBER() OVER (PARTITION BY user_name ORDER BY started_at DESC) as rn
+			FROM watch_history
+		),
+		stats AS (
+			SELECT
+				user_name,
+				MAX(started_at) as last_streamed_at,
+				COUNT(*) as total_plays,
+				SUM(watched_ms) as total_watched_ms
+			FROM watch_history
+			GROUP BY user_name
+		),
+		last_entry AS (
+			SELECT user_name, ip_address as last_ip, title, grandparent_title, media_type, server_id, item_id, grandparent_item_id
+			FROM ranked
+			WHERE rn = 1
+		)
+		SELECT
+			s.user_name,
+			COALESCE(u.thumb_url, '') as thumb_url,
+			s.last_streamed_at,
+			COALESCE(le.last_ip, '') as last_ip,
+			s.total_plays,
+			s.total_watched_ms,
+			COALESCE(t.score, 100) as trust_score,
+			COALESCE(le.title, '') as last_played_title,
+			COALESCE(le.grandparent_title, '') as last_played_grandparent_title,
+			COALESCE(le.media_type, '') as last_played_media_type,
+			COALESCE(le.server_id, 0) as last_played_server_id,
+			COALESCE(le.item_id, '') as last_played_item_id,
+			COALESCE(le.grandparent_item_id, '') as last_played_grandparent_item_id
+		FROM stats s
+		LEFT JOIN last_entry le ON s.user_name = le.user_name
+		LEFT JOIN users u ON s.user_name = u.name
+		LEFT JOIN user_trust_scores t ON s.user_name = t.user_name
+		ORDER BY s.user_name`)
+	if err != nil {
+		return nil, fmt.Errorf("listing user summaries: %w", err)
+	}
+	defer rows.Close()
+
+	summaries := []UserSummary{}
+	for rows.Next() {
+		var s UserSummary
+		if err := rows.Scan(
+			&s.Name, &s.ThumbURL, &s.LastStreamedAt, &s.LastIP,
+			&s.TotalPlays, &s.TotalWatchedMs, &s.TrustScore,
+			&s.LastPlayedTitle, &s.LastPlayedGrandparentTitle, &s.LastPlayedMediaType,
+			&s.LastPlayedServerID, &s.LastPlayedItemID, &s.LastPlayedGrandparentID,
+		); err != nil {
+			return nil, fmt.Errorf("scanning user summary: %w", err)
+		}
+		summaries = append(summaries, s)
+	}
+	return summaries, rows.Err()
+}
+
 func (s *Store) GetOrCreateUserByEmail(email, name string) (*models.User, error) {
 	_, err := s.db.Exec(
 		`INSERT INTO users (name, email) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET email = excluded.email`,
@@ -97,4 +184,66 @@ func (s *Store) GetOrCreateUserByEmail(email, name string) (*models.User, error)
 		return nil, fmt.Errorf("querying user: %w", err)
 	}
 	return &u, nil
+}
+
+func (s *Store) UpdateUserAvatar(name, thumbURL string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO users (name, thumb_url) VALUES (?, ?)
+		 ON CONFLICT(name) DO UPDATE SET thumb_url = excluded.thumb_url, updated_at = CURRENT_TIMESTAMP`,
+		name, thumbURL,
+	)
+	if err != nil {
+		return fmt.Errorf("upserting user avatar: %w", err)
+	}
+	return nil
+}
+
+type SyncUserAvatarsResult struct {
+	Synced  int `json:"synced"`
+	Updated int `json:"updated"`
+}
+
+func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*SyncUserAvatarsResult, error) {
+	result := &SyncUserAvatarsResult{}
+
+	existingUsers, err := s.ListUsers()
+	if err != nil {
+		return nil, fmt.Errorf("listing users: %w", err)
+	}
+	existingByName := make(map[string]string, len(existingUsers))
+	for _, u := range existingUsers {
+		existingByName[u.Name] = u.ThumbURL
+	}
+
+	for _, u := range users {
+		if u.ThumbURL == "" {
+			continue
+		}
+
+		thumbURL := u.ThumbURL
+		if !isFullURL(thumbURL) {
+			thumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, u.ThumbURL)
+		}
+
+		existingThumb, exists := existingByName[u.Name]
+		if exists && existingThumb == thumbURL {
+			continue
+		}
+
+		if err := s.UpdateUserAvatar(u.Name, thumbURL); err != nil {
+			return nil, fmt.Errorf("updating avatar for %q: %w", u.Name, err)
+		}
+
+		if exists {
+			result.Updated++
+		} else {
+			result.Synced++
+		}
+	}
+
+	return result, nil
+}
+
+func isFullURL(url string) bool {
+	return strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
 }

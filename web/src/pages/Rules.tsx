@@ -343,6 +343,21 @@ export function Rules() {
   )
 }
 
+function getConfigNumber(value: unknown, defaultValue: number): number {
+  return typeof value === 'number' && !isNaN(value) ? value : defaultValue
+}
+
+function formatTimeWindow(hours: number): string {
+  if (hours === 1) return '1 hour'
+  if (hours % 24 !== 0) return `${hours} hours`
+  const days = hours / 24
+  if (days % 7 === 0) {
+    const weeks = days / 7
+    return weeks === 1 ? '1 week' : `${weeks} weeks`
+  }
+  return days === 1 ? '1 day' : `${days} days`
+}
+
 function formatRuleConfig(rule: Rule): string {
   const config = rule.config
   switch (rule.type) {
@@ -363,13 +378,15 @@ function formatRuleConfig(rule: Rule): string {
       return `Max ${config.max_speed_km_h || 800} km/h, min ${config.min_distance_km || 100} km`
     case 'simultaneous_locations':
       return `Min distance: ${config.min_distance_km || 50} km${config.exempt_household ? ' (household exempt)' : ''}`
-    case 'device_velocity':
-      return `Max ${config.max_devices_per_hour || 3} devices per ${config.time_window_hours || 1}h`
+    case 'device_velocity': {
+      const maxDevices = getConfigNumber(config.max_devices_per_hour, 3)
+      const hours = getConfigNumber(config.time_window_hours, 1)
+      return `Max ${maxDevices} devices per ${formatTimeWindow(hours)}`
+    }
     case 'isp_velocity': {
-      const hours = (config.time_window_hours as number) || 168
-      const days = Math.floor(hours / 24)
-      const timeStr = days >= 1 && hours % 24 === 0 ? `${days} day${days > 1 ? 's' : ''}` : `${hours}h`
-      return `Max ${config.max_isps || 3} ISPs per ${timeStr}`
+      const maxIsps = getConfigNumber(config.max_isps, 3)
+      const hours = getConfigNumber(config.time_window_hours, 168)
+      return `Max ${maxIsps} ISPs per ${formatTimeWindow(hours)}`
     }
     case 'new_device':
       return 'Alert on new device'

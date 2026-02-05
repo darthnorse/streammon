@@ -23,23 +23,29 @@ func boolToInt(b bool) int {
 }
 
 // parseSQLiteTime parses a timestamp string returned by SQLite aggregate functions.
-// SQLite returns timestamps with a space instead of 'T' between date and time.
+// SQLite returns timestamps in various formats depending on how they were stored.
 func parseSQLiteTime(s string) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, nil
 	}
-	// Try RFC3339Nano first (standard format)
-	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return t, nil
+	// Try common formats in order of likelihood
+	formats := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999+00:00",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05+00:00",
+		"2006-01-02 15:04:05Z",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
 	}
-	// Try SQLite format (space instead of T)
-	const sqliteFormat = "2006-01-02 15:04:05.999999999-07:00"
-	if t, err := time.Parse(sqliteFormat, s); err == nil {
-		return t, nil
+	for _, format := range formats {
+		if t, err := time.Parse(format, s); err == nil {
+			return t, nil
+		}
 	}
-	// Try SQLite format with +00:00 style timezone
-	const sqliteFormatAlt = "2006-01-02 15:04:05.999999999+00:00"
-	return time.Parse(sqliteFormatAlt, s)
+	return time.Time{}, fmt.Errorf("unable to parse time: %q", s)
 }
 
 func scanRule(scanner interface{ Scan(...any) error }) (models.Rule, error) {
@@ -403,12 +409,9 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 	}
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected > 0 {
-		// Existing location was updated
 		return false, nil
 	}
 
-	// No existing location - check if we should create one
-	// Count sessions from this IP for this user
 	var sessionCount int
 	err = s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE user_name = ? AND ip_address = ?`,
 		userName, ipAddress).Scan(&sessionCount)
@@ -416,12 +419,10 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 		return false, fmt.Errorf("counting sessions: %w", err)
 	}
 
-	// Not enough sessions yet
 	if sessionCount < minSessions {
 		return false, nil
 	}
 
-	// Get geo data for this IP
 	var city, country string
 	var lat, lng sql.NullFloat64
 	err = s.db.QueryRow(`SELECT city, country, lat, lng FROM ip_geo_cache WHERE ip = ?`, ipAddress).Scan(&city, &country, &lat, &lng)
@@ -474,12 +475,12 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 // CalculateAllHouseholdLocations scans watch_history for all user/IP combinations
 // with at least minSessions and auto-learns them as household locations.
 // Returns the number of new locations created.
-func (s *Store) CalculateAllHouseholdLocations(minSessions int) (int, error) {
+func (s *Store) CalculateAllHouseholdLocations(ctx context.Context, minSessions int) (int, error) {
 	if minSessions <= 0 {
 		minSessions = 10
 	}
 
-	rows, err := s.db.Query(`
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT user_name, ip_address, COUNT(*) as session_count
 		FROM watch_history
 		WHERE ip_address != ''

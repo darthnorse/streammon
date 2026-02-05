@@ -4,16 +4,35 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
+	"streammon/internal/httputil"
 	"streammon/internal/models"
 )
 
-var thumbProxyClient = &http.Client{Timeout: 10 * time.Second}
+var (
+	// Emby/Jellyfin user IDs: 32-char hex GUIDs without dashes
+	validUserIDPattern = regexp.MustCompile(`^[a-fA-F0-9]{32}$`)
+	// Emby/Jellyfin item IDs: 32-char hex or alphanumeric (some versions use different formats)
+	validItemIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]{1,64}$`)
+	// Plex rating keys: numeric IDs
+	validPlexIDPattern = regexp.MustCompile(`^[0-9]+$`)
+)
+
+var thumbProxyClient = httputil.NewClient()
+
+func escapePathSegments(path string) string {
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	for i, seg := range segments {
+		segments[i] = url.PathEscape(seg)
+	}
+	return strings.Join(segments, "/")
+}
 
 func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 	serverID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -45,12 +64,29 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 	switch srv.Type {
 	case models.ServerTypePlex:
 		if strings.Contains(thumbPath, "/") {
-			imgURL = fmt.Sprintf("%s/%s?X-Plex-Token=%s", baseURL, strings.TrimPrefix(thumbPath, "/"), srv.APIKey)
+			imgURL = fmt.Sprintf("%s/%s?X-Plex-Token=%s", baseURL, escapePathSegments(thumbPath), srv.APIKey)
 		} else {
+			if !validPlexIDPattern.MatchString(thumbPath) {
+				writeError(w, http.StatusBadRequest, "invalid plex id format")
+				return
+			}
 			imgURL = fmt.Sprintf("%s/library/metadata/%s/thumb?X-Plex-Token=%s", baseURL, thumbPath, srv.APIKey)
 		}
 	case models.ServerTypeEmby, models.ServerTypeJellyfin:
-		imgURL = fmt.Sprintf("%s/Items/%s/Images/Primary?maxHeight=300", baseURL, thumbPath)
+		if strings.HasPrefix(thumbPath, "user/") {
+			userID := strings.TrimPrefix(thumbPath, "user/")
+			if !validUserIDPattern.MatchString(userID) {
+				writeError(w, http.StatusBadRequest, "invalid user id format")
+				return
+			}
+			imgURL = fmt.Sprintf("%s/Users/%s/Images/Primary?maxHeight=300", baseURL, userID)
+		} else {
+			if !validItemIDPattern.MatchString(thumbPath) {
+				writeError(w, http.StatusBadRequest, "invalid item id format")
+				return
+			}
+			imgURL = fmt.Sprintf("%s/Items/%s/Images/Primary?maxHeight=300", baseURL, url.PathEscape(thumbPath))
+		}
 	default:
 		writeError(w, http.StatusBadRequest, "unsupported server type")
 		return

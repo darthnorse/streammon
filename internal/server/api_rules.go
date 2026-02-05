@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -381,8 +382,9 @@ func (s *Server) handleCalculateHouseholdLocations(w http.ResponseWriter, r *htt
 		body.MinSessions = 10
 	}
 
-	created, err := s.store.CalculateAllHouseholdLocations(body.MinSessions)
+	created, err := s.store.CalculateAllHouseholdLocations(r.Context(), body.MinSessions)
 	if err != nil {
+		log.Printf("CalculateAllHouseholdLocations error: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to calculate household locations")
 		return
 	}

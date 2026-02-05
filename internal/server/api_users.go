@@ -9,7 +9,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"streammon/internal/media"
 	"streammon/internal/models"
+	"streammon/internal/store"
 )
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
@@ -19,6 +21,16 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, users)
+}
+
+func (s *Server) handleListUserSummaries(w http.ResponseWriter, r *http.Request) {
+	summaries, err := s.store.ListUserSummaries()
+	if err != nil {
+		log.Printf("ListUserSummaries error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	writeJSON(w, http.StatusOK, summaries)
 }
 
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
@@ -99,7 +111,6 @@ func (s *Server) handleGetUserStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If no sessions found, check if user exists in users table
 	if stats.SessionCount == 0 {
 		_, err := s.store.GetUser(name)
 		if errors.Is(err, models.ErrNotFound) {
@@ -109,4 +120,51 @@ func (s *Server) handleGetUserStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, stats)
+}
+
+type SyncUserAvatarsResponse struct {
+	store.SyncUserAvatarsResult
+	Errors []string `json:"errors,omitempty"`
+}
+
+func (s *Server) handleSyncUserAvatars(w http.ResponseWriter, r *http.Request) {
+	servers, err := s.store.ListServers()
+	if err != nil {
+		log.Printf("ListServers error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+
+	response := SyncUserAvatarsResponse{}
+
+	for _, srv := range servers {
+		if !srv.Enabled {
+			continue
+		}
+
+		ms, err := media.NewMediaServer(srv)
+		if err != nil {
+			response.Errors = append(response.Errors, srv.Name+": "+err.Error())
+			continue
+		}
+
+		users, err := ms.GetUsers(r.Context())
+		if err != nil {
+			log.Printf("GetUsers from %s: %v", srv.Name, err)
+			response.Errors = append(response.Errors, srv.Name+": "+err.Error())
+			continue
+		}
+
+		result, err := s.store.SyncUsersFromServer(srv.ID, users)
+		if err != nil {
+			log.Printf("SyncUsersFromServer %s: %v", srv.Name, err)
+			response.Errors = append(response.Errors, srv.Name+": "+err.Error())
+			continue
+		}
+
+		response.Synced += result.Synced
+		response.Updated += result.Updated
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }

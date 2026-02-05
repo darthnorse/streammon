@@ -28,10 +28,23 @@ const (
 type ServerType string
 
 const (
-	ServerTypePlex    ServerType = "plex"
-	ServerTypeEmby    ServerType = "emby"
+	ServerTypePlex     ServerType = "plex"
+	ServerTypeEmby     ServerType = "emby"
 	ServerTypeJellyfin ServerType = "jellyfin"
 )
+
+// MediaUser represents a user from a media server with optional avatar.
+//
+// ThumbURL semantics vary by server type:
+//   - Plex: Full public URL from plex.tv (e.g., "https://plex.tv/users/abc/avatar")
+//   - Emby/Jellyfin: User ID in format "user/{id}" for proxy routing
+//
+// The store layer transforms Emby/Jellyfin paths to full proxy URLs
+// (e.g., "/api/servers/{serverID}/thumb/user/{userID}").
+type MediaUser struct {
+	Name     string
+	ThumbURL string
+}
 
 func (st ServerType) Valid() bool {
 	switch st {

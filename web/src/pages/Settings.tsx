@@ -40,6 +40,8 @@ export function Settings() {
   const [actionError, setActionError] = useState('')
   const [calculatingHouseholds, setCalculatingHouseholds] = useState(false)
   const [householdResult, setHouseholdResult] = useState<{ created: number } | null>(null)
+  const [syncingAvatars, setSyncingAvatars] = useState(false)
+  const [avatarSyncResult, setAvatarSyncResult] = useState<{ synced: number; updated: number; errors?: string[] } | null>(null)
 
   const serverList = servers ?? []
   const oidcConfigured = !!oidc?.issuer
@@ -122,6 +124,20 @@ export function Settings() {
     }
   }
 
+  async function handleSyncUserAvatars() {
+    setSyncingAvatars(true)
+    setAvatarSyncResult(null)
+    setActionError('')
+    try {
+      const result = await api.post<{ synced: number; updated: number; errors?: string[] }>('/api/users/sync-avatars', {})
+      setAvatarSyncResult(result)
+    } catch {
+      setActionError('Failed to sync user avatars')
+    } finally {
+      setSyncingAvatars(false)
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -176,41 +192,95 @@ export function Settings() {
           )}
 
           {!loading && !fetchError && serverList.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {serverList.map(srv => (
-                <div key={srv.id} className="card card-hover p-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-semibold text-base truncate">{srv.name}</h3>
-                      <p className="text-sm text-muted dark:text-muted-dark font-mono truncate mt-0.5">
-                        {srv.url}
-                      </p>
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {serverList.map(srv => (
+                  <div key={srv.id} className="card card-hover p-5">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-semibold text-base truncate">{srv.name}</h3>
+                        <p className="text-sm text-muted dark:text-muted-dark font-mono truncate mt-0.5">
+                          {srv.url}
+                        </p>
+                      </div>
+                      <span className={`badge ${srv.enabled ? 'badge-accent' : 'badge-muted'} ml-3 shrink-0`}>
+                        {srv.enabled ? 'Enabled' : 'Disabled'}
+                      </span>
                     </div>
-                    <span className={`badge ${srv.enabled ? 'badge-accent' : 'badge-muted'} ml-3 shrink-0`}>
-                      {srv.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                  </div>
 
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className={`badge ${serverTypeColors[srv.type] ?? 'badge-muted'}`}>
-                      {srv.type}
-                    </span>
-                    <span className="text-xs text-muted dark:text-muted-dark">
-                      Added {new Date(srv.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className={`badge ${serverTypeColors[srv.type] ?? 'badge-muted'}`}>
+                        {srv.type}
+                      </span>
+                      <span className="text-xs text-muted dark:text-muted-dark">
+                        Added {new Date(srv.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
 
-                  <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
-                    <button onClick={() => openEdit(srv)} aria-label="Edit" className={btnOutline}>
-                      Edit
-                    </button>
-                    <button onClick={() => handleDelete(srv)} aria-label="Delete" className={btnDanger}>
-                      Delete
-                    </button>
+                    <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
+                      <button onClick={() => openEdit(srv)} aria-label="Edit" className={btnOutline}>
+                        Edit
+                      </button>
+                      <button onClick={() => handleDelete(srv)} aria-label="Delete" className={btnDanger}>
+                        Delete
+                      </button>
+                    </div>
                   </div>
+                ))}
+              </div>
+
+              <div className="card p-5 mt-4">
+                <h3 className="font-semibold text-base mb-2">User Avatars</h3>
+                <p className="text-sm text-muted dark:text-muted-dark mb-4">
+                  Sync user profile pictures from your media servers. For Plex, avatars are fetched from plex.tv.
+                  For Jellyfin/Emby, avatars are loaded from the server.
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleSyncUserAvatars}
+                    disabled={syncingAvatars}
+                    className={btnOutline + (syncingAvatars ? ' opacity-50 cursor-not-allowed' : '')}
+                  >
+                    {syncingAvatars ? 'Syncing...' : 'Sync User Avatars'}
+                  </button>
+                  {avatarSyncResult && (
+                    <span className="text-sm text-green-500">
+                      {avatarSyncResult.synced + avatarSyncResult.updated === 0
+                        ? 'No changes needed'
+                        : `${avatarSyncResult.synced} new, ${avatarSyncResult.updated} updated`}
+                      {avatarSyncResult.errors && avatarSyncResult.errors.length > 0 && (
+                        <span className="text-amber-500 ml-2">
+                          ({avatarSyncResult.errors.length} error{avatarSyncResult.errors.length > 1 ? 's' : ''})
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </div>
-              ))}
-            </div>
+              </div>
+
+              <div className="card p-5 mt-4">
+                <h3 className="font-semibold text-base mb-2">Household Locations</h3>
+                <p className="text-sm text-muted dark:text-muted-dark mb-4">
+                  Scan watch history to auto-detect home locations based on frequently used IPs (10+ sessions).
+                </p>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleCalculateHouseholds}
+                    disabled={calculatingHouseholds}
+                    className={btnOutline + (calculatingHouseholds ? ' opacity-50 cursor-not-allowed' : '')}
+                  >
+                    {calculatingHouseholds ? 'Calculating...' : 'Calculate Household Locations'}
+                  </button>
+                  {householdResult && (
+                    <span className="text-sm text-green-500">
+                      {householdResult.created === 0
+                        ? 'No new locations found'
+                        : `Created ${householdResult.created} new location${householdResult.created > 1 ? 's' : ''}`}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </>
           )}
 
           {showForm && (
@@ -349,30 +419,6 @@ export function Settings() {
               onSaved={handleTautulliSaved}
             />
           )}
-
-          <div className="card p-5 mt-4">
-            <h3 className="font-semibold text-base mb-2">Household Locations</h3>
-            <p className="text-sm text-muted dark:text-muted-dark mb-4">
-              Scan watch history to auto-detect home locations based on frequently used IPs (10+ sessions).
-              This is useful after importing history from Tautulli.
-            </p>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={handleCalculateHouseholds}
-                disabled={calculatingHouseholds}
-                className={btnOutline + (calculatingHouseholds ? ' opacity-50 cursor-not-allowed' : '')}
-              >
-                {calculatingHouseholds ? 'Calculating...' : 'Calculate Household Locations'}
-              </button>
-              {householdResult && (
-                <span className="text-sm text-green-500">
-                  {householdResult.created === 0
-                    ? 'No new locations found'
-                    : `Created ${householdResult.created} new location${householdResult.created > 1 ? 's' : ''}`}
-                </span>
-              )}
-            </div>
-          </div>
         </>
       )}
     </div>

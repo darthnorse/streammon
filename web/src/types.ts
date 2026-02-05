@@ -24,6 +24,22 @@ export interface User {
   updated_at: string
 }
 
+export interface UserSummary {
+  name: string
+  thumb_url: string
+  last_streamed_at: string | null
+  last_ip: string
+  total_plays: number
+  total_watched_ms: number
+  trust_score: number
+  last_played_title: string
+  last_played_grandparent_title: string
+  last_played_media_type: string
+  last_played_server_id: number
+  last_played_item_id: string
+  last_played_grandparent_item_id: string
+}
+
 export interface WatchHistoryEntry {
   id: number
   server_id: number

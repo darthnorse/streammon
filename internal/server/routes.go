@@ -39,6 +39,8 @@ func (s *Server) routes() {
 		r.Get("/history/daily", s.handleDailyHistory)
 
 		r.Get("/users", s.handleListUsers)
+		r.Get("/users/summary", s.handleListUserSummaries)
+		r.Post("/users/sync-avatars", s.handleSyncUserAvatars)
 		r.Get("/users/{name}", s.handleGetUser)
 		r.Get("/users/{name}/locations", s.handleGetUserLocations)
 		r.Get("/users/{name}/stats", s.handleGetUserStats)

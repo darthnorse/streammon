@@ -187,3 +187,72 @@ func TestGetUserLocationsResolverLookupAPI(t *testing.T) {
 		t.Fatalf("expected cached Mountain View, got %s", cached.City)
 	}
 }
+
+func TestSyncUserAvatars_NoServers(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/users/sync-avatars", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SyncUserAvatarsResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Synced != 0 || resp.Updated != 0 {
+		t.Errorf("expected synced=0 updated=0, got synced=%d updated=%d", resp.Synced, resp.Updated)
+	}
+	if len(resp.Errors) != 0 {
+		t.Errorf("expected no errors, got %v", resp.Errors)
+	}
+}
+
+func TestSyncUserAvatars_DisabledServersSkipped(t *testing.T) {
+	srv, st := newTestServer(t)
+
+	st.CreateServer(&models.Server{
+		Name: "DisabledPlex", Type: models.ServerTypePlex,
+		URL: "http://localhost:9999", APIKey: "k", Enabled: false,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/users/sync-avatars", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SyncUserAvatarsResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	// Disabled server should be skipped, no errors
+	if len(resp.Errors) != 0 {
+		t.Errorf("expected no errors (disabled server skipped), got %v", resp.Errors)
+	}
+}
+
+func TestSyncUserAvatars_ServerConnectionError(t *testing.T) {
+	srv, st := newTestServer(t)
+
+	st.CreateServer(&models.Server{
+		Name: "BadPlex", Type: models.ServerTypePlex,
+		URL: "http://localhost:9999", APIKey: "k", Enabled: true,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/users/sync-avatars", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	// Should still return 200 with errors in body
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp SyncUserAvatarsResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if len(resp.Errors) != 1 {
+		t.Errorf("expected 1 error for unreachable server, got %d: %v", len(resp.Errors), resp.Errors)
+	}
+}

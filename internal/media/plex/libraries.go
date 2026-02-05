@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"streammon/internal/httputil"
 	"streammon/internal/models"
 )
 
@@ -69,7 +70,7 @@ func (s *Server) getLibrarySections(ctx context.Context) (*librarySections, erro
 	if err != nil {
 		return nil, fmt.Errorf("plex library sections: %w", err)
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("plex library sections: status %d", resp.StatusCode)
@@ -177,7 +178,7 @@ func (s *Server) countLibraryItems(ctx context.Context, sectionKey, typeFilter s
 	if err != nil {
 		return 0, fmt.Errorf("plex count items: %w", err)
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != 200 {
 		return 0, fmt.Errorf("plex count items: status %d", resp.StatusCode)

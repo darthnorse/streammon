@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"streammon/internal/httputil"
 )
 
 type Client struct {
@@ -187,7 +189,7 @@ func (c *Client) doRequest(ctx context.Context, params url.Values, maxBodySize i
 	if err != nil {
 		return nil, fmt.Errorf("connection failed: %w", err)
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("Tautulli returned status %d", resp.StatusCode)
@@ -405,7 +407,3 @@ func (c *Client) StreamHistory(ctx context.Context, batchSize int, handler Batch
 	return nil
 }
 
-func drainBody(resp *http.Response) {
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
-	resp.Body.Close()
-}

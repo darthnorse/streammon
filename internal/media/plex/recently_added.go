@@ -10,6 +10,7 @@ import (
 	"sort"
 	"time"
 
+	"streammon/internal/httputil"
 	"streammon/internal/models"
 )
 
@@ -75,7 +76,7 @@ func (s *Server) fetchHubRecentlyAdded(ctx context.Context, mediaType string, li
 	if err != nil {
 		return nil, fmt.Errorf("plex hub recently added: %w", err)
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("plex hub recently added: status %d", resp.StatusCode)

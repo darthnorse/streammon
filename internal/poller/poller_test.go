@@ -35,6 +35,10 @@ func (m *mockServer) GetItemDetails(ctx context.Context, itemID string) (*models
 func (m *mockServer) GetLibraries(ctx context.Context) ([]models.Library, error) {
 	return nil, nil
 }
+func (m *mockServer) ServerID() int64 { return 1 }
+func (m *mockServer) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
+	return nil, nil
+}
 
 func (m *mockServer) setSessions(s []models.ActiveStream) {
 	m.mu.Lock()

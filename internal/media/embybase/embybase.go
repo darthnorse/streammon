@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"streammon/internal/httputil"
 	"streammon/internal/models"
 )
 
@@ -29,12 +30,13 @@ func New(srv models.Server, serverType models.ServerType) *Client {
 		serverType: serverType,
 		url:        strings.TrimRight(srv.URL, "/"),
 		apiKey:     srv.APIKey,
-		client:     &http.Client{Timeout: 10 * time.Second},
+		client:     httputil.NewClient(),
 	}
 }
 
-func (c *Client) Name() string              { return c.serverName }
-func (c *Client) Type() models.ServerType    { return c.serverType }
+func (c *Client) Name() string            { return c.serverName }
+func (c *Client) Type() models.ServerType  { return c.serverType }
+func (c *Client) ServerID() int64          { return c.serverID }
 
 func (c *Client) TestConnection(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/System/Info/Public", nil)
@@ -45,7 +47,7 @@ func (c *Client) TestConnection(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
 	}
@@ -61,7 +63,7 @@ func (c *Client) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 	if err != nil {
 		return nil, err
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
 	}
@@ -77,10 +79,6 @@ func (c *Client) addAuth(req *http.Request) *http.Request {
 	return req
 }
 
-func drainBody(resp *http.Response) {
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-}
 
 type embySession struct {
 	ID       string    `json:"Id"`
@@ -316,7 +314,7 @@ type libraryItemJSON struct {
 }
 
 func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
-	url := fmt.Sprintf("%s/Items?Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=%d&IncludeItemTypes=Movie,Episode",
+	url := fmt.Sprintf("%s/Items?Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=%d&IncludeItemTypes=Movie,Episode&Fields=DateCreated",
 		c.url, limit)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -328,7 +326,7 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 	if err != nil {
 		return nil, fmt.Errorf("%s recently added: %w", c.serverType, err)
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s recently added: status %d", c.serverType, resp.StatusCode)
@@ -346,10 +344,7 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 
 	items := make([]models.LibraryItem, 0, len(data.Items))
 	for _, item := range data.Items {
-		addedAt, err := time.Parse(time.RFC3339, item.DateCreated)
-		if err != nil {
-			addedAt = time.Now().UTC()
-		}
+		addedAt := parseEmbyTime(item.DateCreated)
 
 		title := item.Name
 		if item.SeriesName != "" {
@@ -380,6 +375,24 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 	}
 
 	return items, nil
+}
+
+func parseEmbyTime(s string) time.Time {
+	// Emby/Jellyfin return dates in various formats
+	formats := []string{
+		time.RFC3339,
+		time.RFC3339Nano,
+		"2006-01-02T15:04:05.0000000Z",
+		"2006-01-02T15:04:05.0000000",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02T15:04:05",
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Now().UTC()
 }
 
 type itemDetailsJSON struct {
@@ -475,7 +488,7 @@ func (c *Client) getVirtualFolders(ctx context.Context) ([]virtualFolder, error)
 	if err != nil {
 		return nil, fmt.Errorf("%s virtual folders: %w", c.serverType, err)
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%s virtual folders: status %d", c.serverType, resp.StatusCode)
@@ -583,7 +596,7 @@ func (c *Client) countItems(ctx context.Context, parentID, itemTypes string) (in
 	if err != nil {
 		return 0, fmt.Errorf("%s count items: %w", c.serverType, err)
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("%s count items: status %d", c.serverType, resp.StatusCode)
@@ -627,7 +640,7 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 	if err != nil {
 		return nil, fmt.Errorf("%s item details: %w", c.serverType, err)
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, models.ErrNotFound
@@ -724,4 +737,55 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 	}
 
 	return details, nil
+}
+
+// embyUser represents a user from the /Users endpoint.
+type embyUser struct {
+	ID              string `json:"Id"`
+	Name            string `json:"Name"`
+	PrimaryImageTag string `json:"PrimaryImageTag"`
+}
+
+// GetUsers fetches all users from this Emby/Jellyfin server.
+// Returns users with their avatar IDs (to be proxied via /api/servers/{id}/thumb/user/{userId}).
+func (c *Client) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/Users", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.client.Do(c.addAuth(req))
+	if err != nil {
+		return nil, err
+	}
+	defer httputil.DrainBody(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+	if err != nil {
+		return nil, err
+	}
+
+	var users []embyUser
+	if err := json.Unmarshal(body, &users); err != nil {
+		return nil, fmt.Errorf("parsing users: %w", err)
+	}
+
+	result := make([]models.MediaUser, 0, len(users))
+	for _, u := range users {
+		thumbURL := ""
+		if u.PrimaryImageTag != "" {
+			// Store as "user/{userId}" for the thumb proxy to build the correct URL
+			thumbURL = "user/" + u.ID
+		}
+		result = append(result, models.MediaUser{
+			Name:     u.Name,
+			ThumbURL: thumbURL,
+		})
+	}
+
+	return result, nil
 }

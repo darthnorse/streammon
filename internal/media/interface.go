@@ -9,11 +9,13 @@ import (
 type MediaServer interface {
 	Name() string
 	Type() models.ServerType
+	ServerID() int64
 	GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 	TestConnection(ctx context.Context) error
 	GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error)
 	GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error)
 	GetLibraries(ctx context.Context) ([]models.Library, error)
+	GetUsers(ctx context.Context) ([]models.MediaUser, error)
 }
 
 // RealtimeSubscriber is optionally implemented by adapters that support

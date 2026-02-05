@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"streammon/internal/httputil"
 	"streammon/internal/models"
 )
 
@@ -30,7 +31,7 @@ func New(srv models.Server) *Server {
 		serverName: srv.Name,
 		url:        strings.TrimRight(srv.URL, "/"),
 		token:      srv.APIKey,
-		client:     &http.Client{Timeout: 10 * time.Second},
+		client:     httputil.NewClient(),
 	}
 }
 
@@ -49,7 +50,7 @@ func (s *Server) TestConnection(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("plex returned status %d", resp.StatusCode)
 	}
@@ -66,7 +67,7 @@ func (s *Server) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 	if err != nil {
 		return nil, err
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("plex returned status %d", resp.StatusCode)
 	}
@@ -99,7 +100,7 @@ func (s *Server) getMetadata(ctx context.Context, ratingKey string) *sourceMedia
 		slog.Debug("plex: failed to fetch metadata", "ratingKey", ratingKey, "error", err)
 		return nil
 	}
-	defer drainBody(resp)
+	defer httputil.DrainBody(resp)
 	if resp.StatusCode != http.StatusOK {
 		slog.Debug("plex: metadata returned non-200", "ratingKey", ratingKey, "status", resp.StatusCode)
 		return nil
@@ -150,10 +151,6 @@ func (s *Server) setHeaders(req *http.Request) {
 	req.Header.Set("Accept", "application/xml")
 }
 
-func drainBody(resp *http.Response) {
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-}
 
 type mediaContainer struct {
 	XMLName xml.Name   `xml:"MediaContainer"`

@@ -4,6 +4,7 @@ import { AuthGuard } from './components/AuthGuard'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Layout } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
+import { Users } from './pages/Users'
 import { History } from './pages/History'
 import { UserDetail } from './pages/UserDetail'
 import { Settings } from './pages/Settings'
@@ -24,11 +25,12 @@ export default function App() {
           <Routes>
             <Route element={<Layout />}>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/users" element={<Users />} />
+              <Route path="/users/:name" element={<UserDetail />} />
               <Route path="/history" element={<History />} />
               <Route path="/statistics" element={<Statistics />} />
               <Route path="/library" element={<Libraries />} />
               <Route path="/rules" element={<Rules />} />
-              <Route path="/users/:name" element={<UserDetail />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<NotFound />} />
             </Route>
