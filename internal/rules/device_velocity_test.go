@@ -205,3 +205,38 @@ func TestDeviceVelocityEvaluator_Type(t *testing.T) {
 
 	assert.Equal(t, models.RuleTypeDeviceVelocity, evaluator.Type())
 }
+
+type mockHistoryQuerierWithDeviceError struct {
+	mockHistoryQuerierForDeviceVelocity
+	err error
+}
+
+func (m *mockHistoryQuerierWithDeviceError) GetRecentDevices(userName string, beforeTime time.Time, withinHours int) ([]models.DeviceInfo, error) {
+	return nil, m.err
+}
+
+func TestDeviceVelocityEvaluator_StoreError(t *testing.T) {
+	mock := &mockHistoryQuerierWithDeviceError{err: assert.AnError}
+	evaluator := NewDeviceVelocityEvaluator(mock)
+
+	rule := &models.Rule{
+		ID:     1,
+		Name:   "Device Velocity",
+		Type:   models.RuleTypeDeviceVelocity,
+		Config: json.RawMessage(`{"max_devices_per_hour": 2, "time_window_hours": 1}`),
+	}
+
+	input := &EvaluationInput{
+		Stream: &models.ActiveStream{
+			UserName:  "alice",
+			Player:    "Plex Web",
+			Platform:  "Chrome",
+			StartedAt: time.Now().UTC(),
+		},
+	}
+
+	result, err := evaluator.Evaluate(context.Background(), rule, input)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "getting recent devices")
+	assert.Nil(t, result)
+}

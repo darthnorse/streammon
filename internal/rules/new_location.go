@@ -86,6 +86,11 @@ func (e *NewLocationEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 		if minDistance < 0 || dist < minDistance {
 			minDistance = dist
 		}
+
+		// Early exit: if we found a location within threshold, no violation possible
+		if minDistance >= 0 && minDistance < config.MinDistanceKm {
+			return nil, nil
+		}
 	}
 
 	// All historical IPs failed geo lookup

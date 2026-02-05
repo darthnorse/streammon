@@ -340,16 +340,19 @@ func (s *Store) GetDeviceLastStream(userName, player, platform string, beforeTim
 // HasDeviceBeenUsed checks if a device (player+platform) has been used by a user
 // before the specified time.
 func (s *Store) HasDeviceBeenUsed(userName, player, platform string, beforeTime time.Time) (bool, error) {
-	var count int
+	var dummy int
 	err := s.db.QueryRow(
-		`SELECT COUNT(*) FROM watch_history
+		`SELECT 1 FROM watch_history
 		WHERE user_name = ? AND player = ? AND platform = ? AND started_at < ? LIMIT 1`,
 		userName, player, platform, beforeTime,
-	).Scan(&count)
+	).Scan(&dummy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("checking device usage: %w", err)
 	}
-	return count > 0, nil
+	return true, nil
 }
 
 // GetUserDistinctIPs returns distinct IP addresses used by a user before the specified time.

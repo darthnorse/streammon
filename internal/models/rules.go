@@ -32,7 +32,8 @@ func (rt RuleType) Valid() bool {
 func (rt RuleType) IsRealTime() bool {
 	switch rt {
 	case RuleTypeConcurrentStreams, RuleTypeSimultaneousLocs,
-		RuleTypeGeoRestriction, RuleTypeNewDevice, RuleTypeNewLocation:
+		RuleTypeGeoRestriction, RuleTypeNewDevice, RuleTypeNewLocation,
+		RuleTypeImpossibleTravel, RuleTypeDeviceVelocity:
 		return true
 	}
 	return false

@@ -358,7 +358,7 @@ function renderConfigFields(
       return (
         <div className="space-y-3">
           <div>
-            <label className="block text-sm mb-1">Max Devices Per Hour</label>
+            <label className="block text-sm mb-1">Max Devices</label>
             <input
               type="number"
               min={1}
@@ -367,7 +367,7 @@ function renderConfigFields(
               onChange={e => updateField('max_devices_per_hour', parseInt(e.target.value) || 3)}
               className={inputClass}
             />
-            <p className="text-xs text-muted dark:text-muted-dark mt-1">Alert if user exceeds this many new devices</p>
+            <p className="text-xs text-muted dark:text-muted-dark mt-1">Alert if user exceeds this many devices in the time window</p>
           </div>
           <div>
             <label className="block text-sm mb-1">Time Window (hours)</label>
@@ -379,6 +379,59 @@ function renderConfigFields(
               onChange={e => updateField('time_window_hours', parseInt(e.target.value) || 1)}
               className={inputClass}
             />
+          </div>
+        </div>
+      )
+
+    case 'new_device':
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={(config.notify_on_new as boolean) ?? true}
+              onChange={e => updateField('notify_on_new', e.target.checked)}
+              className="w-4 h-4 rounded"
+            />
+            <label className="text-sm">Notify on new device</label>
+          </div>
+          <p className="text-xs text-muted dark:text-muted-dark">
+            Alert when a user streams from a device they haven't used before.
+          </p>
+        </div>
+      )
+
+    case 'new_location':
+      return (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={(config.notify_on_new as boolean) ?? true}
+              onChange={e => updateField('notify_on_new', e.target.checked)}
+              className="w-4 h-4 rounded"
+            />
+            <label className="text-sm">Notify on new location</label>
+          </div>
+          <div>
+            <label className="block text-sm mb-1">Minimum Distance (km)</label>
+            <input
+              type="number"
+              min={10}
+              value={(config.min_distance_km as number) ?? 50}
+              onChange={e => updateField('min_distance_km', parseInt(e.target.value) || 50)}
+              className={inputClass}
+            />
+            <p className="text-xs text-muted dark:text-muted-dark mt-1">Only alert if new location is at least this far from known locations</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={(config.exempt_household as boolean) ?? true}
+              onChange={e => updateField('exempt_household', e.target.checked)}
+              className="w-4 h-4 rounded"
+            />
+            <label className="text-sm">Exempt household locations</label>
           </div>
         </div>
       )

@@ -38,8 +38,8 @@ func TestRuleTypeIsRealTime(t *testing.T) {
 		{RuleTypeGeoRestriction, true},
 		{RuleTypeNewDevice, true},
 		{RuleTypeNewLocation, true},
-		{RuleTypeImpossibleTravel, false},
-		{RuleTypeDeviceVelocity, false},
+		{RuleTypeImpossibleTravel, true},
+		{RuleTypeDeviceVelocity, true},
 	}
 	for _, tt := range tests {
 		if got := tt.rt.IsRealTime(); got != tt.realtime {
