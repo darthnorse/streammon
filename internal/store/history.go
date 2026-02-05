@@ -394,6 +394,32 @@ func (s *Store) GetRecentDevices(userName string, beforeTime time.Time, withinHo
 	return devices, rows.Err()
 }
 
+// GetRecentISPs returns distinct ISPs used by a user in the time window before the specified time.
+func (s *Store) GetRecentISPs(userName string, beforeTime time.Time, withinHours int) ([]string, error) {
+	since := beforeTime.Add(-time.Duration(withinHours) * time.Hour)
+
+	query := `SELECT DISTINCT g.isp FROM watch_history h
+		JOIN ip_geo_cache g ON h.ip_address = g.ip
+		WHERE h.user_name = ? AND h.started_at >= ? AND h.started_at < ?
+		AND g.isp != ''`
+
+	rows, err := s.db.Query(query, userName, since, beforeTime)
+	if err != nil {
+		return nil, fmt.Errorf("getting recent ISPs: %w", err)
+	}
+	defer rows.Close()
+
+	isps := []string{}
+	for rows.Next() {
+		var isp string
+		if err := rows.Scan(&isp); err != nil {
+			return nil, err
+		}
+		isps = append(isps, isp)
+	}
+	return isps, rows.Err()
+}
+
 func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped int, err error) {
 	if len(entries) == 0 {
 		return 0, 0, nil

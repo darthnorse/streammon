@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -74,7 +75,19 @@ func main() {
 			pollInterval = d
 		}
 	}
-	p := poller.New(s, pollInterval, poller.WithRulesEngine(rulesEngine))
+
+	// Household auto-learning: enabled by default with 10 sessions threshold
+	autoLearnMinSessions := 10
+	if v := os.Getenv("HOUSEHOLD_AUTOLEARN_MIN_SESSIONS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			autoLearnMinSessions = n
+		}
+	}
+
+	p := poller.New(s, pollInterval,
+		poller.WithRulesEngine(rulesEngine),
+		poller.WithHouseholdAutoLearn(autoLearnMinSessions),
+	)
 
 	servers, err := s.ListServers()
 	if err != nil {

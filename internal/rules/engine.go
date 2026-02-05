@@ -86,6 +86,7 @@ func NewEngine(s *store.Store, geo GeoResolver, config EngineConfig) *Engine {
 	e.RegisterEvaluator(NewDeviceVelocityEvaluator(s))
 	e.RegisterEvaluator(NewNewDeviceEvaluator(s))
 	e.RegisterEvaluator(NewNewLocationEvaluator(geo, s))
+	e.RegisterEvaluator(NewISPVelocityEvaluator(geo, s))
 
 	return e
 }

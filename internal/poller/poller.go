@@ -34,6 +34,10 @@ type Poller struct {
 	pollNotify  chan struct{}
 
 	rulesEngine *rules.Engine
+
+	// Household auto-learning settings
+	autoLearnHousehold    bool
+	autoLearnMinSessions  int
 }
 
 type PollerOption func(*Poller)
@@ -41,6 +45,19 @@ type PollerOption func(*Poller)
 func WithRulesEngine(e *rules.Engine) PollerOption {
 	return func(p *Poller) {
 		p.rulesEngine = e
+	}
+}
+
+// WithHouseholdAutoLearn enables automatic learning of household locations
+// based on IP usage frequency. minSessions is the threshold for auto-learning
+// (default: 10 sessions from the same IP).
+func WithHouseholdAutoLearn(minSessions int) PollerOption {
+	return func(p *Poller) {
+		p.autoLearnHousehold = true
+		p.autoLearnMinSessions = minSessions
+		if p.autoLearnMinSessions <= 0 {
+			p.autoLearnMinSessions = 10
+		}
 	}
 }
 
@@ -325,6 +342,14 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 	}
 	if err := p.store.InsertHistory(entry); err != nil {
 		log.Printf("persisting history for %s: %v", s.Title, err)
+		return
+	}
+
+	// Auto-learn household locations if enabled
+	if p.autoLearnHousehold && s.IPAddress != "" {
+		if _, err := p.store.AutoLearnHouseholdLocation(s.UserName, s.IPAddress, p.autoLearnMinSessions); err != nil {
+			log.Printf("auto-learn household for %s: %v", s.UserName, err)
+		}
 	}
 }
 

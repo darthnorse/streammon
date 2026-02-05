@@ -18,13 +18,15 @@ const (
 	RuleTypeGeoRestriction    RuleType = "geo_restriction"
 	RuleTypeNewDevice         RuleType = "new_device"
 	RuleTypeNewLocation       RuleType = "new_location"
+	RuleTypeISPVelocity       RuleType = "isp_velocity"
 )
 
 func (rt RuleType) Valid() bool {
 	switch rt {
 	case RuleTypeImpossibleTravel, RuleTypeConcurrentStreams,
 		RuleTypeSimultaneousLocs, RuleTypeDeviceVelocity,
-		RuleTypeGeoRestriction, RuleTypeNewDevice, RuleTypeNewLocation:
+		RuleTypeGeoRestriction, RuleTypeNewDevice, RuleTypeNewLocation,
+		RuleTypeISPVelocity:
 		return true
 	}
 	return false
@@ -35,7 +37,7 @@ func (rt RuleType) IsRealTime() bool {
 	switch rt {
 	case RuleTypeConcurrentStreams, RuleTypeSimultaneousLocs,
 		RuleTypeGeoRestriction, RuleTypeNewDevice, RuleTypeNewLocation,
-		RuleTypeImpossibleTravel, RuleTypeDeviceVelocity:
+		RuleTypeImpossibleTravel, RuleTypeDeviceVelocity, RuleTypeISPVelocity:
 		return true
 	}
 	return false
@@ -189,6 +191,21 @@ func (c *NewLocationConfig) Validate() error {
 	}
 	if c.SeverityThresholdKm <= 0 {
 		c.SeverityThresholdKm = 500
+	}
+	return nil
+}
+
+type ISPVelocityConfig struct {
+	MaxISPs         int `json:"max_isps"`
+	TimeWindowHours int `json:"time_window_hours"`
+}
+
+func (c *ISPVelocityConfig) Validate() error {
+	if c.MaxISPs <= 0 {
+		c.MaxISPs = 3
+	}
+	if c.TimeWindowHours <= 0 {
+		c.TimeWindowHours = 168 // 1 week default
 	}
 	return nil
 }

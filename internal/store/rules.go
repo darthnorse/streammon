@@ -367,6 +367,72 @@ func (s *Store) DeleteHouseholdLocation(id int64) error {
 	return nil
 }
 
+// AutoLearnHouseholdLocation checks if an IP has been used enough times by a user
+// to be automatically added as a household location. Returns true if a new location was created.
+func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessions int) (bool, error) {
+	if ipAddress == "" {
+		return false, nil
+	}
+
+	// Check if this IP is already a household location for this user
+	var existingCount int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM household_locations WHERE user_name = ? AND ip_address = ?`,
+		userName, ipAddress).Scan(&existingCount)
+	if err != nil {
+		return false, fmt.Errorf("checking existing household: %w", err)
+	}
+	if existingCount > 0 {
+		// Update last_seen and session_count for existing location
+		_, err = s.db.Exec(`UPDATE household_locations SET session_count = session_count + 1, last_seen = CURRENT_TIMESTAMP WHERE user_name = ? AND ip_address = ?`,
+			userName, ipAddress)
+		if err != nil {
+			return false, fmt.Errorf("updating household location: %w", err)
+		}
+		return false, nil
+	}
+
+	// Count sessions from this IP for this user
+	var sessionCount int
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE user_name = ? AND ip_address = ?`,
+		userName, ipAddress).Scan(&sessionCount)
+	if err != nil {
+		return false, fmt.Errorf("counting sessions: %w", err)
+	}
+
+	// Not enough sessions yet
+	if sessionCount < minSessions {
+		return false, nil
+	}
+
+	// Get geo data for this IP
+	var city, country string
+	var lat, lng sql.NullFloat64
+	err = s.db.QueryRow(`SELECT city, country, lat, lng FROM ip_geo_cache WHERE ip = ?`, ipAddress).Scan(&city, &country, &lat, &lng)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("getting geo data: %w", err)
+	}
+
+	// Get first and last seen times
+	var firstSeen, lastSeen time.Time
+	err = s.db.QueryRow(`SELECT MIN(started_at), MAX(COALESCE(stopped_at, started_at)) FROM watch_history WHERE user_name = ? AND ip_address = ?`,
+		userName, ipAddress).Scan(&firstSeen, &lastSeen)
+	if err != nil {
+		return false, fmt.Errorf("getting time range: %w", err)
+	}
+
+	// Create auto-learned household location (trusted=false by default)
+	_, err = s.db.Exec(`INSERT INTO household_locations
+		(user_name, ip_address, city, country, latitude, longitude, auto_learned, trusted, session_count, first_seen, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)`,
+		userName, ipAddress, city, country, lat.Float64, lng.Float64, sessionCount, firstSeen, lastSeen)
+	if err != nil {
+		return false, fmt.Errorf("creating household location: %w", err)
+	}
+
+	log.Printf("auto-learned household location for user %s from IP %s (%d sessions)", userName, ipAddress, sessionCount)
+	return true, nil
+}
+
 func (s *Store) GetUserTrustScore(userName string) (*models.UserTrustScore, error) {
 	var ts models.UserTrustScore
 	err := s.db.QueryRow(`SELECT user_name, score, violation_count, last_violation_at, updated_at

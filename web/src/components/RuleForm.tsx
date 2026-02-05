@@ -221,6 +221,8 @@ function getDefaultConfig(type: RuleType): Record<string, unknown> {
       return { max_speed_km_h: 800, min_distance_km: 100, time_window_hours: 24 }
     case 'device_velocity':
       return { max_devices_per_hour: 3, time_window_hours: 1 }
+    case 'isp_velocity':
+      return { max_isps: 3, time_window_hours: 168 }
     case 'new_device':
       return { notify_on_new: true }
     case 'new_location':
@@ -402,6 +404,38 @@ function renderConfigFields(
               onChange={e => updateField('time_window_hours', parseIntOrDefault(e.target.value, 1))}
               className={fieldClass}
             />
+          </div>
+        </div>
+      )
+
+    case 'isp_velocity':
+      return (
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="cfg-max-isps" className="block text-sm mb-1">Max ISPs</label>
+            <input
+              id="cfg-max-isps"
+              type="number"
+              min={1}
+              max={20}
+              value={(config.max_isps as number) ?? 3}
+              onChange={e => updateField('max_isps', parseIntOrDefault(e.target.value, 3))}
+              className={fieldClass}
+            />
+            <p className="text-xs text-muted dark:text-muted-dark mt-1">Alert if user exceeds this many different ISPs in the time window</p>
+          </div>
+          <div>
+            <label htmlFor="cfg-isp-time-window" className="block text-sm mb-1">Time Window (hours)</label>
+            <input
+              id="cfg-isp-time-window"
+              type="number"
+              min={24}
+              max={720}
+              value={(config.time_window_hours as number) ?? 168}
+              onChange={e => updateField('time_window_hours', parseIntOrDefault(e.target.value, 168))}
+              className={fieldClass}
+            />
+            <p className="text-xs text-muted dark:text-muted-dark mt-1">Default is 168 hours (1 week)</p>
           </div>
         </div>
       )

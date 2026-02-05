@@ -346,6 +346,7 @@ export type RuleType =
   | 'geo_restriction'
   | 'new_device'
   | 'new_location'
+  | 'isp_velocity'
 
 export type Severity = 'info' | 'warning' | 'critical'
 
@@ -448,6 +449,11 @@ export interface NewLocationConfig {
   exempt_household?: boolean
 }
 
+export interface ISPVelocityConfig {
+  max_isps: number
+  time_window_hours: number
+}
+
 // Notification channel configs
 export interface DiscordConfig {
   webhook_url: string
@@ -477,6 +483,7 @@ export const RULE_TYPES: { value: RuleType; label: string; description: string }
   { value: 'simultaneous_locations', label: 'Simultaneous Locations', description: 'Detect streaming from multiple locations at once' },
   { value: 'impossible_travel', label: 'Impossible Travel', description: 'Detect physically impossible location changes' },
   { value: 'device_velocity', label: 'Device Velocity', description: 'Detect too many new devices in a short time' },
+  { value: 'isp_velocity', label: 'ISP Velocity', description: 'Detect too many different ISPs in a time period' },
   { value: 'new_device', label: 'New Device', description: 'Alert when user streams from new device' },
   { value: 'new_location', label: 'New Location', description: 'Alert when user streams from new location' },
 ]
