@@ -80,13 +80,32 @@ export function useColumnConfig(
     })
   }, [excludeSet, getDefaults])
 
-  // When saving, preserve any excluded columns that were in the stored config
+  // When saving, preserve excluded columns at their original positions
   // This prevents losing column preferences when viewing contexts that exclude certain columns
   useEffect(() => {
     const stored = loadStoredColumns() ?? []
-    const excludedFromStored = stored.filter(id => excludeSet.has(id))
-    const toSave = [...visibleColumns, ...excludedFromStored]
-    safeSetItem(STORAGE_KEY, JSON.stringify(toSave))
+
+    // Build result by keeping excluded columns at their stored positions
+    // and filling non-excluded slots with visibleColumns in order
+    const result: string[] = []
+    let visibleIndex = 0
+
+    for (const storedId of stored) {
+      if (excludeSet.has(storedId)) {
+        // Excluded column - preserve its position
+        result.push(storedId)
+      } else if (visibleIndex < visibleColumns.length) {
+        // Non-excluded slot - take next from visibleColumns
+        result.push(visibleColumns[visibleIndex++])
+      }
+    }
+
+    // Append any remaining visible columns (new ones not in stored)
+    while (visibleIndex < visibleColumns.length) {
+      result.push(visibleColumns[visibleIndex++])
+    }
+
+    safeSetItem(STORAGE_KEY, JSON.stringify(result))
   }, [visibleColumns, excludeSet])
 
   const toggleColumn = useCallback((id: string) => {
