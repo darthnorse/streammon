@@ -11,13 +11,7 @@ interface RuleFormProps {
   onSaved: () => void
 }
 
-const inputClass = `w-full px-3 py-2.5 rounded-lg text-sm
-  bg-surface dark:bg-surface-dark
-  border border-border dark:border-border-dark
-  focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-  transition-colors`
-
-const selectClass = `w-full px-3 py-2.5 rounded-lg text-sm
+const fieldClass = `w-full px-3 py-2.5 rounded-lg text-sm
   bg-surface dark:bg-surface-dark
   border border-border dark:border-border-dark
   focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
@@ -130,7 +124,7 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="My Rule"
-              className={inputClass}
+              className={fieldClass}
             />
           </div>
 
@@ -141,7 +135,7 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
               value={ruleType}
               onChange={e => setRuleType(e.target.value as RuleType)}
               disabled={isEdit}
-              className={selectClass}
+              className={fieldClass}
             >
               {RULE_TYPES.map(rt => (
                 <option key={rt.value} value={rt.value}>{rt.label}</option>
@@ -249,7 +243,7 @@ function renderConfigFields(
               max={10}
               value={(config.max_streams as number) ?? 2}
               onChange={e => updateField('max_streams', parseInt(e.target.value) || 2)}
-              className={inputClass}
+              className={fieldClass}
             />
           </div>
           <div className="flex items-center gap-2">
@@ -274,7 +268,7 @@ function renderConfigFields(
               value={((config.allowed_countries as string[]) || []).join(', ')}
               onChange={e => updateField('allowed_countries', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
               placeholder="US, CA, GB"
-              className={inputClass}
+              className={fieldClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">Leave empty to allow all countries</p>
           </div>
@@ -285,7 +279,7 @@ function renderConfigFields(
               value={((config.blocked_countries as string[]) || []).join(', ')}
               onChange={e => updateField('blocked_countries', e.target.value.split(',').map(s => s.trim()).filter(Boolean))}
               placeholder="RU, CN"
-              className={inputClass}
+              className={fieldClass}
             />
           </div>
         </div>
@@ -301,7 +295,7 @@ function renderConfigFields(
               min={10}
               value={(config.min_distance_km as number) ?? 50}
               onChange={e => updateField('min_distance_km', parseInt(e.target.value) || 50)}
-              className={inputClass}
+              className={fieldClass}
             />
           </div>
           <div className="flex items-center gap-2">
@@ -326,7 +320,7 @@ function renderConfigFields(
               min={100}
               value={(config.max_speed_km_h as number) ?? 800}
               onChange={e => updateField('max_speed_km_h', parseInt(e.target.value) || 800)}
-              className={inputClass}
+              className={fieldClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">~800 km/h is typical commercial flight speed</p>
           </div>
@@ -337,7 +331,7 @@ function renderConfigFields(
               min={10}
               value={(config.min_distance_km as number) ?? 100}
               onChange={e => updateField('min_distance_km', parseInt(e.target.value) || 100)}
-              className={inputClass}
+              className={fieldClass}
             />
           </div>
           <div>
@@ -348,7 +342,7 @@ function renderConfigFields(
               max={72}
               value={(config.time_window_hours as number) ?? 24}
               onChange={e => updateField('time_window_hours', parseInt(e.target.value) || 24)}
-              className={inputClass}
+              className={fieldClass}
             />
           </div>
         </div>
@@ -365,7 +359,7 @@ function renderConfigFields(
               max={20}
               value={(config.max_devices_per_hour as number) ?? 3}
               onChange={e => updateField('max_devices_per_hour', parseInt(e.target.value) || 3)}
-              className={inputClass}
+              className={fieldClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">Alert if user exceeds this many devices in the time window</p>
           </div>
@@ -377,7 +371,7 @@ function renderConfigFields(
               max={24}
               value={(config.time_window_hours as number) ?? 1}
               onChange={e => updateField('time_window_hours', parseInt(e.target.value) || 1)}
-              className={inputClass}
+              className={fieldClass}
             />
           </div>
         </div>
@@ -420,7 +414,7 @@ function renderConfigFields(
               min={10}
               value={(config.min_distance_km as number) ?? 50}
               onChange={e => updateField('min_distance_km', parseInt(e.target.value) || 50)}
-              className={inputClass}
+              className={fieldClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">Only alert if new location is at least this far from known locations</p>
           </div>

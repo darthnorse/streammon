@@ -98,11 +98,6 @@ func (e *NewLocationEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 		return nil, nil
 	}
 
-	// Location is nearby a known location
-	if minDistance < config.MinDistanceKm {
-		return nil, nil
-	}
-
 	severity := models.SeverityInfo
 	if minDistance >= 500 {
 		severity = models.SeverityWarning

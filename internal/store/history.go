@@ -61,13 +61,8 @@ func scanHistoryEntryWithGeo(scanner interface{ Scan(...any) error }) (models.Wa
 }
 
 func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
-	hwDecode, hwEncode := 0, 0
-	if entry.TranscodeHWDecode {
-		hwDecode = 1
-	}
-	if entry.TranscodeHWEncode {
-		hwEncode = 1
-	}
+	hwDecode := boolToInt(entry.TranscodeHWDecode)
+	hwEncode := boolToInt(entry.TranscodeHWEncode)
 	result, err := s.db.Exec(historyInsertSQL,
 		entry.ServerID, entry.ItemID, entry.GrandparentItemID, entry.UserName, entry.MediaType, entry.Title,
 		entry.ParentTitle, entry.GrandparentTitle, entry.Year,
@@ -252,13 +247,8 @@ func (s *Store) HistoryExists(serverID int64, userName, title string, startedAt 
 }
 
 func (s *Store) UpdateHistoryStreamDetails(id int64, entry *models.WatchHistoryEntry) error {
-	hwDecode, hwEncode := 0, 0
-	if entry.TranscodeHWDecode {
-		hwDecode = 1
-	}
-	if entry.TranscodeHWEncode {
-		hwEncode = 1
-	}
+	hwDecode := boolToInt(entry.TranscodeHWDecode)
+	hwEncode := boolToInt(entry.TranscodeHWEncode)
 	_, err := s.db.Exec(`UPDATE watch_history SET
 		video_resolution = ?, video_codec = ?, audio_codec = ?, audio_channels = ?,
 		bandwidth = ?, transcode_decision = ?, video_decision = ?, audio_decision = ?,
@@ -446,13 +436,8 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			return inserted, skipped, fmt.Errorf("checking if entry exists: %w", err)
 		}
 
-		hwDecode, hwEncode := 0, 0
-		if entry.TranscodeHWDecode {
-			hwDecode = 1
-		}
-		if entry.TranscodeHWEncode {
-			hwEncode = 1
-		}
+		hwDecode := boolToInt(entry.TranscodeHWDecode)
+		hwEncode := boolToInt(entry.TranscodeHWEncode)
 		_, err = insertStmt.ExecContext(ctx,
 			entry.ServerID, entry.ItemID, entry.GrandparentItemID, entry.UserName, entry.MediaType, entry.Title,
 			entry.ParentTitle, entry.GrandparentTitle, entry.Year,

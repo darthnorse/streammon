@@ -7,6 +7,14 @@ interface UserHouseholdCardProps {
   userName: string
 }
 
+function CardHeader() {
+  return (
+    <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">
+      Household Locations
+    </h3>
+  )
+}
+
 export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
   const { data: locations, loading, error, refetch } = useFetch<HouseholdLocation[]>(
     `/api/users/${encodeURIComponent(userName)}/household`
@@ -41,9 +49,7 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
   if (loading) {
     return (
       <div className="card p-4">
-        <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">
-          Household Locations
-        </h3>
+        <CardHeader />
         <div className="text-sm text-muted dark:text-muted-dark">Loading...</div>
       </div>
     )
@@ -52,9 +58,7 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
   if (error) {
     return (
       <div className="card p-4">
-        <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">
-          Household Locations
-        </h3>
+        <CardHeader />
         <div className="text-sm text-red-500 dark:text-red-400">Failed to load</div>
       </div>
     )
@@ -62,9 +66,7 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
 
   return (
     <div className="card p-4">
-      <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">
-        Household Locations
-      </h3>
+      <CardHeader />
 
       {!locations?.length ? (
         <div className="text-sm text-muted dark:text-muted-dark">

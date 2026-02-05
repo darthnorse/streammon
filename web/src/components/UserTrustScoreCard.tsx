@@ -6,16 +6,10 @@ interface UserTrustScoreCardProps {
   userName: string
 }
 
-function getScoreColor(score: number): string {
-  if (score >= 80) return 'text-green-400'
-  if (score >= 50) return 'text-amber-400'
-  return 'text-red-400'
-}
-
-function getScoreBarColor(score: number): string {
-  if (score >= 80) return 'bg-green-500'
-  if (score >= 50) return 'bg-amber-500'
-  return 'bg-red-500'
+function getScoreColors(score: number): { text: string; bar: string } {
+  if (score >= 80) return { text: 'text-green-400', bar: 'bg-green-500' }
+  if (score >= 50) return { text: 'text-amber-400', bar: 'bg-amber-500' }
+  return { text: 'text-red-400', bar: 'bg-red-500' }
 }
 
 function CardHeader() {
@@ -58,19 +52,20 @@ export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
   }
 
   const score = trustScore?.score ?? 100
+  const colors = getScoreColors(score)
 
   return (
     <div className="card p-4">
       <CardHeader />
 
       <div className="flex items-center gap-4">
-        <div className={`text-4xl font-bold ${getScoreColor(score)}`}>
+        <div className={`text-4xl font-bold ${colors.text}`}>
           {score}
         </div>
         <div className="flex-1">
           <div className="h-2 rounded-full bg-gray-200 dark:bg-white/10 overflow-hidden">
             <div
-              className={`h-full rounded-full ${getScoreBarColor(score)}`}
+              className={`h-full rounded-full ${colors.bar}`}
               style={{ width: `${score}%` }}
             />
           </div>
