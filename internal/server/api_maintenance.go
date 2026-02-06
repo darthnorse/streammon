@@ -328,3 +328,83 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, result)
 }
+
+// DELETE /api/maintenance/candidates/{id}
+func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
+
+	// Get candidate with item details
+	candidate, err := s.store.GetMaintenanceCandidate(r.Context(), id)
+	if errors.Is(err, models.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "candidate not found")
+		return
+	}
+	if err != nil {
+		log.Printf("get candidate %d: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to get candidate")
+		return
+	}
+
+	// Get media server
+	ms, ok := s.poller.GetServer(candidate.Item.ServerID)
+	if !ok {
+		writeError(w, http.StatusNotFound, "server not found or not configured")
+		return
+	}
+
+	// Get user for audit
+	user := UserFromContext(r.Context())
+	deletedBy := "unknown"
+	if user != nil {
+		deletedBy = user.Email
+	}
+
+	// Delete from media server with timeout
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	var serverDeleted bool
+	var errMsg string
+	if err := ms.DeleteItem(ctx, candidate.Item.ItemID); err != nil {
+		log.Printf("delete item %s from server: %v", candidate.Item.ItemID, err)
+		errMsg = err.Error()
+	} else {
+		serverDeleted = true
+	}
+
+	// Record audit log
+	if err := s.store.RecordDeleteAction(r.Context(),
+		candidate.Item.ServerID,
+		candidate.Item.ItemID,
+		candidate.Item.Title,
+		string(candidate.Item.MediaType),
+		candidate.Item.FileSize,
+		deletedBy,
+		serverDeleted,
+		errMsg,
+	); err != nil {
+		log.Printf("record delete action: %v", err)
+	}
+
+	// Only remove from DB if server deletion succeeded
+	if !serverDeleted {
+		writeError(w, http.StatusInternalServerError, "failed to delete from media server")
+		return
+	}
+
+	// Delete candidate from DB
+	if err := s.store.DeleteMaintenanceCandidate(r.Context(), id); err != nil {
+		log.Printf("delete candidate %d: %v", id, err)
+	}
+
+	// Delete library item from cache
+	if err := s.store.DeleteLibraryItem(r.Context(), candidate.LibraryItemID); err != nil {
+		log.Printf("delete library item %d: %v", candidate.LibraryItemID, err)
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
