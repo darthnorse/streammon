@@ -180,15 +180,15 @@ interface ItemContentProps {
 function ItemContent({ item, accent }: ItemContentProps) {
   return (
     <div className="flex flex-col md:flex-row overflow-y-auto max-h-[calc(90vh-4px)]">
-      <div className="md:w-1/3 shrink-0 p-4 md:p-6">
+      <div className="shrink-0 p-4 md:p-6 flex justify-center md:block md:w-1/3">
         {item.thumb_url ? (
           <img
             src={item.thumb_url}
             alt={item.title}
-            className="w-full aspect-[2/3] object-cover rounded-lg shadow-lg"
+            className="max-h-48 md:max-h-none w-auto md:w-full aspect-[2/3] object-cover rounded-lg shadow-lg"
           />
         ) : (
-          <div className="w-full aspect-[2/3] rounded-lg bg-gray-200 dark:bg-white/10 flex items-center justify-center">
+          <div className="max-h-48 md:max-h-none w-auto md:w-full aspect-[2/3] rounded-lg bg-gray-200 dark:bg-white/10 flex items-center justify-center">
             <span className="text-6xl opacity-20">
               {mediaTypeIcons[item.media_type] ?? defaultMediaIcon}
             </span>
