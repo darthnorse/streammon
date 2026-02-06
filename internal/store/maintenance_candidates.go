@@ -184,3 +184,41 @@ func (s *Store) RecordDeleteAction(ctx context.Context, serverID int64, itemID, 
 		serverID, itemID, title, mediaType, fileSize, deletedBy, time.Now().UTC(), serverDeleted, errMsg)
 	return err
 }
+
+// ListAllCandidatesForRule returns all candidates without pagination
+func (s *Store) ListAllCandidatesForRule(ctx context.Context, ruleID int64) ([]models.MaintenanceCandidate, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
+			i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
+			i.added_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at
+		FROM maintenance_candidates c
+		JOIN library_items i ON c.library_item_id = i.id
+		WHERE c.rule_id = ?
+		ORDER BY i.added_at DESC`, ruleID)
+	if err != nil {
+		return nil, fmt.Errorf("list all candidates: %w", err)
+	}
+	defer rows.Close()
+
+	var candidates []models.MaintenanceCandidate
+	for rows.Next() {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		var c models.MaintenanceCandidate
+		var item models.LibraryItemCache
+		err := rows.Scan(&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
+			&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
+			&item.Title, &item.Year, &item.AddedAt, &item.VideoResolution, &item.FileSize,
+			&item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
+		if err != nil {
+			return nil, fmt.Errorf("scan candidate: %w", err)
+		}
+		c.Item = &item
+		candidates = append(candidates, c)
+	}
+	if candidates == nil {
+		candidates = []models.MaintenanceCandidate{}
+	}
+	return candidates, rows.Err()
+}

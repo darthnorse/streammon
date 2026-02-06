@@ -426,3 +426,42 @@ func TestRecordDeleteActionWithError(t *testing.T) {
 		t.Errorf("error_message = %q, want %q", errMsg, "connection refused")
 	}
 }
+
+func TestListAllCandidatesForRule(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := s.ListAllCandidatesForRule(ctx, ruleID)
+	if err != nil {
+		t.Fatalf("ListAllCandidatesForRule: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("got %d candidates, want 1", len(all))
+	}
+	if all[0].Item == nil {
+		t.Error("expected Item to be populated")
+	}
+}
+
+func TestListAllCandidatesForRuleEmpty(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	all, err := s.ListAllCandidatesForRule(ctx, 99999)
+	if err != nil {
+		t.Fatalf("ListAllCandidatesForRule: %v", err)
+	}
+	if all == nil {
+		t.Error("expected empty slice, got nil")
+	}
+	if len(all) != 0 {
+		t.Errorf("got %d candidates, want 0", len(all))
+	}
+}
