@@ -1,7 +1,16 @@
 package maintenance
 
 import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
+
+	"streammon/internal/models"
+	"streammon/internal/store"
 )
 
 func TestParseResolutionHeight(t *testing.T) {
@@ -72,5 +81,292 @@ func TestDefaultConstants(t *testing.T) {
 	}
 	if DefaultMinSizeGB != 10.0 {
 		t.Errorf("DefaultMinSizeGB = %f, want 10.0", DefaultMinSizeGB)
+	}
+}
+
+// Test helpers for integration tests
+
+func migrationsDir() string {
+	_, f, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(f), "..", "..", "migrations")
+}
+
+func newTestStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("New(:memory:) failed: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}
+
+func newTestStoreWithMigrations(t *testing.T) *store.Store {
+	t.Helper()
+	s := newTestStore(t)
+	dir := migrationsDir()
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("migrations dir not found: %v", err)
+	}
+	if err := s.Migrate(dir); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+	return s
+}
+
+func seedTestServer(t *testing.T, s *store.Store) *models.Server {
+	t.Helper()
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	return srv
+}
+
+// Integration tests
+
+func TestEvaluateUnwatchedMovie(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	// Add a movie that's 100 days old
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "movie1",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Old Unwatched Movie",
+		Year:      2024,
+		AddedAt:   now.AddDate(0, 0, -100),
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := &models.MaintenanceRule{
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{"days": 30}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if results[0].Reason == "" {
+		t.Error("expected non-empty reason")
+	}
+}
+
+func TestEvaluateUnwatchedMovieRecentNotFlagged(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	// Add a movie that's only 10 days old (should not be flagged with 30 day threshold)
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "movie1",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Recent Movie",
+		Year:      2024,
+		AddedAt:   now.AddDate(0, 0, -10),
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := &models.MaintenanceRule{
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{"days": 30}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (movie is too recent)", len(results))
+	}
+}
+
+func TestEvaluateLowResolution(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "SD Movie", VideoResolution: "480p", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie2", MediaType: models.MediaTypeMovie, Title: "HD Movie", VideoResolution: "1080p", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := &models.MaintenanceRule{
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		CriterionType: models.CriterionLowResolution,
+		Parameters:    json.RawMessage(`{"max_height": 720}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (only 480p)", len(results))
+	}
+}
+
+func TestEvaluateLargeFiles(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Small Movie", FileSize: 1 * 1024 * 1024 * 1024, AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie2", MediaType: models.MediaTypeMovie, Title: "Large Movie", FileSize: 50 * 1024 * 1024 * 1024, AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := &models.MaintenanceRule{
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		CriterionType: models.CriterionLargeFiles,
+		Parameters:    json.RawMessage(`{"min_size_gb": 10}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (only 50GB movie)", len(results))
+	}
+}
+
+func TestEvaluateRuleUnknownCriterion(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	rule := &models.MaintenanceRule{
+		ServerID:      1,
+		LibraryID:     "lib1",
+		CriterionType: "unknown_criterion",
+		Parameters:    json.RawMessage(`{}`),
+	}
+
+	e := NewEvaluator(s)
+	_, err := e.EvaluateRule(ctx, rule)
+	if err == nil {
+		t.Error("expected error for unknown criterion")
+	}
+}
+
+func TestToBatch(t *testing.T) {
+	candidates := []CandidateResult{
+		{LibraryItemID: 1, Reason: "Reason 1"},
+		{LibraryItemID: 2, Reason: "Reason 2"},
+	}
+
+	batch := ToBatch(candidates)
+	if len(batch) != 2 {
+		t.Fatalf("got %d batch items, want 2", len(batch))
+	}
+	if batch[0].LibraryItemID != 1 {
+		t.Errorf("batch[0].LibraryItemID = %d, want 1", batch[0].LibraryItemID)
+	}
+	if batch[1].Reason != "Reason 2" {
+		t.Errorf("batch[1].Reason = %q, want %q", batch[1].Reason, "Reason 2")
+	}
+}
+
+func TestToBatchEmpty(t *testing.T) {
+	batch := ToBatch(nil)
+	if len(batch) != 0 {
+		t.Errorf("got %d batch items, want 0", len(batch))
+	}
+}
+
+func TestEvaluateLowResolutionDefaultParams(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "SD Movie", VideoResolution: "480p", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Use empty parameters - should use default max_height of 720
+	rule := &models.MaintenanceRule{
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		CriterionType: models.CriterionLowResolution,
+		Parameters:    json.RawMessage(`{}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (480p should be flagged with default 720p threshold)", len(results))
+	}
+}
+
+func TestEvaluateLargeFilesDefaultParams(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Large Movie", FileSize: 15 * 1024 * 1024 * 1024, AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Use empty parameters - should use default min_size_gb of 10
+	rule := &models.MaintenanceRule{
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		CriterionType: models.CriterionLargeFiles,
+		Parameters:    json.RawMessage(`{}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (15GB should be flagged with default 10GB threshold)", len(results))
 	}
 }
