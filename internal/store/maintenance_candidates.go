@@ -172,8 +172,18 @@ func (s *Store) DeleteMaintenanceCandidate(ctx context.Context, id int64) error 
 
 // DeleteLibraryItem deletes a library item by ID
 func (s *Store) DeleteLibraryItem(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM library_items WHERE id = ?`, id)
-	return err
+	result, err := s.db.ExecContext(ctx, `DELETE FROM library_items WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete library item: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return models.ErrNotFound
+	}
+	return nil
 }
 
 // RecordDeleteAction records a deletion in the audit log
@@ -182,7 +192,10 @@ func (s *Store) RecordDeleteAction(ctx context.Context, serverID int64, itemID, 
 		INSERT INTO maintenance_delete_log (server_id, item_id, title, media_type, file_size, deleted_by, deleted_at, server_deleted, error_message)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		serverID, itemID, title, mediaType, fileSize, deletedBy, time.Now().UTC(), serverDeleted, errMsg)
-	return err
+	if err != nil {
+		return fmt.Errorf("record delete action: %w", err)
+	}
+	return nil
 }
 
 // ListAllCandidatesForRule returns all candidates without pagination

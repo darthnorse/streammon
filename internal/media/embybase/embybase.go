@@ -81,8 +81,8 @@ func (c *Client) addAuth(req *http.Request) *http.Request {
 
 // DeleteItem deletes an item from the library
 func (c *Client) DeleteItem(ctx context.Context, itemID string) error {
-	url := fmt.Sprintf("%s/Items/%s", c.url, itemID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	reqURL := fmt.Sprintf("%s/Items/%s", c.url, url.PathEscape(itemID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, nil)
 	if err != nil {
 		return err
 	}

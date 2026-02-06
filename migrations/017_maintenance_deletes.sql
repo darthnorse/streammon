@@ -15,3 +15,4 @@ CREATE TABLE IF NOT EXISTS maintenance_delete_log (
 
 CREATE INDEX IF NOT EXISTS idx_delete_log_server ON maintenance_delete_log(server_id);
 CREATE INDEX IF NOT EXISTS idx_delete_log_deleted_at ON maintenance_delete_log(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_delete_log_deleted_by ON maintenance_delete_log(deleted_by);

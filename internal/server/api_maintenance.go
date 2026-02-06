@@ -352,6 +352,10 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get media server
+	if s.poller == nil {
+		writeError(w, http.StatusNotFound, "server not found or not configured")
+		return
+	}
 	ms, ok := s.poller.GetServer(candidate.Item.ServerID)
 	if !ok {
 		writeError(w, http.StatusNotFound, "server not found or not configured")
@@ -448,7 +452,6 @@ func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) exportCandidatesCSV(w http.ResponseWriter, candidates []models.MaintenanceCandidate) {
 	cw := csv.NewWriter(w)
-	defer cw.Flush()
 
 	// Header
 	cw.Write([]string{"ID", "Title", "Media Type", "Year", "Added At", "Resolution", "File Size (GB)", "Reason", "Computed At"})
@@ -470,6 +473,11 @@ func (s *Server) exportCandidatesCSV(w http.ResponseWriter, candidates []models.
 			c.ComputedAt.Format(time.RFC3339),
 		})
 	}
+
+	cw.Flush()
+	if err := cw.Error(); err != nil {
+		log.Printf("csv export error: %v", err)
+	}
 }
 
 func (s *Server) exportCandidatesJSON(w http.ResponseWriter, candidates []models.MaintenanceCandidate, ruleID int64) {
@@ -479,5 +487,7 @@ func (s *Server) exportCandidatesJSON(w http.ResponseWriter, candidates []models
 		"total":       len(candidates),
 		"exported_at": time.Now().UTC(),
 	}
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("json export encoding error: %v", err)
+	}
 }

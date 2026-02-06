@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -154,8 +155,8 @@ func (s *Server) setHeaders(req *http.Request) {
 
 // DeleteItem deletes an item from the Plex library
 func (s *Server) DeleteItem(ctx context.Context, itemID string) error {
-	url := fmt.Sprintf("%s/library/metadata/%s", s.url, itemID)
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	reqURL := fmt.Sprintf("%s/library/metadata/%s", s.url, url.PathEscape(itemID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, nil)
 	if err != nil {
 		return err
 	}

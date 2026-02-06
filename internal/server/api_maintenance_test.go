@@ -3,12 +3,15 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"streammon/internal/models"
+	"streammon/internal/poller"
 )
 
 func TestGetCriterionTypesAPI(t *testing.T) {
@@ -371,5 +374,246 @@ func TestListCandidatesAPI(t *testing.T) {
 	}
 	if resp["total"] == nil {
 		t.Error("expected 'total' in response")
+	}
+}
+
+// mockDeleteServer implements media.MediaServer for delete candidate tests
+type mockDeleteServer struct {
+	deleteErr error
+	deleted   []string
+}
+
+func (m *mockDeleteServer) Name() string                                            { return "mock" }
+func (m *mockDeleteServer) Type() models.ServerType                                 { return models.ServerTypePlex }
+func (m *mockDeleteServer) TestConnection(ctx context.Context) error                { return nil }
+func (m *mockDeleteServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
+	return nil, nil
+}
+func (m *mockDeleteServer) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
+	return nil, nil
+}
+func (m *mockDeleteServer) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
+	return nil, nil
+}
+func (m *mockDeleteServer) GetLibraries(ctx context.Context) ([]models.Library, error) {
+	return nil, nil
+}
+func (m *mockDeleteServer) ServerID() int64 { return 1 }
+func (m *mockDeleteServer) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
+	return nil, nil
+}
+func (m *mockDeleteServer) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
+	return nil, nil
+}
+func (m *mockDeleteServer) DeleteItem(ctx context.Context, itemID string) error {
+	if m.deleteErr != nil {
+		return m.deleteErr
+	}
+	m.deleted = append(m.deleted, itemID)
+	return nil
+}
+
+func TestDeleteCandidateNotFoundAPI(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/99999", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteCandidateInvalidIDAPI(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/invalid", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteCandidateServerNotFoundAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	ctx := context.Background()
+
+	// Create server in DB
+	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create library item
+	items := []models.LibraryItemCache{
+		{ServerID: server.ID, LibraryID: "lib1", ItemID: "item1", MediaType: models.MediaTypeMovie, Title: "Test Movie", Year: 2020, AddedAt: time.Now().UTC()},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create rule
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		ServerID:      server.ID,
+		LibraryID:     "lib1",
+		Name:          "Test Rule",
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{}`),
+		Enabled:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create candidate
+	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, 1, "test reason"); err != nil {
+		t.Fatal(err)
+	}
+
+	// No poller set up, so server won't be found
+	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 (server not found), got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDeleteCandidateSuccessAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	ctx := context.Background()
+
+	// Create server in DB
+	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create library item
+	items := []models.LibraryItemCache{
+		{ServerID: server.ID, LibraryID: "lib1", ItemID: "item123", MediaType: models.MediaTypeMovie, Title: "Test Movie", Year: 2020, AddedAt: time.Now().UTC()},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create rule
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		ServerID:      server.ID,
+		LibraryID:     "lib1",
+		Name:          "Test Rule",
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{}`),
+		Enabled:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create candidate
+	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, 1, "test reason"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up poller with mock server
+	p := poller.New(s, time.Hour)
+	srv.poller = p
+	pCtx, cancel := context.WithCancel(context.Background())
+	p.Start(pCtx)
+	t.Cleanup(func() {
+		cancel()
+		p.Stop()
+	})
+
+	mock := &mockDeleteServer{}
+	p.AddServer(server.ID, mock)
+
+	// Delete the candidate
+	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify item was deleted from mock
+	if len(mock.deleted) != 1 || mock.deleted[0] != "item123" {
+		t.Errorf("expected delete of item123, got %v", mock.deleted)
+	}
+
+	// Verify candidate is gone
+	_, err = s.GetMaintenanceCandidate(ctx, 1)
+	if !errors.Is(err, models.ErrNotFound) {
+		t.Errorf("expected candidate to be deleted, got err: %v", err)
+	}
+}
+
+func TestDeleteCandidateServerFailureAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	ctx := context.Background()
+
+	// Create server in DB
+	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create library item
+	items := []models.LibraryItemCache{
+		{ServerID: server.ID, LibraryID: "lib1", ItemID: "item456", MediaType: models.MediaTypeMovie, Title: "Test Movie", Year: 2020, AddedAt: time.Now().UTC()},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create rule
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		ServerID:      server.ID,
+		LibraryID:     "lib1",
+		Name:          "Test Rule",
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{}`),
+		Enabled:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create candidate
+	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, 1, "test reason"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up poller with mock server that fails
+	p := poller.New(s, time.Hour)
+	srv.poller = p
+	pCtx, cancel := context.WithCancel(context.Background())
+	p.Start(pCtx)
+	t.Cleanup(func() {
+		cancel()
+		p.Stop()
+	})
+
+	mock := &mockDeleteServer{deleteErr: errors.New("media server unavailable")}
+	p.AddServer(server.ID, mock)
+
+	// Try to delete the candidate
+	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify candidate is still there (not deleted on server failure)
+	_, err = s.GetMaintenanceCandidate(ctx, 1)
+	if err != nil {
+		t.Errorf("expected candidate to still exist, got err: %v", err)
 	}
 }
