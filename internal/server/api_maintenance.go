@@ -442,15 +442,15 @@ func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) 
 	if format == "csv" {
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		s.exportCandidatesCSV(w, candidates)
+		exportCandidatesCSV(w, candidates)
 	} else {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		s.exportCandidatesJSON(w, candidates, ruleID)
+		exportCandidatesJSON(w, candidates, ruleID)
 	}
 }
 
-func (s *Server) exportCandidatesCSV(w http.ResponseWriter, candidates []models.MaintenanceCandidate) {
+func exportCandidatesCSV(w http.ResponseWriter, candidates []models.MaintenanceCandidate) {
 	cw := csv.NewWriter(w)
 
 	// Header
@@ -480,7 +480,7 @@ func (s *Server) exportCandidatesCSV(w http.ResponseWriter, candidates []models.
 	}
 }
 
-func (s *Server) exportCandidatesJSON(w http.ResponseWriter, candidates []models.MaintenanceCandidate, ruleID int64) {
+func exportCandidatesJSON(w http.ResponseWriter, candidates []models.MaintenanceCandidate, ruleID int64) {
 	response := map[string]any{
 		"rule_id":     ruleID,
 		"candidates":  candidates,

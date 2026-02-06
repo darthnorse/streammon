@@ -10,6 +10,27 @@ import (
 	"streammon/internal/models"
 )
 
+// candidateSelectColumns defines the columns for candidate queries with joined library items
+const candidateSelectColumns = `
+	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
+	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
+	i.added_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at`
+
+// scanCandidate scans a row into a MaintenanceCandidate with its LibraryItemCache
+func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
+	var c models.MaintenanceCandidate
+	var item models.LibraryItemCache
+	err := scanner.Scan(&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
+		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
+		&item.Title, &item.Year, &item.AddedAt, &item.VideoResolution, &item.FileSize,
+		&item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
+	if err != nil {
+		return c, err
+	}
+	c.Item = &item
+	return c, nil
+}
+
 // UpsertMaintenanceCandidate inserts or updates a candidate
 func (s *Store) UpsertMaintenanceCandidate(ctx context.Context, ruleID, libraryItemID int64, reason string) error {
 	now := time.Now().UTC()
@@ -45,9 +66,7 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 
 	offset := (page - 1) * perPage
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
-			i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
-			i.added_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at
+		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
 		WHERE c.rule_id = ?
@@ -61,16 +80,10 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 
 	candidates := []models.MaintenanceCandidate{}
 	for rows.Next() {
-		var c models.MaintenanceCandidate
-		var item models.LibraryItemCache
-		err := rows.Scan(&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
-			&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
-			&item.Title, &item.Year, &item.AddedAt, &item.VideoResolution, &item.FileSize,
-			&item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
+		c, err := scanCandidate(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
 		}
-		c.Item = &item
 		candidates = append(candidates, c)
 	}
 
@@ -132,25 +145,19 @@ func (s *Store) BatchUpsertCandidates(ctx context.Context, ruleID int64, candida
 
 // GetMaintenanceCandidate returns a candidate by ID with its library item
 func (s *Store) GetMaintenanceCandidate(ctx context.Context, id int64) (*models.MaintenanceCandidate, error) {
-	var c models.MaintenanceCandidate
-	var item models.LibraryItemCache
-	err := s.db.QueryRowContext(ctx, `
-		SELECT c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
-			i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
-			i.added_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at
+	row := s.db.QueryRowContext(ctx, `
+		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
-		WHERE c.id = ?`, id).Scan(&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
-		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
-		&item.Title, &item.Year, &item.AddedAt, &item.VideoResolution, &item.FileSize,
-		&item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
+		WHERE c.id = ?`, id)
+
+	c, err := scanCandidate(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, models.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get maintenance candidate: %w", err)
 	}
-	c.Item = &item
 	return &c, nil
 }
 
@@ -201,9 +208,7 @@ func (s *Store) RecordDeleteAction(ctx context.Context, serverID int64, itemID, 
 // ListAllCandidatesForRule returns all candidates without pagination
 func (s *Store) ListAllCandidatesForRule(ctx context.Context, ruleID int64) ([]models.MaintenanceCandidate, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
-			i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
-			i.added_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at
+		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
 		WHERE c.rule_id = ?
@@ -213,25 +218,16 @@ func (s *Store) ListAllCandidatesForRule(ctx context.Context, ruleID int64) ([]m
 	}
 	defer rows.Close()
 
-	var candidates []models.MaintenanceCandidate
+	candidates := []models.MaintenanceCandidate{}
 	for rows.Next() {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		var c models.MaintenanceCandidate
-		var item models.LibraryItemCache
-		err := rows.Scan(&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
-			&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
-			&item.Title, &item.Year, &item.AddedAt, &item.VideoResolution, &item.FileSize,
-			&item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
+		c, err := scanCandidate(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
 		}
-		c.Item = &item
 		candidates = append(candidates, c)
-	}
-	if candidates == nil {
-		candidates = []models.MaintenanceCandidate{}
 	}
 	return candidates, rows.Err()
 }

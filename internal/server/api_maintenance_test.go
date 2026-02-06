@@ -236,7 +236,7 @@ func TestExportCandidatesCSVAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+	_, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
 		ServerID:      server.ID,
 		LibraryID:     "lib1",
 		Name:          "Test",
@@ -271,8 +271,6 @@ func TestExportCandidatesCSVAPI(t *testing.T) {
 	if !strings.Contains(body, "ID,Title,Media Type") {
 		t.Errorf("CSV should contain header row, got: %s", body)
 	}
-
-	_ = rule // avoid unused
 }
 
 func TestExportCandidatesJSONAPI(t *testing.T) {
@@ -413,6 +411,48 @@ func (m *mockDeleteServer) DeleteItem(ctx context.Context, itemID string) error 
 	return nil
 }
 
+// setupDeleteCandidateTest creates server, library item, rule, and candidate for delete tests.
+// Returns the server ID for poller setup.
+func setupDeleteCandidateTest(t *testing.T, s interface {
+	CreateServer(*models.Server) error
+	UpsertLibraryItems(context.Context, []models.LibraryItemCache) (int, error)
+	CreateMaintenanceRule(context.Context, *models.MaintenanceRuleInput) (*models.MaintenanceRule, error)
+	UpsertMaintenanceCandidate(context.Context, int64, int64, string) error
+}, itemID string) int64 {
+	t.Helper()
+	ctx := context.Background()
+
+	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+
+	items := []models.LibraryItemCache{
+		{ServerID: server.ID, LibraryID: "lib1", ItemID: itemID, MediaType: models.MediaTypeMovie, Title: "Test Movie", Year: 2020, AddedAt: time.Now().UTC()},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		ServerID:      server.ID,
+		LibraryID:     "lib1",
+		Name:          "Test Rule",
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{}`),
+		Enabled:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, 1, "test reason"); err != nil {
+		t.Fatal(err)
+	}
+
+	return server.ID
+}
+
 func TestDeleteCandidateNotFoundAPI(t *testing.T) {
 	srv, _ := newTestServer(t)
 
@@ -439,39 +479,7 @@ func TestDeleteCandidateInvalidIDAPI(t *testing.T) {
 
 func TestDeleteCandidateServerNotFoundAPI(t *testing.T) {
 	srv, s := newTestServer(t)
-	ctx := context.Background()
-
-	// Create server in DB
-	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
-	if err := s.CreateServer(server); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create library item
-	items := []models.LibraryItemCache{
-		{ServerID: server.ID, LibraryID: "lib1", ItemID: "item1", MediaType: models.MediaTypeMovie, Title: "Test Movie", Year: 2020, AddedAt: time.Now().UTC()},
-	}
-	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create rule
-	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
-		Name:          "Test Rule",
-		CriterionType: models.CriterionUnwatchedMovie,
-		Parameters:    json.RawMessage(`{}`),
-		Enabled:       true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Create candidate
-	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, 1, "test reason"); err != nil {
-		t.Fatal(err)
-	}
+	setupDeleteCandidateTest(t, s, "item1")
 
 	// No poller set up, so server won't be found
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
@@ -486,38 +494,7 @@ func TestDeleteCandidateServerNotFoundAPI(t *testing.T) {
 func TestDeleteCandidateSuccessAPI(t *testing.T) {
 	srv, s := newTestServer(t)
 	ctx := context.Background()
-
-	// Create server in DB
-	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
-	if err := s.CreateServer(server); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create library item
-	items := []models.LibraryItemCache{
-		{ServerID: server.ID, LibraryID: "lib1", ItemID: "item123", MediaType: models.MediaTypeMovie, Title: "Test Movie", Year: 2020, AddedAt: time.Now().UTC()},
-	}
-	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create rule
-	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
-		Name:          "Test Rule",
-		CriterionType: models.CriterionUnwatchedMovie,
-		Parameters:    json.RawMessage(`{}`),
-		Enabled:       true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Create candidate
-	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, 1, "test reason"); err != nil {
-		t.Fatal(err)
-	}
+	serverID := setupDeleteCandidateTest(t, s, "item123")
 
 	// Set up poller with mock server
 	p := poller.New(s, time.Hour)
@@ -530,7 +507,7 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 	})
 
 	mock := &mockDeleteServer{}
-	p.AddServer(server.ID, mock)
+	p.AddServer(serverID, mock)
 
 	// Delete the candidate
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
@@ -547,7 +524,7 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 	}
 
 	// Verify candidate is gone
-	_, err = s.GetMaintenanceCandidate(ctx, 1)
+	_, err := s.GetMaintenanceCandidate(ctx, 1)
 	if !errors.Is(err, models.ErrNotFound) {
 		t.Errorf("expected candidate to be deleted, got err: %v", err)
 	}
@@ -556,38 +533,7 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 	srv, s := newTestServer(t)
 	ctx := context.Background()
-
-	// Create server in DB
-	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
-	if err := s.CreateServer(server); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create library item
-	items := []models.LibraryItemCache{
-		{ServerID: server.ID, LibraryID: "lib1", ItemID: "item456", MediaType: models.MediaTypeMovie, Title: "Test Movie", Year: 2020, AddedAt: time.Now().UTC()},
-	}
-	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create rule
-	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
-		Name:          "Test Rule",
-		CriterionType: models.CriterionUnwatchedMovie,
-		Parameters:    json.RawMessage(`{}`),
-		Enabled:       true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Create candidate
-	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, 1, "test reason"); err != nil {
-		t.Fatal(err)
-	}
+	serverID := setupDeleteCandidateTest(t, s, "item456")
 
 	// Set up poller with mock server that fails
 	p := poller.New(s, time.Hour)
@@ -600,7 +546,7 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 	})
 
 	mock := &mockDeleteServer{deleteErr: errors.New("media server unavailable")}
-	p.AddServer(server.ID, mock)
+	p.AddServer(serverID, mock)
 
 	// Try to delete the candidate
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
@@ -612,7 +558,7 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 	}
 
 	// Verify candidate is still there (not deleted on server failure)
-	_, err = s.GetMaintenanceCandidate(ctx, 1)
+	_, err := s.GetMaintenanceCandidate(ctx, 1)
 	if err != nil {
 		t.Errorf("expected candidate to still exist, got err: %v", err)
 	}
