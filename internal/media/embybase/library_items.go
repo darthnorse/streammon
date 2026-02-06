@@ -41,6 +41,26 @@ type embyStream struct {
 }
 
 func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
+	// Fetch Movies and Series separately for reliability across different library types.
+	// Some Emby/Jellyfin versions return inconsistent results with combined IncludeItemTypes
+	// filters (e.g., "Movie,Series"), so we query each type individually like Plex does.
+	movies, err := c.fetchLibraryItemsByType(ctx, libraryID, "Movie")
+	if err != nil {
+		return nil, fmt.Errorf("fetch movies: %w", err)
+	}
+
+	series, err := c.fetchLibraryItemsByType(ctx, libraryID, "Series")
+	if err != nil {
+		return nil, fmt.Errorf("fetch series: %w", err)
+	}
+
+	result := make([]models.LibraryItemCache, 0, len(movies)+len(series))
+	result = append(result, movies...)
+	result = append(result, series...)
+	return result, nil
+}
+
+func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemType string) ([]models.LibraryItemCache, error) {
 	const batchSize = 100
 	var allItems []models.LibraryItemCache
 	offset := 0
@@ -50,7 +70,7 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 			return nil, ctx.Err()
 		}
 
-		items, totalCount, err := c.fetchLibraryBatch(ctx, libraryID, offset, batchSize)
+		items, totalCount, err := c.fetchLibraryBatch(ctx, libraryID, itemType, offset, batchSize)
 		if err != nil {
 			return nil, err
 		}
@@ -70,12 +90,15 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	return allItems, nil
 }
 
-func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID string, offset, batchSize int) ([]models.LibraryItemCache, int, error) {
-	u, _ := url.Parse(fmt.Sprintf("%s/Items", c.url))
+func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType string, offset, batchSize int) ([]models.LibraryItemCache, int, error) {
+	u, err := url.Parse(fmt.Sprintf("%s/Items", c.url))
+	if err != nil {
+		return nil, 0, fmt.Errorf("parse URL: %w", err)
+	}
 	q := u.Query()
 	q.Set("ParentId", libraryID)
 	q.Set("Recursive", "true")
-	q.Set("IncludeItemTypes", "Movie,Series")
+	q.Set("IncludeItemTypes", itemType)
 	q.Set("Fields", "DateCreated,MediaSources,RecursiveItemCount")
 	q.Set("StartIndex", strconv.Itoa(offset))
 	q.Set("Limit", strconv.Itoa(batchSize))
@@ -115,7 +138,7 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID string, offset
 			fileSize = item.MediaSources[0].Size
 			for _, stream := range item.MediaSources[0].Streams {
 				if stream.Type == "Video" && stream.Height > 0 {
-					resolution = heightToRes(stream.Height)
+					resolution = mediautil.HeightToResolution(stream.Height)
 					break
 				}
 			}
@@ -144,8 +167,4 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID string, offset
 	}
 
 	return items, itemsResp.TotalRecordCount, nil
-}
-
-func heightToRes(height int) string {
-	return mediautil.HeightToResolution(height)
 }

@@ -6,12 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"streammon/internal/models"
 )
 
-// wrapInItemsArray wraps JSON data in an Items array for the Items?Ids= endpoint format
 func wrapInItemsArray(data []byte) []byte {
 	result := append([]byte(`{"Items":[`), data...)
 	return append(result, []byte(`]}`)...)
@@ -695,6 +695,276 @@ func TestGetLibrariesOtherType(t *testing.T) {
 	}
 	if libs[0].ItemCount != 42 {
 		t.Errorf("item_count = %d, want 42", libs[0].ItemCount)
+	}
+}
+
+func TestGetLibraryItems(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Emby-Token") != "test-key" {
+			t.Error("missing X-Emby-Token header")
+		}
+		if r.URL.Path != "/Items" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		parentID := r.URL.Query().Get("ParentId")
+		if parentID != "lib1" {
+			t.Errorf("ParentId = %q, want lib1", parentID)
+		}
+		if r.URL.Query().Get("Recursive") != "true" {
+			t.Error("missing Recursive=true")
+		}
+
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		switch itemType {
+		case "Movie":
+			w.Write([]byte(`{
+				"Items": [
+					{"Id": "movie1", "Name": "Inception", "Type": "Movie", "ProductionYear": 2010, "DateCreated": "2024-01-15T10:30:00Z", "RecursiveItemCount": 0}
+				],
+				"TotalRecordCount": 1
+			}`))
+		case "Series":
+			w.Write([]byte(`{
+				"Items": [
+					{"Id": "series1", "Name": "Breaking Bad", "Type": "Series", "ProductionYear": 2008, "DateCreated": "2024-01-10T08:00:00Z", "RecursiveItemCount": 62}
+				],
+				"TotalRecordCount": 1
+			}`))
+		default:
+			t.Errorf("unexpected IncludeItemTypes: %s", itemType)
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{
+		ID:     1,
+		Name:   "TestEmby",
+		URL:    ts.URL,
+		APIKey: "test-key",
+	}, models.ServerTypeEmby)
+
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items (1 movie + 1 series), got %d", len(items))
+	}
+
+	// First item should be the movie
+	movie := items[0]
+	if movie.ItemID != "movie1" {
+		t.Errorf("movie id = %q, want movie1", movie.ItemID)
+	}
+	if movie.Title != "Inception" {
+		t.Errorf("movie title = %q, want Inception", movie.Title)
+	}
+	if movie.MediaType != models.MediaTypeMovie {
+		t.Errorf("movie media type = %q, want movie", movie.MediaType)
+	}
+	if movie.Year != 2010 {
+		t.Errorf("movie year = %d, want 2010", movie.Year)
+	}
+	if movie.ServerID != 1 {
+		t.Errorf("movie server id = %d, want 1", movie.ServerID)
+	}
+	if movie.LibraryID != "lib1" {
+		t.Errorf("movie library id = %q, want lib1", movie.LibraryID)
+	}
+
+	// Second item should be the series
+	series := items[1]
+	if series.ItemID != "series1" {
+		t.Errorf("series id = %q, want series1", series.ItemID)
+	}
+	if series.Title != "Breaking Bad" {
+		t.Errorf("series title = %q, want Breaking Bad", series.Title)
+	}
+	if series.MediaType != models.MediaTypeTV {
+		t.Errorf("series media type = %q, want episode", series.MediaType)
+	}
+	if series.EpisodeCount != 62 {
+		t.Errorf("series episode count = %d, want 62", series.EpisodeCount)
+	}
+}
+
+func TestGetLibraryItemsEmpty(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if items == nil {
+		t.Error("expected empty slice, got nil")
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 items, got %d", len(items))
+	}
+}
+
+func TestGetLibraryItemsPagination(t *testing.T) {
+	callCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		startIndex := r.URL.Query().Get("StartIndex")
+
+		if itemType == "Movie" {
+			callCount++
+			switch startIndex {
+			case "0":
+				// First batch: return 100 items, total 150
+				items := make([]string, 100)
+				for i := 0; i < 100; i++ {
+					items[i] = fmt.Sprintf(`{"Id": "movie%d", "Name": "Movie %d", "Type": "Movie", "ProductionYear": 2020, "DateCreated": "2024-01-01T00:00:00Z"}`, i, i)
+				}
+				w.Write([]byte(fmt.Sprintf(`{"Items": [%s], "TotalRecordCount": 150}`, strings.Join(items, ","))))
+			case "100":
+				// Second batch: return remaining 50 items
+				items := make([]string, 50)
+				for i := 0; i < 50; i++ {
+					items[i] = fmt.Sprintf(`{"Id": "movie%d", "Name": "Movie %d", "Type": "Movie", "ProductionYear": 2020, "DateCreated": "2024-01-01T00:00:00Z"}`, 100+i, 100+i)
+				}
+				w.Write([]byte(fmt.Sprintf(`{"Items": [%s], "TotalRecordCount": 150}`, strings.Join(items, ","))))
+			default:
+				t.Errorf("unexpected StartIndex for movies: %s", startIndex)
+				w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+			}
+		} else if itemType == "Series" {
+			// No series in this library
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(items) != 150 {
+		t.Errorf("expected 150 items, got %d", len(items))
+	}
+
+	// Should have made 2 calls for movies (pagination)
+	if callCount != 2 {
+		t.Errorf("expected 2 movie batch calls, got %d", callCount)
+	}
+}
+
+func TestGetLibraryItemsContextCancellation(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return a batch that would trigger pagination
+		w.Write([]byte(`{"Items": [{"Id": "m1", "Name": "Movie", "Type": "Movie", "ProductionYear": 2020, "DateCreated": "2024-01-01T00:00:00Z"}], "TotalRecordCount": 1000}`))
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := c.GetLibraryItems(ctx, "lib1")
+	if err == nil {
+		t.Error("expected context cancellation error")
+	}
+}
+
+func TestGetLibraryItemsMovieError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		if itemType == "Movie" {
+			w.WriteHeader(http.StatusInternalServerError)
+		} else {
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	_, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err == nil {
+		t.Error("expected error when movie fetch fails")
+	}
+	// Check error wrapping
+	if !strings.Contains(err.Error(), "fetch movies") {
+		t.Errorf("error should contain 'fetch movies': %v", err)
+	}
+}
+
+func TestGetLibraryItemsSeriesError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		if itemType == "Movie" {
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		} else if itemType == "Series" {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	_, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err == nil {
+		t.Error("expected error when series fetch fails")
+	}
+	// Check error wrapping
+	if !strings.Contains(err.Error(), "fetch series") {
+		t.Errorf("error should contain 'fetch series': %v", err)
+	}
+}
+
+func TestGetLibraryItemsWithMediaInfo(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		if itemType == "Movie" {
+			w.Write([]byte(`{
+				"Items": [{
+					"Id": "movie1",
+					"Name": "4K Movie",
+					"Type": "Movie",
+					"ProductionYear": 2023,
+					"DateCreated": "2024-01-15T10:30:00Z",
+					"MediaSources": [{
+						"Size": 50000000000,
+						"MediaStreams": [
+							{"Type": "Video", "Height": 2160, "Width": 3840},
+							{"Type": "Audio", "Channels": 8}
+						]
+					}]
+				}],
+				"TotalRecordCount": 1
+			}`))
+		} else {
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+
+	item := items[0]
+	if item.VideoResolution != "4K" {
+		t.Errorf("resolution = %q, want 4K", item.VideoResolution)
+	}
+	if item.FileSize != 50000000000 {
+		t.Errorf("file size = %d, want 50000000000", item.FileSize)
 	}
 }
 
