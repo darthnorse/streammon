@@ -42,6 +42,9 @@ func (m *mockServer) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
 func (m *mockServer) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
 	return nil, nil
 }
+func (m *mockServer) DeleteItem(ctx context.Context, itemID string) error {
+	return nil
+}
 
 func (m *mockServer) setSessions(s []models.ActiveStream) {
 	m.mu.Lock()

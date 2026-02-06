@@ -59,7 +59,7 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 	}
 	defer rows.Close()
 
-	var candidates []models.MaintenanceCandidate
+	candidates := []models.MaintenanceCandidate{}
 	for rows.Next() {
 		var c models.MaintenanceCandidate
 		var item models.LibraryItemCache
