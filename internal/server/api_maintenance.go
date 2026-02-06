@@ -110,6 +110,15 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if req.ServerID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid server_id")
+		return
+	}
+	if req.LibraryID == "" {
+		writeError(w, http.StatusBadRequest, "library_id is required")
+		return
+	}
+
 	ms, ok := s.poller.GetServer(req.ServerID)
 	if !ok {
 		writeError(w, http.StatusNotFound, "server not found")

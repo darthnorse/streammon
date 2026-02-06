@@ -47,7 +47,10 @@ func (s *Store) CreateMaintenanceRule(ctx context.Context, input *models.Mainten
 		return nil, fmt.Errorf("create maintenance rule: %w", err)
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("get last insert id: %w", err)
+	}
 	return &models.MaintenanceRule{
 		ID:            id,
 		ServerID:      input.ServerID,

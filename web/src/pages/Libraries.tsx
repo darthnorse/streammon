@@ -121,7 +121,7 @@ interface LibraryRowProps {
 
 function LibraryRow({ library, maintenance, syncing, onSync, onRules, onViolations }: LibraryRowProps) {
   const accent = serverAccent[library.server_type] || 'bg-gray-100 text-gray-600'
-  const icon = libraryTypeIcon[library.type] || '▤'
+  const icon = getLibraryIcon(library.type)
   const rules = maintenance?.rules || []
   const ruleCount = rules.length
   const violationCount = rules.reduce((sum, r) => sum + r.candidate_count, 0)
@@ -549,7 +549,7 @@ function CandidatesView({
                         {candidate.item?.video_resolution || '-'}
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
-                        {candidate.item?.added_at ? new Date(candidate.item.added_at).toLocaleDateString() : '-'}
+                        {candidate.item?.added_at ? new Date(candidate.item.added_at).toLocaleString() : '-'}
                       </td>
                       <td className="px-4 py-3 text-sm text-amber-500">
                         {candidate.reason}
@@ -609,7 +609,6 @@ function RuleFormView({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // TV shows use 'episode' media type in the API
   const availableTypes = useMemo(() => {
     if (!criterionTypes?.types) return []
     return criterionTypes.types.filter((ct) => {
