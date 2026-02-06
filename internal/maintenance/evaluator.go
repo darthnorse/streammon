@@ -130,9 +130,7 @@ func (e *Evaluator) evaluateUnwatchedTVNone(ctx context.Context, rule *models.Ma
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		// Only process TV shows (not movies)
-		// Note: EpisodeCount may be 0 for some media servers (e.g., Emby) that don't
-		// provide this field, so we only check the media type
+		// EpisodeCount may be 0 for some media servers (e.g., Emby), so we only check media type
 		if item.MediaType != models.MediaTypeTV {
 			continue
 		}
@@ -177,7 +175,6 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		// Only process TV shows
 		if item.MediaType != models.MediaTypeTV {
 			continue
 		}
@@ -190,9 +187,8 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 			return nil, err
 		}
 
-		// If we have episode count, calculate percentage
-		// If episode count is 0 (e.g., Emby doesn't provide it), fall back to checking
-		// if any episodes are watched - treat 0 watched as "low percentage"
+		// If episode count is 0 (e.g., Emby doesn't provide it), fall back to
+		// treating 0 watched as "low percentage"
 		if item.EpisodeCount > 0 {
 			watchedPct := float64(watchedCount) / float64(item.EpisodeCount) * 100
 			if watchedPct < float64(params.MaxPercent) {
@@ -202,7 +198,6 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 				})
 			}
 		} else if watchedCount == 0 {
-			// No episode count available and nothing watched - qualifies as "low"
 			results = append(results, CandidateResult{
 				LibraryItemID: item.ID,
 				Reason:        "No episodes watched (episode count unknown)",
