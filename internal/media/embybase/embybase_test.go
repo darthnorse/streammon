@@ -1049,3 +1049,39 @@ func TestDeriveDynamicRange(t *testing.T) {
 		})
 	}
 }
+
+
+func TestDeleteItem(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.Header.Get("X-Emby-Token") != "test-key" {
+			t.Error("missing auth header")
+		}
+		if r.URL.Path != "/Items/12345" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "test-key"}, models.ServerTypeEmby)
+	err := c.DeleteItem(context.Background(), "12345")
+	if err != nil {
+		t.Fatalf("DeleteItem: %v", err)
+	}
+}
+
+func TestDeleteItemError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "test-key"}, models.ServerTypeEmby)
+	err := c.DeleteItem(context.Background(), "12345")
+	if err == nil {
+		t.Error("expected error for 403")
+	}
+}

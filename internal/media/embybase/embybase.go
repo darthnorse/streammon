@@ -79,6 +79,26 @@ func (c *Client) addAuth(req *http.Request) *http.Request {
 	return req
 }
 
+// DeleteItem deletes an item from the library
+func (c *Client) DeleteItem(ctx context.Context, itemID string) error {
+	url := fmt.Sprintf("%s/Items/%s", c.url, itemID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.client.Do(c.addAuth(req))
+	if err != nil {
+		return fmt.Errorf("%s delete: %w", c.serverType, err)
+	}
+	defer httputil.DrainBody(resp)
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("%s delete: status %d", c.serverType, resp.StatusCode)
+	}
+	return nil
+}
+
 
 type embySession struct {
 	ID       string    `json:"Id"`
