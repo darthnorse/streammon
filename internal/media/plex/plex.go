@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"streammon/internal/httputil"
+	"streammon/internal/mediautil"
 	"streammon/internal/models"
 )
 
@@ -476,21 +477,7 @@ func normalizeResolution(r string) string {
 
 func heightToResolution(h string) string {
 	height := atoi(h)
-	if height == 0 {
-		return ""
-	}
-	switch {
-	case height >= 2160:
-		return "4K"
-	case height >= 1080:
-		return "1080p"
-	case height >= 720:
-		return "720p"
-	case height >= 480:
-		return "480p"
-	default:
-		return strconv.Itoa(height) + "p"
-	}
+	return mediautil.HeightToResolution(height)
 }
 
 func plexSessionID(item plexItem) string {

@@ -43,6 +43,9 @@ func (m *mockLibraryServer) ServerID() int64 { return 1 }
 func (m *mockLibraryServer) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
 	return nil, nil
 }
+func (m *mockLibraryServer) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
+	return nil, nil
+}
 
 func setupTestPoller(t *testing.T, srv *Server, st *store.Store) *poller.Poller {
 	t.Helper()

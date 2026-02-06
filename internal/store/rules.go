@@ -22,6 +22,11 @@ func boolToInt(b bool) int {
 	return 0
 }
 
+// intToBool converts an int from SQLite storage to a boolean.
+func intToBool(i int) bool {
+	return i != 0
+}
+
 // parseSQLiteTime parses a timestamp string returned by SQLite aggregate functions.
 // SQLite returns timestamps in various formats depending on how they were stored.
 func parseSQLiteTime(s string) (time.Time, error) {

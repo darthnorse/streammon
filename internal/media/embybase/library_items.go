@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"streammon/internal/httputil"
+	"streammon/internal/mediautil"
 	"streammon/internal/models"
 )
 
@@ -146,16 +147,5 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID string, offset
 }
 
 func heightToRes(height int) string {
-	switch {
-	case height >= 2160:
-		return "4K"
-	case height >= 1080:
-		return "1080p"
-	case height >= 720:
-		return "720p"
-	case height >= 480:
-		return "480p"
-	default:
-		return ""
-	}
+	return mediautil.HeightToResolution(height)
 }

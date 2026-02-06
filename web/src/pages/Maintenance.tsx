@@ -31,6 +31,8 @@ const libraryTypeLabel: Record<LibraryType, string> = {
   other: 'Other',
 }
 
+const getLibraryKey = (lib: LibraryMaintenance) => `${lib.server_id}-${lib.library_id}`
+
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return 'Never'
   return new Date(dateStr).toLocaleString()
@@ -266,6 +268,11 @@ function CandidatesView({
   const [page, setPage] = useState(1)
   const perPage = 20
 
+  // Reset to page 1 when viewing a different rule
+  useEffect(() => {
+    setPage(1)
+  }, [rule.id])
+
   const { data, loading } = useFetch<MaintenanceCandidatesResponse>(
     `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}`
   )
@@ -394,6 +401,7 @@ function CreateRuleView({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // TV shows use 'episode' media type in the API
   const availableTypes = criterionTypes?.types.filter((ct) => {
     if (library.library_type === 'movie') {
       return ct.media_types.includes('movie')
@@ -416,7 +424,7 @@ function CreateRuleView({
     } else {
       setParameters({})
     }
-  }, [criterionType, selectedType])
+  }, [criterionType]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -514,10 +522,14 @@ function CreateRuleView({
                   type={param.type === 'int' ? 'number' : 'text'}
                   value={parameters[param.name] ?? param.default}
                   onChange={(e) =>
-                    setParameters((prev) => ({
-                      ...prev,
-                      [param.name]: param.type === 'int' ? parseInt(e.target.value, 10) : e.target.value,
-                    }))
+                    setParameters((prev) => {
+                      let value: string | number = e.target.value
+                      if (param.type === 'int') {
+                        const parsed = parseInt(e.target.value, 10)
+                        value = isNaN(parsed) ? param.default : parsed
+                      }
+                      return { ...prev, [param.name]: value }
+                    })
                   }
                   min={param.min}
                   max={param.max}
@@ -552,22 +564,18 @@ function CreateRuleView({
   )
 }
 
+const criterionFormatters: Record<CriterionType, (params: Record<string, unknown>) => string> = {
+  unwatched_movie: (p) => `Movies unwatched for ${p.days || 365} days`,
+  unwatched_tv_none: (p) => `TV shows with no plays in ${p.days || 365} days`,
+  unwatched_tv_low: (p) => `TV shows with <${p.max_percent || 10}% watched in ${p.days || 365} days`,
+  low_resolution: (p) => `Resolution at or below ${p.max_height || 720}p`,
+  large_files: (p) => `Files larger than ${p.min_size_gb || 10} GB`,
+}
+
 function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
   const params = rule.parameters as Record<string, unknown>
-  switch (rule.criterion_type) {
-    case 'unwatched_movie':
-      return `Movies unwatched for ${params.days || 365} days`
-    case 'unwatched_tv_none':
-      return `TV shows with no plays in ${params.days || 365} days`
-    case 'unwatched_tv_low':
-      return `TV shows with <${params.max_percent || 10}% watched in ${params.days || 365} days`
-    case 'low_resolution':
-      return `Resolution at or below ${params.max_height || 720}p`
-    case 'large_files':
-      return `Files larger than ${params.min_size_gb || 10} GB`
-    default:
-      return JSON.stringify(params)
-  }
+  const formatter = criterionFormatters[rule.criterion_type]
+  return formatter ? formatter(params) : JSON.stringify(params)
 }
 
 export function Maintenance() {
@@ -577,7 +585,7 @@ export function Maintenance() {
   const { data, loading, error, refetch } = useFetch<MaintenanceDashboard>('/api/maintenance/dashboard')
 
   const handleSync = async (library: LibraryMaintenance) => {
-    const key = `${library.server_id}-${library.library_id}`
+    const key = getLibraryKey(library)
     setSyncingLibrary(key)
     try {
       await api.post('/api/maintenance/sync', {
@@ -661,7 +669,7 @@ export function Maintenance() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {data.libraries.map((library) => {
-                const key = `${library.server_id}-${library.library_id}`
+                const key = getLibraryKey(library)
                 return (
                   <LibraryCard
                     key={key}

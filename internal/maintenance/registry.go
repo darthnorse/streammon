@@ -4,17 +4,20 @@ import (
 	"streammon/internal/models"
 )
 
+// Parameter bounds for criterion types
+var (
+	minDays    = 1
+	maxDays    = 3650
+	minPercent = 1
+	maxPercent = 100
+	minHeight  = 240
+	maxHeight  = 4320
+	minSizeGB  = 1
+	maxSizeGB  = 1000
+)
+
 // GetCriterionTypes returns all available criterion types
 func GetCriterionTypes() []models.CriterionTypeInfo {
-	minDays := 1
-	maxDays := 3650
-	minPercent := 1
-	maxPercent := 100
-	minHeight := 240
-	maxHeight := 4320
-	minSizeGB := 1
-	maxSizeGB := 1000
-
 	return []models.CriterionTypeInfo{
 		{
 			Type:        models.CriterionUnwatchedMovie,

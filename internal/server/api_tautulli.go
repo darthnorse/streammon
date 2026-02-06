@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"time"
 
+	"streammon/internal/mediautil"
 	"streammon/internal/models"
 	"streammon/internal/store"
 	"streammon/internal/tautulli"
@@ -385,6 +386,6 @@ func enrichEntryFromStreamData(entry *models.WatchHistoryEntry, sd *tautulli.Str
 	}
 
 	if entry.VideoResolution == "" && sd.VideoHeight > 0 {
-		entry.VideoResolution = tautulli.HeightToResolution(sd.VideoHeight)
+		entry.VideoResolution = mediautil.HeightToResolution(sd.VideoHeight)
 	}
 }

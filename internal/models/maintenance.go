@@ -164,6 +164,12 @@ type MaintenanceCandidate struct {
 	Item          *LibraryItemCache `json:"item,omitempty"`
 }
 
+// BatchCandidate is used for batch upsert operations
+type BatchCandidate struct {
+	LibraryItemID int64
+	Reason        string
+}
+
 // MaintenanceDashboard is the response for the dashboard endpoint
 type MaintenanceDashboard struct {
 	Libraries []LibraryMaintenance `json:"libraries"`

@@ -348,23 +348,6 @@ func getBool(m map[string]any, key string) bool {
 	return false
 }
 
-func HeightToResolution(height int) string {
-	switch {
-	case height >= 2160:
-		return "4K"
-	case height >= 1080:
-		return "1080p"
-	case height >= 720:
-		return "720p"
-	case height >= 480:
-		return "480p"
-	case height > 0:
-		return fmt.Sprintf("%dp", height)
-	default:
-		return ""
-	}
-}
-
 type BatchResult struct {
 	Records []HistoryRecord
 	Total   int

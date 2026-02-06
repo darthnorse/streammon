@@ -15,6 +15,22 @@ import (
 	"streammon/internal/models"
 )
 
+// parsePagination extracts and validates page and perPage from query params
+func parsePagination(r *http.Request, defaultPerPage, maxPerPage int) (page, perPage int) {
+	const maxPage = 10000
+	page, _ = strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	} else if page > maxPage {
+		page = maxPage
+	}
+	perPage, _ = strconv.Atoi(r.URL.Query().Get("per_page"))
+	if perPage < 1 || perPage > maxPerPage {
+		perPage = defaultPerPage
+	}
+	return page, perPage
+}
+
 // GET /api/maintenance/criterion-types
 func (s *Server) handleGetCriterionTypes(w http.ResponseWriter, r *http.Request) {
 	types := maintenance.GetCriterionTypes()
@@ -58,8 +74,14 @@ func (s *Server) handleGetMaintenanceDashboard(w http.ResponseWriter, r *http.Re
 				continue
 			}
 
-			lastSync, _ := s.store.GetLastSyncTime(r.Context(), srv.ID, lib.ID)
-			itemCount, _ := s.store.CountLibraryItems(r.Context(), srv.ID, lib.ID)
+			lastSync, err := s.store.GetLastSyncTime(r.Context(), srv.ID, lib.ID)
+			if err != nil {
+				log.Printf("maintenance dashboard: get last sync time for %s/%s: %v", srv.Name, lib.Name, err)
+			}
+			itemCount, err := s.store.CountLibraryItems(r.Context(), srv.ID, lib.ID)
+			if err != nil {
+				log.Printf("maintenance dashboard: count items for %s/%s: %v", srv.Name, lib.Name, err)
+			}
 
 			libraries = append(libraries, models.LibraryMaintenance{
 				ServerID:     srv.ID,
@@ -101,13 +123,15 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 
 	items, err := ms.GetLibraryItems(ctx, req.LibraryID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to fetch library items: "+err.Error())
+		log.Printf("sync library: fetch items failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch library items")
 		return
 	}
 
 	count, err := s.store.UpsertLibraryItems(ctx, items)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to save library items: "+err.Error())
+		log.Printf("sync library: save items failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to save library items")
 		return
 	}
 
@@ -130,18 +154,7 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 				log.Printf("evaluate rule %d: %v", rule.ID, evalErr)
 				continue
 			}
-
-			batch := make([]struct {
-				LibraryItemID int64
-				Reason        string
-			}, len(candidates))
-			for i, c := range candidates {
-				batch[i] = struct {
-					LibraryItemID int64
-					Reason        string
-				}{c.LibraryItemID, c.Reason}
-			}
-			if err := s.store.BatchUpsertCandidates(ctx, rule.ID, batch); err != nil {
+			if err := s.store.BatchUpsertCandidates(ctx, rule.ID, maintenance.ToBatch(candidates)); err != nil {
 				log.Printf("upsert candidates for rule %d: %v", rule.ID, err)
 			}
 		}
@@ -276,22 +289,12 @@ func (s *Server) handleEvaluateRule(w http.ResponseWriter, r *http.Request) {
 	evaluator := maintenance.NewEvaluator(s.store)
 	candidates, err := evaluator.EvaluateRule(ctx, rule)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to evaluate rule: "+err.Error())
+		log.Printf("evaluate rule %d: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to evaluate rule")
 		return
 	}
 
-	batch := make([]struct {
-		LibraryItemID int64
-		Reason        string
-	}, len(candidates))
-	for i, c := range candidates {
-		batch[i] = struct {
-			LibraryItemID int64
-			Reason        string
-		}{c.LibraryItemID, c.Reason}
-	}
-
-	if err := s.store.BatchUpsertCandidates(ctx, rule.ID, batch); err != nil {
+	if err := s.store.BatchUpsertCandidates(ctx, rule.ID, maintenance.ToBatch(candidates)); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save candidates")
 		return
 	}
@@ -306,14 +309,7 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id parameter")
 		return
 	}
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
-	if perPage < 1 || perPage > 100 {
-		perPage = 20
-	}
+	page, perPage := parsePagination(r, 20, 100)
 
 	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, page, perPage)
 	if err != nil {

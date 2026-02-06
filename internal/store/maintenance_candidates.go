@@ -90,24 +90,21 @@ func (s *Store) CountCandidatesForRule(ctx context.Context, ruleID int64) (int, 
 	return count, nil
 }
 
-// BatchUpsertCandidates inserts multiple candidates in a transaction
-func (s *Store) BatchUpsertCandidates(ctx context.Context, ruleID int64, candidates []struct {
-	LibraryItemID int64
-	Reason        string
-}) error {
-	if len(candidates) == 0 {
-		return nil
-	}
-
+// BatchUpsertCandidates replaces all candidates for a rule in a transaction
+func (s *Store) BatchUpsertCandidates(ctx context.Context, ruleID int64, candidates []models.BatchCandidate) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Clear existing candidates for this rule
+	// Always clear existing candidates for this rule
 	if _, err := tx.ExecContext(ctx, `DELETE FROM maintenance_candidates WHERE rule_id = ?`, ruleID); err != nil {
 		return fmt.Errorf("clear candidates: %w", err)
+	}
+
+	if len(candidates) == 0 {
+		return tx.Commit()
 	}
 
 	now := time.Now().UTC()

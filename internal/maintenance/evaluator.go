@@ -27,6 +27,18 @@ type CandidateResult struct {
 	Reason        string
 }
 
+// ToBatch converts a slice of CandidateResults to BatchCandidates for store operations
+func ToBatch(candidates []CandidateResult) []models.BatchCandidate {
+	batch := make([]models.BatchCandidate, len(candidates))
+	for i, c := range candidates {
+		batch[i] = models.BatchCandidate{
+			LibraryItemID: c.LibraryItemID,
+			Reason:        c.Reason,
+		}
+	}
+	return batch
+}
+
 // Evaluator evaluates a rule against library items
 type Evaluator struct {
 	store *store.Store
@@ -175,11 +187,7 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 			return nil, err
 		}
 
-		// Defensive check for division by zero (EpisodeCount should never be 0 here due to continue above)
-		if item.EpisodeCount <= 0 {
-			continue
-		}
-
+		// EpisodeCount is guaranteed > 0 due to the continue on line 178
 		watchedPct := float64(watchedCount) / float64(item.EpisodeCount) * 100
 		if watchedPct < float64(params.MaxPercent) {
 			results = append(results, CandidateResult{

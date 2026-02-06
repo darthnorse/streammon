@@ -457,23 +457,3 @@ func TestGetStreamDataFlexibleTypes(t *testing.T) {
 	}
 }
 
-func TestHeightToResolution(t *testing.T) {
-	tests := []struct {
-		height int
-		want   string
-	}{
-		{2160, "4K"},
-		{1080, "1080p"},
-		{720, "720p"},
-		{480, "480p"},
-		{360, "360p"},
-		{0, ""},
-	}
-
-	for _, tt := range tests {
-		got := HeightToResolution(tt.height)
-		if got != tt.want {
-			t.Errorf("HeightToResolution(%d) = %q, want %q", tt.height, got, tt.want)
-		}
-	}
-}

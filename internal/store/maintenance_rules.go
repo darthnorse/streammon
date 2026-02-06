@@ -23,7 +23,7 @@ func scanMaintenanceRule(scanner interface{ Scan(...any) error }) (models.Mainte
 		return rule, err
 	}
 	rule.Parameters = json.RawMessage(params)
-	rule.Enabled = enabled != 0
+	rule.Enabled = intToBool(enabled)
 	return rule, nil
 }
 
@@ -190,7 +190,7 @@ func (s *Store) ListMaintenanceRulesWithCounts(ctx context.Context, serverID int
 			return nil, err
 		}
 		rule.Parameters = json.RawMessage(params)
-		rule.Enabled = enabled != 0
+		rule.Enabled = intToBool(enabled)
 		rules = append(rules, rule)
 	}
 	return rules, rows.Err()
