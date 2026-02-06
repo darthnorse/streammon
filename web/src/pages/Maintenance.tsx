@@ -51,8 +51,9 @@ function LibraryCard({
 }) {
   const icon = libraryTypeIcon[library.library_type] || '▤'
   const typeLabel = libraryTypeLabel[library.library_type]
-  const totalCandidates = library.rules.reduce((sum, r) => sum + r.candidate_count, 0)
-  const enabledRules = library.rules.filter((r) => r.enabled).length
+  const rules = library.rules || []
+  const totalCandidates = rules.reduce((sum, r) => sum + r.candidate_count, 0)
+  const enabledRules = rules.filter((r) => r.enabled).length
 
   return (
     <div className="card p-4">
@@ -184,13 +185,13 @@ function LibraryView({
         </button>
       </div>
 
-      {library.rules.length === 0 ? (
+      {(library.rules?.length ?? 0) === 0 ? (
         <div className="card p-8 text-center text-muted dark:text-muted-dark">
           No maintenance rules configured for this library.
         </div>
       ) : (
         <div className="space-y-3">
-          {library.rules.map((rule) => (
+          {library.rules?.map((rule) => (
             <div key={rule.id} className="card p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
