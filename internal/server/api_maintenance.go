@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -407,4 +409,75 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// GET /api/maintenance/rules/{id}/candidates/export?format=csv|json
+func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) {
+	ruleID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || ruleID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
+
+	format := r.URL.Query().Get("format")
+	if format != "csv" && format != "json" {
+		writeError(w, http.StatusBadRequest, "format must be csv or json")
+		return
+	}
+
+	candidates, err := s.store.ListAllCandidatesForRule(r.Context(), ruleID)
+	if err != nil {
+		log.Printf("export candidates: list failed: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to fetch candidates")
+		return
+	}
+
+	timestamp := time.Now().UTC().Format("20060102-150405")
+	filename := fmt.Sprintf("candidates-%d-%s.%s", ruleID, timestamp, format)
+
+	if format == "csv" {
+		w.Header().Set("Content-Type", "text/csv")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+		s.exportCandidatesCSV(w, candidates)
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+		s.exportCandidatesJSON(w, candidates, ruleID)
+	}
+}
+
+func (s *Server) exportCandidatesCSV(w http.ResponseWriter, candidates []models.MaintenanceCandidate) {
+	cw := csv.NewWriter(w)
+	defer cw.Flush()
+
+	// Header
+	cw.Write([]string{"ID", "Title", "Media Type", "Year", "Added At", "Resolution", "File Size (GB)", "Reason", "Computed At"})
+
+	for _, c := range candidates {
+		if c.Item == nil {
+			continue
+		}
+		sizeGB := float64(c.Item.FileSize) / (1024 * 1024 * 1024)
+		cw.Write([]string{
+			strconv.FormatInt(c.ID, 10),
+			c.Item.Title,
+			string(c.Item.MediaType),
+			strconv.Itoa(c.Item.Year),
+			c.Item.AddedAt.Format(time.RFC3339),
+			c.Item.VideoResolution,
+			fmt.Sprintf("%.2f", sizeGB),
+			c.Reason,
+			c.ComputedAt.Format(time.RFC3339),
+		})
+	}
+}
+
+func (s *Server) exportCandidatesJSON(w http.ResponseWriter, candidates []models.MaintenanceCandidate, ruleID int64) {
+	response := map[string]any{
+		"rule_id":     ruleID,
+		"candidates":  candidates,
+		"total":       len(candidates),
+		"exported_at": time.Now().UTC(),
+	}
+	json.NewEncoder(w).Encode(response)
 }

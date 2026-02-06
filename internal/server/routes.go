@@ -118,6 +118,7 @@ func (s *Server) routes() {
 			mr.Delete("/rules/{id}", s.handleDeleteMaintenanceRule)
 			mr.Post("/rules/{id}/evaluate", s.handleEvaluateRule)
 			mr.Get("/rules/{id}/candidates", s.handleListCandidates)
+			mr.Get("/rules/{id}/candidates/export", s.handleExportCandidates)
 			mr.Delete("/candidates/{id}", s.handleDeleteCandidate)
 		})
 
