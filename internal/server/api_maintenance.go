@@ -213,7 +213,7 @@ func (s *Server) handleUpdateMaintenanceRule(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	var input models.MaintenanceRuleInput
+	var input models.MaintenanceRuleUpdateInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
@@ -241,6 +241,10 @@ func (s *Server) handleDeleteMaintenanceRule(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := s.store.DeleteMaintenanceRule(r.Context(), id); err != nil {
+		if errors.Is(err, models.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "rule not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to delete rule")
 		return
 	}

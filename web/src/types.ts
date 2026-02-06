@@ -510,7 +510,7 @@ export const RULE_TYPE_LABELS: Record<RuleType, string> = Object.fromEntries(
 ) as Record<RuleType, string>
 
 // Maintenance types
-export type CriterionType = 'unwatched_movie' | 'unwatched_tv_none' | 'unwatched_tv_low' | 'low_resolution'
+export type CriterionType = 'unwatched_movie' | 'unwatched_tv_none' | 'unwatched_tv_low' | 'low_resolution' | 'large_files'
 
 export interface ParamSpec {
   name: string

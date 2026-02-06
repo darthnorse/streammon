@@ -75,7 +75,7 @@ func (s *Store) GetMaintenanceRule(ctx context.Context, id int64) (*models.Maint
 }
 
 // UpdateMaintenanceRule updates an existing rule
-func (s *Store) UpdateMaintenanceRule(ctx context.Context, id int64, input *models.MaintenanceRuleInput) (*models.MaintenanceRule, error) {
+func (s *Store) UpdateMaintenanceRule(ctx context.Context, id int64, input *models.MaintenanceRuleUpdateInput) (*models.MaintenanceRule, error) {
 	if err := input.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid maintenance rule: %w", err)
 	}
@@ -107,9 +107,16 @@ func (s *Store) UpdateMaintenanceRule(ctx context.Context, id int64, input *mode
 
 // DeleteMaintenanceRule deletes a rule and its candidates
 func (s *Store) DeleteMaintenanceRule(ctx context.Context, id int64) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM maintenance_rules WHERE id = ?`, id)
+	result, err := s.db.ExecContext(ctx, `DELETE FROM maintenance_rules WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete maintenance rule: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return models.ErrNotFound
 	}
 	return nil
 }

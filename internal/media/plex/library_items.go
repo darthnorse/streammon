@@ -66,75 +66,87 @@ func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilte
 			return nil, ctx.Err()
 		}
 
-		u, _ := url.Parse(fmt.Sprintf("%s/library/sections/%s/all", s.url, libraryID))
-		q := u.Query()
-		q.Set("type", typeFilter)
-		q.Set("X-Plex-Container-Start", strconv.Itoa(offset))
-		q.Set("X-Plex-Container-Size", strconv.Itoa(batchSize))
-		u.RawQuery = q.Encode()
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-		if err != nil {
-			return nil, err
-		}
-		s.setHeaders(req)
-
-		resp, err := s.client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("plex library items: %w", err)
-		}
-		defer httputil.DrainBody(resp)
-
-		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("plex library items: status %d", resp.StatusCode)
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+		items, done, err := s.fetchLibraryBatch(ctx, libraryID, typeFilter, offset, batchSize)
 		if err != nil {
 			return nil, err
 		}
 
-		var container libraryItemsContainer
-		if err := xml.Unmarshal(body, &container); err != nil {
-			return nil, fmt.Errorf("parse library items: %w", err)
-		}
-
-		items := append(container.Videos, container.Directories...)
-		if len(items) == 0 {
-			break
-		}
-
-		for _, item := range items {
-			var resolution string
-			if len(item.Media) > 0 {
-				resolution = normalizeResolution(item.Media[0].VideoResolution)
-				if resolution == "" && item.Media[0].Height != "" {
-					resolution = heightToResolution(item.Media[0].Height)
-				}
-			}
-
-			mediaType := plexMediaType(item.Type)
-			episodeCount := atoi(item.LeafCount)
-
-			allItems = append(allItems, models.LibraryItemCache{
-				ServerID:        s.serverID,
-				LibraryID:       libraryID,
-				ItemID:          item.RatingKey,
-				MediaType:       mediaType,
-				Title:           item.Title,
-				Year:            atoi(item.Year),
-				AddedAt:         time.Unix(atoi64(item.AddedAt), 0).UTC(),
-				VideoResolution: resolution,
-				EpisodeCount:    episodeCount,
-				ThumbURL:        item.RatingKey,
-			})
-		}
-
+		allItems = append(allItems, items...)
 		offset += len(items)
-		if len(items) < batchSize {
+
+		if done || len(items) < batchSize {
 			break
 		}
 	}
 
 	return allItems, nil
+}
+
+func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter string, offset, batchSize int) ([]models.LibraryItemCache, bool, error) {
+	u, _ := url.Parse(fmt.Sprintf("%s/library/sections/%s/all", s.url, libraryID))
+	q := u.Query()
+	q.Set("type", typeFilter)
+	q.Set("X-Plex-Container-Start", strconv.Itoa(offset))
+	q.Set("X-Plex-Container-Size", strconv.Itoa(batchSize))
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, false, err
+	}
+	s.setHeaders(req)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, false, fmt.Errorf("plex library items: %w", err)
+	}
+	defer httputil.DrainBody(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, false, fmt.Errorf("plex library items: status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	if err != nil {
+		return nil, false, err
+	}
+
+	var container libraryItemsContainer
+	if err := xml.Unmarshal(body, &container); err != nil {
+		return nil, false, fmt.Errorf("parse library items: %w", err)
+	}
+
+	xmlItems := append(container.Videos, container.Directories...)
+	if len(xmlItems) == 0 {
+		return nil, true, nil
+	}
+
+	var items []models.LibraryItemCache
+	for _, item := range xmlItems {
+		var resolution string
+		if len(item.Media) > 0 {
+			resolution = normalizeResolution(item.Media[0].VideoResolution)
+			if resolution == "" && item.Media[0].Height != "" {
+				resolution = heightToResolution(item.Media[0].Height)
+			}
+		}
+
+		mediaType := plexMediaType(item.Type)
+		episodeCount := atoi(item.LeafCount)
+
+		items = append(items, models.LibraryItemCache{
+			ServerID:        s.serverID,
+			LibraryID:       libraryID,
+			ItemID:          item.RatingKey,
+			MediaType:       mediaType,
+			Title:           item.Title,
+			Year:            atoi(item.Year),
+			AddedAt:         time.Unix(atoi64(item.AddedAt), 0).UTC(),
+			VideoResolution: resolution,
+			EpisodeCount:    episodeCount,
+			ThumbURL:        item.RatingKey,
+		})
+	}
+
+	return items, false, nil
 }

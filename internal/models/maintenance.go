@@ -14,13 +14,15 @@ const (
 	CriterionUnwatchedTVNone CriterionType = "unwatched_tv_none"
 	CriterionUnwatchedTVLow  CriterionType = "unwatched_tv_low"
 	CriterionLowResolution   CriterionType = "low_resolution"
+	CriterionLargeFiles      CriterionType = "large_files"
 )
 
 // Valid returns true if the criterion type is recognized
 func (ct CriterionType) Valid() bool {
 	switch ct {
 	case CriterionUnwatchedMovie, CriterionUnwatchedTVNone,
-		CriterionUnwatchedTVLow, CriterionLowResolution:
+		CriterionUnwatchedTVLow, CriterionLowResolution,
+		CriterionLargeFiles:
 		return true
 	}
 	return false
@@ -77,20 +79,14 @@ type MaintenanceRule struct {
 
 // Validate checks that the maintenance rule has valid fields
 func (mr *MaintenanceRule) Validate() error {
-	if mr.Name == "" {
-		return errors.New("name is required")
-	}
-	if len(mr.Name) > 255 {
-		return errors.New("name must be 255 characters or less")
-	}
 	if mr.ServerID == 0 {
 		return errors.New("server_id is required")
 	}
 	if mr.LibraryID == "" {
 		return errors.New("library_id is required")
 	}
-	if !mr.CriterionType.Valid() {
-		return errors.New("invalid criterion type")
+	if err := validateRuleFields(mr.Name, mr.CriterionType); err != nil {
+		return err
 	}
 	if len(mr.Parameters) == 0 {
 		mr.Parameters = json.RawMessage("{}")
@@ -98,7 +94,7 @@ func (mr *MaintenanceRule) Validate() error {
 	return nil
 }
 
-// MaintenanceRuleInput is used for creating/updating rules
+// MaintenanceRuleInput is used for creating rules
 type MaintenanceRuleInput struct {
 	ServerID      int64           `json:"server_id"`
 	LibraryID     string          `json:"library_id"`
@@ -110,23 +106,50 @@ type MaintenanceRuleInput struct {
 
 // Validate checks that the input has valid fields
 func (in *MaintenanceRuleInput) Validate() error {
-	if in.Name == "" {
-		return errors.New("name is required")
-	}
-	if len(in.Name) > 255 {
-		return errors.New("name must be 255 characters or less")
-	}
 	if in.ServerID == 0 {
 		return errors.New("server_id is required")
 	}
 	if in.LibraryID == "" {
 		return errors.New("library_id is required")
 	}
-	if !in.CriterionType.Valid() {
-		return errors.New("invalid criterion type")
+	if err := validateRuleFields(in.Name, in.CriterionType); err != nil {
+		return err
 	}
 	if len(in.Parameters) == 0 {
 		in.Parameters = json.RawMessage("{}")
+	}
+	return nil
+}
+
+// MaintenanceRuleUpdateInput is used for updating rules (excludes server_id/library_id)
+type MaintenanceRuleUpdateInput struct {
+	Name          string          `json:"name"`
+	CriterionType CriterionType   `json:"criterion_type"`
+	Parameters    json.RawMessage `json:"parameters"`
+	Enabled       bool            `json:"enabled"`
+}
+
+// Validate checks that the update input has valid fields
+func (in *MaintenanceRuleUpdateInput) Validate() error {
+	if err := validateRuleFields(in.Name, in.CriterionType); err != nil {
+		return err
+	}
+	if len(in.Parameters) == 0 {
+		in.Parameters = json.RawMessage("{}")
+	}
+	return nil
+}
+
+// validateRuleFields validates common rule fields (DRY helper)
+func validateRuleFields(name string, criterionType CriterionType) error {
+	if name == "" {
+		return errors.New("name is required")
+	}
+	if len(name) > 255 {
+		return errors.New("name must be 255 characters or less")
+	}
+	if !criterionType.Valid() {
+		return errors.New("invalid criterion type")
 	}
 	return nil
 }
@@ -183,4 +206,9 @@ type UnwatchedTVLowParams struct {
 // LowResolutionParams for low_resolution criterion
 type LowResolutionParams struct {
 	MaxHeight int `json:"max_height"`
+}
+
+// LargeFilesParams for large_files criterion
+type LargeFilesParams struct {
+	MinSizeGB float64 `json:"min_size_gb"`
 }

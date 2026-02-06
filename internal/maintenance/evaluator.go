@@ -4,10 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	"streammon/internal/models"
 	"streammon/internal/store"
+)
+
+// Default parameter values (centralized)
+const (
+	DefaultDays       = 365
+	DefaultMaxPercent = 10
+	DefaultMaxHeight  = 720
+	DefaultMinSizeGB  = 10.0
 )
 
 // CandidateResult represents a single evaluation result
@@ -37,6 +48,8 @@ func (e *Evaluator) EvaluateRule(ctx context.Context, rule *models.MaintenanceRu
 		return e.evaluateUnwatchedTVLow(ctx, rule)
 	case models.CriterionLowResolution:
 		return e.evaluateLowResolution(ctx, rule)
+	case models.CriterionLargeFiles:
+		return e.evaluateLargeFiles(ctx, rule)
 	default:
 		return nil, fmt.Errorf("unknown criterion type: %s", rule.CriterionType)
 	}
@@ -48,7 +61,7 @@ func (e *Evaluator) evaluateUnwatchedMovie(ctx context.Context, rule *models.Mai
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
 	if params.Days <= 0 {
-		params.Days = 365
+		params.Days = DefaultDays
 	}
 
 	now := time.Now().UTC()
@@ -91,7 +104,7 @@ func (e *Evaluator) evaluateUnwatchedTVNone(ctx context.Context, rule *models.Ma
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
 	if params.Days <= 0 {
-		params.Days = 365
+		params.Days = DefaultDays
 	}
 
 	cutoff := time.Now().UTC().AddDate(0, 0, -params.Days)
@@ -133,10 +146,10 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
 	if params.Days <= 0 {
-		params.Days = 365
+		params.Days = DefaultDays
 	}
 	if params.MaxPercent <= 0 {
-		params.MaxPercent = 10
+		params.MaxPercent = DefaultMaxPercent
 	}
 
 	cutoff := time.Now().UTC().AddDate(0, 0, -params.Days)
@@ -162,6 +175,11 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 			return nil, err
 		}
 
+		// Defensive check for division by zero (EpisodeCount should never be 0 here due to continue above)
+		if item.EpisodeCount <= 0 {
+			continue
+		}
+
 		watchedPct := float64(watchedCount) / float64(item.EpisodeCount) * 100
 		if watchedPct < float64(params.MaxPercent) {
 			results = append(results, CandidateResult{
@@ -179,7 +197,7 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
 	if params.MaxHeight <= 0 {
-		params.MaxHeight = 720
+		params.MaxHeight = DefaultMaxHeight
 	}
 
 	items, err := e.store.ListLibraryItems(ctx, rule.ServerID, rule.LibraryID)
@@ -207,22 +225,70 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 	return results, nil
 }
 
-// parseResolutionHeight extracts height from resolution strings like "1080p", "720p", "4K", "480"
-func parseResolutionHeight(res string) int {
-	switch res {
-	case "4K", "4k", "2160p", "2160":
-		return 2160
-	case "1080p", "1080", "FHD":
-		return 1080
-	case "720p", "720", "HD":
-		return 720
-	case "480p", "480", "SD":
-		return 480
-	case "360p", "360":
-		return 360
-	case "240p", "240":
-		return 240
-	default:
-		return 0
+func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.MaintenanceRule) ([]CandidateResult, error) {
+	var params models.LargeFilesParams
+	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
 	}
+	if params.MinSizeGB <= 0 {
+		params.MinSizeGB = DefaultMinSizeGB
+	}
+
+	minSizeBytes := int64(params.MinSizeGB * 1024 * 1024 * 1024)
+
+	items, err := e.store.ListLibraryItems(ctx, rule.ServerID, rule.LibraryID)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []CandidateResult
+	for _, item := range items {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if item.FileSize <= 0 {
+			continue
+		}
+
+		if item.FileSize >= minSizeBytes {
+			sizeGB := float64(item.FileSize) / (1024 * 1024 * 1024)
+			results = append(results, CandidateResult{
+				LibraryItemID: item.ID,
+				Reason:        fmt.Sprintf("File size %.1f GB exceeds %.1f GB", sizeGB, params.MinSizeGB),
+			})
+		}
+	}
+	return results, nil
+}
+
+// resolutionRegex matches resolution strings like "576p", "1080p", "720"
+var resolutionRegex = regexp.MustCompile(`^(\d+)p?$`)
+
+// parseResolutionHeight extracts height from resolution strings like "1080p", "720p", "4K", "480", "576p"
+func parseResolutionHeight(res string) int {
+	// Normalize to lowercase for case-insensitive matching
+	lower := strings.ToLower(res)
+
+	// Handle named resolutions
+	switch lower {
+	case "4k", "uhd":
+		return 2160
+	case "8k":
+		return 4320
+	case "fhd":
+		return 1080
+	case "hd":
+		return 720
+	case "sd":
+		return 480
+	}
+
+	// Try to parse numeric resolution (e.g., "1080p", "720", "576p")
+	if matches := resolutionRegex.FindStringSubmatch(lower); len(matches) == 2 {
+		if height, err := strconv.Atoi(matches[1]); err == nil {
+			return height
+		}
+	}
+
+	return 0
 }

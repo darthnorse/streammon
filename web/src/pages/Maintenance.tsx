@@ -339,7 +339,7 @@ function CandidatesView({
                         {candidate.item?.video_resolution || '-'}
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
-                        {candidate.item?.added_at ? new Date(candidate.item.added_at).toLocaleDateString() : '-'}
+                        {candidate.item?.added_at ? formatDate(candidate.item.added_at) : '-'}
                       </td>
                       <td className="px-4 py-3 text-sm text-amber-500">
                         {candidate.reason}
@@ -563,6 +563,8 @@ function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
       return `TV shows with <${params.max_percent || 10}% watched in ${params.days || 365} days`
     case 'low_resolution':
       return `Resolution at or below ${params.max_height || 720}p`
+    case 'large_files':
+      return `Files larger than ${params.min_size_gb || 10} GB`
     default:
       return JSON.stringify(params)
   }

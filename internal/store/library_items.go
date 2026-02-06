@@ -111,7 +111,7 @@ func (s *Store) GetLastSyncTime(ctx context.Context, serverID int64, libraryID s
 		`SELECT MAX(synced_at) FROM library_items WHERE server_id = ? AND library_id = ?`,
 		serverID, libraryID).Scan(&syncedAt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get last sync time: %w", err)
 	}
 	if !syncedAt.Valid {
 		return nil, nil
@@ -125,7 +125,7 @@ func (s *Store) DeleteStaleLibraryItems(ctx context.Context, serverID int64, lib
 		`DELETE FROM library_items WHERE server_id = ? AND library_id = ? AND synced_at < ?`,
 		serverID, libraryID, before)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("delete stale library items: %w", err)
 	}
 	return result.RowsAffected()
 }
@@ -136,5 +136,8 @@ func (s *Store) CountLibraryItems(ctx context.Context, serverID int64, libraryID
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM library_items WHERE server_id = ? AND library_id = ?`,
 		serverID, libraryID).Scan(&count)
-	return count, err
+	if err != nil {
+		return 0, fmt.Errorf("count library items: %w", err)
+	}
+	return count, nil
 }
