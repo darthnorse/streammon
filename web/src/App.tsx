@@ -11,7 +11,6 @@ import { Settings } from './pages/Settings'
 import { Statistics } from './pages/Statistics'
 import { Libraries } from './pages/Libraries'
 import { Rules } from './pages/Rules'
-import { Maintenance } from './pages/Maintenance'
 import { EmptyState } from './components/EmptyState'
 
 function NotFound() {
@@ -32,7 +31,6 @@ export default function App() {
               <Route path="/statistics" element={<Statistics />} />
               <Route path="/library" element={<Libraries />} />
               <Route path="/rules" element={<Rules />} />
-              <Route path="/maintenance" element={<Maintenance />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<NotFound />} />
             </Route>
