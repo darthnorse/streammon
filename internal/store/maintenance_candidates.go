@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -126,4 +128,59 @@ func (s *Store) BatchUpsertCandidates(ctx context.Context, ruleID int64, candida
 	}
 
 	return tx.Commit()
+}
+
+// GetMaintenanceCandidate returns a candidate by ID with its library item
+func (s *Store) GetMaintenanceCandidate(ctx context.Context, id int64) (*models.MaintenanceCandidate, error) {
+	var c models.MaintenanceCandidate
+	var item models.LibraryItemCache
+	err := s.db.QueryRowContext(ctx, `
+		SELECT c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
+			i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
+			i.added_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at
+		FROM maintenance_candidates c
+		JOIN library_items i ON c.library_item_id = i.id
+		WHERE c.id = ?`, id).Scan(&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
+		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
+		&item.Title, &item.Year, &item.AddedAt, &item.VideoResolution, &item.FileSize,
+		&item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, models.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get maintenance candidate: %w", err)
+	}
+	c.Item = &item
+	return &c, nil
+}
+
+// DeleteMaintenanceCandidate deletes a single candidate by ID
+func (s *Store) DeleteMaintenanceCandidate(ctx context.Context, id int64) error {
+	result, err := s.db.ExecContext(ctx, `DELETE FROM maintenance_candidates WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete maintenance candidate: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return models.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteLibraryItem deletes a library item by ID
+func (s *Store) DeleteLibraryItem(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM library_items WHERE id = ?`, id)
+	return err
+}
+
+// RecordDeleteAction records a deletion in the audit log
+func (s *Store) RecordDeleteAction(ctx context.Context, serverID int64, itemID, title, mediaType string, fileSize int64, deletedBy string, serverDeleted bool, errMsg string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO maintenance_delete_log (server_id, item_id, title, media_type, file_size, deleted_by, deleted_at, server_deleted, error_message)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		serverID, itemID, title, mediaType, fileSize, deletedBy, time.Now().UTC(), serverDeleted, errMsg)
+	return err
 }

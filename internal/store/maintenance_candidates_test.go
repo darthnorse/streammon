@@ -304,3 +304,125 @@ func TestListCandidatesForRuleItemPopulated(t *testing.T) {
 		t.Errorf("item file size = %d, want %d", result.Items[0].Item.FileSize, 1024*1024*1024)
 	}
 }
+
+func TestGetMaintenanceCandidate(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	// Insert candidate
+	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get all candidates to find ID
+	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	candidateID := result.Items[0].ID
+
+	// Get single candidate
+	got, err := s.GetMaintenanceCandidate(ctx, candidateID)
+	if err != nil {
+		t.Fatalf("GetMaintenanceCandidate: %v", err)
+	}
+	if got.Item == nil {
+		t.Fatal("expected Item to be populated")
+	}
+	if got.Item.Title != "Test Movie" {
+		t.Errorf("title = %q, want %q", got.Item.Title, "Test Movie")
+	}
+}
+
+func TestGetMaintenanceCandidateNotFound(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, err := s.GetMaintenanceCandidate(ctx, 99999)
+	if err != models.ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestDeleteMaintenanceCandidate(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	// Insert candidate
+	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	candidateID := result.Items[0].ID
+
+	// Delete
+	if err := s.DeleteMaintenanceCandidate(ctx, candidateID); err != nil {
+		t.Fatalf("DeleteMaintenanceCandidate: %v", err)
+	}
+
+	// Verify deleted
+	_, err := s.GetMaintenanceCandidate(ctx, candidateID)
+	if err != models.ErrNotFound {
+		t.Errorf("expected ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestDeleteMaintenanceCandidateNotFound(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	err := s.DeleteMaintenanceCandidate(ctx, 99999)
+	if err != models.ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestRecordDeleteAction(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, _, _ := seedMaintenanceTestData(t, s)
+
+	// Record a deletion
+	err := s.RecordDeleteAction(ctx, serverID, "item123", "Test Movie", "movie", 1024*1024*1024, "admin@test.com", true, "")
+	if err != nil {
+		t.Fatalf("RecordDeleteAction: %v", err)
+	}
+
+	// Verify it was recorded (we can query the table directly)
+	var count int
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM maintenance_delete_log WHERE server_id = ?`, serverID).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 delete log entry, got %d", count)
+	}
+}
+
+func TestRecordDeleteActionWithError(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, _, _ := seedMaintenanceTestData(t, s)
+
+	// Record a failed deletion
+	err := s.RecordDeleteAction(ctx, serverID, "item123", "Test Movie", "movie", 1024*1024*1024, "admin@test.com", false, "connection refused")
+	if err != nil {
+		t.Fatalf("RecordDeleteAction: %v", err)
+	}
+
+	// Verify error was recorded
+	var errMsg string
+	err = s.db.QueryRowContext(ctx, `SELECT error_message FROM maintenance_delete_log WHERE server_id = ?`, serverID).Scan(&errMsg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if errMsg != "connection refused" {
+		t.Errorf("error_message = %q, want %q", errMsg, "connection refused")
+	}
+}
