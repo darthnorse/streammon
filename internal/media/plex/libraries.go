@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"streammon/internal/httputil"
 	"streammon/internal/models"
@@ -44,8 +45,8 @@ type mediaFeature struct {
 }
 
 type mediaDirectory struct {
-	Key     string `xml:"key,attr"`
-	Storage int64  `xml:"storage,attr"`
+	Key          string `xml:"key,attr"`
+	StorageTotal int64  `xml:"storageTotal,attr"`
 }
 
 func (s *Server) GetLibraries(ctx context.Context) ([]models.Library, error) {
@@ -102,7 +103,7 @@ func (s *Server) getLibraryStorageMap(ctx context.Context) map[string]int64 {
 		return result
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
 		return result
 	}
@@ -116,7 +117,14 @@ func (s *Server) getLibraryStorageMap(ctx context.Context) map[string]int64 {
 		for _, feature := range provider.Features {
 			if feature.Type == "content" {
 				for _, dir := range feature.Directories {
-					result[dir.Key] = dir.Storage
+					// Extract section ID from key like "/library/sections/15"
+					key := dir.Key
+					if strings.HasPrefix(key, "/library/sections/") {
+						key = strings.TrimPrefix(key, "/library/sections/")
+					}
+					if key != "" && dir.StorageTotal > 0 {
+						result[key] = dir.StorageTotal
+					}
 				}
 			}
 		}
