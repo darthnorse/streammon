@@ -19,6 +19,7 @@ import (
 	"streammon/internal/notifier"
 	"streammon/internal/poller"
 	"streammon/internal/rules"
+	"streammon/internal/scheduler"
 	"streammon/internal/server"
 	"streammon/internal/store"
 )
@@ -109,6 +110,14 @@ func main() {
 	p.Start(context.Background())
 	defer p.Stop()
 
+	var schOpts []scheduler.Option
+	if v := os.Getenv("SCHEDULER_SYNC_TIMEOUT"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= time.Minute {
+			schOpts = append(schOpts, scheduler.WithSyncTimeout(d))
+		}
+	}
+	sch := scheduler.New(s, p, schOpts...)
+
 	opts := []server.Option{
 		server.WithPoller(p),
 		server.WithGeoResolver(geoResolver),
@@ -131,6 +140,8 @@ func main() {
 	defer stop()
 
 	go geoUpdater.Start(ctx)
+	sch.Start(ctx)
+	defer sch.Stop()
 
 	go func() {
 		log.Printf("StreamMon listening on %s", listenAddr)
@@ -168,6 +179,5 @@ func (g *geoAdapter) Lookup(_ context.Context, ip string) (*models.GeoResult, er
 	if parsed == nil {
 		return nil, nil
 	}
-	result := g.resolver.Lookup(parsed)
-	return result, nil
+	return g.resolver.Lookup(parsed), nil
 }
