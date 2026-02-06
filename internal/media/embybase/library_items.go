@@ -26,6 +26,7 @@ type embyLibraryItem struct {
 	ProductionYear     int               `json:"ProductionYear"`
 	DateCreated        string            `json:"DateCreated"`
 	RecursiveItemCount int               `json:"RecursiveItemCount"`
+	ChildCount         int               `json:"ChildCount"`
 	MediaSources       []embyMediaSource `json:"MediaSources,omitempty"`
 }
 
@@ -99,7 +100,7 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 	q.Set("ParentId", libraryID)
 	q.Set("Recursive", "true")
 	q.Set("IncludeItemTypes", itemType)
-	q.Set("Fields", "DateCreated,MediaSources,RecursiveItemCount")
+	q.Set("Fields", "DateCreated,MediaSources,RecursiveItemCount,ChildCount")
 	q.Set("StartIndex", strconv.Itoa(offset))
 	q.Set("Limit", strconv.Itoa(batchSize))
 	u.RawQuery = q.Encode()
@@ -151,6 +152,12 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 
 		addedAt := parseEmbyTime(item.DateCreated)
 
+		// Use RecursiveItemCount for episode count, fall back to ChildCount
+		episodeCount := item.RecursiveItemCount
+		if episodeCount == 0 {
+			episodeCount = item.ChildCount
+		}
+
 		items = append(items, models.LibraryItemCache{
 			ServerID:        c.serverID,
 			LibraryID:       libraryID,
@@ -161,7 +168,7 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 			AddedAt:         addedAt,
 			VideoResolution: resolution,
 			FileSize:        fileSize,
-			EpisodeCount:    item.RecursiveItemCount,
+			EpisodeCount:    episodeCount,
 			ThumbURL:        item.ID,
 		})
 	}

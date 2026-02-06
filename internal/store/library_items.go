@@ -106,17 +106,40 @@ func (s *Store) ListLibraryItems(ctx context.Context, serverID int64, libraryID 
 
 // GetLastSyncTime returns the most recent sync time for a library
 func (s *Store) GetLastSyncTime(ctx context.Context, serverID int64, libraryID string) (*time.Time, error) {
-	var syncedAt sql.NullTime
+	var syncedAtStr sql.NullString
 	err := s.db.QueryRowContext(ctx,
 		`SELECT MAX(synced_at) FROM library_items WHERE server_id = ? AND library_id = ?`,
-		serverID, libraryID).Scan(&syncedAt)
+		serverID, libraryID).Scan(&syncedAtStr)
 	if err != nil {
 		return nil, fmt.Errorf("get last sync time: %w", err)
 	}
-	if !syncedAt.Valid {
+	if !syncedAtStr.Valid || syncedAtStr.String == "" {
 		return nil, nil
 	}
-	return &syncedAt.Time, nil
+	syncedAt, err := parseTimeString(syncedAtStr.String)
+	if err != nil {
+		return nil, fmt.Errorf("parse sync time: %w", err)
+	}
+	return &syncedAt, nil
+}
+
+// parseTimeString parses time strings from SQLite which may use space or T as separator
+func parseTimeString(s string) (time.Time, error) {
+	formats := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999+00:00",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05+00:00",
+		"2006-01-02 15:04:05",
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized time format: %s", s)
 }
 
 // DeleteStaleLibraryItems removes items not seen since the given time

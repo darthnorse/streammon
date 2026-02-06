@@ -130,8 +130,10 @@ func (e *Evaluator) evaluateUnwatchedTVNone(ctx context.Context, rule *models.Ma
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		// For TV, we look at shows (which have episode_count > 0)
-		if item.MediaType != models.MediaTypeTV || item.EpisodeCount == 0 {
+		// Only process TV shows (not movies)
+		// Note: EpisodeCount may be 0 for some media servers (e.g., Emby) that don't
+		// provide this field, so we only check the media type
+		if item.MediaType != models.MediaTypeTV {
 			continue
 		}
 		if item.AddedAt.After(cutoff) {
@@ -175,7 +177,8 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if item.MediaType != models.MediaTypeTV || item.EpisodeCount == 0 {
+		// Only process TV shows
+		if item.MediaType != models.MediaTypeTV {
 			continue
 		}
 		if item.AddedAt.After(cutoff) {
@@ -187,12 +190,22 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 			return nil, err
 		}
 
-		// EpisodeCount is guaranteed > 0 due to the continue on line 178
-		watchedPct := float64(watchedCount) / float64(item.EpisodeCount) * 100
-		if watchedPct < float64(params.MaxPercent) {
+		// If we have episode count, calculate percentage
+		// If episode count is 0 (e.g., Emby doesn't provide it), fall back to checking
+		// if any episodes are watched - treat 0 watched as "low percentage"
+		if item.EpisodeCount > 0 {
+			watchedPct := float64(watchedCount) / float64(item.EpisodeCount) * 100
+			if watchedPct < float64(params.MaxPercent) {
+				results = append(results, CandidateResult{
+					LibraryItemID: item.ID,
+					Reason:        fmt.Sprintf("%.1f%% watched (%d/%d episodes)", watchedPct, watchedCount, item.EpisodeCount),
+				})
+			}
+		} else if watchedCount == 0 {
+			// No episode count available and nothing watched - qualifies as "low"
 			results = append(results, CandidateResult{
 				LibraryItemID: item.ID,
-				Reason:        fmt.Sprintf("%.1f%% watched (%d/%d episodes)", watchedPct, watchedCount, item.EpisodeCount),
+				Reason:        "No episodes watched (episode count unknown)",
 			})
 		}
 	}
