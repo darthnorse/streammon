@@ -2,6 +2,25 @@ import { NavLink } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import { navLinks } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
+import {
+  LayoutDashboard,
+  History,
+  BarChart3,
+  Library,
+  Users,
+  ShieldAlert,
+  Settings,
+} from 'lucide-react'
+
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  LayoutDashboard,
+  History,
+  BarChart3,
+  Library,
+  Users,
+  ShieldAlert,
+  Settings,
+}
 
 export function Sidebar() {
   const { user, logout } = useAuth()
@@ -17,19 +36,22 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {navLinks.map(link => (
-          <NavLink
-            key={link.to}
-            to={link.to}
-            end={link.to === '/'}
-            className={({ isActive }) =>
-              `nav-item ${isActive ? 'active' : ''}`
-            }
-          >
-            <span className="text-base">{link.icon}</span>
-            {link.label}
-          </NavLink>
-        ))}
+        {navLinks.map(link => {
+          const Icon = iconMap[link.icon]
+          return (
+            <NavLink
+              key={link.to}
+              to={link.to}
+              end={link.to === '/'}
+              className={({ isActive }) =>
+                `nav-item ${isActive ? 'active' : ''}`
+              }
+            >
+              {Icon && <Icon className="w-5 h-5" />}
+              {link.label}
+            </NavLink>
+          )
+        })}
       </nav>
 
       <div className="px-3 py-4 border-t border-border dark:border-border-dark">

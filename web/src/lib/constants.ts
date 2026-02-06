@@ -18,11 +18,11 @@ export const MS_PER_DAY = 86_400_000
 export const plexBtnClass = 'px-4 py-2.5 text-sm font-semibold rounded-lg bg-[#e5a00d] text-gray-900 hover:bg-[#cc8e0b] transition-colors'
 
 export const navLinks = [
-  { to: '/', label: 'Dashboard', icon: '▣' },
-  { to: '/history', label: 'History', icon: '☰' },
-  { to: '/statistics', label: 'Statistics', icon: '◐' },
-  { to: '/library', label: 'Library', icon: '▤' },
-  { to: '/users', label: 'Users', icon: '◉' },
-  { to: '/rules', label: 'Rules', icon: '⚑' },
-  { to: '/settings', label: 'Settings', icon: '⚙' },
+  { to: '/', label: 'Dashboard', icon: 'LayoutDashboard' },
+  { to: '/history', label: 'History', icon: 'History' },
+  { to: '/statistics', label: 'Statistics', icon: 'BarChart3' },
+  { to: '/library', label: 'Library', icon: 'Library' },
+  { to: '/users', label: 'Users', icon: 'Users' },
+  { to: '/rules', label: 'Rules', icon: 'ShieldAlert' },
+  { to: '/settings', label: 'Settings', icon: 'Settings' },
 ] as const
