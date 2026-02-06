@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { api } from '../lib/api'
+import { PER_PAGE } from '../lib/constants'
 import type {
   LibrariesResponse,
   Library,
@@ -178,8 +179,11 @@ function RulesView({
   onRefresh: () => void
 }) {
   const rules = maintenance?.rules || []
+  const [operationError, setOperationError] = useState<string | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<MaintenanceRuleWithCount | null>(null)
 
   const handleToggleRule = async (rule: MaintenanceRuleWithCount) => {
+    setOperationError(null)
     try {
       await api.put(`/api/maintenance/rules/${rule.id}`, {
         name: rule.name,
@@ -190,25 +194,31 @@ function RulesView({
       onRefresh()
     } catch (err) {
       console.error('Failed to toggle rule:', err)
+      setOperationError(`Failed to ${rule.enabled ? 'disable' : 'enable'} rule "${rule.name}"`)
     }
   }
 
   const handleDeleteRule = async (rule: MaintenanceRuleWithCount) => {
-    if (!confirm(`Delete rule "${rule.name}"?`)) return
+    setOperationError(null)
     try {
       await api.del(`/api/maintenance/rules/${rule.id}`)
+      setDeleteConfirm(null)
       onRefresh()
     } catch (err) {
       console.error('Failed to delete rule:', err)
+      setOperationError(`Failed to delete rule "${rule.name}"`)
+      setDeleteConfirm(null)
     }
   }
 
   const handleEvaluateRule = async (rule: MaintenanceRuleWithCount) => {
+    setOperationError(null)
     try {
       await api.post(`/api/maintenance/rules/${rule.id}/evaluate`)
       onRefresh()
     } catch (err) {
       console.error('Failed to evaluate rule:', err)
+      setOperationError(`Failed to evaluate rule "${rule.name}"`)
     }
   }
 
@@ -220,6 +230,7 @@ function RulesView({
         <button
           onClick={onBack}
           className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+          aria-label="Go back"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -233,6 +244,45 @@ function RulesView({
           </div>
         </div>
       </div>
+
+      {operationError && (
+        <div className="p-3 rounded-lg bg-red-500/10 text-red-500 text-sm flex items-center justify-between">
+          <span>{operationError}</span>
+          <button
+            onClick={() => setOperationError(null)}
+            className="ml-4 text-red-400 hover:text-red-300"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="card p-6 max-w-sm mx-4">
+            <h3 className="text-lg font-semibold mb-2">Delete Rule</h3>
+            <p className="text-muted dark:text-muted-dark mb-4">
+              Are you sure you want to delete "{deleteConfirm.name}"? This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 text-sm font-medium rounded-lg border border-border dark:border-border-dark
+                         hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteRule(deleteConfirm)}
+                className="px-4 py-2 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-medium">Rules</h2>
@@ -282,6 +332,7 @@ function RulesView({
                     onClick={() => onEditRule(rule)}
                     className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
                     title="Edit rule"
+                    aria-label={`Edit rule ${rule.name}`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -291,6 +342,7 @@ function RulesView({
                     onClick={() => handleEvaluateRule(rule)}
                     className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
                     title="Re-evaluate"
+                    aria-label={`Re-evaluate rule ${rule.name}`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -300,6 +352,7 @@ function RulesView({
                     onClick={() => onViewCandidates(rule)}
                     className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
                     title="View violations"
+                    aria-label={`View violations for rule ${rule.name}`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -307,9 +360,10 @@ function RulesView({
                     </svg>
                   </button>
                   <button
-                    onClick={() => handleDeleteRule(rule)}
+                    onClick={() => setDeleteConfirm(rule)}
                     className="p-1.5 rounded hover:bg-red-500/20 text-red-400 transition-colors"
                     title="Delete"
+                    aria-label={`Delete rule ${rule.name}`}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -347,6 +401,7 @@ function ViolationsView({
         <button
           onClick={onBack}
           className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+          aria-label="Go back"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -409,17 +464,16 @@ function CandidatesView({
   onBack: () => void
 }) {
   const [page, setPage] = useState(1)
-  const perPage = 20
 
   useEffect(() => {
     setPage(1)
   }, [rule.id])
 
   const { data, loading } = useFetch<MaintenanceCandidatesResponse>(
-    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}`
+    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${PER_PAGE}`
   )
 
-  const totalPages = data ? Math.ceil(data.total / perPage) : 0
+  const totalPages = data ? Math.ceil(data.total / PER_PAGE) : 0
   const icon = libraryTypeIcon[library.type] || '▤'
 
   return (
@@ -428,6 +482,7 @@ function CandidatesView({
         <button
           onClick={onBack}
           className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+          aria-label="Go back"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -543,7 +598,7 @@ function RuleFormView({
   onSaved: () => void
 }) {
   const isEdit = !!rule
-  const { data: criterionTypes } = useFetch<{ types: CriterionTypeInfo[] }>('/api/maintenance/criterion-types')
+  const { data: criterionTypes, loading: typesLoading, error: typesError } = useFetch<{ types: CriterionTypeInfo[] }>('/api/maintenance/criterion-types')
   const [name, setName] = useState(rule?.name || '')
   const [criterionType, setCriterionType] = useState<CriterionType | ''>(rule?.criterion_type || '')
   const [parameters, setParameters] = useState<Record<string, string | number>>(
@@ -565,11 +620,13 @@ function RuleFormView({
 
   const selectedType = availableTypes.find((ct) => ct.type === criterionType)
 
+  // Update parameters when criterion type changes
   useEffect(() => {
     if (!isEdit || (isEdit && criterionType !== rule?.criterion_type)) {
-      if (selectedType) {
+      const currentSelectedType = availableTypes.find((ct) => ct.type === criterionType)
+      if (currentSelectedType) {
         const defaults: Record<string, string | number> = {}
-        for (const param of selectedType.parameters) {
+        for (const param of currentSelectedType.parameters) {
           defaults[param.name] = param.default
         }
         setParameters(defaults)
@@ -577,7 +634,7 @@ function RuleFormView({
         setParameters({})
       }
     }
-  }, [criterionType, isEdit, rule?.criterion_type]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [criterionType, isEdit, rule?.criterion_type, availableTypes])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -620,6 +677,7 @@ function RuleFormView({
         <button
           onClick={onBack}
           className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+          aria-label="Go back"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -656,20 +714,31 @@ function RuleFormView({
 
         <div>
           <label className="block text-sm font-medium mb-2">Criterion Type</label>
-          <select
-            value={criterionType}
-            onChange={(e) => setCriterionType(e.target.value as CriterionType)}
-            required
-            className="w-full px-3 py-2 rounded-lg border border-border dark:border-border-dark
-                       bg-panel dark:bg-panel-dark focus:outline-none focus:ring-2 focus:ring-accent"
-          >
-            <option value="">Select a criterion...</option>
-            {availableTypes.map((ct) => (
-              <option key={ct.type} value={ct.type}>
-                {ct.name}
-              </option>
-            ))}
-          </select>
+          {typesLoading ? (
+            <div className="w-full px-3 py-2 rounded-lg border border-border dark:border-border-dark
+                           bg-panel dark:bg-panel-dark text-muted dark:text-muted-dark">
+              Loading criterion types...
+            </div>
+          ) : typesError ? (
+            <div className="p-3 rounded-lg bg-red-500/10 text-red-500 text-sm">
+              Failed to load criterion types. Please try again.
+            </div>
+          ) : (
+            <select
+              value={criterionType}
+              onChange={(e) => setCriterionType(e.target.value as CriterionType)}
+              required
+              className="w-full px-3 py-2 rounded-lg border border-border dark:border-border-dark
+                         bg-panel dark:bg-panel-dark focus:outline-none focus:ring-2 focus:ring-accent"
+            >
+              <option value="">Select a criterion...</option>
+              {availableTypes.map((ct) => (
+                <option key={ct.type} value={ct.type}>
+                  {ct.name}
+                </option>
+              ))}
+            </select>
+          )}
           {selectedType && (
             <p className="mt-1 text-sm text-muted dark:text-muted-dark">
               {selectedType.description}
@@ -735,6 +804,7 @@ export function Libraries() {
   const [selectedServer, setSelectedServer] = useState<number | 'all'>('all')
   const [view, setView] = useState<ViewState>({ type: 'list' })
   const [syncingLibrary, setSyncingLibrary] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
 
   const { data, loading, error, refetch } = useFetch<LibrariesResponse>('/api/libraries')
   const { data: maintenanceData, refetch: refetchMaintenance } = useFetch<MaintenanceDashboard>('/api/maintenance/dashboard')
@@ -746,15 +816,26 @@ export function Libraries() {
     ? libraries
     : libraries.filter(l => l.server_id === selectedServer)
 
-  const getMaintenanceForLibrary = (lib: Library): LibraryMaintenance | null => {
+  const getMaintenanceForLibrary = useCallback((lib: Library): LibraryMaintenance | null => {
     return maintenanceData?.libraries.find(
       m => m.server_id === lib.server_id && m.library_id === lib.id
     ) || null
-  }
+  }, [maintenanceData])
+
+  // Handle violations view navigation when maintenance data becomes unavailable
+  useEffect(() => {
+    if (view.type === 'violations') {
+      const freshMaintenance = getMaintenanceForLibrary(view.library)
+      if (!freshMaintenance) {
+        setView({ type: 'list' })
+      }
+    }
+  }, [view, getMaintenanceForLibrary])
 
   const handleSync = async (library: Library) => {
     const key = `${library.server_id}-${library.id}`
     setSyncingLibrary(key)
+    setSyncError(null)
     try {
       await api.post('/api/maintenance/sync', {
         server_id: library.server_id,
@@ -763,6 +844,7 @@ export function Libraries() {
       refetchMaintenance()
     } catch (err) {
       console.error('Sync failed:', err)
+      setSyncError(`Failed to sync "${library.name}". Please try again.`)
     } finally {
       setSyncingLibrary(null)
     }
@@ -801,8 +883,12 @@ export function Libraries() {
   if (view.type === 'violations') {
     const freshMaintenance = getMaintenanceForLibrary(view.library)
     if (!freshMaintenance) {
-      setView({ type: 'list' })
-      return null
+      // Will be handled by useEffect above, return loading state
+      return (
+        <div className="card p-12 text-center">
+          <div className="text-muted dark:text-muted-dark animate-pulse">Loading...</div>
+        </div>
+      )
     }
     return (
       <ViolationsView
@@ -876,6 +962,19 @@ export function Libraries() {
           </div>
         )}
       </div>
+
+      {syncError && (
+        <div className="mb-4 p-3 rounded-lg bg-red-500/10 text-red-500 text-sm flex items-center justify-between">
+          <span>{syncError}</span>
+          <button
+            onClick={() => setSyncError(null)}
+            className="ml-4 text-red-400 hover:text-red-300"
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="card p-6 text-center text-red-500 dark:text-red-400">
@@ -961,9 +1060,10 @@ export function Libraries() {
                     <td className="hidden md:table-cell px-4 py-3 text-right text-muted dark:text-muted-dark">
                       {totals.children > 0 ? formatCount(totals.children) : '-'}
                     </td>
-                    <td className="hidden lg:table-cell px-4 py-3 text-right text-muted dark:text-muted-dark" colSpan={4}>
+                    <td className="hidden lg:table-cell px-4 py-3 text-right text-muted dark:text-muted-dark">
                       {totals.grandchildren > 0 ? formatCount(totals.grandchildren) : '-'}
                     </td>
+                    <td className="px-4 py-3" colSpan={3}></td>
                   </tr>
                 </tfoot>
               )}
