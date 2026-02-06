@@ -42,9 +42,6 @@ type embyStream struct {
 }
 
 func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
-	// Fetch Movies and Series separately for reliability across different library types.
-	// Some Emby/Jellyfin versions return inconsistent results with combined IncludeItemTypes
-	// filters (e.g., "Movie,Series"), so we query each type individually like Plex does.
 	movies, err := c.fetchLibraryItemsByType(ctx, libraryID, "Movie")
 	if err != nil {
 		return nil, fmt.Errorf("fetch movies: %w", err)
@@ -55,10 +52,88 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 		return nil, fmt.Errorf("fetch series: %w", err)
 	}
 
+	// For series without file sizes, fetch episode sizes
+	for i := range series {
+		if series[i].FileSize == 0 {
+			size, err := c.getSeriesEpisodeSize(ctx, series[i].ItemID)
+			if err == nil {
+				series[i].FileSize = size
+			}
+		}
+	}
+
 	result := make([]models.LibraryItemCache, 0, len(movies)+len(series))
 	result = append(result, movies...)
 	result = append(result, series...)
 	return result, nil
+}
+
+func (c *Client) getSeriesEpisodeSize(ctx context.Context, seriesID string) (int64, error) {
+	var totalSize int64
+	offset := 0
+	const batchSize = 100
+
+	for {
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+
+		u, err := url.Parse(fmt.Sprintf("%s/Items", c.url))
+		if err != nil {
+			return 0, err
+		}
+		q := u.Query()
+		q.Set("ParentId", seriesID)
+		q.Set("Recursive", "true")
+		q.Set("IncludeItemTypes", "Episode")
+		q.Set("Fields", "MediaSources")
+		q.Set("StartIndex", strconv.Itoa(offset))
+		q.Set("Limit", strconv.Itoa(batchSize))
+		u.RawQuery = q.Encode()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		if err != nil {
+			return 0, err
+		}
+
+		resp, err := c.client.Do(c.addAuth(req))
+		if err != nil {
+			return 0, err
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			httputil.DrainBody(resp)
+			return 0, fmt.Errorf("fetch episodes: status %d", resp.StatusCode)
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+		httputil.DrainBody(resp)
+		if err != nil {
+			return 0, err
+		}
+
+		var episodesResp libraryItemsCacheResponse
+		if err := json.Unmarshal(body, &episodesResp); err != nil {
+			return 0, err
+		}
+
+		if len(episodesResp.Items) == 0 {
+			break
+		}
+
+		for _, ep := range episodesResp.Items {
+			if len(ep.MediaSources) > 0 {
+				totalSize += ep.MediaSources[0].Size
+			}
+		}
+
+		offset += len(episodesResp.Items)
+		if offset >= episodesResp.TotalRecordCount {
+			break
+		}
+	}
+
+	return totalSize, nil
 }
 
 func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemType string) ([]models.LibraryItemCache, error) {
@@ -152,7 +227,6 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 
 		addedAt := parseEmbyTime(item.DateCreated)
 
-		// Use RecursiveItemCount for episode count, fall back to ChildCount
 		episodeCount := item.RecursiveItemCount
 		if episodeCount == 0 {
 			episodeCount = item.ChildCount

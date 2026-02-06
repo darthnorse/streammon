@@ -706,33 +706,38 @@ func TestGetLibraryItems(t *testing.T) {
 		if r.URL.Path != "/Items" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-
-		parentID := r.URL.Query().Get("ParentId")
-		if parentID != "lib1" {
-			t.Errorf("ParentId = %q, want lib1", parentID)
-		}
 		if r.URL.Query().Get("Recursive") != "true" {
 			t.Error("missing Recursive=true")
 		}
 
+		parentID := r.URL.Query().Get("ParentId")
 		itemType := r.URL.Query().Get("IncludeItemTypes")
-		switch itemType {
-		case "Movie":
+
+		switch {
+		case parentID == "lib1" && itemType == "Movie":
 			w.Write([]byte(`{
 				"Items": [
 					{"Id": "movie1", "Name": "Inception", "Type": "Movie", "ProductionYear": 2010, "DateCreated": "2024-01-15T10:30:00Z", "RecursiveItemCount": 0}
 				],
 				"TotalRecordCount": 1
 			}`))
-		case "Series":
+		case parentID == "lib1" && itemType == "Series":
 			w.Write([]byte(`{
 				"Items": [
 					{"Id": "series1", "Name": "Breaking Bad", "Type": "Series", "ProductionYear": 2008, "DateCreated": "2024-01-10T08:00:00Z", "RecursiveItemCount": 62}
 				],
 				"TotalRecordCount": 1
 			}`))
+		case parentID == "series1" && itemType == "Episode":
+			w.Write([]byte(`{
+				"Items": [
+					{"Id": "ep1", "Name": "Pilot", "Type": "Episode", "MediaSources": [{"Size": 1000000000}]},
+					{"Id": "ep2", "Name": "Cat's in the Bag", "Type": "Episode", "MediaSources": [{"Size": 1500000000}]}
+				],
+				"TotalRecordCount": 2
+			}`))
 		default:
-			t.Errorf("unexpected IncludeItemTypes: %s", itemType)
+			t.Errorf("unexpected request: ParentId=%s, IncludeItemTypes=%s", parentID, itemType)
 			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
 		}
 	}))
@@ -788,6 +793,10 @@ func TestGetLibraryItems(t *testing.T) {
 	}
 	if series.EpisodeCount != 62 {
 		t.Errorf("series episode count = %d, want 62", series.EpisodeCount)
+	}
+	// File size should be sum of episode sizes (1GB + 1.5GB = 2.5GB)
+	if series.FileSize != 2500000000 {
+		t.Errorf("series file size = %d, want 2500000000", series.FileSize)
 	}
 }
 
