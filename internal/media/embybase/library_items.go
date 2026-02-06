@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 
 	"streammon/internal/httputil"
@@ -56,15 +58,18 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	for i := range series {
 		if series[i].FileSize == 0 {
 			size, err := c.getSeriesEpisodeSize(ctx, series[i].ItemID)
-			if err == nil {
-				series[i].FileSize = size
+			if err != nil {
+				log.Printf("%s: failed to get episode sizes for %q: %v", c.serverType, series[i].Title, err)
+				continue
 			}
+			series[i].FileSize = size
 		}
 	}
 
-	result := make([]models.LibraryItemCache, 0, len(movies)+len(series))
-	result = append(result, movies...)
-	result = append(result, series...)
+	result := slices.Concat(movies, series)
+	if result == nil {
+		result = []models.LibraryItemCache{}
+	}
 	return result, nil
 }
 
@@ -78,43 +83,18 @@ func (c *Client) getSeriesEpisodeSize(ctx context.Context, seriesID string) (int
 			return 0, ctx.Err()
 		}
 
-		u, err := url.Parse(fmt.Sprintf("%s/Items", c.url))
-		if err != nil {
-			return 0, err
-		}
-		q := u.Query()
-		q.Set("ParentId", seriesID)
-		q.Set("Recursive", "true")
-		q.Set("IncludeItemTypes", "Episode")
-		q.Set("Fields", "MediaSources")
-		q.Set("StartIndex", strconv.Itoa(offset))
-		q.Set("Limit", strconv.Itoa(batchSize))
-		u.RawQuery = q.Encode()
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-		if err != nil {
-			return 0, err
-		}
-
-		resp, err := c.client.Do(c.addAuth(req))
-		if err != nil {
-			return 0, err
-		}
-
-		if resp.StatusCode != http.StatusOK {
-			httputil.DrainBody(resp)
-			return 0, fmt.Errorf("fetch episodes: status %d", resp.StatusCode)
-		}
-
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
-		httputil.DrainBody(resp)
-		if err != nil {
-			return 0, err
+		params := url.Values{
+			"ParentId":         {seriesID},
+			"Recursive":        {"true"},
+			"IncludeItemTypes": {"Episode"},
+			"Fields":           {"MediaSources"},
+			"StartIndex":       {strconv.Itoa(offset)},
+			"Limit":            {strconv.Itoa(batchSize)},
 		}
 
 		var episodesResp libraryItemsCacheResponse
-		if err := json.Unmarshal(body, &episodesResp); err != nil {
-			return 0, err
+		if err := c.fetchItemsPage(ctx, params, &episodesResp); err != nil {
+			return 0, fmt.Errorf("fetch episodes: %w", err)
 		}
 
 		if len(episodesResp.Items) == 0 {
@@ -134,6 +114,37 @@ func (c *Client) getSeriesEpisodeSize(ctx context.Context, seriesID string) (int
 	}
 
 	return totalSize, nil
+}
+
+func (c *Client) fetchItemsPage(ctx context.Context, params url.Values, result any) error {
+	u, err := url.Parse(fmt.Sprintf("%s/Items", c.url))
+	if err != nil {
+		return fmt.Errorf("parse URL: %w", err)
+	}
+	u.RawQuery = params.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.client.Do(c.addAuth(req))
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		httputil.DrainBody(resp)
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	httputil.DrainBody(resp)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(body, result)
 }
 
 func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemType string) ([]models.LibraryItemCache, error) {
@@ -167,42 +178,18 @@ func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemTyp
 }
 
 func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType string, offset, batchSize int) ([]models.LibraryItemCache, int, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/Items", c.url))
-	if err != nil {
-		return nil, 0, fmt.Errorf("parse URL: %w", err)
-	}
-	q := u.Query()
-	q.Set("ParentId", libraryID)
-	q.Set("Recursive", "true")
-	q.Set("IncludeItemTypes", itemType)
-	q.Set("Fields", "DateCreated,MediaSources,RecursiveItemCount,ChildCount")
-	q.Set("StartIndex", strconv.Itoa(offset))
-	q.Set("Limit", strconv.Itoa(batchSize))
-	u.RawQuery = q.Encode()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	resp, err := c.client.Do(c.addAuth(req))
-	if err != nil {
-		return nil, 0, fmt.Errorf("%s library items: %w", c.serverType, err)
-	}
-	defer httputil.DrainBody(resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, 0, fmt.Errorf("%s library items: status %d", c.serverType, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
-	if err != nil {
-		return nil, 0, err
+	params := url.Values{
+		"ParentId":         {libraryID},
+		"Recursive":        {"true"},
+		"IncludeItemTypes": {itemType},
+		"Fields":           {"DateCreated,MediaSources,RecursiveItemCount,ChildCount"},
+		"StartIndex":       {strconv.Itoa(offset)},
+		"Limit":            {strconv.Itoa(batchSize)},
 	}
 
 	var itemsResp libraryItemsCacheResponse
-	if err := json.Unmarshal(body, &itemsResp); err != nil {
-		return nil, 0, fmt.Errorf("parse library items: %w", err)
+	if err := c.fetchItemsPage(ctx, params, &itemsResp); err != nil {
+		return nil, 0, fmt.Errorf("%s library items: %w", c.serverType, err)
 	}
 
 	var items []models.LibraryItemCache
