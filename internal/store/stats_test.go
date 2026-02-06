@@ -212,7 +212,7 @@ func TestConcurrentStreamsPeak(t *testing.T) {
 		Title: "M3", StartedAt: base.Add(45 * time.Minute), StoppedAt: base.Add(75 * time.Minute),
 	})
 
-	peak, _, err := s.ConcurrentStreamsPeak()
+	peak, _, err := s.ConcurrentStreamsPeak(0)
 	if err != nil {
 		t.Fatalf("ConcurrentStreamsPeak: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestConcurrentStreamsPeak(t *testing.T) {
 func TestConcurrentStreamsPeakEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	peak, _, err := s.ConcurrentStreamsPeak()
+	peak, _, err := s.ConcurrentStreamsPeak(0)
 	if err != nil {
 		t.Fatalf("ConcurrentStreamsPeak: %v", err)
 	}
@@ -259,7 +259,7 @@ func TestAllWatchLocations(t *testing.T) {
 	s.SetCachedGeo(&models.GeoResult{IP: "1.2.3.5", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0, ISP: "Verizon"})
 	s.SetCachedGeo(&models.GeoResult{IP: "5.6.7.8", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2, ISP: "AT&T"})
 
-	locs, err := s.AllWatchLocations()
+	locs, err := s.AllWatchLocations(0)
 	if err != nil {
 		t.Fatalf("AllWatchLocations: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestAllWatchLocations(t *testing.T) {
 func TestAllWatchLocationsEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	locs, err := s.AllWatchLocations()
+	locs, err := s.AllWatchLocations(0)
 	if err != nil {
 		t.Fatalf("AllWatchLocations: %v", err)
 	}

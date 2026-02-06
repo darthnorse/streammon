@@ -232,12 +232,18 @@ func (s *Store) LibraryStats() (*models.LibraryStat, error) {
 	return &stats, nil
 }
 
-func (s *Store) ConcurrentStreamsPeak() (int, time.Time, error) {
-	cutoff := time.Now().UTC().AddDate(0, 0, -DefaultConcurrentPeakDays)
-	rows, err := s.db.Query(
-		`SELECT started_at, stopped_at FROM watch_history WHERE started_at >= ?`,
-		cutoff,
-	)
+func (s *Store) ConcurrentStreamsPeak(days int) (int, time.Time, error) {
+	var rows *sql.Rows
+	var err error
+	cutoff := cutoffTime(days)
+	if cutoff.IsZero() {
+		rows, err = s.db.Query(`SELECT started_at, stopped_at FROM watch_history`)
+	} else {
+		rows, err = s.db.Query(
+			`SELECT started_at, stopped_at FROM watch_history WHERE started_at >= ?`,
+			cutoff,
+		)
+	}
 	if err != nil {
 		return 0, time.Time{}, fmt.Errorf("concurrent streams: %w", err)
 	}
@@ -285,16 +291,32 @@ func (s *Store) ConcurrentStreamsPeak() (int, time.Time, error) {
 	return peak, peakTime, nil
 }
 
-func (s *Store) AllWatchLocations() ([]models.GeoResult, error) {
-	rows, err := s.db.Query(
-		`SELECT g.lat, g.lng, g.city, g.country, COALESCE(MAX(g.isp), '') as isp,
-			COALESCE(GROUP_CONCAT(DISTINCT h.user_name), '') as users
-		FROM watch_history h
-		JOIN ip_geo_cache g ON h.ip_address = g.ip
-		WHERE h.ip_address != ''
-		GROUP BY g.lat, g.lng, g.city, g.country
-		ORDER BY g.country, g.city`,
-	)
+func (s *Store) AllWatchLocations(days int) ([]models.GeoResult, error) {
+	var rows *sql.Rows
+	var err error
+	cutoff := cutoffTime(days)
+	if cutoff.IsZero() {
+		rows, err = s.db.Query(
+			`SELECT g.lat, g.lng, g.city, g.country, COALESCE(MAX(g.isp), '') as isp,
+				COALESCE(GROUP_CONCAT(DISTINCT h.user_name), '') as users
+			FROM watch_history h
+			JOIN ip_geo_cache g ON h.ip_address = g.ip
+			WHERE h.ip_address != ''
+			GROUP BY g.lat, g.lng, g.city, g.country
+			ORDER BY g.country, g.city`,
+		)
+	} else {
+		rows, err = s.db.Query(
+			`SELECT g.lat, g.lng, g.city, g.country, COALESCE(MAX(g.isp), '') as isp,
+				COALESCE(GROUP_CONCAT(DISTINCT h.user_name), '') as users
+			FROM watch_history h
+			JOIN ip_geo_cache g ON h.ip_address = g.ip
+			WHERE h.ip_address != '' AND h.started_at >= ?
+			GROUP BY g.lat, g.lng, g.city, g.country
+			ORDER BY g.country, g.city`,
+			cutoff,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("watch locations: %w", err)
 	}

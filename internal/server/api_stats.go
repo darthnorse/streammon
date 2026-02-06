@@ -73,14 +73,14 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var peakAt time.Time
-	if resp.ConcurrentPeak, peakAt, err = s.store.ConcurrentStreamsPeak(); logAndFail("ConcurrentStreamsPeak", err) {
+	if resp.ConcurrentPeak, peakAt, err = s.store.ConcurrentStreamsPeak(days); logAndFail("ConcurrentStreamsPeak", err) {
 		return
 	}
 	if !peakAt.IsZero() {
 		resp.ConcurrentPeakAt = peakAt.Format(time.RFC3339)
 	}
 
-	if resp.Locations, err = s.store.AllWatchLocations(); logAndFail("AllWatchLocations", err) {
+	if resp.Locations, err = s.store.AllWatchLocations(days); logAndFail("AllWatchLocations", err) {
 		return
 	}
 	if resp.PotentialSharers, err = s.store.PotentialSharers(store.DefaultSharerMinIPs, store.DefaultSharerWindowDays); logAndFail("PotentialSharers", err) {
