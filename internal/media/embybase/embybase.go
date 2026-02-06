@@ -362,6 +362,7 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 		items = append(items, models.LibraryItem{
 			ItemID:        item.ID,
 			Title:         title,
+			SeriesTitle:   item.SeriesName,
 			Year:          item.ProductionYear,
 			MediaType:     embyMediaType(item.Type),
 			ThumbURL:      thumbURL,

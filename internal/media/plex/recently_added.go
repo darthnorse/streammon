@@ -115,6 +115,7 @@ func (s *Server) fetchHubRecentlyAdded(ctx context.Context, mediaType string, li
 		items = append(items, models.LibraryItem{
 			ItemID:        item.RatingKey,
 			Title:         title,
+			SeriesTitle:   item.GrandparentTitle,
 			Year:          atoi(item.Year),
 			MediaType:     plexMediaType(item.Type),
 			ThumbURL:      thumbURL,

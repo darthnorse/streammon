@@ -88,7 +88,12 @@ func dedupeLibraryItems(items []models.LibraryItem) []models.LibraryItem {
 
 func fallbackDedupeKeys(item models.LibraryItem) []string {
 	if item.MediaType == models.MediaTypeTV {
-		return []string{fmt.Sprintf("%s:s%de%d", item.Title, item.SeasonNumber, item.EpisodeNumber)}
+		// Use SeriesTitle (show name) for deduplication, not the combined Title which includes episode name
+		showName := item.SeriesTitle
+		if showName == "" {
+			showName = item.Title
+		}
+		return []string{fmt.Sprintf("%s:s%de%d", showName, item.SeasonNumber, item.EpisodeNumber)}
 	}
 	// For movies, track both title-only and title+year to handle servers that don't return year
 	if item.Year == 0 {

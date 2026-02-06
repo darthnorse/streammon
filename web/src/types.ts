@@ -160,6 +160,7 @@ export interface OIDCSettings {
 export interface LibraryItem {
   item_id: string
   title: string
+  series_title?: string
   year?: number
   media_type: MediaType
   thumb_url?: string

@@ -270,6 +270,7 @@ func (e ExternalIDs) DedupeKey() string {
 type LibraryItem struct {
 	ItemID        string      `json:"item_id"`
 	Title         string      `json:"title"`
+	SeriesTitle   string      `json:"series_title,omitempty"`
 	Year          int         `json:"year,omitempty"`
 	MediaType     MediaType   `json:"media_type"`
 	ThumbURL      string      `json:"thumb_url,omitempty"`
