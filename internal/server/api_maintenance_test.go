@@ -40,7 +40,6 @@ func TestGetCriterionTypesAPI(t *testing.T) {
 func TestCreateMaintenanceRuleAPI(t *testing.T) {
 	srv, s := newTestServer(t)
 
-	// Create server first
 	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
 	if err := s.CreateServer(server); err != nil {
 		t.Fatal(err)
@@ -157,7 +156,6 @@ func TestListMaintenanceRulesAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create a rule
 	_, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
 		ServerID:      server.ID,
 		LibraryID:     "lib1",
@@ -217,7 +215,6 @@ func TestDeleteMaintenanceRuleAPI(t *testing.T) {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Verify deleted
 	req = httptest.NewRequest(http.MethodGet, "/api/maintenance/rules/1", nil)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -266,7 +263,6 @@ func TestExportCandidatesCSVAPI(t *testing.T) {
 		t.Errorf("Content-Disposition should contain 'attachment': %s", cd)
 	}
 
-	// Body should contain CSV header
 	body := w.Body.String()
 	if !strings.Contains(body, "ID,Title,Media Type") {
 		t.Errorf("CSV should contain header row, got: %s", body)
@@ -481,7 +477,6 @@ func TestDeleteCandidateServerNotFoundAPI(t *testing.T) {
 	srv, s := newTestServer(t)
 	setupDeleteCandidateTest(t, s, "item1")
 
-	// No poller set up, so server won't be found
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -496,7 +491,6 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 	ctx := context.Background()
 	serverID := setupDeleteCandidateTest(t, s, "item123")
 
-	// Set up poller with mock server
 	p := poller.New(s, time.Hour)
 	srv.poller = p
 	pCtx, cancel := context.WithCancel(context.Background())
@@ -509,7 +503,6 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 	mock := &mockDeleteServer{}
 	p.AddServer(serverID, mock)
 
-	// Delete the candidate
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -518,12 +511,10 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Verify item was deleted from mock
 	if len(mock.deleted) != 1 || mock.deleted[0] != "item123" {
 		t.Errorf("expected delete of item123, got %v", mock.deleted)
 	}
 
-	// Verify candidate is gone
 	_, err := s.GetMaintenanceCandidate(ctx, 1)
 	if !errors.Is(err, models.ErrNotFound) {
 		t.Errorf("expected candidate to be deleted, got err: %v", err)
@@ -535,7 +526,6 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 	ctx := context.Background()
 	serverID := setupDeleteCandidateTest(t, s, "item456")
 
-	// Set up poller with mock server that fails
 	p := poller.New(s, time.Hour)
 	srv.poller = p
 	pCtx, cancel := context.WithCancel(context.Background())
@@ -548,7 +538,6 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 	mock := &mockDeleteServer{deleteErr: errors.New("media server unavailable")}
 	p.AddServer(serverID, mock)
 
-	// Try to delete the candidate
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -557,7 +546,6 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Verify candidate is still there (not deleted on server failure)
 	_, err := s.GetMaintenanceCandidate(ctx, 1)
 	if err != nil {
 		t.Errorf("expected candidate to still exist, got err: %v", err)

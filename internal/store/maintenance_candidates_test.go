@@ -14,13 +14,11 @@ func seedMaintenanceTestData(t *testing.T, s *Store) (serverID int64, ruleID int
 	t.Helper()
 	ctx := context.Background()
 
-	// Create server
 	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
 	if err := s.CreateServer(srv); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create library item
 	items := []models.LibraryItemCache{{
 		ServerID:   srv.ID,
 		LibraryID:  "lib1",
@@ -36,7 +34,6 @@ func seedMaintenanceTestData(t *testing.T, s *Store) (serverID int64, ruleID int
 		t.Fatal(err)
 	}
 
-	// Get item ID
 	libItems, err := s.ListLibraryItems(ctx, srv.ID, "lib1")
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +42,6 @@ func seedMaintenanceTestData(t *testing.T, s *Store) (serverID int64, ruleID int
 		t.Fatal("no library items")
 	}
 
-	// Create rule
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
 		ServerID:      srv.ID,
 		LibraryID:     "lib1",
@@ -67,7 +63,6 @@ func TestBatchUpsertCandidates(t *testing.T) {
 
 	_, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	// Insert candidates
 	candidates := []models.BatchCandidate{
 		{LibraryItemID: itemID, Reason: "Test reason"},
 	}
@@ -75,7 +70,6 @@ func TestBatchUpsertCandidates(t *testing.T) {
 		t.Fatalf("BatchUpsertCandidates: %v", err)
 	}
 
-	// Verify inserted
 	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
 	if err != nil {
 		t.Fatalf("ListCandidatesForRule: %v", err)
@@ -94,7 +88,6 @@ func TestBatchUpsertCandidatesReplacesExisting(t *testing.T) {
 
 	_, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	// Insert initial candidates
 	candidates := []models.BatchCandidate{
 		{LibraryItemID: itemID, Reason: "Initial reason"},
 	}
@@ -102,12 +95,10 @@ func TestBatchUpsertCandidatesReplacesExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Replace with new candidates (empty list)
 	if err := s.BatchUpsertCandidates(ctx, ruleID, nil); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify cleared
 	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +114,6 @@ func TestListCandidatesForRulePagination(t *testing.T) {
 
 	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
 
-	// Add more library items
 	now := time.Now().UTC()
 	for i := 2; i <= 5; i++ {
 		items := []models.LibraryItemCache{{
@@ -141,10 +131,8 @@ func TestListCandidatesForRulePagination(t *testing.T) {
 		}
 	}
 
-	// Get all item IDs
 	libItems, _ := s.ListLibraryItems(ctx, serverID, "lib1")
 
-	// Insert candidates for all items
 	var candidates []models.BatchCandidate
 	for _, item := range libItems {
 		candidates = append(candidates, models.BatchCandidate{
@@ -156,7 +144,6 @@ func TestListCandidatesForRulePagination(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Test pagination
 	page1, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 2)
 	if len(page1.Items) != 2 {
 		t.Errorf("page 1 items = %d, want 2", len(page1.Items))
@@ -182,7 +169,6 @@ func TestCountCandidatesForRule(t *testing.T) {
 
 	_, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	// Empty initially
 	count, err := s.CountCandidatesForRule(ctx, ruleID)
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +177,6 @@ func TestCountCandidatesForRule(t *testing.T) {
 		t.Errorf("count = %d, want 0", count)
 	}
 
-	// Add candidate
 	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
 	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
 		t.Fatal(err)
@@ -212,24 +197,20 @@ func TestDeleteCandidatesForRule(t *testing.T) {
 
 	_, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	// Add candidate
 	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
 	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify exists
 	count, _ := s.CountCandidatesForRule(ctx, ruleID)
 	if count != 1 {
 		t.Fatalf("expected 1 candidate before delete, got %d", count)
 	}
 
-	// Delete candidates
 	if err := s.DeleteCandidatesForRule(ctx, ruleID); err != nil {
 		t.Fatalf("DeleteCandidatesForRule: %v", err)
 	}
 
-	// Verify deleted
 	count, _ = s.CountCandidatesForRule(ctx, ruleID)
 	if count != 0 {
 		t.Errorf("count = %d, want 0 after delete", count)
@@ -242,12 +223,10 @@ func TestUpsertMaintenanceCandidate(t *testing.T) {
 
 	_, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	// Upsert single candidate
 	if err := s.UpsertMaintenanceCandidate(ctx, ruleID, itemID, "First reason"); err != nil {
 		t.Fatalf("UpsertMaintenanceCandidate: %v", err)
 	}
 
-	// Verify inserted
 	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -259,12 +238,10 @@ func TestUpsertMaintenanceCandidate(t *testing.T) {
 		t.Errorf("reason = %q, want %q", result.Items[0].Reason, "First reason")
 	}
 
-	// Upsert again with different reason (should update)
 	if err := s.UpsertMaintenanceCandidate(ctx, ruleID, itemID, "Updated reason"); err != nil {
 		t.Fatalf("UpsertMaintenanceCandidate update: %v", err)
 	}
 
-	// Verify updated (still 1 candidate)
 	result, _ = s.ListCandidatesForRule(ctx, ruleID, 1, 10)
 	if result.Total != 1 {
 		t.Errorf("total = %d, want 1 (should update, not insert)", result.Total)
@@ -280,13 +257,11 @@ func TestListCandidatesForRuleItemPopulated(t *testing.T) {
 
 	_, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	// Add candidate
 	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
 	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify Item is populated
 	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -311,17 +286,14 @@ func TestGetMaintenanceCandidate(t *testing.T) {
 
 	_, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	// Insert candidate
 	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
 	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
 		t.Fatal(err)
 	}
 
-	// Get all candidates to find ID
 	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
 	candidateID := result.Items[0].ID
 
-	// Get single candidate
 	got, err := s.GetMaintenanceCandidate(ctx, candidateID)
 	if err != nil {
 		t.Fatalf("GetMaintenanceCandidate: %v", err)
@@ -350,7 +322,6 @@ func TestDeleteMaintenanceCandidate(t *testing.T) {
 
 	_, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	// Insert candidate
 	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
 	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
 		t.Fatal(err)
@@ -359,12 +330,10 @@ func TestDeleteMaintenanceCandidate(t *testing.T) {
 	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
 	candidateID := result.Items[0].ID
 
-	// Delete
 	if err := s.DeleteMaintenanceCandidate(ctx, candidateID); err != nil {
 		t.Fatalf("DeleteMaintenanceCandidate: %v", err)
 	}
 
-	// Verify deleted
 	_, err := s.GetMaintenanceCandidate(ctx, candidateID)
 	if err != models.ErrNotFound {
 		t.Errorf("expected ErrNotFound after delete, got %v", err)
@@ -387,13 +356,11 @@ func TestRecordDeleteAction(t *testing.T) {
 
 	serverID, _, _ := seedMaintenanceTestData(t, s)
 
-	// Record a deletion
 	err := s.RecordDeleteAction(ctx, serverID, "item123", "Test Movie", "movie", 1024*1024*1024, "admin@test.com", true, "")
 	if err != nil {
 		t.Fatalf("RecordDeleteAction: %v", err)
 	}
 
-	// Verify it was recorded (we can query the table directly)
 	var count int
 	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM maintenance_delete_log WHERE server_id = ?`, serverID).Scan(&count)
 	if err != nil {
@@ -410,13 +377,11 @@ func TestRecordDeleteActionWithError(t *testing.T) {
 
 	serverID, _, _ := seedMaintenanceTestData(t, s)
 
-	// Record a failed deletion
 	err := s.RecordDeleteAction(ctx, serverID, "item123", "Test Movie", "movie", 1024*1024*1024, "admin@test.com", false, "connection refused")
 	if err != nil {
 		t.Fatalf("RecordDeleteAction: %v", err)
 	}
 
-	// Verify error was recorded
 	var errMsg string
 	err = s.db.QueryRowContext(ctx, `SELECT error_message FROM maintenance_delete_log WHERE server_id = ?`, serverID).Scan(&errMsg)
 	if err != nil {

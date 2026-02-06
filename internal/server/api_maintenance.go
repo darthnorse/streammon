@@ -339,7 +339,11 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get candidate with item details
+	if s.poller == nil {
+		writeError(w, http.StatusNotFound, "server not found or not configured")
+		return
+	}
+
 	candidate, err := s.store.GetMaintenanceCandidate(r.Context(), id)
 	if errors.Is(err, models.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "candidate not found")
@@ -351,11 +355,6 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get media server
-	if s.poller == nil {
-		writeError(w, http.StatusNotFound, "server not found or not configured")
-		return
-	}
 	ms, ok := s.poller.GetServer(candidate.Item.ServerID)
 	if !ok {
 		writeError(w, http.StatusNotFound, "server not found or not configured")
