@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { api } from '../lib/api'
 import { PER_PAGE } from '../lib/constants'
@@ -68,6 +68,46 @@ function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
   const params = rule.parameters as Record<string, unknown>
   const formatter = criterionFormatters[rule.criterion_type]
   return formatter ? formatter(params) : JSON.stringify(params)
+}
+
+function getLibraryIcon(type: LibraryType): string {
+  return libraryTypeIcon[type] || '▤'
+}
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+      aria-label="Go back"
+    >
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+      </svg>
+    </button>
+  )
+}
+
+interface SubViewHeaderProps {
+  library: Library
+  title: string
+  subtitle: string
+  onBack: () => void
+}
+
+function SubViewHeader({ library, title, subtitle, onBack }: SubViewHeaderProps) {
+  return (
+    <div className="flex items-center gap-4">
+      <BackButton onClick={onBack} />
+      <div className="flex items-center gap-3">
+        <span className="text-2xl">{getLibraryIcon(library.type)}</span>
+        <div>
+          <h1 className="text-2xl font-semibold">{title}</h1>
+          <p className="text-sm text-muted dark:text-muted-dark">{subtitle}</p>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 interface LibraryRowProps {
@@ -222,28 +262,14 @@ function RulesView({
     }
   }
 
-  const icon = libraryTypeIcon[library.type] || '▤'
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onBack}
-          className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-          aria-label="Go back"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{icon}</span>
-          <div>
-            <h1 className="text-2xl font-semibold">{library.name}</h1>
-            <p className="text-sm text-muted dark:text-muted-dark">{library.server_name} - Maintenance Rules</p>
-          </div>
-        </div>
-      </div>
+      <SubViewHeader
+        library={library}
+        title={library.name}
+        subtitle={`${library.server_name} - Maintenance Rules`}
+        onBack={onBack}
+      />
 
       {operationError && (
         <div className="p-3 rounded-lg bg-red-500/10 text-red-500 text-sm flex items-center justify-between">
@@ -316,7 +342,7 @@ function RulesView({
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-amber-500 font-medium text-sm">
-                    {rule.candidate_count.toLocaleString()} violations
+                    {formatCount(rule.candidate_count)} violations
                   </span>
                   <button
                     onClick={() => handleToggleRule(rule)}
@@ -391,32 +417,23 @@ function ViolationsView({
   onViewRule: (rule: MaintenanceRuleWithCount) => void
 }) {
   const rules = maintenance.rules || []
-  const rulesWithViolations = rules.filter(r => r.candidate_count > 0)
-  const icon = libraryTypeIcon[library.type] || '▤'
-  const totalViolations = rules.reduce((sum, r) => sum + r.candidate_count, 0)
+  const rulesWithViolations = useMemo(
+    () => rules.filter(r => r.candidate_count > 0),
+    [rules]
+  )
+  const totalViolations = useMemo(
+    () => rules.reduce((sum, r) => sum + r.candidate_count, 0),
+    [rules]
+  )
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onBack}
-          className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-          aria-label="Go back"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{icon}</span>
-          <div>
-            <h1 className="text-2xl font-semibold">{library.name}</h1>
-            <p className="text-sm text-muted dark:text-muted-dark">
-              {library.server_name} - {formatCount(totalViolations)} violations
-            </p>
-          </div>
-        </div>
-      </div>
+      <SubViewHeader
+        library={library}
+        title={library.name}
+        subtitle={`${library.server_name} - ${formatCount(totalViolations)} violations`}
+        onBack={onBack}
+      />
 
       {rulesWithViolations.length === 0 ? (
         <div className="card p-8 text-center text-muted dark:text-muted-dark">
@@ -474,30 +491,15 @@ function CandidatesView({
   )
 
   const totalPages = data ? Math.ceil(data.total / PER_PAGE) : 0
-  const icon = libraryTypeIcon[library.type] || '▤'
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onBack}
-          className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-          aria-label="Go back"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{icon}</span>
-          <div>
-            <h1 className="text-2xl font-semibold">{rule.name}</h1>
-            <p className="text-sm text-muted dark:text-muted-dark">
-              {library.name} - {data?.total.toLocaleString() || 0} violations
-            </p>
-          </div>
-        </div>
-      </div>
+      <SubViewHeader
+        library={library}
+        title={rule.name}
+        subtitle={`${library.name} - ${data ? formatCount(data.total) : '0'} violations`}
+        onBack={onBack}
+      />
 
       {loading && !data ? (
         <div className="card p-12 text-center">
@@ -608,17 +610,23 @@ function RuleFormView({
   const [error, setError] = useState<string | null>(null)
 
   // TV shows use 'episode' media type in the API
-  const availableTypes = criterionTypes?.types.filter((ct) => {
-    if (library.type === 'movie') {
-      return ct.media_types.includes('movie')
-    }
-    if (library.type === 'show') {
-      return ct.media_types.includes('episode')
-    }
-    return false
-  }) || []
+  const availableTypes = useMemo(() => {
+    if (!criterionTypes?.types) return []
+    return criterionTypes.types.filter((ct) => {
+      if (library.type === 'movie') {
+        return ct.media_types.includes('movie')
+      }
+      if (library.type === 'show') {
+        return ct.media_types.includes('episode')
+      }
+      return false
+    })
+  }, [criterionTypes?.types, library.type])
 
-  const selectedType = availableTypes.find((ct) => ct.type === criterionType)
+  const selectedType = useMemo(
+    () => availableTypes.find((ct) => ct.type === criterionType),
+    [availableTypes, criterionType]
+  )
 
   // Update parameters when criterion type changes
   useEffect(() => {
@@ -669,28 +677,14 @@ function RuleFormView({
     }
   }
 
-  const icon = libraryTypeIcon[library.type] || '▤'
-
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onBack}
-          className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-          aria-label="Go back"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{icon}</span>
-          <div>
-            <h1 className="text-2xl font-semibold">{isEdit ? 'Edit' : 'Create'} Rule</h1>
-            <p className="text-sm text-muted dark:text-muted-dark">{library.name}</p>
-          </div>
-        </div>
-      </div>
+      <SubViewHeader
+        library={library}
+        title={`${isEdit ? 'Edit' : 'Create'} Rule`}
+        subtitle={library.name}
+        onBack={onBack}
+      />
 
       <form onSubmit={handleSubmit} className="card p-6 space-y-6 max-w-xl">
         {error && (
@@ -810,11 +804,14 @@ export function Libraries() {
   const { data: maintenanceData, refetch: refetchMaintenance } = useFetch<MaintenanceDashboard>('/api/maintenance/dashboard')
 
   const libraries = data?.libraries || []
-  const servers = getUniqueServers(libraries)
+  const servers = useMemo(() => getUniqueServers(libraries), [libraries])
 
-  const displayedLibraries = selectedServer === 'all'
-    ? libraries
-    : libraries.filter(l => l.server_id === selectedServer)
+  const displayedLibraries = useMemo(
+    () => selectedServer === 'all'
+      ? libraries
+      : libraries.filter(l => l.server_id === selectedServer),
+    [libraries, selectedServer]
+  )
 
   const getMaintenanceForLibrary = useCallback((lib: Library): LibraryMaintenance | null => {
     return maintenanceData?.libraries.find(
@@ -850,18 +847,21 @@ export function Libraries() {
     }
   }
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     refetch()
     refetchMaintenance()
-  }
+  }, [refetch, refetchMaintenance])
 
-  const totals = displayedLibraries.reduce(
-    (acc, lib) => ({
-      items: acc.items + lib.item_count,
-      children: acc.children + lib.child_count,
-      grandchildren: acc.grandchildren + lib.grandchild_count,
-    }),
-    { items: 0, children: 0, grandchildren: 0 }
+  const totals = useMemo(
+    () => displayedLibraries.reduce(
+      (acc, lib) => ({
+        items: acc.items + lib.item_count,
+        children: acc.children + lib.child_count,
+        grandchildren: acc.grandchildren + lib.grandchild_count,
+      }),
+      { items: 0, children: 0, grandchildren: 0 }
+    ),
+    [displayedLibraries]
   )
 
   // Handle sub-views
