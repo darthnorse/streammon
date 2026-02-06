@@ -194,39 +194,75 @@ func (s *Store) TopUsers(limit int, days int) ([]models.UserStat, error) {
 	return stats, nil
 }
 
-func (s *Store) LibraryStats() (*models.LibraryStat, error) {
+func (s *Store) LibraryStats(days int) (*models.LibraryStat, error) {
 	var stats models.LibraryStat
 	var totalHours sql.NullFloat64
+	cutoff := cutoffTime(days)
 
-	err := s.db.QueryRow(
-		`SELECT COUNT(*) as total_plays,
-			SUM(watched_ms) / 3600000.0 as total_hours,
-			COUNT(DISTINCT user_name) as unique_users
-		FROM watch_history`,
-	).Scan(&stats.TotalPlays, &totalHours, &stats.UniqueUsers)
-	if err != nil {
-		return nil, fmt.Errorf("library stats: %w", err)
+	if cutoff.IsZero() {
+		err := s.db.QueryRow(
+			`SELECT COUNT(*) as total_plays,
+				SUM(watched_ms) / 3600000.0 as total_hours,
+				COUNT(DISTINCT user_name) as unique_users
+			FROM watch_history`,
+		).Scan(&stats.TotalPlays, &totalHours, &stats.UniqueUsers)
+		if err != nil {
+			return nil, fmt.Errorf("library stats: %w", err)
+		}
+	} else {
+		err := s.db.QueryRow(
+			`SELECT COUNT(*) as total_plays,
+				SUM(watched_ms) / 3600000.0 as total_hours,
+				COUNT(DISTINCT user_name) as unique_users
+			FROM watch_history WHERE started_at >= ?`,
+			cutoff,
+		).Scan(&stats.TotalPlays, &totalHours, &stats.UniqueUsers)
+		if err != nil {
+			return nil, fmt.Errorf("library stats: %w", err)
+		}
 	}
 	if totalHours.Valid {
 		stats.TotalHours = totalHours.Float64
 	}
 
-	err = s.db.QueryRow(
-		`SELECT COUNT(DISTINCT title || '|' || COALESCE(year, 0))
-		FROM watch_history WHERE media_type = ?`,
-		models.MediaTypeMovie,
-	).Scan(&stats.UniqueMovies)
-	if err != nil {
-		return nil, fmt.Errorf("unique movies: %w", err)
+	if cutoff.IsZero() {
+		err := s.db.QueryRow(
+			`SELECT COUNT(DISTINCT title || '|' || COALESCE(year, 0))
+			FROM watch_history WHERE media_type = ?`,
+			models.MediaTypeMovie,
+		).Scan(&stats.UniqueMovies)
+		if err != nil {
+			return nil, fmt.Errorf("unique movies: %w", err)
+		}
+	} else {
+		err := s.db.QueryRow(
+			`SELECT COUNT(DISTINCT title || '|' || COALESCE(year, 0))
+			FROM watch_history WHERE media_type = ? AND started_at >= ?`,
+			models.MediaTypeMovie, cutoff,
+		).Scan(&stats.UniqueMovies)
+		if err != nil {
+			return nil, fmt.Errorf("unique movies: %w", err)
+		}
 	}
 
-	err = s.db.QueryRow(
-		`SELECT COUNT(DISTINCT grandparent_title)
-		FROM watch_history WHERE media_type = ? AND grandparent_title != ''`,
-		models.MediaTypeTV,
-	).Scan(&stats.UniqueTVShows)
-	if err != nil {
-		return nil, fmt.Errorf("unique tv shows: %w", err)
+	if cutoff.IsZero() {
+		err := s.db.QueryRow(
+			`SELECT COUNT(DISTINCT grandparent_title)
+			FROM watch_history WHERE media_type = ? AND grandparent_title != ''`,
+			models.MediaTypeTV,
+		).Scan(&stats.UniqueTVShows)
+		if err != nil {
+			return nil, fmt.Errorf("unique tv shows: %w", err)
+		}
+	} else {
+		err := s.db.QueryRow(
+			`SELECT COUNT(DISTINCT grandparent_title)
+			FROM watch_history WHERE media_type = ? AND grandparent_title != '' AND started_at >= ?`,
+			models.MediaTypeTV, cutoff,
+		).Scan(&stats.UniqueTVShows)
+		if err != nil {
+			return nil, fmt.Errorf("unique tv shows: %w", err)
+		}
 	}
 
 	return &stats, nil

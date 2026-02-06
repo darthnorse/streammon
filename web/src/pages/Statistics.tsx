@@ -71,7 +71,7 @@ export function Statistics() {
 
       <LibraryCards stats={data.library} concurrentPeak={data.concurrent_peak} />
 
-      <DailyChart />
+      <DailyChart days={days} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ActivityByDayChart data={data.activity_by_day_of_week} />

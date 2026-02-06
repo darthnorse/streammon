@@ -160,7 +160,7 @@ func TestLibraryStats(t *testing.T) {
 		StartedAt: now, StoppedAt: now.Add(time.Hour),
 	})
 
-	stats, err := s.LibraryStats()
+	stats, err := s.LibraryStats(0)
 	if err != nil {
 		t.Fatalf("LibraryStats: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestLibraryStats(t *testing.T) {
 func TestLibraryStatsEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	stats, err := s.LibraryStats()
+	stats, err := s.LibraryStats(0)
 	if err != nil {
 		t.Fatalf("LibraryStats: %v", err)
 	}

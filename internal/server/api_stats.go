@@ -68,7 +68,7 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	if resp.TopUsers, err = s.store.TopUsers(10, days); logAndFail("TopUsers", err) {
 		return
 	}
-	if resp.Library, err = s.store.LibraryStats(); logAndFail("LibraryStats", err) {
+	if resp.Library, err = s.store.LibraryStats(days); logAndFail("LibraryStats", err) {
 		return
 	}
 

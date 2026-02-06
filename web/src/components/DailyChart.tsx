@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useMemo, useEffect, useState } from 'react'
 import {
   ResponsiveContainer,
   LineChart,
@@ -13,13 +13,9 @@ import { useFetch } from '../hooks/useFetch'
 import type { DayStat } from '../types'
 import { CHART_COLORS, LineChartTooltip } from '../lib/chartUtils'
 
-type Range = 7 | 30 | 90
-
-const ranges: { value: Range; label: string }[] = [
-  { value: 7, label: '7d' },
-  { value: 30, label: '30d' },
-  { value: 90, label: '90d' },
-]
+interface DailyChartProps {
+  days: number // 0 = all time (default to 90), 7, or 30
+}
 
 const seriesConfig = [
   { key: 'movies', label: 'Movies', color: CHART_COLORS[0] },
@@ -40,7 +36,7 @@ function todayUTC(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-function buildDateRange(days: Range, today: string): { start: string; end: string } {
+function buildDateRange(days: number, today: string): { start: string; end: string } {
   const [y, m, d] = today.split('-').map(Number)
   const endExclusive = new Date(Date.UTC(y, m - 1, d + 1))
   const start = new Date(Date.UTC(y, m - 1, d - days + 1))
@@ -48,8 +44,9 @@ function buildDateRange(days: Range, today: string): { start: string; end: strin
   return { start: fmt(start), end: fmt(endExclusive) }
 }
 
-export function DailyChart() {
-  const [range, setRange] = useState<Range>(30)
+export function DailyChart({ days }: DailyChartProps) {
+  // For "all time" (days=0), show 90 days of history
+  const range = days === 0 ? 90 : days
   const [today, setToday] = useState(todayUTC)
 
   useEffect(() => {
@@ -70,26 +67,9 @@ export function DailyChart() {
 
   return (
     <div className="card p-4 md:p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted dark:text-muted-dark">
-          Daily Plays
-        </h2>
-        <div className="flex gap-1">
-          {ranges.map(r => (
-            <button
-              key={r.value}
-              onClick={() => setRange(r.value)}
-              className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition-colors
-                ${range === r.value
-                  ? 'bg-accent/15 text-accent-dim dark:text-accent'
-                  : 'text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
-                }`}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <h2 className="text-sm font-semibold uppercase tracking-wider text-muted dark:text-muted-dark mb-4">
+        Daily Plays
+      </h2>
 
       {loading && (
         <div className="h-[240px] flex items-center justify-center text-muted dark:text-muted-dark text-sm">
