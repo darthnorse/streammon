@@ -395,6 +395,41 @@ func TestContextCancellation(t *testing.T) {
 	}
 }
 
+func TestDeleteItem(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/library/metadata/12345" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if r.Header.Get("X-Plex-Token") != "tok" {
+			t.Error("missing auth header")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{URL: ts.URL, APIKey: "tok"})
+	err := srv.DeleteItem(context.Background(), "12345")
+	if err != nil {
+		t.Fatalf("DeleteItem: %v", err)
+	}
+}
+
+func TestDeleteItemError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{URL: ts.URL, APIKey: "tok"})
+	err := srv.DeleteItem(context.Background(), "12345")
+	if err == nil {
+		t.Error("expected error for 403")
+	}
+}
+
 func TestDeriveDynamicRange(t *testing.T) {
 	tests := []struct {
 		name   string

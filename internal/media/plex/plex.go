@@ -152,6 +152,27 @@ func (s *Server) setHeaders(req *http.Request) {
 	req.Header.Set("Accept", "application/xml")
 }
 
+// DeleteItem deletes an item from the Plex library
+func (s *Server) DeleteItem(ctx context.Context, itemID string) error {
+	url := fmt.Sprintf("%s/library/metadata/%s", s.url, itemID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, nil)
+	if err != nil {
+		return err
+	}
+	s.setHeaders(req)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("plex delete: %w", err)
+	}
+	defer httputil.DrainBody(resp)
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("plex delete: status %d", resp.StatusCode)
+	}
+	return nil
+}
+
 
 type mediaContainer struct {
 	XMLName xml.Name   `xml:"MediaContainer"`
