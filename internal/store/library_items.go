@@ -164,3 +164,40 @@ func (s *Store) CountLibraryItems(ctx context.Context, serverID int64, libraryID
 	}
 	return count, nil
 }
+
+// GetLibraryTotalSize returns the total file size in bytes for a library from cached items
+func (s *Store) GetLibraryTotalSize(ctx context.Context, serverID int64, libraryID string) (int64, error) {
+	var total sql.NullInt64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT SUM(file_size) FROM library_items WHERE server_id = ? AND library_id = ?`,
+		serverID, libraryID).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("get library total size: %w", err)
+	}
+	if !total.Valid {
+		return 0, nil
+	}
+	return total.Int64, nil
+}
+
+// GetAllLibraryTotalSizes returns total sizes for all libraries, keyed by "serverID-libraryID"
+func (s *Store) GetAllLibraryTotalSizes(ctx context.Context) (map[string]int64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT server_id, library_id, COALESCE(SUM(file_size), 0) FROM library_items GROUP BY server_id, library_id`)
+	if err != nil {
+		return nil, fmt.Errorf("get all library sizes: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]int64)
+	for rows.Next() {
+		var serverID int64
+		var libraryID string
+		var totalSize int64
+		if err := rows.Scan(&serverID, &libraryID, &totalSize); err != nil {
+			return nil, fmt.Errorf("scan library size: %w", err)
+		}
+		result[fmt.Sprintf("%d-%s", serverID, libraryID)] = totalSize
+	}
+	return result, rows.Err()
+}

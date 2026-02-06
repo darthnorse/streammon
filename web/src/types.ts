@@ -291,6 +291,7 @@ export interface Library {
   item_count: number
   child_count: number
   grandchild_count: number
+  total_size: number
 }
 
 export interface LibrariesResponse {

@@ -368,6 +368,7 @@ type Library struct {
 	ItemCount       int         `json:"item_count"`
 	ChildCount      int         `json:"child_count"`
 	GrandchildCount int         `json:"grandchild_count"`
+	TotalSize       int64       `json:"total_size"`
 }
 
 type LocationStat struct {

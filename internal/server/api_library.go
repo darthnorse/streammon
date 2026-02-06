@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -73,6 +74,17 @@ func (s *Server) handleGetLibraries(w http.ResponseWriter, r *http.Request) {
 		}
 
 		allLibraries = append(allLibraries, libs...)
+	}
+
+	// Populate total sizes from cached library items
+	librarySizes, err := s.store.GetAllLibraryTotalSizes(r.Context())
+	if err != nil {
+		log.Printf("get library sizes: %v", err)
+	} else {
+		for i := range allLibraries {
+			key := fmt.Sprintf("%d-%s", allLibraries[i].ServerID, allLibraries[i].ID)
+			allLibraries[i].TotalSize = librarySizes[key]
+		}
 	}
 
 	s.libCache.mu.Lock()

@@ -46,6 +46,14 @@ function formatCount(count: number): string {
   return count.toLocaleString()
 }
 
+function formatSize(bytes: number): string {
+  if (bytes === 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const value = bytes / Math.pow(1024, i)
+  return `${value.toFixed(i > 1 ? 1 : 0)} ${units[i]}`
+}
+
 function getUniqueServers(libraries: Library[]): { id: number; name: string }[] {
   const seen = new Map<number, string>()
   for (const lib of libraries) {
@@ -151,6 +159,9 @@ function LibraryRow({ library, maintenance, syncing, onSync, onRules, onViolatio
       </td>
       <td className="hidden lg:table-cell px-4 py-3 text-right text-muted dark:text-muted-dark">
         {library.grandchild_count > 0 ? formatCount(library.grandchild_count) : '-'}
+      </td>
+      <td className="hidden xl:table-cell px-4 py-3 text-right text-muted dark:text-muted-dark">
+        {formatSize(library.total_size)}
       </td>
       <td className="px-4 py-3 text-center">
         {isMaintenanceSupported ? (
@@ -857,8 +868,9 @@ export function Libraries() {
         items: acc.items + lib.item_count,
         children: acc.children + lib.child_count,
         grandchildren: acc.grandchildren + lib.grandchild_count,
+        totalSize: acc.totalSize + lib.total_size,
       }),
-      { items: 0, children: 0, grandchildren: 0 }
+      { items: 0, children: 0, grandchildren: 0, totalSize: 0 }
     ),
     [displayedLibraries]
   )
@@ -1011,6 +1023,9 @@ export function Libraries() {
                   <th className="hidden lg:table-cell px-4 py-3 text-right text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
                     Episodes / Tracks
                   </th>
+                  <th className="hidden xl:table-cell px-4 py-3 text-right text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
+                    Total Size
+                  </th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
                     Rules
                   </th>
@@ -1040,7 +1055,7 @@ export function Libraries() {
                 })}
                 {displayedLibraries.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center">
+                    <td colSpan={10} className="px-4 py-12 text-center">
                       <div className="text-4xl mb-3 opacity-30">▤</div>
                       <p className="text-muted dark:text-muted-dark">No libraries found</p>
                     </td>
@@ -1061,6 +1076,9 @@ export function Libraries() {
                     </td>
                     <td className="hidden lg:table-cell px-4 py-3 text-right text-muted dark:text-muted-dark">
                       {totals.grandchildren > 0 ? formatCount(totals.grandchildren) : '-'}
+                    </td>
+                    <td className="hidden xl:table-cell px-4 py-3 text-right text-muted dark:text-muted-dark">
+                      {formatSize(totals.totalSize)}
                     </td>
                     <td className="px-4 py-3" colSpan={3}></td>
                   </tr>
