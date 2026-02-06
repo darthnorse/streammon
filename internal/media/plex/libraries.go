@@ -24,9 +24,28 @@ type librarySection struct {
 }
 
 type libraryCount struct {
-	XMLName  xml.Name `xml:"MediaContainer"`
-	Size     int      `xml:"size,attr"`
-	TotalSize int     `xml:"totalSize,attr"`
+	XMLName   xml.Name `xml:"MediaContainer"`
+	Size      int      `xml:"size,attr"`
+	TotalSize int      `xml:"totalSize,attr"`
+}
+
+type mediaProvidersResponse struct {
+	XMLName       xml.Name        `xml:"MediaContainer"`
+	MediaProvider []mediaProvider `xml:"MediaProvider"`
+}
+
+type mediaProvider struct {
+	Features []mediaFeature `xml:"Feature"`
+}
+
+type mediaFeature struct {
+	Type       string         `xml:"type,attr"`
+	Directories []mediaDirectory `xml:"Directory"`
+}
+
+type mediaDirectory struct {
+	Key     string `xml:"key,attr"`
+	Storage int64  `xml:"storage,attr"`
 }
 
 func (s *Server) GetLibraries(ctx context.Context) ([]models.Library, error) {
@@ -34,6 +53,9 @@ func (s *Server) GetLibraries(ctx context.Context) ([]models.Library, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Fetch storage info for all libraries in a single call
+	storageMap := s.getLibraryStorageMap(ctx)
 
 	libraries := make([]models.Library, 0, len(sections.Directories))
 	for _, dir := range sections.Directories {
@@ -44,6 +66,7 @@ func (s *Server) GetLibraries(ctx context.Context) ([]models.Library, error) {
 			ServerType: models.ServerTypePlex,
 			Name:       dir.Title,
 			Type:       plexLibraryType(dir.Type),
+			TotalSize:  storageMap[dir.Key],
 		}
 
 		counts, err := s.getLibraryCounts(ctx, dir.Key, dir.Type)
@@ -58,6 +81,48 @@ func (s *Server) GetLibraries(ctx context.Context) ([]models.Library, error) {
 	}
 
 	return libraries, nil
+}
+
+// getLibraryStorageMap fetches storage info for all libraries in a single API call
+func (s *Server) getLibraryStorageMap(ctx context.Context) map[string]int64 {
+	result := make(map[string]int64)
+
+	req, err := s.newRequest(ctx, s.url+"/media/providers?includeStorage=1")
+	if err != nil {
+		return result
+	}
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return result
+	}
+	defer httputil.DrainBody(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return result
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return result
+	}
+
+	var data mediaProvidersResponse
+	if err := xml.Unmarshal(body, &data); err != nil {
+		return result
+	}
+
+	for _, provider := range data.MediaProvider {
+		for _, feature := range provider.Features {
+			if feature.Type == "content" {
+				for _, dir := range feature.Directories {
+					result[dir.Key] = dir.Storage
+				}
+			}
+		}
+	}
+
+	return result
 }
 
 func (s *Server) getLibrarySections(ctx context.Context) (*librarySections, error) {

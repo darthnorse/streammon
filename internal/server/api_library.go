@@ -76,14 +76,25 @@ func (s *Server) handleGetLibraries(w http.ResponseWriter, r *http.Request) {
 		allLibraries = append(allLibraries, libs...)
 	}
 
-	// Populate total sizes from cached library items
-	librarySizes, err := s.store.GetAllLibraryTotalSizes(r.Context())
-	if err != nil {
-		log.Printf("get library sizes: %v", err)
-	} else {
-		for i := range allLibraries {
-			key := fmt.Sprintf("%d-%s", allLibraries[i].ServerID, allLibraries[i].ID)
-			allLibraries[i].TotalSize = librarySizes[key]
+	// For libraries without TotalSize (e.g., Emby), populate from cached library items
+	needsSizeLookup := false
+	for _, lib := range allLibraries {
+		if lib.TotalSize == 0 {
+			needsSizeLookup = true
+			break
+		}
+	}
+	if needsSizeLookup {
+		librarySizes, err := s.store.GetAllLibraryTotalSizes(r.Context())
+		if err != nil {
+			log.Printf("get library sizes: %v", err)
+		} else {
+			for i := range allLibraries {
+				if allLibraries[i].TotalSize == 0 {
+					key := fmt.Sprintf("%d-%s", allLibraries[i].ServerID, allLibraries[i].ID)
+					allLibraries[i].TotalSize = librarySizes[key]
+				}
+			}
 		}
 	}
 
