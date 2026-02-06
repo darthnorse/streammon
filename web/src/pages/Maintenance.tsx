@@ -16,6 +16,7 @@ type ViewState =
   | { type: 'library'; library: LibraryMaintenance }
   | { type: 'candidates'; rule: MaintenanceRuleWithCount; library: LibraryMaintenance }
   | { type: 'create-rule'; library: LibraryMaintenance }
+  | { type: 'edit-rule'; rule: MaintenanceRuleWithCount; library: LibraryMaintenance }
 
 const libraryTypeIcon: Record<LibraryType, string> = {
   movie: '◉',
@@ -112,12 +113,14 @@ function LibraryView({
   onBack,
   onViewCandidates,
   onCreateRule,
+  onEditRule,
   onRefresh,
 }: {
   library: LibraryMaintenance
   onBack: () => void
   onViewCandidates: (rule: MaintenanceRuleWithCount) => void
   onCreateRule: () => void
+  onEditRule: (rule: MaintenanceRuleWithCount) => void
   onRefresh: () => void
 }) {
   const handleToggleRule = async (rule: MaintenanceRuleWithCount) => {
@@ -218,6 +221,15 @@ function LibraryView({
                       }`}
                   >
                     {rule.enabled ? 'Enabled' : 'Disabled'}
+                  </button>
+                  <button
+                    onClick={() => onEditRule(rule)}
+                    className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+                    title="Edit rule"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
                   </button>
                   <button
                     onClick={() => handleEvaluateRule(rule)}
@@ -386,19 +398,24 @@ function CandidatesView({
   )
 }
 
-function CreateRuleView({
+function RuleFormView({
   library,
+  rule,
   onBack,
-  onCreated,
+  onSaved,
 }: {
   library: LibraryMaintenance
+  rule?: MaintenanceRuleWithCount
   onBack: () => void
-  onCreated: () => void
+  onSaved: () => void
 }) {
+  const isEdit = !!rule
   const { data: criterionTypes } = useFetch<{ types: CriterionTypeInfo[] }>('/api/maintenance/criterion-types')
-  const [name, setName] = useState('')
-  const [criterionType, setCriterionType] = useState<CriterionType | ''>('')
-  const [parameters, setParameters] = useState<Record<string, string | number>>({})
+  const [name, setName] = useState(rule?.name || '')
+  const [criterionType, setCriterionType] = useState<CriterionType | ''>(rule?.criterion_type || '')
+  const [parameters, setParameters] = useState<Record<string, string | number>>(
+    (rule?.parameters as Record<string, string | number>) || {}
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -416,16 +433,19 @@ function CreateRuleView({
   const selectedType = availableTypes.find((ct) => ct.type === criterionType)
 
   useEffect(() => {
-    if (selectedType) {
-      const defaults: Record<string, string | number> = {}
-      for (const param of selectedType.parameters) {
-        defaults[param.name] = param.default
+    // Only set defaults when creating or when criterion type changes (not on initial edit load)
+    if (!isEdit || (isEdit && criterionType !== rule?.criterion_type)) {
+      if (selectedType) {
+        const defaults: Record<string, string | number> = {}
+        for (const param of selectedType.parameters) {
+          defaults[param.name] = param.default
+        }
+        setParameters(defaults)
+      } else {
+        setParameters({})
       }
-      setParameters(defaults)
-    } else {
-      setParameters({})
     }
-  }, [criterionType]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [criterionType, isEdit, rule?.criterion_type]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -435,17 +455,26 @@ function CreateRuleView({
     setError(null)
 
     try {
-      await api.post('/api/maintenance/rules', {
-        server_id: library.server_id,
-        library_id: library.library_id,
-        name,
-        criterion_type: criterionType,
-        parameters,
-        enabled: true,
-      })
-      onCreated()
+      if (isEdit && rule) {
+        await api.put(`/api/maintenance/rules/${rule.id}`, {
+          name,
+          criterion_type: criterionType,
+          parameters,
+          enabled: rule.enabled,
+        })
+      } else {
+        await api.post('/api/maintenance/rules', {
+          server_id: library.server_id,
+          library_id: library.library_id,
+          name,
+          criterion_type: criterionType,
+          parameters,
+          enabled: true,
+        })
+      }
+      onSaved()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create rule')
+      setError(err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'create'} rule`)
     } finally {
       setSaving(false)
     }
@@ -463,7 +492,7 @@ function CreateRuleView({
           </svg>
         </button>
         <div>
-          <h1 className="text-2xl font-semibold">Create Maintenance Rule</h1>
+          <h1 className="text-2xl font-semibold">{isEdit ? 'Edit' : 'Create'} Maintenance Rule</h1>
           <p className="text-sm text-muted dark:text-muted-dark">{library.library_name}</p>
         </div>
       </div>
@@ -557,7 +586,7 @@ function CreateRuleView({
             className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-gray-900 hover:bg-accent/90
                        disabled:opacity-50 transition-colors"
           >
-            {saving ? 'Creating...' : 'Create Rule'}
+            {saving ? (isEdit ? 'Saving...' : 'Creating...') : (isEdit ? 'Save Changes' : 'Create Rule')}
           </button>
         </div>
       </form>
@@ -612,6 +641,7 @@ export function Maintenance() {
         onBack={() => setView({ type: 'dashboard' })}
         onViewCandidates={(rule) => setView({ type: 'candidates', rule, library: freshLibrary })}
         onCreateRule={() => setView({ type: 'create-rule', library: freshLibrary })}
+        onEditRule={(rule) => setView({ type: 'edit-rule', rule, library: freshLibrary })}
         onRefresh={refetch}
       />
     )
@@ -629,10 +659,24 @@ export function Maintenance() {
 
   if (view.type === 'create-rule') {
     return (
-      <CreateRuleView
+      <RuleFormView
         library={view.library}
         onBack={() => setView({ type: 'library', library: view.library })}
-        onCreated={() => {
+        onSaved={() => {
+          refetch()
+          setView({ type: 'library', library: view.library })
+        }}
+      />
+    )
+  }
+
+  if (view.type === 'edit-rule') {
+    return (
+      <RuleFormView
+        library={view.library}
+        rule={view.rule}
+        onBack={() => setView({ type: 'library', library: view.library })}
+        onSaved={() => {
           refetch()
           setView({ type: 'library', library: view.library })
         }}
