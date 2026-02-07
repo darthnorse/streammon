@@ -80,7 +80,7 @@ export function LocationsCard({ locations }: LocationsCardProps) {
         </div>
       ) : (
         <div className="space-y-4">
-          <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark">
+          <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark relative z-0">
             <LeafletMap locations={locations} viewMode={viewMode} height="350px" />
           </div>
           <LocationTable

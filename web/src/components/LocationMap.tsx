@@ -90,7 +90,7 @@ export function LocationMap({ userName }: LocationMapProps) {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark">
+      <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark relative z-0">
         <LeafletMap
           locations={data}
           viewMode="markers"

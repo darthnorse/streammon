@@ -102,7 +102,7 @@ export function StreamLocationMap({ sessions }: StreamLocationMapProps) {
   return (
     <div className="mt-6">
       <h3 className="text-sm font-medium text-muted dark:text-muted-dark mb-3">Stream Locations</h3>
-      <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark">
+      <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark relative z-0">
         <LeafletMap
           locations={locationsWithPopupData}
           viewMode="markers"
