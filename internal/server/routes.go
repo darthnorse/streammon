@@ -108,6 +108,7 @@ func (s *Server) routes() {
 		// Maintenance routes (admin only)
 		r.Route("/maintenance", func(mr chi.Router) {
 			mr.Use(RequireRole(models.RoleAdmin))
+			mr.Use(rateLimit)
 			mr.Get("/criterion-types", s.handleGetCriterionTypes)
 			mr.Get("/dashboard", s.handleGetMaintenanceDashboard)
 			mr.Post("/sync", s.handleSyncLibraryItems)

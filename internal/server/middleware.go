@@ -2,9 +2,101 @@ package server
 
 import (
 	"net/http"
+	"sync"
+	"time"
 )
 
 const maxBodySize = 1 << 20 // 1MB
+
+// rateLimiter implements a per-IP sliding window rate limiter
+type rateLimiter struct {
+	mu       sync.Mutex
+	requests map[string][]time.Time
+	limit    int
+	window   time.Duration
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	rl := &rateLimiter{
+		requests: make(map[string][]time.Time),
+		limit:    limit,
+		window:   window,
+	}
+	// Start cleanup goroutine
+	go rl.cleanup()
+	return rl
+}
+
+func (rl *rateLimiter) cleanup() {
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		rl.mu.Lock()
+		now := time.Now()
+		for ip, times := range rl.requests {
+			// Remove entries older than window
+			valid := times[:0]
+			for _, t := range times {
+				if now.Sub(t) <= rl.window {
+					valid = append(valid, t)
+				}
+			}
+			if len(valid) == 0 {
+				delete(rl.requests, ip)
+			} else {
+				rl.requests[ip] = valid
+			}
+		}
+		rl.mu.Unlock()
+	}
+}
+
+func (rl *rateLimiter) allow(ip string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	times := rl.requests[ip]
+
+	// Filter to only requests within window
+	valid := times[:0]
+	for _, t := range times {
+		if now.Sub(t) <= rl.window {
+			valid = append(valid, t)
+		}
+	}
+
+	if len(valid) >= rl.limit {
+		rl.requests[ip] = valid
+		return false
+	}
+
+	rl.requests[ip] = append(valid, now)
+	return true
+}
+
+// Global rate limiter for search endpoints: 30 requests per minute per IP
+var searchRateLimiter = newRateLimiter(30, time.Minute)
+
+func rateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Only rate limit GET requests with search parameter
+		if r.Method == http.MethodGet && r.URL.Query().Get("search") != "" {
+			ip := r.RemoteAddr
+			// Try to get real IP from X-Forwarded-For if behind proxy
+			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+				ip = xff
+			}
+
+			if !searchRateLimiter.allow(ip) {
+				w.Header().Set("Retry-After", "60")
+				http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

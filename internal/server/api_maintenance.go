@@ -20,6 +20,7 @@ import (
 
 const maxBulkOperationSize = 500  // SQLite SQLITE_MAX_VARIABLE_NUMBER limit is 999
 const maxExportSize = 10000       // Prevent OOM on large exports
+const maxSearchLength = 200       // Prevent abuse with extremely long search strings
 
 // deleteItemResult captures the outcome of deleting a single item
 type deleteItemResult struct {
@@ -422,6 +423,10 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 	}
 	page, perPage := parsePagination(r, 20, 100)
 	search := r.URL.Query().Get("search")
+	if len(search) > maxSearchLength {
+		writeError(w, http.StatusBadRequest, "search term too long")
+		return
+	}
 
 	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, page, perPage, search)
 	if err != nil {
@@ -587,6 +592,10 @@ func (s *Server) handleListExclusions(w http.ResponseWriter, r *http.Request) {
 	}
 	page, perPage := parsePagination(r, 20, 100)
 	search := r.URL.Query().Get("search")
+	if len(search) > maxSearchLength {
+		writeError(w, http.StatusBadRequest, "search term too long")
+		return
+	}
 
 	result, err := s.store.ListExclusionsForRule(r.Context(), ruleID, page, perPage, search)
 	if err != nil {
