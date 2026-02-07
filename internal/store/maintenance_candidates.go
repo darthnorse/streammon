@@ -58,8 +58,9 @@ func (s *Store) DeleteCandidatesForRule(ctx context.Context, ruleID int64) error
 }
 
 // ListCandidatesForRule returns candidates with their library items, excluding excluded items
-func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int, search string) (*models.PaginatedResult[models.MaintenanceCandidate], error) {
+func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int, search string) (*models.CandidatesResponse, error) {
 	var total int
+	var totalSize int64
 	var args []any
 
 	baseWhere := `c.rule_id = ? AND e.id IS NULL`
@@ -71,14 +72,22 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
 	}
 
-	countQuery := `
-		SELECT COUNT(*) FROM maintenance_candidates c
+	// Get count and total size in one query
+	statsQuery := `
+		SELECT COUNT(*), COALESCE(SUM(i.file_size), 0) FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
 		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
 		WHERE ` + baseWhere
-	err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
+	err := s.db.QueryRowContext(ctx, statsQuery, args...).Scan(&total, &totalSize)
 	if err != nil {
 		return nil, fmt.Errorf("count candidates: %w", err)
+	}
+
+	// Get exclusion count for this rule
+	var exclusionCount int
+	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM maintenance_exclusions WHERE rule_id = ?`, ruleID).Scan(&exclusionCount)
+	if err != nil {
+		return nil, fmt.Errorf("count exclusions: %w", err)
 	}
 
 	offset := (page - 1) * perPage
@@ -105,11 +114,13 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 		candidates = append(candidates, c)
 	}
 
-	return &models.PaginatedResult[models.MaintenanceCandidate]{
-		Items:   candidates,
-		Total:   total,
-		Page:    page,
-		PerPage: perPage,
+	return &models.CandidatesResponse{
+		Items:          candidates,
+		Total:          total,
+		TotalSize:      totalSize,
+		ExclusionCount: exclusionCount,
+		Page:           page,
+		PerPage:        perPage,
 	}, rows.Err()
 }
 

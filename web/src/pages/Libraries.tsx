@@ -634,6 +634,34 @@ function CandidatesView({
         />
       )}
 
+      <div className="grid grid-cols-3 gap-4">
+        <div className="card p-4">
+          <div className="text-sm text-muted dark:text-muted-dark mb-1">
+            {selected.size > 0 ? 'Selected' : 'Items'}
+          </div>
+          <div className="text-2xl font-semibold">
+            {formatCount(selected.size > 0 ? selected.size : (data?.total ?? 0))}
+          </div>
+        </div>
+        <div className="card p-4">
+          <div className="text-sm text-muted dark:text-muted-dark mb-1">
+            {selected.size > 0 ? 'Selected Size' : 'Total Size'}
+          </div>
+          <div className="text-2xl font-semibold">
+            {formatSize(selected.size > 0
+              ? selectedItems.reduce((sum, c) => sum + (c.item?.file_size || 0), 0)
+              : (data?.total_size ?? 0)
+            )}
+          </div>
+        </div>
+        <div className="card p-4">
+          <div className="text-sm text-muted dark:text-muted-dark mb-1">Exclusions</div>
+          <div className="text-2xl font-semibold">
+            {formatCount(data?.exclusion_count ?? 0)}
+          </div>
+        </div>
+      </div>
+
       <div className="flex gap-4 items-center">
         <SearchInput
           value={searchInput}

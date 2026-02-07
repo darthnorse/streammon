@@ -244,3 +244,13 @@ type MaintenanceExclusion struct {
 	ExcludedAt    time.Time         `json:"excluded_at"`
 	Item          *LibraryItemCache `json:"item,omitempty"`
 }
+
+// CandidatesResponse is the response for listing candidates with summary stats
+type CandidatesResponse struct {
+	Items          []MaintenanceCandidate `json:"items"`
+	Total          int                    `json:"total"`
+	TotalSize      int64                  `json:"total_size"`
+	ExclusionCount int                    `json:"exclusion_count"`
+	Page           int                    `json:"page"`
+	PerPage        int                    `json:"per_page"`
+}

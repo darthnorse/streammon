@@ -591,6 +591,8 @@ export interface MaintenanceDashboard {
 export interface MaintenanceCandidatesResponse {
   items: MaintenanceCandidate[]
   total: number
+  total_size: number
+  exclusion_count: number
   page: number
   per_page: number
 }
