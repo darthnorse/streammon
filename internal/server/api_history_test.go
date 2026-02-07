@@ -11,7 +11,7 @@ import (
 )
 
 func TestListHistoryAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/history", nil)
 	w := httptest.NewRecorder()
@@ -49,7 +49,7 @@ func TestListHistoryAPI(t *testing.T) {
 }
 
 func TestListHistoryWithFilterAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
 	st.CreateServer(s)
 	now := time.Now().UTC()
@@ -74,7 +74,7 @@ func TestListHistoryWithFilterAPI(t *testing.T) {
 }
 
 func TestDailyHistoryAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/history/daily?start=2024-06-01&end=2024-06-03", nil)
 	w := httptest.NewRecorder()
@@ -92,7 +92,7 @@ func TestDailyHistoryAPI(t *testing.T) {
 }
 
 func TestDailyHistoryBadDatesAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	tests := []struct {
 		name string
@@ -117,7 +117,7 @@ func TestDailyHistoryBadDatesAPI(t *testing.T) {
 }
 
 func TestListHistoryPerPageCapAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/history?per_page=9999", nil)
 	w := httptest.NewRecorder()

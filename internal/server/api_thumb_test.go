@@ -9,7 +9,7 @@ import (
 )
 
 func TestThumbProxy_InvalidUserID(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	st.CreateServer(&models.Server{
 		Name: "Emby", Type: models.ServerTypeEmby,
@@ -43,7 +43,7 @@ func TestThumbProxy_InvalidUserID(t *testing.T) {
 }
 
 func TestThumbProxy_MissingPath(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	st.CreateServer(&models.Server{
 		Name: "Plex", Type: models.ServerTypePlex,
@@ -60,7 +60,7 @@ func TestThumbProxy_MissingPath(t *testing.T) {
 }
 
 func TestThumbProxy_InvalidServerID(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/servers/invalid/thumb/123", nil)
 	w := httptest.NewRecorder()
@@ -72,7 +72,7 @@ func TestThumbProxy_InvalidServerID(t *testing.T) {
 }
 
 func TestThumbProxy_ServerNotFound(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/servers/999/thumb/123", nil)
 	w := httptest.NewRecorder()
@@ -84,7 +84,7 @@ func TestThumbProxy_ServerNotFound(t *testing.T) {
 }
 
 func TestThumbProxy_PathTraversal(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	st.CreateServer(&models.Server{
 		Name: "Plex", Type: models.ServerTypePlex,

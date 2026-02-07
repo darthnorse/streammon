@@ -39,23 +39,13 @@ func (s *Server) routes() {
 		})
 	}
 
-	// Legacy OIDC routes (backward compatibility)
-	if s.authService != nil && s.authManager == nil {
-		s.router.Get("/auth/login", s.authService.HandleLogin)
-		s.router.Get("/auth/callback", s.authService.HandleCallback)
-		s.router.Post("/auth/logout", s.authService.HandleLogout)
-	}
-
 	s.router.Route("/api", func(r chi.Router) {
 		r.Use(limitBody)
 		r.Use(jsonContentType)
 		r.Use(corsMiddleware(s.corsOrigin))
 
-		// Apply auth middleware
 		if s.authManager != nil {
 			r.Use(RequireAuthManager(s.authManager))
-		} else if s.authService != nil {
-			r.Use(RequireAuth(s.authService))
 		}
 
 		r.Get("/me", s.handleMe)
@@ -191,8 +181,6 @@ func (s *Server) routes() {
 		r.Use(corsMiddleware(s.corsOrigin))
 		if s.authManager != nil {
 			r.Use(RequireAuthManager(s.authManager))
-		} else if s.authService != nil {
-			r.Use(RequireAuth(s.authService))
 		}
 		r.Get("/api/servers/{id}/thumb/*", s.handleThumbProxy)
 		r.Get("/api/servers/{id}/items/*", s.handleGetItemDetails)

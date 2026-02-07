@@ -23,7 +23,7 @@ func (s *stubResolver) Lookup(ip net.IP) *models.GeoResult {
 }
 
 func TestListUsersAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	st.GetOrCreateUser("alice")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users", nil)
@@ -36,13 +36,14 @@ func TestListUsersAPI(t *testing.T) {
 
 	var users []models.User
 	json.NewDecoder(w.Body).Decode(&users)
-	if len(users) != 1 {
-		t.Fatalf("expected 1 user, got %d", len(users))
+	// 2 users: test-admin (from test setup) + alice
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
 	}
 }
 
 func TestGetUserAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	st.GetOrCreateUser("alice")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users/alice", nil)
@@ -61,7 +62,7 @@ func TestGetUserAPI(t *testing.T) {
 }
 
 func TestGetUserNotFoundAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users/nobody", nil)
 	w := httptest.NewRecorder()
@@ -73,7 +74,7 @@ func TestGetUserNotFoundAPI(t *testing.T) {
 }
 
 func TestGetUserLocationsAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	st.CreateServer(&models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k"})
 
@@ -99,7 +100,7 @@ func TestGetUserLocationsAPI(t *testing.T) {
 }
 
 func TestGetUserLocationsNoHistoryAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/users/nobody/locations", nil)
 	w := httptest.NewRecorder()
@@ -111,7 +112,7 @@ func TestGetUserLocationsNoHistoryAPI(t *testing.T) {
 }
 
 func TestGetUserLocationsCachedAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	st.CreateServer(&models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k"})
 
@@ -144,8 +145,8 @@ func TestGetUserLocationsCachedAPI(t *testing.T) {
 }
 
 func TestGetUserLocationsResolverLookupAPI(t *testing.T) {
-	srv, st := newTestServer(t)
-	srv.geoResolver = &stubResolver{results: map[string]*models.GeoResult{
+	srv, st := newTestServerWrapped(t)
+	srv.Unwrap().geoResolver = &stubResolver{results: map[string]*models.GeoResult{
 		"8.8.8.8": {IP: "8.8.8.8", Lat: 37.386, Lng: -122.084, City: "Mountain View", Country: "US"},
 	}}
 
@@ -189,7 +190,7 @@ func TestGetUserLocationsResolverLookupAPI(t *testing.T) {
 }
 
 func TestSyncUserAvatars_NoServers(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/users/sync-avatars", nil)
 	w := httptest.NewRecorder()
@@ -210,7 +211,7 @@ func TestSyncUserAvatars_NoServers(t *testing.T) {
 }
 
 func TestSyncUserAvatars_DisabledServersSkipped(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	st.CreateServer(&models.Server{
 		Name: "DisabledPlex", Type: models.ServerTypePlex,
@@ -234,7 +235,7 @@ func TestSyncUserAvatars_DisabledServersSkipped(t *testing.T) {
 }
 
 func TestSyncUserAvatars_ServerConnectionError(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	st.CreateServer(&models.Server{
 		Name: "BadPlex", Type: models.ServerTypePlex,

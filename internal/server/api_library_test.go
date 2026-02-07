@@ -67,7 +67,7 @@ func setupTestPoller(t *testing.T, srv *Server, st *store.Store) *poller.Poller 
 }
 
 func TestGetLibrariesWithoutPoller(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 	srv.InvalidateLibraryCache()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/libraries", nil)
@@ -89,7 +89,7 @@ func TestGetLibrariesWithoutPoller(t *testing.T) {
 }
 
 func TestGetLibrariesWithPoller(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	srv.InvalidateLibraryCache()
 
 	s := &models.Server{
@@ -101,7 +101,7 @@ func TestGetLibrariesWithPoller(t *testing.T) {
 	}
 	st.CreateServer(s)
 
-	p := setupTestPoller(t, srv, st)
+	p := setupTestPoller(t, srv.Unwrap(), st)
 
 	mockServer := &mockLibraryServer{
 		name:    "TestPlex",
@@ -142,7 +142,7 @@ func TestGetLibrariesWithPoller(t *testing.T) {
 }
 
 func TestGetLibrariesMultipleServers(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	srv.InvalidateLibraryCache()
 
 	s1 := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k1", Enabled: true}
@@ -150,7 +150,7 @@ func TestGetLibrariesMultipleServers(t *testing.T) {
 	s2 := &models.Server{Name: "Emby", Type: models.ServerTypeEmby, URL: "http://emby", APIKey: "k2", Enabled: true}
 	st.CreateServer(s2)
 
-	p := setupTestPoller(t, srv, st)
+	p := setupTestPoller(t, srv.Unwrap(), st)
 
 	p.AddServer(s1.ID, &mockLibraryServer{
 		name:      "Plex",
@@ -182,13 +182,13 @@ func TestGetLibrariesMultipleServers(t *testing.T) {
 }
 
 func TestGetLibrariesServerError(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	srv.InvalidateLibraryCache()
 
 	s := &models.Server{Name: "FailingPlex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k1", Enabled: true}
 	st.CreateServer(s)
 
-	p := setupTestPoller(t, srv, st)
+	p := setupTestPoller(t, srv.Unwrap(), st)
 
 	p.AddServer(s.ID, &mockLibraryServer{
 		name:    "FailingPlex",
@@ -221,13 +221,13 @@ func TestGetLibrariesServerError(t *testing.T) {
 }
 
 func TestGetLibrariesDisabledServerSkipped(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	srv.InvalidateLibraryCache()
 
 	s := &models.Server{Name: "DisabledPlex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k1", Enabled: false}
 	st.CreateServer(s)
 
-	p := setupTestPoller(t, srv, st)
+	p := setupTestPoller(t, srv.Unwrap(), st)
 
 	p.AddServer(s.ID, &mockLibraryServer{
 		name:      "DisabledPlex",
@@ -254,13 +254,13 @@ func TestGetLibrariesDisabledServerSkipped(t *testing.T) {
 }
 
 func TestGetLibrariesCaching(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	srv.InvalidateLibraryCache()
 
 	s := &models.Server{Name: "CachePlex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k1", Enabled: true}
 	st.CreateServer(s)
 
-	p := setupTestPoller(t, srv, st)
+	p := setupTestPoller(t, srv.Unwrap(), st)
 
 	mock := &mockLibraryServer{
 		name:      "CachePlex",

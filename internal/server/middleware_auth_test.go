@@ -15,13 +15,12 @@ func contextWithUser(ctx context.Context, u *models.User) context.Context {
 	return context.WithValue(ctx, userContextKey, u)
 }
 
-func TestRequireAuth_Disabled_InjectsDefaultAdmin(t *testing.T) {
-	svc, _ := auth.NewService(auth.Config{}, nil)
-	mw := RequireAuth(svc)
+func TestRequireAuthManager_NoCookie_Returns401(t *testing.T) {
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
 
-	var gotUser *models.User
+	mw := RequireAuthManager(mgr)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotUser = UserFromContext(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -29,25 +28,19 @@ func TestRequireAuth_Disabled_InjectsDefaultAdmin(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-	if gotUser == nil {
-		t.Fatal("expected user in context")
-	}
-	if gotUser.Role != models.RoleAdmin {
-		t.Errorf("expected admin role, got %s", gotUser.Role)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
 	}
 }
 
-func TestRequireAuth_Enabled_NoCookie_Returns401(t *testing.T) {
+func TestRequireAuthManager_ValidSession(t *testing.T) {
 	_, st := newTestServer(t)
-	svc, _ := auth.NewService(auth.Config{}, st)
+	mgr := auth.NewManager(st)
 
 	user, _ := st.GetOrCreateUser("testuser")
 	token, _ := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
 
-	mw := RequireAuth(svc)
+	mw := RequireAuthManager(mgr)
 	var gotUser *models.User
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotUser = UserFromContext(r.Context())
@@ -59,8 +52,14 @@ func TestRequireAuth_Enabled_NoCookie_Returns401(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	if gotUser.Name != "test-admin" {
-		t.Errorf("expected test-admin, got %s", gotUser.Name)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+	if gotUser == nil {
+		t.Fatal("expected user in context")
+	}
+	if gotUser.Name != "testuser" {
+		t.Errorf("expected testuser, got %s", gotUser.Name)
 	}
 }
 

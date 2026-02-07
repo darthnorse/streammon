@@ -9,7 +9,7 @@ import (
 )
 
 func TestGetOIDCSettings_Empty(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/settings/oidc", nil)
 	w := httptest.NewRecorder()
@@ -32,7 +32,7 @@ func TestGetOIDCSettings_Empty(t *testing.T) {
 }
 
 func TestGetOIDCSettings_MasksSecret(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	if err := st.SetSetting("oidc.issuer", "https://example.com"); err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestGetOIDCSettings_MasksSecret(t *testing.T) {
 }
 
 func TestUpdateOIDCSettings_Saves(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	body := `{"issuer":"https://idp.example.com","client_id":"cid","client_secret":"secret123","redirect_url":"https://app/callback"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/oidc", strings.NewReader(body))
@@ -92,7 +92,7 @@ func TestUpdateOIDCSettings_Saves(t *testing.T) {
 }
 
 func TestUpdateOIDCSettings_MaskedSecretPreservesExisting(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	if err := st.SetSetting("oidc.client_secret", "original_secret"); err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestUpdateOIDCSettings_MaskedSecretPreservesExisting(t *testing.T) {
 }
 
 func TestUpdateOIDCSettings_InvalidJSON(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/oidc", strings.NewReader("{bad"))
 	w := httptest.NewRecorder()
@@ -129,7 +129,7 @@ func TestUpdateOIDCSettings_InvalidJSON(t *testing.T) {
 }
 
 func TestUpdateOIDCSettings_CallsReload(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	body := `{"issuer":"","client_id":"","client_secret":"","redirect_url":""}`
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/oidc", strings.NewReader(body))
@@ -147,7 +147,7 @@ func TestUpdateOIDCSettings_CallsReload(t *testing.T) {
 }
 
 func TestUpdateOIDCSettings_IncompleteConfigRejected(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	body := `{"issuer":"https://example.com","client_id":"","client_secret":"","redirect_url":""}`
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/oidc", strings.NewReader(body))
@@ -165,7 +165,7 @@ func TestUpdateOIDCSettings_IncompleteConfigRejected(t *testing.T) {
 }
 
 func TestDeleteOIDCSettings(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	st.SetSetting("oidc.issuer", "https://example.com")
 	st.SetSetting("oidc.client_id", "cid")
@@ -187,7 +187,7 @@ func TestDeleteOIDCSettings(t *testing.T) {
 }
 
 func TestTestOIDCConnection_MissingIssuer(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/oidc/test", strings.NewReader(`{"issuer":""}`))
 	w := httptest.NewRecorder()
@@ -199,7 +199,7 @@ func TestTestOIDCConnection_MissingIssuer(t *testing.T) {
 }
 
 func TestTestOIDCConnection_InvalidIssuer(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/oidc/test", strings.NewReader(`{"issuer":"http://localhost:99999/nonexistent"}`))
 	w := httptest.NewRecorder()

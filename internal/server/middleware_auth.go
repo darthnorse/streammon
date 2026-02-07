@@ -64,48 +64,6 @@ func RequireSetup(mgr *auth.Manager) func(http.Handler) http.Handler {
 	}
 }
 
-// testAdmin is used only when auth is disabled (test environments).
-// SECURITY: This should never be used in production. Production deployments
-// must use RequireAuthManager with a properly configured auth.Manager.
-var testAdmin = &models.User{
-	Name: "test-admin",
-	Role: models.RoleAdmin,
-}
-
-// RequireAuth is kept for backward compatibility with legacy auth.Service.
-// SECURITY NOTE: When auth is disabled (svc.Enabled() == false), a test admin
-// user is injected. This is intentional for test environments only.
-// Production deployments should use RequireAuthManager which doesn't have
-// this fallback behavior.
-func RequireAuth(svc *auth.Service) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// When auth is disabled, inject test admin for backward compatibility.
-			// SECURITY: This path should only be used in tests.
-			if !svc.Enabled() {
-				ctx := context.WithValue(r.Context(), userContextKey, testAdmin)
-				next.ServeHTTP(w, r.WithContext(ctx))
-				return
-			}
-
-			cookie, err := r.Cookie(auth.CookieName)
-			if err != nil {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-				return
-			}
-
-			user, err := svc.Store().GetSessionUser(cookie.Value)
-			if err != nil {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-				return
-			}
-
-			ctx := context.WithValue(r.Context(), userContextKey, user)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
-}
-
 func RequireRole(role models.Role) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

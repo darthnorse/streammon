@@ -14,7 +14,7 @@ import (
 )
 
 func TestDashboardSessionsWithoutPoller(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/sessions", nil)
 	srv.ServeHTTP(rr, req)
@@ -32,7 +32,7 @@ func TestDashboardSessionsWithoutPoller(t *testing.T) {
 }
 
 func TestDashboardSessionsWithPoller(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	p := poller.New(st, time.Hour)
 	srv.poller = p
 
@@ -51,7 +51,7 @@ func TestDashboardSessionsWithPoller(t *testing.T) {
 }
 
 func TestSSEWithoutPoller(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/sse", nil)
 	srv.ServeHTTP(rr, req)
@@ -62,7 +62,7 @@ func TestSSEWithoutPoller(t *testing.T) {
 }
 
 func TestSSEStreamsEvents(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	p := poller.New(st, time.Hour)
 	srv.poller = p
 

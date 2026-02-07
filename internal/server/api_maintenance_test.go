@@ -15,7 +15,7 @@ import (
 )
 
 func TestGetCriterionTypesAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/criterion-types", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -38,7 +38,7 @@ func TestGetCriterionTypesAPI(t *testing.T) {
 }
 
 func TestCreateMaintenanceRuleAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 
 	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
 	if err := s.CreateServer(server); err != nil {
@@ -68,7 +68,7 @@ func TestCreateMaintenanceRuleAPI(t *testing.T) {
 }
 
 func TestCreateMaintenanceRuleAPIValidation(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 
 	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
 	if err := s.CreateServer(server); err != nil {
@@ -98,7 +98,7 @@ func TestCreateMaintenanceRuleAPIValidation(t *testing.T) {
 }
 
 func TestGetMaintenanceRuleAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 
 	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
@@ -136,7 +136,7 @@ func TestGetMaintenanceRuleAPI(t *testing.T) {
 }
 
 func TestGetMaintenanceRuleNotFoundAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/rules/99999", nil)
 	w := httptest.NewRecorder()
@@ -148,7 +148,7 @@ func TestGetMaintenanceRuleNotFoundAPI(t *testing.T) {
 }
 
 func TestListMaintenanceRulesAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 
 	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
@@ -187,7 +187,7 @@ func TestListMaintenanceRulesAPI(t *testing.T) {
 }
 
 func TestDeleteMaintenanceRuleAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 
 	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
@@ -225,7 +225,7 @@ func TestDeleteMaintenanceRuleAPI(t *testing.T) {
 }
 
 func TestExportCandidatesCSVAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 
 	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
@@ -270,7 +270,7 @@ func TestExportCandidatesCSVAPI(t *testing.T) {
 }
 
 func TestExportCandidatesJSONAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 
 	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
@@ -319,7 +319,7 @@ func TestExportCandidatesJSONAPI(t *testing.T) {
 }
 
 func TestExportCandidatesInvalidFormatAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/rules/1/candidates/export?format=xml", nil)
 	w := httptest.NewRecorder()
@@ -331,7 +331,7 @@ func TestExportCandidatesInvalidFormatAPI(t *testing.T) {
 }
 
 func TestListCandidatesAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 
 	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
@@ -450,7 +450,7 @@ func setupDeleteCandidateTest(t *testing.T, s interface {
 }
 
 func TestDeleteCandidateNotFoundAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/99999", nil)
 	w := httptest.NewRecorder()
@@ -462,7 +462,7 @@ func TestDeleteCandidateNotFoundAPI(t *testing.T) {
 }
 
 func TestDeleteCandidateInvalidIDAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/invalid", nil)
 	w := httptest.NewRecorder()
@@ -474,7 +474,7 @@ func TestDeleteCandidateInvalidIDAPI(t *testing.T) {
 }
 
 func TestDeleteCandidateServerNotFoundAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	setupDeleteCandidateTest(t, s, "item1")
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
@@ -487,7 +487,7 @@ func TestDeleteCandidateServerNotFoundAPI(t *testing.T) {
 }
 
 func TestDeleteCandidateSuccessAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 	serverID := setupDeleteCandidateTest(t, s, "item123")
 
@@ -522,7 +522,7 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 }
 
 func TestDeleteCandidateServerFailureAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 	serverID := setupDeleteCandidateTest(t, s, "item456")
 
@@ -553,7 +553,7 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 }
 
 func TestCreateExclusionsAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	serverID := setupDeleteCandidateTest(t, s, "item1")
 
 	body := `{"library_item_ids":[1]}`
@@ -583,7 +583,7 @@ func TestCreateExclusionsAPI(t *testing.T) {
 }
 
 func TestListExclusionsAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 	setupDeleteCandidateTest(t, s, "item1")
 
@@ -609,7 +609,7 @@ func TestListExclusionsAPI(t *testing.T) {
 }
 
 func TestDeleteExclusionAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 	setupDeleteCandidateTest(t, s, "item1")
 
@@ -632,7 +632,7 @@ func TestDeleteExclusionAPI(t *testing.T) {
 }
 
 func TestBulkRemoveExclusionsAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 	setupDeleteCandidateTest(t, s, "item1")
 
@@ -657,7 +657,7 @@ func TestBulkRemoveExclusionsAPI(t *testing.T) {
 }
 
 func TestBulkDeleteCandidatesAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 	serverID := setupDeleteCandidateTest(t, s, "item1")
 
@@ -701,7 +701,7 @@ func TestBulkDeleteCandidatesAPI(t *testing.T) {
 }
 
 func TestBulkDeleteCandidatesPartialFailureAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	serverID := setupDeleteCandidateTest(t, s, "item1")
 
 	p := poller.New(s, time.Hour)
@@ -743,7 +743,7 @@ func TestBulkDeleteCandidatesPartialFailureAPI(t *testing.T) {
 }
 
 func TestExcludedCandidatesFilteredFromListAPI(t *testing.T) {
-	srv, s := newTestServer(t)
+	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 	setupDeleteCandidateTest(t, s, "item1")
 

@@ -11,7 +11,7 @@ import (
 )
 
 func TestCreateServerAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	body := `{"name":"Plex","type":"plex","url":"http://plex:32400","api_key":"abc","enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/servers", strings.NewReader(body))
@@ -38,7 +38,7 @@ func TestCreateServerAPI(t *testing.T) {
 }
 
 func TestCreateServerValidationAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	tests := []struct {
 		name string
@@ -63,7 +63,7 @@ func TestCreateServerValidationAPI(t *testing.T) {
 }
 
 func TestListServersAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	st.CreateServer(&models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "k"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/servers", nil)
@@ -84,7 +84,7 @@ func TestListServersAPI(t *testing.T) {
 }
 
 func TestListServersEmptyAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/servers", nil)
 	w := httptest.NewRecorder()
@@ -96,7 +96,7 @@ func TestListServersEmptyAPI(t *testing.T) {
 }
 
 func TestGetServerAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	st.CreateServer(&models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k"})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/servers/1", nil)
@@ -109,7 +109,7 @@ func TestGetServerAPI(t *testing.T) {
 }
 
 func TestGetServerNotFoundAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/servers/999", nil)
 	w := httptest.NewRecorder()
@@ -121,7 +121,7 @@ func TestGetServerNotFoundAPI(t *testing.T) {
 }
 
 func TestUpdateServerAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	st.CreateServer(&models.Server{Name: "Old", Type: models.ServerTypePlex, URL: "http://old", APIKey: "k", Enabled: true})
 
 	body := `{"name":"New","type":"plex","url":"http://new","api_key":"k2","enabled":false}`
@@ -143,7 +143,7 @@ func TestUpdateServerAPI(t *testing.T) {
 }
 
 func TestUpdateServerPreservesAPIKeyWhenEmpty(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	st.CreateServer(&models.Server{Name: "Old", Type: models.ServerTypePlex, URL: "http://old", APIKey: "secret", Enabled: true})
 
 	body := `{"name":"New","type":"plex","url":"http://new","api_key":"","enabled":true}`
@@ -168,7 +168,7 @@ func TestUpdateServerPreservesAPIKeyWhenEmpty(t *testing.T) {
 }
 
 func TestUpdateServerNotFoundAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	body := `{"name":"X","type":"plex","url":"http://x","api_key":"k","enabled":true}`
 	req := httptest.NewRequest(http.MethodPut, "/api/servers/999", strings.NewReader(body))
@@ -181,7 +181,7 @@ func TestUpdateServerNotFoundAPI(t *testing.T) {
 }
 
 func TestDeleteServerNotFoundAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/servers/999", nil)
 	w := httptest.NewRecorder()
@@ -193,7 +193,7 @@ func TestDeleteServerNotFoundAPI(t *testing.T) {
 }
 
 func TestTestServerAdHocValidationAPI(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	body := `{"name":"","type":"plex","url":"http://x","api_key":"k"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/servers/test", strings.NewReader(body))
@@ -206,7 +206,7 @@ func TestTestServerAdHocValidationAPI(t *testing.T) {
 }
 
 func TestTestServerAdHocInvalidJSON(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/servers/test", strings.NewReader(`{bad`))
 	w := httptest.NewRecorder()
@@ -218,7 +218,7 @@ func TestTestServerAdHocInvalidJSON(t *testing.T) {
 }
 
 func TestDeleteServerAPI(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 	st.CreateServer(&models.Server{Name: "X", Type: models.ServerTypePlex, URL: "http://x", APIKey: "k"})
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/servers/1", nil)

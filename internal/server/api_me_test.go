@@ -10,7 +10,7 @@ import (
 )
 
 func TestHandleMe_ReturnsUser(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 	user := &models.User{ID: 1, Name: "alice", Email: "alice@example.com", Role: models.RoleAdmin}
 
 	req := httptest.NewRequest("GET", "/api/me", nil)
@@ -32,7 +32,7 @@ func TestHandleMe_ReturnsUser(t *testing.T) {
 }
 
 func TestHandleMe_NoUser_Returns401(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest("GET", "/api/me", nil)
 	w := httptest.NewRecorder()

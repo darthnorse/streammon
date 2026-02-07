@@ -11,7 +11,7 @@ import (
 )
 
 func TestGetStatsAPI_Empty(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
 	w := httptest.NewRecorder()
@@ -53,7 +53,7 @@ func TestGetStatsAPI_Empty(t *testing.T) {
 }
 
 func TestGetStatsAPI_WithData(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
 	st.CreateServer(s)
@@ -122,7 +122,7 @@ func TestGetStatsAPI_WithData(t *testing.T) {
 }
 
 func TestGetStatsAPI_WithLocations(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
 	st.CreateServer(s)
@@ -160,7 +160,7 @@ func TestGetStatsAPI_WithLocations(t *testing.T) {
 }
 
 func TestGetStatsAPI_WithPotentialSharers(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
 	st.CreateServer(s)
@@ -212,7 +212,7 @@ func TestGetStatsAPI_WithPotentialSharers(t *testing.T) {
 }
 
 func TestGetStatsAPI_WithDaysFilter(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	tests := []struct {
 		name       string

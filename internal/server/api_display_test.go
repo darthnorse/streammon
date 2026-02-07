@@ -10,7 +10,7 @@ import (
 
 func TestDisplaySettings(t *testing.T) {
 	t.Run("get default returns metric", func(t *testing.T) {
-		srv, _ := newTestServer(t)
+		srv, _ := newTestServerWrapped(t)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/settings/display", nil)
 		w := httptest.NewRecorder()
@@ -30,7 +30,7 @@ func TestDisplaySettings(t *testing.T) {
 	})
 
 	t.Run("update to metric", func(t *testing.T) {
-		srv, st := newTestServer(t)
+		srv, st := newTestServerWrapped(t)
 
 		body := `{"unit_system":"metric"}`
 		req := httptest.NewRequest(http.MethodPut, "/api/settings/display", strings.NewReader(body))
@@ -51,7 +51,7 @@ func TestDisplaySettings(t *testing.T) {
 	})
 
 	t.Run("update to imperial", func(t *testing.T) {
-		srv, st := newTestServer(t)
+		srv, st := newTestServerWrapped(t)
 
 		body := `{"unit_system":"imperial"}`
 		req := httptest.NewRequest(http.MethodPut, "/api/settings/display", strings.NewReader(body))
@@ -72,7 +72,7 @@ func TestDisplaySettings(t *testing.T) {
 	})
 
 	t.Run("update with invalid value returns 400", func(t *testing.T) {
-		srv, _ := newTestServer(t)
+		srv, _ := newTestServerWrapped(t)
 
 		body := `{"unit_system":"invalid"}`
 		req := httptest.NewRequest(http.MethodPut, "/api/settings/display", strings.NewReader(body))
@@ -85,7 +85,7 @@ func TestDisplaySettings(t *testing.T) {
 	})
 
 	t.Run("update with invalid JSON returns 400", func(t *testing.T) {
-		srv, _ := newTestServer(t)
+		srv, _ := newTestServerWrapped(t)
 
 		req := httptest.NewRequest(http.MethodPut, "/api/settings/display", strings.NewReader("{bad"))
 		w := httptest.NewRecorder()
@@ -97,7 +97,7 @@ func TestDisplaySettings(t *testing.T) {
 	})
 
 	t.Run("get after update returns updated value", func(t *testing.T) {
-		srv, st := newTestServer(t)
+		srv, st := newTestServerWrapped(t)
 
 		if err := st.SetUnitSystem("imperial"); err != nil {
 			t.Fatal(err)

@@ -50,20 +50,32 @@ func main() {
 
 	geoUpdater := geoip.NewUpdater(s, geoResolver, geoDBPath)
 
+	// Initialize auth manager with providers
+	authMgr := auth.NewManager(s)
+
+	// Register local provider (always available)
+	authMgr.RegisterProvider(auth.NewLocalProvider(s, authMgr))
+
+	// Register Plex provider
+	plexProvider := auth.NewPlexProvider(s, authMgr)
+	authMgr.RegisterProvider(plexProvider)
+
+	// Register OIDC provider
 	oidcCfg, err := s.GetOIDCConfig()
 	if err != nil {
 		log.Fatalf("loading OIDC config: %v", err)
 	}
-	authSvc, err := auth.NewService(auth.ConfigFromStore(oidcCfg), s)
+	oidcProvider, err := auth.NewOIDCProvider(auth.ConfigFromStore(oidcCfg), s, authMgr)
 	if err != nil {
-		log.Printf("OIDC init failed (starting with auth disabled): %v", err)
-		authSvc, _ = auth.NewService(auth.Config{}, s)
-	}
-	if authSvc.Enabled() {
-		log.Println("OIDC authentication enabled")
+		log.Printf("OIDC init failed: %v", err)
 	} else {
-		log.Println("OIDC not configured — authentication disabled")
+		authMgr.RegisterProvider(oidcProvider)
+		if oidcProvider.Enabled() {
+			log.Println("OIDC authentication enabled")
+		}
 	}
+
+	log.Printf("Auth providers: %v", authMgr.GetEnabledProviders())
 
 	// Initialize rules engine
 	rulesGeo := &geoAdapter{resolver: geoResolver}
@@ -121,7 +133,7 @@ func main() {
 	opts := []server.Option{
 		server.WithPoller(p),
 		server.WithGeoResolver(geoResolver),
-		server.WithAuth(authSvc),
+		server.WithAuthManager(authMgr),
 		server.WithGeoUpdater(geoUpdater),
 		server.WithRulesEngine(rulesEngine),
 	}

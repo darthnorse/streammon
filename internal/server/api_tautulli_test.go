@@ -12,7 +12,7 @@ import (
 )
 
 func TestGetTautulliSettings_Empty(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/settings/tautulli", nil)
 	w := httptest.NewRecorder()
@@ -35,7 +35,7 @@ func TestGetTautulliSettings_Empty(t *testing.T) {
 }
 
 func TestGetTautulliSettings_MasksAPIKey(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	if err := st.SetSetting("tautulli.url", "http://localhost:8181"); err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestGetTautulliSettings_MasksAPIKey(t *testing.T) {
 }
 
 func TestUpdateTautulliSettings_Saves(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	body := `{"url":"http://tautulli:8181","api_key":"myapikey123"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/tautulli", strings.NewReader(body))
@@ -89,7 +89,7 @@ func TestUpdateTautulliSettings_Saves(t *testing.T) {
 }
 
 func TestUpdateTautulliSettings_MaskedKeyPreservesExisting(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	if err := st.SetSetting("tautulli.api_key", "original_key"); err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestUpdateTautulliSettings_MaskedKeyPreservesExisting(t *testing.T) {
 }
 
 func TestUpdateTautulliSettings_InvalidJSON(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/tautulli", strings.NewReader("{bad"))
 	w := httptest.NewRecorder()
@@ -126,7 +126,7 @@ func TestUpdateTautulliSettings_InvalidJSON(t *testing.T) {
 }
 
 func TestDeleteTautulliSettings(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	st.SetSetting("tautulli.url", "http://localhost:8181")
 	st.SetSetting("tautulli.api_key", "somekey")
@@ -146,7 +146,7 @@ func TestDeleteTautulliSettings(t *testing.T) {
 }
 
 func TestTestTautulliConnection_MissingURL(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/test", strings.NewReader(`{"url":"","api_key":"key"}`))
 	w := httptest.NewRecorder()
@@ -158,7 +158,7 @@ func TestTestTautulliConnection_MissingURL(t *testing.T) {
 }
 
 func TestTestTautulliConnection_MissingAPIKey(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/test", strings.NewReader(`{"url":"http://localhost:8181","api_key":""}`))
 	w := httptest.NewRecorder()
@@ -170,7 +170,7 @@ func TestTestTautulliConnection_MissingAPIKey(t *testing.T) {
 }
 
 func TestTautulliImport_MissingServerID(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/import", strings.NewReader(`{}`))
 	w := httptest.NewRecorder()
@@ -182,7 +182,7 @@ func TestTautulliImport_MissingServerID(t *testing.T) {
 }
 
 func TestTautulliImport_ServerNotFound(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/import", strings.NewReader(`{"server_id":999}`))
 	w := httptest.NewRecorder()
@@ -194,7 +194,7 @@ func TestTautulliImport_ServerNotFound(t *testing.T) {
 }
 
 func TestTautulliImport_NoTautulliConfigured(t *testing.T) {
-	srv, st := newTestServer(t)
+	srv, st := newTestServerWrapped(t)
 
 	plex := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "k", Enabled: true}
 	st.CreateServer(plex)

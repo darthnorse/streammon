@@ -42,8 +42,10 @@ func (s *Server) handleGetOIDCSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	enabled := false
-	if s.authService != nil {
-		enabled = s.authService.Enabled()
+	if s.authManager != nil {
+		if p, ok := s.authManager.GetProvider(auth.ProviderOIDC); ok {
+			enabled = p.Enabled()
+		}
 	}
 
 	writeJSON(w, http.StatusOK, oidcSettingsResponse{
@@ -126,7 +128,15 @@ func (s *Server) handleDeleteOIDCSettings(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) reloadAuth(ctx context.Context) error {
-	if s.authService == nil {
+	if s.authManager == nil {
+		return nil
+	}
+	p, ok := s.authManager.GetProvider(auth.ProviderOIDC)
+	if !ok {
+		return nil
+	}
+	oidcProvider, ok := p.(*auth.OIDCProvider)
+	if !ok {
 		return nil
 	}
 	dbCfg, err := s.store.GetOIDCConfig()
@@ -135,7 +145,7 @@ func (s *Server) reloadAuth(ctx context.Context) error {
 	}
 	reloadCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return s.authService.Reload(reloadCtx, auth.ConfigFromStore(dbCfg))
+	return oidcProvider.Reload(reloadCtx, auth.ConfigFromStore(dbCfg))
 }
 
 func (s *Server) handleTestOIDCConnection(w http.ResponseWriter, r *http.Request) {
