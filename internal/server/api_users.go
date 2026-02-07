@@ -14,7 +14,36 @@ import (
 	"streammon/internal/store"
 )
 
+// viewerCanAccessUser returns true if the current user (viewer or admin) can access the target user's data
+func viewerCanAccessUser(r *http.Request, targetName string) bool {
+	user := UserFromContext(r.Context())
+	if user == nil {
+		return false
+	}
+	if user.Role == models.RoleAdmin {
+		return true
+	}
+	return user.Name == targetName
+}
+
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	user := UserFromContext(r.Context())
+
+	// Viewers can only see themselves
+	if user != nil && user.Role == models.RoleViewer {
+		viewerUser, err := s.store.GetUser(user.Name)
+		if err != nil {
+			if errors.Is(err, models.ErrNotFound) {
+				writeJSON(w, http.StatusOK, []models.User{})
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal")
+			return
+		}
+		writeJSON(w, http.StatusOK, []models.User{*viewerUser})
+		return
+	}
+
 	users, err := s.store.ListUsers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
@@ -30,11 +59,33 @@ func (s *Server) handleListUserSummaries(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
+
+	// Viewers can only see their own summary
+	user := UserFromContext(r.Context())
+	if user != nil && user.Role == models.RoleViewer {
+		filtered := make([]store.UserSummary, 0)
+		for _, s := range summaries {
+			if s.Name == user.Name {
+				filtered = append(filtered, s)
+				break
+			}
+		}
+		writeJSON(w, http.StatusOK, filtered)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, summaries)
 }
 
 func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+
+	// Viewers can only access their own profile
+	if !viewerCanAccessUser(r, name) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
 	user, err := s.store.GetUser(name)
 	if err != nil {
 		if errors.Is(err, models.ErrNotFound) {
@@ -49,6 +100,12 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetUserLocations(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+
+	// Viewers can only access their own locations
+	if !viewerCanAccessUser(r, name) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	ipResults, err := s.store.DistinctIPsForUser(name)
 	if err != nil {
@@ -104,6 +161,13 @@ func (s *Server) resolveGeo(ipStr string, cached map[string]*models.GeoResult) *
 
 func (s *Server) handleGetUserStats(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
+
+	// Viewers can only access their own stats
+	if !viewerCanAccessUser(r, name) {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
 	stats, err := s.store.UserDetailStats(name)
 	if err != nil {
 		log.Printf("UserDetailStats error: %v", err)

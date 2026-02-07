@@ -22,13 +22,13 @@ export const plexBtnClass = 'px-4 py-2.5 text-sm font-semibold rounded-lg bg-[#e
 export const inputClass = 'w-full px-3 py-2 rounded-lg border border-border dark:border-border-dark bg-surface dark:bg-surface-dark focus:outline-none focus:ring-2 focus:ring-accent'
 
 export const navLinks = [
-  { to: '/', label: 'Dashboard', icon: 'LayoutDashboard' },
-  { to: '/history', label: 'History', icon: 'History' },
-  { to: '/statistics', label: 'Statistics', icon: 'BarChart3' },
-  { to: '/library', label: 'Library', icon: 'Library' },
-  { to: '/users', label: 'Users', icon: 'Users' },
-  { to: '/rules', label: 'Rules', icon: 'ShieldAlert' },
-  { to: '/settings', label: 'Settings', icon: 'Settings' },
+  { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', adminOnly: false },
+  { to: '/history', label: 'History', icon: 'History', adminOnly: false },
+  { to: '/statistics', label: 'Statistics', icon: 'BarChart3', adminOnly: true },
+  { to: '/library', label: 'Library', icon: 'Library', adminOnly: false },
+  { to: '/users', label: 'Users', icon: 'Users', adminOnly: true },
+  { to: '/rules', label: 'Rules', icon: 'ShieldAlert', adminOnly: true },
+  { to: '/settings', label: 'Settings', icon: 'Settings', adminOnly: true },
 ] as const
 
 export const SEVERITY_COLORS: Record<Severity, string> = {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"streammon/internal/models"
 )
 
 func (s *Server) handleDashboardSSE(w http.ResponseWriter, r *http.Request) {
@@ -22,10 +24,23 @@ func (s *Server) handleDashboardSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// Check if viewer needs filtering
+	user := UserFromContext(r.Context())
+	isViewer := user != nil && user.Role == models.RoleViewer
+	viewerName := ""
+	if isViewer {
+		viewerName = user.Name
+	}
+
 	ch := s.poller.Subscribe()
 	defer s.poller.Unsubscribe(ch)
 
-	if data, err := json.Marshal(s.poller.CurrentSessions()); err == nil {
+	// Send initial snapshot (filtered for viewers)
+	sessions := s.poller.CurrentSessions()
+	if isViewer {
+		sessions = filterSessionsForUser(sessions, viewerName)
+	}
+	if data, err := json.Marshal(sessions); err == nil {
 		fmt.Fprintf(w, "data: %s\n\n", data)
 		flusher.Flush()
 	}
@@ -38,6 +53,10 @@ func (s *Server) handleDashboardSSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
+			// Filter for viewers
+			if isViewer {
+				snapshot = filterSessionsForUser(snapshot, viewerName)
+			}
 			data, err := json.Marshal(snapshot)
 			if err != nil {
 				continue
@@ -46,4 +65,14 @@ func (s *Server) handleDashboardSSE(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+func filterSessionsForUser(sessions []models.ActiveStream, userName string) []models.ActiveStream {
+	filtered := make([]models.ActiveStream, 0)
+	for _, session := range sessions {
+		if session.UserName == userName {
+			filtered = append(filtered, session)
+		}
+	}
+	return filtered
 }

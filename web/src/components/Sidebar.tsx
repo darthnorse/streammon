@@ -46,23 +46,25 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {navLinks.map(link => {
-          const Icon = iconMap[link.icon]
-          return (
-            <NavLink
-              key={link.to}
-              to={link.to}
-              end={link.to === '/'}
-              onClick={handleNavClick(link.to)}
-              className={({ isActive }) =>
-                `nav-item ${isActive ? 'active' : ''}`
-              }
-            >
-              {Icon && <Icon className="w-5 h-5" />}
-              {link.label}
-            </NavLink>
-          )
-        })}
+        {navLinks
+          .filter(link => !link.adminOnly || user?.role === 'admin')
+          .map(link => {
+            const Icon = iconMap[link.icon]
+            return (
+              <NavLink
+                key={link.to}
+                to={link.to}
+                end={link.to === '/'}
+                onClick={handleNavClick(link.to)}
+                className={({ isActive }) =>
+                  `nav-item ${isActive ? 'active' : ''}`
+                }
+              >
+                {Icon && <Icon className="w-5 h-5" />}
+                {link.label}
+              </NavLink>
+            )
+          })}
       </nav>
 
       <div className="px-3 py-4 border-t border-border dark:border-border-dark">

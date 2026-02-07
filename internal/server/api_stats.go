@@ -33,6 +33,13 @@ type StatsResponse struct {
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
+	// Global stats are admin-only (contains sensitive aggregate data)
+	user := UserFromContext(r.Context())
+	if user != nil && user.Role == models.RoleViewer {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
 	days := 0 // default: all time. Valid values: 7, 30, or 0/omitted (all time)
 	if d := r.URL.Query().Get("days"); d != "" {
 		parsed, err := strconv.Atoi(d)

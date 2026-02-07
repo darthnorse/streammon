@@ -159,13 +159,29 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 }
 
 func (s *Store) DailyWatchCounts(start, end time.Time) ([]models.DayStat, error) {
-	rows, err := s.db.Query(
-		`SELECT date(started_at) AS day, media_type, COUNT(*) AS cnt
-		FROM watch_history
-		WHERE started_at >= ? AND started_at < ?
-		GROUP BY day, media_type
-		ORDER BY day`, start, end,
-	)
+	return s.DailyWatchCountsForUser(start, end, "")
+}
+
+func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string) ([]models.DayStat, error) {
+	var rows *sql.Rows
+	var err error
+	if userFilter != "" {
+		rows, err = s.db.Query(
+			`SELECT date(started_at) AS day, media_type, COUNT(*) AS cnt
+			FROM watch_history
+			WHERE started_at >= ? AND started_at < ? AND user_name = ?
+			GROUP BY day, media_type
+			ORDER BY day`, start, end, userFilter,
+		)
+	} else {
+		rows, err = s.db.Query(
+			`SELECT date(started_at) AS day, media_type, COUNT(*) AS cnt
+			FROM watch_history
+			WHERE started_at >= ? AND started_at < ?
+			GROUP BY day, media_type
+			ORDER BY day`, start, end,
+		)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("daily watch counts: %w", err)
 	}

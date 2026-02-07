@@ -300,6 +300,13 @@ func (s *Server) handleGetUserTrustScore(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Viewers can only access their own trust score
+	user := UserFromContext(r.Context())
+	if user != nil && user.Role == models.RoleViewer && user.Name != userName {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return
+	}
+
 	ts, err := s.store.GetUserTrustScore(userName)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to get trust score")

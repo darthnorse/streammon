@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { navLinks } from '../lib/constants'
+import { useAuth } from '../context/AuthContext'
 import {
   LayoutDashboard,
   History,
@@ -23,9 +24,6 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Settings,
 }
 
-const primaryLinks = navLinks.slice(0, 4)
-const moreLinks = navLinks.slice(4)
-
 const navPanelBase = `lg:hidden fixed bottom-0 left-0 right-0 z-50
   bg-panel dark:bg-panel-dark border-t border-border dark:border-border-dark
   pb-[env(safe-area-inset-bottom)] transition-transform duration-200`
@@ -40,6 +38,14 @@ export function MobileNav() {
   const [showMore, setShowMore] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
+  const { user } = useAuth()
+
+  const filteredLinks = useMemo(() =>
+    navLinks.filter(link => !link.adminOnly || user?.role === 'admin'),
+    [user?.role]
+  )
+  const primaryLinks = filteredLinks.slice(0, 4)
+  const moreLinks = filteredLinks.slice(4)
 
   const handleNavClick = (to: string, closeMenu = false) => (e: React.MouseEvent) => {
     e.preventDefault()
@@ -77,13 +83,15 @@ export function MobileNav() {
               </NavLink>
             )
           })}
-          <button
-            onClick={() => setShowMore(true)}
-            className={`${navItemBase} ${isMoreActive ? navItemActive : navItemInactive}`}
-          >
-            <MoreHorizontal className="w-5 h-5" />
-            More
-          </button>
+          {moreLinks.length > 0 && (
+            <button
+              onClick={() => setShowMore(true)}
+              className={`${navItemBase} ${isMoreActive ? navItemActive : navItemInactive}`}
+            >
+              <MoreHorizontal className="w-5 h-5" />
+              More
+            </button>
+          )}
         </nav>
       </div>
 

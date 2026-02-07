@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"streammon/internal/models"
 )
 
 const maxPerPage = 100
@@ -33,6 +35,12 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		perPage = maxPerPage
 	}
 	userFilter := r.URL.Query().Get("user")
+
+	// Viewers can only see their own history
+	user := UserFromContext(r.Context())
+	if user != nil && user.Role == models.RoleViewer {
+		userFilter = user.Name
+	}
 
 	sortBy := r.URL.Query().Get("sort_by")
 	sortOrder := r.URL.Query().Get("sort_order")
@@ -72,7 +80,14 @@ func (s *Server) handleDailyHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.store.DailyWatchCounts(start, end)
+	// Viewers can only see their own stats
+	userFilter := ""
+	user := UserFromContext(r.Context())
+	if user != nil && user.Role == models.RoleViewer {
+		userFilter = user.Name
+	}
+
+	stats, err := s.store.DailyWatchCountsForUser(start, end, userFilter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
