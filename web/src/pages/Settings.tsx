@@ -8,6 +8,7 @@ import { OIDCForm } from '../components/OIDCForm'
 import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
 import { TautulliForm } from '../components/TautulliForm'
 import { EmptyState } from '../components/EmptyState'
+import { UserManagement } from '../components/UserManagement'
 
 const serverTypeColors: Record<string, string> = {
   plex: 'badge-warn',
@@ -17,6 +18,7 @@ const serverTypeColors: Record<string, string> = {
 
 const tabs: { key: TabKey; label: string }[] = [
   { key: 'servers', label: 'Servers' },
+  { key: 'users', label: 'Users' },
   { key: 'auth', label: 'Authentication' },
   { key: 'geoip', label: 'GeoIP' },
   { key: 'import', label: 'Import' },
@@ -26,7 +28,7 @@ const tabs: { key: TabKey; label: string }[] = [
 const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
 const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
 
-type TabKey = 'servers' | 'auth' | 'geoip' | 'import' | 'display'
+type TabKey = 'servers' | 'users' | 'auth' | 'geoip' | 'import' | 'display'
 
 export function Settings() {
   const [tab, setTab] = useState<TabKey>('servers')
@@ -293,6 +295,10 @@ export function Settings() {
             />
           )}
         </>
+      )}
+
+      {tab === 'users' && (
+        <UserManagement />
       )}
 
       {tab === 'auth' && (

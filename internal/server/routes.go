@@ -176,6 +176,15 @@ func (s *Server) routes() {
 		})
 
 		r.With(RequireRole(models.RoleAdmin)).Post("/household/calculate", s.handleCalculateHouseholdLocations)
+
+		// Admin user management
+		r.Route("/admin/users", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleAdminListUsers)
+			sr.Get("/{id}", s.handleAdminGetUser)
+			sr.Put("/{id}/role", s.handleAdminUpdateUserRole)
+			sr.Delete("/{id}", s.handleAdminDeleteUser)
+		})
 	})
 
 	s.router.Group(func(r chi.Router) {

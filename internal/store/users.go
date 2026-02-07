@@ -247,3 +247,61 @@ func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*
 func isFullURL(url string) bool {
 	return strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")
 }
+
+// GetUserByID retrieves a user by ID
+func (s *Store) GetUserByID(id int64) (*models.User, error) {
+	u, err := scanUser(s.db.QueryRow(
+		`SELECT `+userColumns+` FROM users WHERE id = ?`, id,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("user %d: %w", id, models.ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting user by id: %w", err)
+	}
+	return &u, nil
+}
+
+// UpdateUserRoleByID updates a user's role by ID
+func (s *Store) UpdateUserRoleByID(id int64, role models.Role) error {
+	result, err := s.db.Exec(
+		`UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, role, id,
+	)
+	if err != nil {
+		return fmt.Errorf("updating user role: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("user %d: %w", id, models.ErrNotFound)
+	}
+	return nil
+}
+
+// DeleteUser deletes a user by ID, including their sessions
+func (s *Store) DeleteUser(id int64) error {
+	// Delete sessions first
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("deleting user sessions: %w", err)
+	}
+
+	result, err := s.db.Exec(`DELETE FROM users WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("deleting user: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("user %d: %w", id, models.ErrNotFound)
+	}
+	return nil
+}
+
+// CountAdmins returns the number of admin users
+func (s *Store) CountAdmins() (int, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = ?`, models.RoleAdmin).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting admins: %w", err)
+	}
+	return count, nil
+}
