@@ -96,30 +96,31 @@ func (s *Store) LinkProviderAccount(userID int64, provider, providerID string) e
 	return nil
 }
 
+// maybeUpdateAvatar updates user's avatar if changed, logging warnings on failure
+func (s *Store) maybeUpdateAvatar(user *models.User, thumbURL string) {
+	if thumbURL != "" && thumbURL != user.ThumbURL {
+		if err := s.UpdateUserAvatar(user.Name, thumbURL); err != nil {
+			fmt.Printf("warning: failed to update avatar for %s: %v\n", user.Name, err)
+		}
+		user.ThumbURL = thumbURL
+	}
+}
+
 // GetOrLinkUserByEmail finds user by provider ID first, then by email for account linking.
 // SECURITY: Account linking by email is only performed for OAuth providers (plex, oidc)
 // where the email is verified by the provider. Local accounts are not linked by email.
-// Returns the user and a boolean indicating if a new link was created.
 func (s *Store) GetOrLinkUserByEmail(email, name, provider, providerID, thumbURL string) (*models.User, error) {
 	// First try to find by provider + providerID (exact match)
 	if providerID != "" {
 		user, err := s.GetUserByProvider(provider, providerID)
 		if err == nil {
-			// Update thumb if changed
-			if thumbURL != "" && thumbURL != user.ThumbURL {
-				if err := s.UpdateUserAvatar(user.Name, thumbURL); err != nil {
-					// Log but don't fail - avatar update is not critical
-					fmt.Printf("warning: failed to update avatar for %s: %v\n", user.Name, err)
-				}
-				user.ThumbURL = thumbURL
-			}
+			s.maybeUpdateAvatar(user, thumbURL)
 			return user, nil
 		}
 	}
 
 	// Try to find by email for account linking
 	// SECURITY: Only link for OAuth providers where email is verified
-	// Local provider should NOT auto-link by email
 	if email != "" && provider != "local" {
 		var existingUser models.User
 		err := s.db.QueryRow(
@@ -128,8 +129,6 @@ func (s *Store) GetOrLinkUserByEmail(email, name, provider, providerID, thumbURL
 			&existingUser.ThumbURL, &existingUser.CreatedAt, &existingUser.UpdatedAt)
 
 		if err == nil {
-			// Found existing user with same email - link this provider
-			// Log this security-relevant event
 			fmt.Printf("info: linking provider %s (id=%s) to existing user %s (id=%d) via email %s\n",
 				provider, providerID, existingUser.Name, existingUser.ID, email)
 
@@ -138,12 +137,7 @@ func (s *Store) GetOrLinkUserByEmail(email, name, provider, providerID, thumbURL
 					return nil, fmt.Errorf("linking provider account: %w", err)
 				}
 			}
-			if thumbURL != "" && thumbURL != existingUser.ThumbURL {
-				if err := s.UpdateUserAvatar(existingUser.Name, thumbURL); err != nil {
-					fmt.Printf("warning: failed to update avatar for %s: %v\n", existingUser.Name, err)
-				}
-				existingUser.ThumbURL = thumbURL
-			}
+			s.maybeUpdateAvatar(&existingUser, thumbURL)
 			return &existingUser, nil
 		}
 	}

@@ -162,22 +162,25 @@ func (l *authRateLimiter) cleanupLoop() {
 	}
 }
 
+// filterValid returns only attempts within the time window
+func filterValid(attempts []time.Time, cutoff time.Time) []time.Time {
+	valid := attempts[:0]
+	for _, t := range attempts {
+		if t.After(cutoff) {
+			valid = append(valid, t)
+		}
+	}
+	return valid
+}
+
 // cleanup removes all expired entries
 func (l *authRateLimiter) cleanup() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	now := time.Now()
-	cutoff := now.Add(-l.window)
-
+	cutoff := time.Now().Add(-l.window)
 	for ip, attempts := range l.attempts {
-		valid := attempts[:0]
-		for _, t := range attempts {
-			if t.After(cutoff) {
-				valid = append(valid, t)
-			}
-		}
-		if len(valid) == 0 {
+		if valid := filterValid(attempts, cutoff); len(valid) == 0 {
 			delete(l.attempts, ip)
 		} else {
 			l.attempts[ip] = valid
@@ -189,24 +192,15 @@ func (l *authRateLimiter) allow(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	now := time.Now()
-	cutoff := now.Add(-l.window)
-
-	// Clean old entries
-	attempts := l.attempts[ip]
-	valid := attempts[:0]
-	for _, t := range attempts {
-		if t.After(cutoff) {
-			valid = append(valid, t)
-		}
-	}
+	cutoff := time.Now().Add(-l.window)
+	valid := filterValid(l.attempts[ip], cutoff)
 
 	if len(valid) >= l.limit {
 		l.attempts[ip] = valid
 		return false
 	}
 
-	l.attempts[ip] = append(valid, now)
+	l.attempts[ip] = append(valid, time.Now())
 	return true
 }
 

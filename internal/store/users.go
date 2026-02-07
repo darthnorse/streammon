@@ -280,8 +280,31 @@ func (s *Store) UpdateUserRoleByID(id int64, role models.Role) error {
 // ErrLastAdmin is returned when trying to delete or demote the last admin
 var ErrLastAdmin = errors.New("cannot remove the last admin")
 
+// checkLastAdmin verifies the user exists and checks if removing their admin role
+// would leave no admins. Returns the user's current role (even on ErrLastAdmin).
+func checkLastAdmin(tx *sql.Tx, id int64) (models.Role, error) {
+	var role models.Role
+	err := tx.QueryRow(`SELECT role FROM users WHERE id = ?`, id).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("user %d: %w", id, models.ErrNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("checking user role: %w", err)
+	}
+
+	if role == models.RoleAdmin {
+		var count int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM users WHERE role = ?`, models.RoleAdmin).Scan(&count); err != nil {
+			return role, fmt.Errorf("counting admins: %w", err)
+		}
+		if count <= 1 {
+			return role, ErrLastAdmin
+		}
+	}
+	return role, nil
+}
+
 // DeleteUser deletes a user by ID, including their sessions.
-// Uses a transaction to ensure atomicity.
 // Returns ErrLastAdmin if this is the last admin user.
 func (s *Store) DeleteUser(id int64) error {
 	tx, err := s.db.Begin()
@@ -290,47 +313,23 @@ func (s *Store) DeleteUser(id int64) error {
 	}
 	defer tx.Rollback()
 
-	// Check if this is the last admin (atomic with delete)
-	var role models.Role
-	err = tx.QueryRow(`SELECT role FROM users WHERE id = ?`, id).Scan(&role)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("user %d: %w", id, models.ErrNotFound)
-	}
-	if err != nil {
-		return fmt.Errorf("checking user role: %w", err)
+	if _, err := checkLastAdmin(tx, id); err != nil {
+		return err
 	}
 
-	if role == models.RoleAdmin {
-		var count int
-		err = tx.QueryRow(`SELECT COUNT(*) FROM users WHERE role = ?`, models.RoleAdmin).Scan(&count)
-		if err != nil {
-			return fmt.Errorf("counting admins: %w", err)
-		}
-		if count <= 1 {
-			return ErrLastAdmin
-		}
-	}
-
-	// Delete sessions first
-	_, err = tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, id)
-	if err != nil {
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, id); err != nil {
 		return fmt.Errorf("deleting user sessions: %w", err)
 	}
 
-	// Delete user
 	result, err := tx.Exec(`DELETE FROM users WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("deleting user: %w", err)
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
+	if n, _ := result.RowsAffected(); n == 0 {
 		return fmt.Errorf("user %d: %w", id, models.ErrNotFound)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing transaction: %w", err)
-	}
-	return nil
+	return tx.Commit()
 }
 
 // CountAdmins returns the number of admin users
@@ -345,48 +344,28 @@ func (s *Store) CountAdmins() (int, error) {
 
 // UpdateUserRoleByIDSafe updates a user's role by ID with last-admin protection.
 // Returns ErrLastAdmin if trying to demote the last admin.
-func (s *Store) UpdateUserRoleByIDSafe(id int64, role models.Role) error {
+func (s *Store) UpdateUserRoleByIDSafe(id int64, newRole models.Role) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("beginning transaction: %w", err)
 	}
 	defer tx.Rollback()
 
-	// Check current role
-	var currentRole models.Role
-	err = tx.QueryRow(`SELECT role FROM users WHERE id = ?`, id).Scan(&currentRole)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("user %d: %w", id, models.ErrNotFound)
-	}
-	if err != nil {
-		return fmt.Errorf("checking user role: %w", err)
-	}
-
-	// If demoting an admin, check if they're the last one
-	if currentRole == models.RoleAdmin && role != models.RoleAdmin {
-		var count int
-		err = tx.QueryRow(`SELECT COUNT(*) FROM users WHERE role = ?`, models.RoleAdmin).Scan(&count)
-		if err != nil {
-			return fmt.Errorf("counting admins: %w", err)
-		}
-		if count <= 1 {
-			return ErrLastAdmin
-		}
+	_, err = checkLastAdmin(tx, id)
+	// Block only if demoting (ErrLastAdmin + new role is not admin)
+	if err != nil && !(errors.Is(err, ErrLastAdmin) && newRole == models.RoleAdmin) {
+		return err
 	}
 
 	result, err := tx.Exec(
-		`UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, role, id,
+		`UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, newRole, id,
 	)
 	if err != nil {
 		return fmt.Errorf("updating user role: %w", err)
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
+	if n, _ := result.RowsAffected(); n == 0 {
 		return fmt.Errorf("user %d: %w", id, models.ErrNotFound)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing transaction: %w", err)
-	}
-	return nil
+	return tx.Commit()
 }

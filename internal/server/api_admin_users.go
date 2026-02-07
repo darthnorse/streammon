@@ -34,6 +34,23 @@ func toAdminUserResponse(u *models.User) adminUserResponse {
 	}
 }
 
+// parseUserID extracts and parses the user ID from the URL
+func parseUserID(r *http.Request) (int64, error) {
+	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+}
+
+// writeUserError handles common user operation errors
+func writeUserError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, models.ErrNotFound):
+		writeError(w, http.StatusNotFound, "user not found")
+	case errors.Is(err, store.ErrLastAdmin):
+		writeError(w, http.StatusBadRequest, "cannot remove the last admin")
+	default:
+		writeError(w, http.StatusInternalServerError, "internal")
+	}
+}
+
 func (s *Server) handleAdminListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := s.store.ListUsers()
 	if err != nil {
@@ -49,8 +66,7 @@ func (s *Server) handleAdminListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminGetUser(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := parseUserID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid user id")
 		return
@@ -58,11 +74,7 @@ func (s *Server) handleAdminGetUser(w http.ResponseWriter, r *http.Request) {
 
 	user, err := s.store.GetUserByID(id)
 	if err != nil {
-		if errors.Is(err, models.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "user not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal")
+		writeUserError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toAdminUserResponse(user))
@@ -73,8 +85,7 @@ type updateUserRoleRequest struct {
 }
 
 func (s *Server) handleAdminUpdateUserRole(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := parseUserID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid user id")
 		return
@@ -91,54 +102,33 @@ func (s *Server) handleAdminUpdateUserRole(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Use atomic method that checks for last admin in a transaction
 	if err := s.store.UpdateUserRoleByIDSafe(id, req.Role); err != nil {
-		if errors.Is(err, models.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "user not found")
-			return
-		}
-		if errors.Is(err, store.ErrLastAdmin) {
-			writeError(w, http.StatusBadRequest, "cannot demote the last admin")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal")
+		writeUserError(w, err)
 		return
 	}
 
 	user, err := s.store.GetUserByID(id)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
+		writeUserError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, toAdminUserResponse(user))
 }
 
 func (s *Server) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := parseUserID(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid user id")
 		return
 	}
 
-	// Prevent deleting the current user
-	currentUser := UserFromContext(r.Context())
-	if currentUser != nil && currentUser.ID == id {
+	if currentUser := UserFromContext(r.Context()); currentUser != nil && currentUser.ID == id {
 		writeError(w, http.StatusBadRequest, "cannot delete yourself")
 		return
 	}
 
-	// DeleteUser is atomic and checks for last admin
 	if err := s.store.DeleteUser(id); err != nil {
-		if errors.Is(err, models.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "user not found")
-			return
-		}
-		if errors.Is(err, store.ErrLastAdmin) {
-			writeError(w, http.StatusBadRequest, "cannot delete the last admin")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal")
+		writeUserError(w, err)
 		return
 	}
 

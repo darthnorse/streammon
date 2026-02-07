@@ -33,6 +33,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true
 
+    const fetchCurrentUser = () =>
+      api.get<User>('/api/me')
+        .then(u => mounted && setUser(u))
+        .catch((err: unknown) => {
+          if (mounted && err instanceof ApiError && err.status === 401) {
+            setUser(null)
+          }
+        })
+
     api.get<SetupStatus>('/api/setup/status')
       .then(status => {
         if (!mounted) return
@@ -41,24 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false)
           return
         }
-        return api.get<User>('/api/me')
-          .then(u => mounted && setUser(u))
-          .catch((err: unknown) => {
-            if (mounted && err instanceof ApiError && err.status === 401) {
-              setUser(null)
-            }
-          })
+        return fetchCurrentUser()
       })
-      .catch(() => {
-        if (!mounted) return
-        return api.get<User>('/api/me')
-          .then(u => mounted && setUser(u))
-          .catch((err: unknown) => {
-            if (mounted && err instanceof ApiError && err.status === 401) {
-              setUser(null)
-            }
-          })
-      })
+      .catch(() => mounted && fetchCurrentUser())
       .finally(() => mounted && setLoading(false))
 
     return () => { mounted = false }
