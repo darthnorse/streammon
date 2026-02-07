@@ -220,6 +220,7 @@ type RuleViolation struct {
 	Message         string                 `json:"message"`
 	Details         map[string]interface{} `json:"details,omitempty"`
 	ConfidenceScore float64                `json:"confidence_score"`
+	SessionKey      string                 `json:"session_key,omitempty"` // For deduplication - identifies the stream session
 	OccurredAt      time.Time              `json:"occurred_at"`
 	CreatedAt       time.Time              `json:"created_at"`
 }

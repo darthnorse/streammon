@@ -152,7 +152,15 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *models.Rule, evaluator 
 		return
 	}
 
-	exists, err := e.store.ViolationExistsRecent(rule.ID, result.Violation.UserName, e.violationCooldown)
+	// Set session key from the current stream for session-based deduplication
+	// This prevents duplicate alerts for the same stream session even if it runs > 15 minutes
+	sessionKey := ""
+	if input.Stream != nil && input.Stream.SessionID != "" {
+		sessionKey = input.Stream.SessionID
+		result.Violation.SessionKey = sessionKey
+	}
+
+	exists, err := e.store.ViolationExistsRecent(rule.ID, result.Violation.UserName, sessionKey, e.violationCooldown)
 	if err != nil {
 		log.Printf("rules engine: error checking recent violation: %v", err)
 		return

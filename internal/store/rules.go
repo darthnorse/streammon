@@ -157,13 +157,13 @@ func (s *Store) ListRulesByType(ruleType models.RuleType) ([]models.Rule, error)
 	return scanRuleRows(rows)
 }
 
-const violationColumns = `id, rule_id, user_name, severity, message, details, confidence_score, occurred_at, created_at`
-const violationColumnsWithRule = `v.id, v.rule_id, r.name, r.type, v.user_name, v.severity, v.message, v.details, v.confidence_score, v.occurred_at, v.created_at`
+const violationColumns = `id, rule_id, user_name, severity, message, details, confidence_score, session_key, occurred_at, created_at`
+const violationColumnsWithRule = `v.id, v.rule_id, r.name, r.type, v.user_name, v.severity, v.message, v.details, v.confidence_score, v.session_key, v.occurred_at, v.created_at`
 
 func scanViolation(scanner interface{ Scan(...any) error }) (models.RuleViolation, error) {
 	var v models.RuleViolation
 	var detailsJSON string
-	err := scanner.Scan(&v.ID, &v.RuleID, &v.UserName, &v.Severity, &v.Message, &detailsJSON, &v.ConfidenceScore, &v.OccurredAt, &v.CreatedAt)
+	err := scanner.Scan(&v.ID, &v.RuleID, &v.UserName, &v.Severity, &v.Message, &detailsJSON, &v.ConfidenceScore, &v.SessionKey, &v.OccurredAt, &v.CreatedAt)
 	if err != nil {
 		return v, err
 	}
@@ -178,7 +178,7 @@ func scanViolation(scanner interface{ Scan(...any) error }) (models.RuleViolatio
 func scanViolationWithRule(scanner interface{ Scan(...any) error }) (models.RuleViolation, error) {
 	var v models.RuleViolation
 	var detailsJSON string
-	err := scanner.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.RuleType, &v.UserName, &v.Severity, &v.Message, &detailsJSON, &v.ConfidenceScore, &v.OccurredAt, &v.CreatedAt)
+	err := scanner.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.RuleType, &v.UserName, &v.Severity, &v.Message, &detailsJSON, &v.ConfidenceScore, &v.SessionKey, &v.OccurredAt, &v.CreatedAt)
 	if err != nil {
 		return v, err
 	}
@@ -199,9 +199,9 @@ func (s *Store) InsertViolation(v *models.RuleViolation) error {
 		b, _ := json.Marshal(v.Details)
 		detailsJSON = string(b)
 	}
-	result, err := s.db.Exec(`INSERT INTO rule_violations (rule_id, user_name, severity, message, details, confidence_score, occurred_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		v.RuleID, v.UserName, v.Severity, v.Message, detailsJSON, v.ConfidenceScore, v.OccurredAt)
+	result, err := s.db.Exec(`INSERT INTO rule_violations (rule_id, user_name, severity, message, details, confidence_score, session_key, occurred_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.RuleID, v.UserName, v.Severity, v.Message, detailsJSON, v.ConfidenceScore, v.SessionKey, v.OccurredAt)
 	if err != nil {
 		return fmt.Errorf("inserting violation: %w", err)
 	}
@@ -694,11 +694,24 @@ func (s *Store) GetChannelsForRule(ruleID int64) ([]models.NotificationChannel, 
 	return channels, rows.Err()
 }
 
-func (s *Store) ViolationExistsRecent(ruleID int64, userName string, within time.Duration) (bool, error) {
-	since := time.Now().UTC().Add(-within)
+// ViolationExistsRecent checks if a recent violation exists.
+// If sessionKey is provided, it checks for an existing violation with that session key (ignoring time).
+// Otherwise, it falls back to time-based deduplication using the within duration.
+func (s *Store) ViolationExistsRecent(ruleID int64, userName, sessionKey string, within time.Duration) (bool, error) {
 	var count int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM rule_violations WHERE rule_id = ? AND user_name = ? AND occurred_at >= ?`,
-		ruleID, userName, since).Scan(&count)
+	var err error
+
+	if sessionKey != "" {
+		// Session-based deduplication: check if this exact session already has a violation
+		err = s.db.QueryRow(`SELECT COUNT(*) FROM rule_violations WHERE rule_id = ? AND user_name = ? AND session_key = ?`,
+			ruleID, userName, sessionKey).Scan(&count)
+	} else {
+		// Time-based deduplication fallback
+		since := time.Now().UTC().Add(-within)
+		err = s.db.QueryRow(`SELECT COUNT(*) FROM rule_violations WHERE rule_id = ? AND user_name = ? AND occurred_at >= ?`,
+			ruleID, userName, since).Scan(&count)
+	}
+
 	if err != nil {
 		return false, fmt.Errorf("checking recent violation: %w", err)
 	}
@@ -721,9 +734,9 @@ func (s *Store) InsertViolationWithTx(ctx context.Context, v *models.RuleViolati
 		b, _ := json.Marshal(v.Details)
 		detailsJSON = string(b)
 	}
-	result, err := tx.ExecContext(ctx, `INSERT INTO rule_violations (rule_id, user_name, severity, message, details, confidence_score, occurred_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		v.RuleID, v.UserName, v.Severity, v.Message, detailsJSON, v.ConfidenceScore, v.OccurredAt)
+	result, err := tx.ExecContext(ctx, `INSERT INTO rule_violations (rule_id, user_name, severity, message, details, confidence_score, session_key, occurred_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.RuleID, v.UserName, v.Severity, v.Message, detailsJSON, v.ConfidenceScore, v.SessionKey, v.OccurredAt)
 	if err != nil {
 		return fmt.Errorf("inserting violation: %w", err)
 	}

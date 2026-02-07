@@ -426,7 +426,8 @@ func TestViolationExistsRecent(t *testing.T) {
 	rule := &models.Rule{Name: "Test", Type: models.RuleTypeConcurrentStreams, Enabled: true, Config: json.RawMessage(`{}`)}
 	s.CreateRule(rule)
 
-	exists, err := s.ViolationExistsRecent(rule.ID, "testuser", time.Hour)
+	// Test time-based deduplication (no session key)
+	exists, err := s.ViolationExistsRecent(rule.ID, "testuser", "", time.Hour)
 	if err != nil {
 		t.Fatalf("ViolationExistsRecent: %v", err)
 	}
@@ -444,7 +445,7 @@ func TestViolationExistsRecent(t *testing.T) {
 	}
 	s.InsertViolation(v)
 
-	exists, err = s.ViolationExistsRecent(rule.ID, "testuser", time.Hour)
+	exists, err = s.ViolationExistsRecent(rule.ID, "testuser", "", time.Hour)
 	if err != nil {
 		t.Fatalf("ViolationExistsRecent after insert: %v", err)
 	}
@@ -452,12 +453,57 @@ func TestViolationExistsRecent(t *testing.T) {
 		t.Error("expected recent violation to exist")
 	}
 
-	exists, err = s.ViolationExistsRecent(rule.ID, "otheruser", time.Hour)
+	exists, err = s.ViolationExistsRecent(rule.ID, "otheruser", "", time.Hour)
 	if err != nil {
 		t.Fatalf("ViolationExistsRecent for other user: %v", err)
 	}
 	if exists {
 		t.Error("expected no recent violation for other user")
+	}
+}
+
+func TestViolationExistsRecentWithSessionKey(t *testing.T) {
+	s := setupTestStore(t)
+
+	rule := &models.Rule{Name: "Test", Type: models.RuleTypeConcurrentStreams, Enabled: true, Config: json.RawMessage(`{}`)}
+	s.CreateRule(rule)
+
+	// Test session-based deduplication
+	exists, err := s.ViolationExistsRecent(rule.ID, "testuser", "session123", time.Hour)
+	if err != nil {
+		t.Fatalf("ViolationExistsRecent: %v", err)
+	}
+	if exists {
+		t.Error("expected no violation for session")
+	}
+
+	v := &models.RuleViolation{
+		RuleID:          rule.ID,
+		UserName:        "testuser",
+		Severity:        models.SeverityWarning,
+		Message:         "test",
+		ConfidenceScore: 80,
+		SessionKey:      "session123",
+		OccurredAt:      time.Now().UTC(),
+	}
+	s.InsertViolation(v)
+
+	// Same session should find existing violation
+	exists, err = s.ViolationExistsRecent(rule.ID, "testuser", "session123", time.Hour)
+	if err != nil {
+		t.Fatalf("ViolationExistsRecent after insert: %v", err)
+	}
+	if !exists {
+		t.Error("expected violation to exist for same session")
+	}
+
+	// Different session should not find violation
+	exists, err = s.ViolationExistsRecent(rule.ID, "testuser", "session456", time.Hour)
+	if err != nil {
+		t.Fatalf("ViolationExistsRecent for different session: %v", err)
+	}
+	if exists {
+		t.Error("expected no violation for different session")
 	}
 }
 
