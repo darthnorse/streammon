@@ -14,6 +14,7 @@ type rateLimiter struct {
 	requests map[string][]time.Time
 	limit    int
 	window   time.Duration
+	done     chan struct{}
 }
 
 func newRateLimiter(limit int, window time.Duration) *rateLimiter {
@@ -21,33 +22,41 @@ func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 		requests: make(map[string][]time.Time),
 		limit:    limit,
 		window:   window,
+		done:     make(chan struct{}),
 	}
-	// Start cleanup goroutine
 	go rl.cleanup()
 	return rl
+}
+
+func (rl *rateLimiter) stop() {
+	close(rl.done)
 }
 
 func (rl *rateLimiter) cleanup() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		rl.mu.Lock()
-		now := time.Now()
-		for ip, times := range rl.requests {
-			// Remove entries older than window
-			valid := times[:0]
-			for _, t := range times {
-				if now.Sub(t) <= rl.window {
-					valid = append(valid, t)
+	for {
+		select {
+		case <-rl.done:
+			return
+		case <-ticker.C:
+			rl.mu.Lock()
+			now := time.Now().UTC()
+			for ip, times := range rl.requests {
+				valid := times[:0]
+				for _, t := range times {
+					if now.Sub(t) <= rl.window {
+						valid = append(valid, t)
+					}
+				}
+				if len(valid) == 0 {
+					delete(rl.requests, ip)
+				} else {
+					rl.requests[ip] = valid
 				}
 			}
-			if len(valid) == 0 {
-				delete(rl.requests, ip)
-			} else {
-				rl.requests[ip] = valid
-			}
+			rl.mu.Unlock()
 		}
-		rl.mu.Unlock()
 	}
 }
 
@@ -55,7 +64,7 @@ func (rl *rateLimiter) allow(ip string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	now := time.Now()
+	now := time.Now().UTC()
 	times := rl.requests[ip]
 
 	// Filter to only requests within window
@@ -78,17 +87,17 @@ func (rl *rateLimiter) allow(ip string) bool {
 // Global rate limiter for search endpoints: 30 requests per minute per IP
 var searchRateLimiter = newRateLimiter(30, time.Minute)
 
+// StopRateLimiter stops the global rate limiter's cleanup goroutine.
+// Call this during server shutdown.
+func StopRateLimiter() {
+	searchRateLimiter.stop()
+}
+
 func rateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Only rate limit GET requests with search parameter
 		if r.Method == http.MethodGet && r.URL.Query().Get("search") != "" {
-			ip := r.RemoteAddr
-			// Try to get real IP from X-Forwarded-For if behind proxy
-			if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-				ip = xff
-			}
-
-			if !searchRateLimiter.allow(ip) {
+			if !searchRateLimiter.allow(r.RemoteAddr) {
 				w.Header().Set("Retry-After", "60")
 				http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
 				return

@@ -152,6 +152,7 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("Shutting down...")
+	server.StopRateLimiter()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {

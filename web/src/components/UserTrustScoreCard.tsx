@@ -53,18 +53,19 @@ export function UserTrustScoreCard({ userName, onViolationsClick }: UserTrustSco
 
   const score = trustScore?.score ?? 100
   const violations = trustScore?.violation_count ?? 0
+  const scoreColor = getScoreColor(score)
 
   return (
     <div className="card p-4">
       <div className="flex items-center gap-3">
-        <div className={`text-2xl ${getScoreColor(score)}`}>{getScoreIcon(score)}</div>
+        <div className={`text-2xl ${scoreColor}`}>{getScoreIcon(score)}</div>
         <div>
           <div className="flex items-baseline gap-2">
-            <span className={`text-2xl font-semibold ${getScoreColor(score)}`}>{score}</span>
-            {violations > 0 && (
+            <span className={`text-2xl font-semibold ${scoreColor}`}>{score}</span>
+            {violations > 0 && onViolationsClick && (
               <button
                 onClick={onViolationsClick}
-                className="text-xs text-amber-400 hover:text-amber-300 hover:underline transition-colors"
+                className="text-xs text-amber-400 hover:text-amber-300 hover:underline transition-colors focus:outline-none focus:ring-2 focus:ring-amber-400 focus:ring-offset-1 focus:ring-offset-surface dark:focus:ring-offset-surface-dark rounded"
               >
                 ({violations} violation{violations !== 1 ? 's' : ''})
               </button>

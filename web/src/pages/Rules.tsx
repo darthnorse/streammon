@@ -2,17 +2,14 @@ import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import type { Rule, RuleViolation, NotificationChannel, PaginatedResult } from '../types'
 import { RULE_TYPE_LABELS } from '../types'
+import { SEVERITY_COLORS, PER_PAGE } from '../lib/constants'
+import { formatDate } from '../lib/format'
 import { RuleForm } from '../components/RuleForm'
 import { NotificationChannelForm } from '../components/NotificationChannelForm'
+import { Pagination } from '../components/Pagination'
 import { api } from '../lib/api'
 
 type Tab = 'rules' | 'violations' | 'notifications'
-
-const SEVERITY_COLORS: Record<string, string> = {
-  info: 'bg-blue-500/20 text-blue-400',
-  warning: 'bg-amber-500/20 text-amber-400',
-  critical: 'bg-red-500/20 text-red-400',
-}
 
 export function Rules() {
   const [tab, setTab] = useState<Tab>('rules')
@@ -24,7 +21,7 @@ export function Rules() {
 
   const { data: rules, refetch: refetchRules } = useFetch<Rule[]>('/api/rules')
   const { data: violations } = useFetch<PaginatedResult<RuleViolation>>(
-    tab === 'violations' ? `/api/violations?page=${page}&per_page=20` : null
+    tab === 'violations' ? `/api/violations?page=${page}&per_page=${PER_PAGE}` : null
   )
   const { data: channels, refetch: refetchChannels } = useFetch<NotificationChannel[]>(
     tab === 'notifications' ? '/api/notifications' : null
@@ -203,7 +200,7 @@ export function Rules() {
                     {violations.items.map((v) => (
                       <tr key={v.id} className="text-sm">
                         <td className="py-3 whitespace-nowrap">
-                          {new Date(v.occurred_at).toLocaleString()}
+                          {formatDate(v.occurred_at)}
                         </td>
                         <td className="py-3 font-medium">{v.user_name}</td>
                         <td className="py-3">{v.rule_name}</td>
@@ -220,27 +217,11 @@ export function Rules() {
                 </table>
               </div>
 
-              {violations.total > 20 && (
-                <div className="flex justify-center gap-2">
-                  <button
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="px-3 py-1 text-sm rounded border border-border dark:border-border-dark disabled:opacity-50"
-                  >
-                    Previous
-                  </button>
-                  <span className="px-3 py-1 text-sm">
-                    Page {page} of {Math.ceil(violations.total / 20)}
-                  </span>
-                  <button
-                    onClick={() => setPage((p) => p + 1)}
-                    disabled={page >= Math.ceil(violations.total / 20)}
-                    className="px-3 py-1 text-sm rounded border border-border dark:border-border-dark disabled:opacity-50"
-                  >
-                    Next
-                  </button>
-                </div>
-              )}
+              <Pagination
+                page={page}
+                totalPages={Math.ceil(violations.total / PER_PAGE)}
+                onPageChange={setPage}
+              />
             </>
           )}
         </div>

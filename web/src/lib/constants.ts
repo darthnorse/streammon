@@ -1,4 +1,4 @@
-import type { MediaType } from '../types'
+import type { MediaType, Severity } from '../types'
 
 export const mediaTypeLabels: Record<MediaType, string> = {
   movie: 'Movie',
@@ -28,3 +28,9 @@ export const navLinks = [
   { to: '/rules', label: 'Rules', icon: 'ShieldAlert' },
   { to: '/settings', label: 'Settings', icon: 'Settings' },
 ] as const
+
+export const SEVERITY_COLORS: Record<Severity, string> = {
+  info: 'bg-blue-500/20 text-blue-400',
+  warning: 'bg-amber-500/20 text-amber-400',
+  critical: 'bg-red-500/20 text-red-400',
+}

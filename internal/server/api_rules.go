@@ -128,9 +128,16 @@ func (s *Server) handleListViolations(w http.ResponseWriter, r *http.Request) {
 		perPage = 50
 	}
 
-	filters := store.ViolationFilters{
-		UserName: r.URL.Query().Get("user"),
-		Severity: models.Severity(r.URL.Query().Get("severity")),
+	var filters store.ViolationFilters
+	filters.UserName = r.URL.Query().Get("user")
+
+	if severity := r.URL.Query().Get("severity"); severity != "" {
+		sev := models.Severity(severity)
+		if !sev.Valid() {
+			writeError(w, http.StatusBadRequest, "invalid severity value")
+			return
+		}
+		filters.Severity = sev
 	}
 
 	if ruleID := r.URL.Query().Get("rule_id"); ruleID != "" {
@@ -138,17 +145,30 @@ func (s *Server) handleListViolations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if ruleType := r.URL.Query().Get("rule_type"); ruleType != "" {
-		filters.RuleType = models.RuleType(ruleType)
+		rt := models.RuleType(ruleType)
+		if !rt.Valid() {
+			writeError(w, http.StatusBadRequest, "invalid rule_type value")
+			return
+		}
+		filters.RuleType = rt
 	}
 
 	if minConf := r.URL.Query().Get("min_confidence"); minConf != "" {
-		filters.MinConfidence, _ = strconv.ParseFloat(minConf, 64)
+		conf, err := strconv.ParseFloat(minConf, 64)
+		if err != nil || conf < 0 || conf > 100 {
+			writeError(w, http.StatusBadRequest, "min_confidence must be between 0 and 100")
+			return
+		}
+		filters.MinConfidence = conf
 	}
 
 	if since := r.URL.Query().Get("since"); since != "" {
-		if t, err := time.Parse(time.RFC3339, since); err == nil {
-			filters.Since = t
+		t, err := time.Parse(time.RFC3339, since)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid since timestamp format")
+			return
 		}
+		filters.Since = t
 	}
 
 	result, err := s.store.ListViolations(page, perPage, filters)
