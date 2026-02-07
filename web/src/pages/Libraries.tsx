@@ -500,6 +500,11 @@ function CandidatesView({
     (c) => c.id
   )
 
+  const hasSelection = selected.size > 0
+  const selectedSize = hasSelection
+    ? selectedItems.reduce((sum, c) => sum + (c.item?.file_size || 0), 0)
+    : 0
+
   useEffect(() => {
     setPage(1)
     clearSelection()
@@ -637,21 +642,18 @@ function CandidatesView({
       <div className="grid grid-cols-3 gap-4">
         <div className="card p-4">
           <div className="text-sm text-muted dark:text-muted-dark mb-1">
-            {selected.size > 0 ? 'Selected' : 'Items'}
+            {hasSelection ? 'Selected' : 'Items'}
           </div>
           <div className="text-2xl font-semibold">
-            {formatCount(selected.size > 0 ? selected.size : (data?.total ?? 0))}
+            {formatCount(hasSelection ? selected.size : (data?.total ?? 0))}
           </div>
         </div>
         <div className="card p-4">
           <div className="text-sm text-muted dark:text-muted-dark mb-1">
-            {selected.size > 0 ? 'Selected Size' : 'Total Size'}
+            {hasSelection ? 'Selected Size' : 'Total Size'}
           </div>
           <div className="text-2xl font-semibold">
-            {formatSize(selected.size > 0
-              ? selectedItems.reduce((sum, c) => sum + (c.item?.file_size || 0), 0)
-              : (data?.total_size ?? 0)
-            )}
+            {formatSize(hasSelection ? selectedSize : (data?.total_size ?? 0))}
           </div>
         </div>
         <div className="card p-4">
