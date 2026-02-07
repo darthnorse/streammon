@@ -37,7 +37,7 @@ export function MobileNav() {
                     bg-panel dark:bg-panel-dark
                     border-t border-border dark:border-border-dark
                     pb-[env(safe-area-inset-bottom)]">
-      <div className="flex items-center justify-around h-16">
+      <div className="flex items-center h-16 overflow-x-auto scrollbar-hide">
         {navLinks.map(link => {
           const Icon = iconMap[link.icon]
           return (
@@ -47,7 +47,7 @@ export function MobileNav() {
               end={link.to === '/'}
               onClick={handleNavClick(link.to)}
               className={({ isActive }) =>
-                `flex flex-col items-center gap-1 px-3 py-2 min-w-[64px]
+                `flex flex-col items-center gap-1 px-4 py-2 min-w-[72px] flex-shrink-0
                  text-xs font-medium transition-colors
                  ${isActive
                    ? 'text-accent-dim dark:text-accent'
