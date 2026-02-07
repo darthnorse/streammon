@@ -69,7 +69,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const logout = async () => {
-    await api.post('/auth/logout')
+    try {
+      await api.post('/auth/logout')
+    } catch {
+      // Ignore logout errors - session may already be expired
+    }
     setUser(null)
   }
 

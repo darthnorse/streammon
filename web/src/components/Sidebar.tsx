@@ -68,7 +68,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-3 py-4 border-t border-border dark:border-border-dark">
-        {user && user.name !== 'admin' && (
+        {user && (
           <div className="mb-3">
             <div className="text-xs text-muted dark:text-muted-dark truncate mb-1">
               {user.name}

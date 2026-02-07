@@ -125,6 +125,8 @@ type authRateLimiter struct {
 	attempts map[string][]time.Time
 	limit    int
 	window   time.Duration
+	stopOnce sync.Once
+	stopCh   chan struct{}
 }
 
 func newAuthRateLimiter(limit int, window time.Duration) *authRateLimiter {
@@ -132,18 +134,31 @@ func newAuthRateLimiter(limit int, window time.Duration) *authRateLimiter {
 		attempts: make(map[string][]time.Time),
 		limit:    limit,
 		window:   window,
+		stopCh:   make(chan struct{}),
 	}
 	// Start background cleanup goroutine to prevent memory growth
 	go rl.cleanupLoop()
 	return rl
 }
 
+// Stop gracefully shuts down the cleanup goroutine
+func (l *authRateLimiter) Stop() {
+	l.stopOnce.Do(func() {
+		close(l.stopCh)
+	})
+}
+
 // cleanupLoop periodically removes stale entries from the rate limiter
 func (l *authRateLimiter) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		l.cleanup()
+	for {
+		select {
+		case <-l.stopCh:
+			return
+		case <-ticker.C:
+			l.cleanup()
+		}
 	}
 }
 

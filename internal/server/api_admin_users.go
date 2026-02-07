@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"streammon/internal/models"
+	"streammon/internal/store"
 )
 
 type adminUserResponse struct {
@@ -90,41 +91,25 @@ func (s *Server) handleAdminUpdateUserRole(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Prevent demoting the last admin
-	if req.Role == models.RoleViewer {
-		user, err := s.store.GetUserByID(id)
-		if err != nil {
-			if errors.Is(err, models.ErrNotFound) {
-				writeError(w, http.StatusNotFound, "user not found")
-				return
-			}
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-
-		if user.Role == models.RoleAdmin {
-			count, err := s.store.CountAdmins()
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, "internal")
-				return
-			}
-			if count <= 1 {
-				writeError(w, http.StatusBadRequest, "cannot demote the last admin")
-				return
-			}
-		}
-	}
-
-	if err := s.store.UpdateUserRoleByID(id, req.Role); err != nil {
+	// Use atomic method that checks for last admin in a transaction
+	if err := s.store.UpdateUserRoleByIDSafe(id, req.Role); err != nil {
 		if errors.Is(err, models.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		if errors.Is(err, store.ErrLastAdmin) {
+			writeError(w, http.StatusBadRequest, "cannot demote the last admin")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 
-	user, _ := s.store.GetUserByID(id)
+	user, err := s.store.GetUserByID(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
 	writeJSON(w, http.StatusOK, toAdminUserResponse(user))
 }
 
@@ -143,32 +128,14 @@ func (s *Server) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prevent deleting the last admin
-	user, err := s.store.GetUserByID(id)
-	if err != nil {
-		if errors.Is(err, models.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "user not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-
-	if user.Role == models.RoleAdmin {
-		count, err := s.store.CountAdmins()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-		if count <= 1 {
-			writeError(w, http.StatusBadRequest, "cannot delete the last admin")
-			return
-		}
-	}
-
+	// DeleteUser is atomic and checks for last admin
 	if err := s.store.DeleteUser(id); err != nil {
 		if errors.Is(err, models.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "user not found")
+			return
+		}
+		if errors.Is(err, store.ErrLastAdmin) {
+			writeError(w, http.StatusBadRequest, "cannot delete the last admin")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "internal")

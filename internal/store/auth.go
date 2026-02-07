@@ -12,7 +12,7 @@ import (
 // GetUserByUsername retrieves a user by username along with password hash
 func (s *Store) GetUserByUsername(username string) (*models.User, string, error) {
 	var u models.User
-	var passwordHash string
+	var passwordHash sql.NullString
 	err := s.db.QueryRow(
 		`SELECT id, name, email, role, thumb_url, created_at, updated_at, password_hash
 		 FROM users WHERE name = ?`, username,
@@ -24,7 +24,7 @@ func (s *Store) GetUserByUsername(username string) (*models.User, string, error)
 	if err != nil {
 		return nil, "", fmt.Errorf("getting user by username: %w", err)
 	}
-	return &u, passwordHash, nil
+	return &u, passwordHash.String, nil
 }
 
 // GetUserByProvider retrieves a user by provider type and provider-specific ID

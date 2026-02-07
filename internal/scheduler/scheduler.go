@@ -68,20 +68,41 @@ func (sch *Scheduler) run(ctx context.Context) {
 		log.Printf("scheduler: initial sync failed: %v", err)
 	}
 
-	ticker := time.NewTicker(durationUntil3AM(time.Now()))
-	defer ticker.Stop()
+	// Clean expired sessions on startup
+	sch.cleanupSessions()
+
+	syncTicker := time.NewTicker(durationUntil3AM(time.Now()))
+	defer syncTicker.Stop()
+
+	// Session cleanup every hour
+	sessionTicker := time.NewTicker(1 * time.Hour)
+	defer sessionTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-syncTicker.C:
 			if err := sch.SyncAll(ctx); err != nil {
 				log.Printf("scheduler: daily sync failed: %v", err)
 			}
 			// Recalculate to handle DST transitions
-			ticker.Reset(durationUntil3AM(time.Now()))
+			syncTicker.Reset(durationUntil3AM(time.Now()))
+		case <-sessionTicker.C:
+			sch.cleanupSessions()
 		}
+	}
+}
+
+// cleanupSessions removes expired sessions from the database
+func (sch *Scheduler) cleanupSessions() {
+	deleted, err := sch.store.DeleteExpiredSessions()
+	if err != nil {
+		log.Printf("scheduler: session cleanup failed: %v", err)
+		return
+	}
+	if deleted > 0 {
+		log.Printf("scheduler: cleaned up %d expired sessions", deleted)
 	}
 }
 
