@@ -562,6 +562,7 @@ function CandidatesView({
       const decoder = new TextDecoder()
       let buffer = ''
       let finalResult: BulkDeleteResult | null = null
+      let isCompleteEvent = false
 
       while (true) {
         const { done, value } = await reader.read()
@@ -572,36 +573,27 @@ function CandidatesView({
         buffer = lines.pop() || ''
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (line === 'event: complete') {
+            isCompleteEvent = true
+          } else if (line.startsWith('data: ')) {
             const data = JSON.parse(line.slice(6))
-            if (mountedRef.current) {
+            if (isCompleteEvent) {
+              finalResult = data
+            } else if (mountedRef.current) {
               setDeleteProgress(data)
             }
-          } else if (line.startsWith('event: complete')) {
-            // Next data line will be the final result
-          } else if (line.startsWith('data: ') && finalResult === null) {
-            // This shouldn't happen but handle it
-          }
-          // Check if this is the complete event data
-          if (buffer.startsWith('data: ') && lines[lines.length - 1] === 'event: complete') {
-            // Will be handled in next iteration
-          }
-        }
-
-        // Check for complete event in buffer
-        if (buffer.includes('event: complete')) {
-          const completeMatch = buffer.match(/event: complete\ndata: (.+)/)
-          if (completeMatch) {
-            finalResult = JSON.parse(completeMatch[1])
           }
         }
       }
 
-      // Process any remaining buffer for final result
-      if (!finalResult && buffer) {
-        const completeMatch = buffer.match(/event: complete\ndata: (.+)/)
-        if (completeMatch) {
-          finalResult = JSON.parse(completeMatch[1])
+      // Process any remaining data in buffer
+      if (!finalResult) {
+        for (const line of buffer.split('\n')) {
+          if (line === 'event: complete') {
+            isCompleteEvent = true
+          } else if (line.startsWith('data: ') && isCompleteEvent) {
+            finalResult = JSON.parse(line.slice(6))
+          }
         }
       }
 
