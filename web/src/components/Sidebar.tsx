@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import { navLinks } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
@@ -24,6 +24,16 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 
 export function Sidebar() {
   const { user, logout } = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  const handleNavClick = (to: string) => (e: React.MouseEvent) => {
+    // Always navigate to root of section when sidebar link is clicked
+    if (location.pathname !== to) {
+      e.preventDefault()
+      navigate(to)
+    }
+  }
 
   return (
     <aside className="hidden lg:flex flex-col w-60 h-screen sticky top-0
@@ -43,6 +53,7 @@ export function Sidebar() {
               key={link.to}
               to={link.to}
               end={link.to === '/'}
+              onClick={handleNavClick(link.to)}
               className={({ isActive }) =>
                 `nav-item ${isActive ? 'active' : ''}`
               }

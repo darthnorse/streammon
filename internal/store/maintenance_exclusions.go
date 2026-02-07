@@ -164,22 +164,37 @@ func (s *Store) CountExclusionsForRule(ctx context.Context, ruleID int64) (int, 
 	return count, nil
 }
 
-func (s *Store) ListExclusionsForRule(ctx context.Context, ruleID int64, page, perPage int) (*models.PaginatedResult[models.MaintenanceExclusion], error) {
+func (s *Store) ListExclusionsForRule(ctx context.Context, ruleID int64, page, perPage int, search string) (*models.PaginatedResult[models.MaintenanceExclusion], error) {
 	var total int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM maintenance_exclusions WHERE rule_id = ?`, ruleID).Scan(&total)
+	var args []any
+
+	baseWhere := `e.rule_id = ?`
+	args = append(args, ruleID)
+
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		baseWhere += ` AND (i.title LIKE ? OR CAST(i.year AS TEXT) LIKE ?)`
+		args = append(args, searchPattern, searchPattern)
+	}
+
+	countQuery := `
+		SELECT COUNT(*) FROM maintenance_exclusions e
+		JOIN library_items i ON e.library_item_id = i.id
+		WHERE ` + baseWhere
+	err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, fmt.Errorf("count exclusions: %w", err)
 	}
 
 	offset := (page - 1) * perPage
+	listArgs := append(args, perPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+exclusionSelectColumns+`
 		FROM maintenance_exclusions e
 		JOIN library_items i ON e.library_item_id = i.id
-		WHERE e.rule_id = ?
+		WHERE `+baseWhere+`
 		ORDER BY e.excluded_at DESC
-		LIMIT ? OFFSET ?`, ruleID, perPage, offset)
+		LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("list exclusions: %w", err)
 	}

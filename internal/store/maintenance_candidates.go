@@ -58,26 +58,39 @@ func (s *Store) DeleteCandidatesForRule(ctx context.Context, ruleID int64) error
 }
 
 // ListCandidatesForRule returns candidates with their library items, excluding excluded items
-func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int) (*models.PaginatedResult[models.MaintenanceCandidate], error) {
+func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int, search string) (*models.PaginatedResult[models.MaintenanceCandidate], error) {
 	var total int
-	err := s.db.QueryRowContext(ctx, `
+	var args []any
+
+	baseWhere := `c.rule_id = ? AND e.id IS NULL`
+	args = append(args, ruleID)
+
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		baseWhere += ` AND (i.title LIKE ? OR CAST(i.year AS TEXT) LIKE ? OR i.video_resolution LIKE ? OR c.reason LIKE ?)`
+		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
+	}
+
+	countQuery := `
 		SELECT COUNT(*) FROM maintenance_candidates c
+		JOIN library_items i ON c.library_item_id = i.id
 		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
-		WHERE c.rule_id = ? AND e.id IS NULL`, ruleID).Scan(&total)
+		WHERE ` + baseWhere
+	err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, fmt.Errorf("count candidates: %w", err)
 	}
 
 	offset := (page - 1) * perPage
+	listArgs := append(args, perPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
 		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
-		WHERE c.rule_id = ? AND e.id IS NULL
+		WHERE `+baseWhere+`
 		ORDER BY i.added_at DESC
-		LIMIT ? OFFSET ?`,
-		ruleID, perPage, offset)
+		LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("list candidates: %w", err)
 	}

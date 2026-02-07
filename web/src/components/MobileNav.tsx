@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { navLinks } from '../lib/constants'
 import {
   LayoutDashboard,
@@ -21,6 +21,17 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 }
 
 export function MobileNav() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  const handleNavClick = (to: string) => (e: React.MouseEvent) => {
+    // Always navigate to root of section when nav link is clicked
+    if (location.pathname !== to) {
+      e.preventDefault()
+      navigate(to)
+    }
+  }
+
   return (
     <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-50
                     bg-panel dark:bg-panel-dark
@@ -34,6 +45,7 @@ export function MobileNav() {
               key={link.to}
               to={link.to}
               end={link.to === '/'}
+              onClick={handleNavClick(link.to)}
               className={({ isActive }) =>
                 `flex flex-col items-center gap-1 px-3 py-2 min-w-[64px]
                  text-xs font-medium transition-colors

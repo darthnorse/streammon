@@ -421,8 +421,9 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, perPage := parsePagination(r, 20, 100)
+	search := r.URL.Query().Get("search")
 
-	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, page, perPage)
+	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, page, perPage, search)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list candidates")
 		return
@@ -585,8 +586,9 @@ func (s *Server) handleListExclusions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	page, perPage := parsePagination(r, 20, 100)
+	search := r.URL.Query().Get("search")
 
-	result, err := s.store.ListExclusionsForRule(r.Context(), ruleID, page, perPage)
+	result, err := s.store.ListExclusionsForRule(r.Context(), ruleID, page, perPage, search)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list exclusions")
 		return

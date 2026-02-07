@@ -467,7 +467,9 @@ function CandidatesView({
   onManageExclusions: () => void
 }) {
   const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = useState(PER_PAGE)
   const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<MaintenanceCandidate[] | null>(null)
   const [excludeConfirm, setExcludeConfirm] = useState<MaintenanceCandidate[] | null>(null)
   const [showDetails, setShowDetails] = useState(false)
@@ -476,24 +478,24 @@ function CandidatesView({
   const [rowMenuOpen, setRowMenuOpen] = useState<number | null>(null)
   const mountedRef = useMountedRef()
 
+  const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
   const { data, loading, refetch } = useFetch<MaintenanceCandidatesResponse>(
-    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${PER_PAGE}`
+    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}`
   )
 
-  const totalPages = data ? Math.ceil(data.total / PER_PAGE) : 0
+  const totalPages = data ? Math.ceil(data.total / perPage) : 0
+  const filteredItems = data?.items || []
 
-  const filteredItems = useMemo(() => {
-    if (!data?.items || !search.trim()) return data?.items || []
-    const searchLower = search.toLowerCase()
-    return data.items.filter(c => {
-      const title = c.item?.title?.toLowerCase() || ''
-      const year = String(c.item?.year || '')
-      const resolution = c.item?.video_resolution?.toLowerCase() || ''
-      const reason = c.reason.toLowerCase()
-      return title.includes(searchLower) || year.includes(searchLower) ||
-             resolution.includes(searchLower) || reason.includes(searchLower)
-    })
-  }, [data?.items, search])
+  // Debounced search - update actual search after user stops typing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== search) {
+        setSearch(searchInput)
+        setPage(1)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput, search])
 
   const {
     selected,
@@ -503,15 +505,15 @@ function CandidatesView({
     allVisibleSelected,
     selectedItems,
   } = useMultiSelect(
-    data?.items || [],
-    (c) => c.id,
-    () => filteredItems
+    filteredItems,
+    (c) => c.id
   )
 
   useEffect(() => {
     setPage(1)
     clearSelection()
     setSearch('')
+    setSearchInput('')
   }, [rule.id, clearSelection])
 
   // Clamp page to valid range after data changes (e.g., after delete)
@@ -642,11 +644,25 @@ function CandidatesView({
         />
       )}
 
-      <SearchInput
-        value={search}
-        onChange={setSearch}
-        placeholder="Search title, year, resolution..."
-      />
+      <div className="flex gap-4 items-center">
+        <SearchInput
+          value={searchInput}
+          onChange={setSearchInput}
+          placeholder="Search title, year, resolution..."
+        />
+        <div className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark">
+          <span>Show</span>
+          <select
+            value={perPage}
+            onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1) }}
+            className="px-2 py-1 rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
+          >
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
+      </div>
 
       <SelectionActionBar selectedCount={selected.size}>
         <button
@@ -674,7 +690,7 @@ function CandidatesView({
         </div>
       ) : (
         <>
-          <div className="card overflow-hidden">
+          <div className="card">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -844,26 +860,31 @@ function ExclusionsView({
   onBack: () => void
 }) {
   const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = useState(PER_PAGE)
   const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [operating, setOperating] = useState(false)
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const mountedRef = useMountedRef()
 
+  const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
   const { data, loading, refetch } = useFetch<MaintenanceExclusionsResponse>(
-    `/api/maintenance/rules/${rule.id}/exclusions?page=${page}&per_page=${PER_PAGE}`
+    `/api/maintenance/rules/${rule.id}/exclusions?page=${page}&per_page=${perPage}${searchParam}`
   )
 
-  const totalPages = data ? Math.ceil(data.total / PER_PAGE) : 0
+  const totalPages = data ? Math.ceil(data.total / perPage) : 0
+  const filteredItems = data?.items || []
 
-  const filteredItems = useMemo(() => {
-    if (!data?.items || !search.trim()) return data?.items || []
-    const searchLower = search.toLowerCase()
-    return data.items.filter(e => {
-      const title = e.item?.title?.toLowerCase() || ''
-      const year = String(e.item?.year || '')
-      return title.includes(searchLower) || year.includes(searchLower)
-    })
-  }, [data?.items, search])
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== search) {
+        setSearch(searchInput)
+        setPage(1)
+      }
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [searchInput, search])
 
   const {
     selected,
@@ -872,9 +893,8 @@ function ExclusionsView({
     clearSelection,
     allVisibleSelected,
   } = useMultiSelect(
-    data?.items || [],
-    (e) => e.library_item_id,
-    () => filteredItems
+    filteredItems,
+    (e) => e.library_item_id
   )
 
   // Clamp page to valid range after data changes (e.g., after removal)
@@ -921,11 +941,25 @@ function ExclusionsView({
         />
       )}
 
-      <SearchInput
-        value={search}
-        onChange={setSearch}
-        placeholder="Search title, year..."
-      />
+      <div className="flex gap-4 items-center">
+        <SearchInput
+          value={searchInput}
+          onChange={setSearchInput}
+          placeholder="Search title, year..."
+        />
+        <div className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark">
+          <span>Show</span>
+          <select
+            value={perPage}
+            onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1) }}
+            className="px-2 py-1 rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
+          >
+            <option value={10}>10</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+          </select>
+        </div>
+      </div>
 
       <SelectionActionBar selectedCount={selected.size}>
         <button
@@ -947,7 +981,7 @@ function ExclusionsView({
         </div>
       ) : (
         <>
-          <div className="card overflow-hidden">
+          <div className="card">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -1431,7 +1465,7 @@ export function Libraries() {
       )}
 
       {data && (
-        <div className="card overflow-hidden">
+        <div className="card">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
