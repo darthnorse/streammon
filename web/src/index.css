@@ -145,3 +145,17 @@
     animation: slide-up 0.3s ease-out;
   }
 }
+
+/* Leaflet popup dark mode overrides */
+.dark .leaflet-popup-content-wrapper {
+  background-color: #1e2128;
+  color: #e5e7eb;
+}
+
+.dark .leaflet-popup-tip {
+  background-color: #1e2128;
+}
+
+.dark .leaflet-popup-content-wrapper a {
+  color: #00e5ff;
+}

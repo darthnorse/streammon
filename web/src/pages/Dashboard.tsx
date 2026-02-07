@@ -1,5 +1,6 @@
 import { useSSE } from '../hooks/useSSE'
 import { StreamCard } from '../components/StreamCard'
+import { StreamLocationMap } from '../components/StreamLocationMap'
 import { EmptyState } from '../components/EmptyState'
 import { RecentMedia } from '../components/RecentMedia'
 import { WatchStats } from '../components/WatchStats'
@@ -34,11 +35,14 @@ export function Dashboard() {
       {sessions.length === 0 ? (
         <EmptyState icon="▣" title="No active streams" description="Streams will appear here when someone starts watching" />
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 max-w-5xl">
-          {[...sessions].sort((a, b) => `${a.server_id}:${a.session_id}`.localeCompare(`${b.server_id}:${b.session_id}`)).map(stream => (
-            <StreamCard key={`${stream.server_id}:${stream.session_id}`} stream={stream} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+            {[...sessions].sort((a, b) => `${a.server_id}:${a.session_id}`.localeCompare(`${b.server_id}:${b.session_id}`)).map(stream => (
+              <StreamCard key={`${stream.server_id}:${stream.session_id}`} stream={stream} />
+            ))}
+          </div>
+          <StreamLocationMap sessions={sessions} />
+        </>
       )}
       <div className="mt-8">
         <RecentMedia />
