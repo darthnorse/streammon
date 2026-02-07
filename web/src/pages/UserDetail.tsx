@@ -13,14 +13,21 @@ import { UserISPCard } from '../components/UserISPCard'
 import { UserTrustScoreCard } from '../components/UserTrustScoreCard'
 import { UserHouseholdCard } from '../components/UserHouseholdCard'
 import { getHistoryColumns } from '../lib/historyColumns'
-import type { User, WatchHistoryEntry, PaginatedResult, Role, UserDetailStats } from '../types'
+import type { User, WatchHistoryEntry, PaginatedResult, Role, UserDetailStats, RuleViolation } from '../types'
 
-type Tab = 'history' | 'locations'
+type Tab = 'history' | 'locations' | 'violations'
 
 const tabs: { key: Tab; label: string }[] = [
   { key: 'history', label: 'Watch History' },
   { key: 'locations', label: 'Locations Map' },
+  { key: 'violations', label: 'Violations' },
 ]
+
+const SEVERITY_COLORS: Record<string, string> = {
+  info: 'bg-blue-500/20 text-blue-400',
+  warning: 'bg-amber-500/20 text-amber-400',
+  critical: 'bg-red-500/20 text-red-400',
+}
 
 const roleBadgeClass: Record<Role, string> = {
   admin: 'badge-warn',
@@ -33,6 +40,7 @@ export function UserDetail() {
 
   const [tab, setTab] = useState<Tab>('history')
   const [page, setPage] = useState(1)
+  const [violationsPage, setViolationsPage] = useState(1)
   const [sort, setSort] = useState<SortState | null>(null)
 
   const columns = useMemo(() => getHistoryColumns(), [])
@@ -64,6 +72,13 @@ export function UserDetail() {
     tab === 'history' ? historyUrl : null
   )
 
+  const violationsUrl = decodedName
+    ? `/api/violations?user=${encodeURIComponent(decodedName)}&page=${violationsPage}&per_page=${PER_PAGE}`
+    : null
+  const { data: violations, loading: violationsLoading } = useFetch<PaginatedResult<RuleViolation>>(
+    tab === 'violations' ? violationsUrl : null
+  )
+
   if (userLoading || statsLoading) {
     return (
       <div className="flex items-center justify-center py-20 text-muted dark:text-muted-dark text-sm">
@@ -86,6 +101,12 @@ export function UserDetail() {
   }
 
   const totalPages = history ? Math.ceil(history.total / history.per_page) : 0
+  const violationsTotalPages = violations ? Math.ceil(violations.total / violations.per_page) : 0
+
+  const handleViolationsClick = useCallback(() => {
+    setTab('violations')
+    setViolationsPage(1)
+  }, [])
 
   return (
     <div className="space-y-6">
@@ -124,7 +145,7 @@ export function UserDetail() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <UserStatsCards stats={stats} />
-            <UserTrustScoreCard userName={decodedName} />
+            <UserTrustScoreCard userName={decodedName} onViolationsClick={handleViolationsClick} />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <UserHouseholdCard userName={decodedName} />
@@ -174,6 +195,58 @@ export function UserDetail() {
 
       {tab === 'locations' && decodedName && (
         <LocationMap userName={decodedName} />
+      )}
+
+      {tab === 'violations' && (
+        <div>
+          {violationsLoading ? (
+            <div className="py-12 text-center text-muted dark:text-muted-dark text-sm">
+              Loading violations...
+            </div>
+          ) : !violations?.items.length ? (
+            <div className="card p-8 text-center text-muted dark:text-muted-dark">
+              No violations detected for this user.
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="text-left text-sm text-muted dark:text-muted-dark border-b border-border dark:border-border-dark">
+                      <th className="pb-2 font-medium">Time</th>
+                      <th className="pb-2 font-medium">Rule</th>
+                      <th className="pb-2 font-medium">Severity</th>
+                      <th className="pb-2 font-medium">Confidence</th>
+                      <th className="pb-2 font-medium">Message</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border dark:divide-border-dark">
+                    {violations.items.map((v) => (
+                      <tr key={v.id} className="text-sm">
+                        <td className="py-3 whitespace-nowrap">
+                          {new Date(v.occurred_at).toLocaleString()}
+                        </td>
+                        <td className="py-3">{v.rule_name}</td>
+                        <td className="py-3">
+                          <span className={`px-2 py-0.5 text-xs rounded-full ${SEVERITY_COLORS[v.severity] || 'bg-gray-500/20 text-gray-400'}`}>
+                            {v.severity}
+                          </span>
+                        </td>
+                        <td className="py-3">{v.confidence_score.toFixed(0)}%</td>
+                        <td className="py-3 max-w-md">{v.message}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination
+                page={violationsPage}
+                totalPages={violationsTotalPages}
+                onPageChange={setViolationsPage}
+              />
+            </>
+          )}
+        </div>
       )}
     </div>
   )

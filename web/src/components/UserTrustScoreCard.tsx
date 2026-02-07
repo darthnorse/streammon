@@ -3,6 +3,7 @@ import type { UserTrustScore } from '../types'
 
 interface UserTrustScoreCardProps {
   userName: string
+  onViolationsClick?: () => void
 }
 
 function getScoreColor(score: number): string {
@@ -17,7 +18,7 @@ function getScoreIcon(score: number): string {
   return '✗'
 }
 
-export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
+export function UserTrustScoreCard({ userName, onViolationsClick }: UserTrustScoreCardProps) {
   const { data: trustScore, loading, error } = useFetch<UserTrustScore>(
     `/api/users/${encodeURIComponent(userName)}/trust`
   )
@@ -61,7 +62,12 @@ export function UserTrustScoreCard({ userName }: UserTrustScoreCardProps) {
           <div className="flex items-baseline gap-2">
             <span className={`text-2xl font-semibold ${getScoreColor(score)}`}>{score}</span>
             {violations > 0 && (
-              <span className="text-xs text-amber-400">({violations} violations)</span>
+              <button
+                onClick={onViolationsClick}
+                className="text-xs text-amber-400 hover:text-amber-300 hover:underline transition-colors"
+              >
+                ({violations} violation{violations !== 1 ? 's' : ''})
+              </button>
             )}
           </div>
           <div className="text-sm text-muted dark:text-muted-dark">Trust Score</div>
