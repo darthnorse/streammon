@@ -81,7 +81,7 @@ function MapBoundsUpdater({ locations }: { locations: GeoResult[] }) {
     if (locations.length === 0) return
 
     if (locations.length === 1) {
-      map.setView([locations[0].lat, locations[0].lng], 6)
+      map.setView([locations[0].lat, locations[0].lng], 10)
       return
     }
 
@@ -110,11 +110,24 @@ function LocationPopup({ location }: { location: GeoResult }) {
       )}
       {location.users && location.users.length > 0 && (
         <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
-          <div className="text-gray-500 dark:text-gray-400 mb-1">Users:</div>
-          <div className="text-gray-700 dark:text-gray-300">
-            {location.users.slice(0, MAX_POPUP_USERS).join(', ')}
+          <div className="text-gray-500 dark:text-gray-400 mb-1">Streaming:</div>
+          <div className="space-y-0.5">
+            {location.users.slice(0, MAX_POPUP_USERS).map((user, idx) => {
+              const colonIdx = user.indexOf(':')
+              if (colonIdx > 0) {
+                const name = user.slice(0, colonIdx)
+                const rest = user.slice(colonIdx + 1)
+                return (
+                  <div key={idx}>
+                    <span className="text-accent-dim dark:text-accent font-medium">{name}</span>
+                    <span className="text-gray-600 dark:text-gray-400">:{rest}</span>
+                  </div>
+                )
+              }
+              return <div key={idx} className="text-gray-700 dark:text-gray-300">{user}</div>
+            })}
             {location.users.length > MAX_POPUP_USERS && (
-              <span className="text-gray-500"> +{location.users.length - MAX_POPUP_USERS} more</span>
+              <div className="text-gray-500">+{location.users.length - MAX_POPUP_USERS} more</div>
             )}
           </div>
         </div>

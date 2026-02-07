@@ -146,7 +146,11 @@
   }
 }
 
-/* Leaflet popup dark mode overrides */
+/* Leaflet popup overrides */
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+}
+
 .dark .leaflet-popup-content-wrapper {
   background-color: #1e2128;
   color: #e5e7eb;
