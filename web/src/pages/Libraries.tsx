@@ -14,6 +14,8 @@ import {
   SelectionActionBar,
   ConfirmDialog,
   OperationResult,
+  DeleteProgressModal,
+  type DeleteProgress,
 } from '../components/shared'
 import type {
   LibrariesResponse,
@@ -474,6 +476,7 @@ function CandidatesView({
   const [excludeConfirm, setExcludeConfirm] = useState<MaintenanceCandidate[] | null>(null)
   const [showDetails, setShowDetails] = useState(false)
   const [operating, setOperating] = useState(false)
+  const [deleteProgress, setDeleteProgress] = useState<DeleteProgress | null>(null)
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'partial' | 'error'; message: string; errors?: Array<{ title: string; error: string }> } | null>(null)
   const [rowMenuOpen, setRowMenuOpen] = useState<number | null>(null)
   const mountedRef = useMountedRef()
@@ -521,45 +524,108 @@ function CandidatesView({
   const handleBulkDelete = async () => {
     if (!deleteConfirm) return
     setOperating(true)
+    setDeleteConfirm(null)
     setOperationResult(null)
+
+    const candidateIds = deleteConfirm.map(c => c.id)
+
+    // Initialize progress state
+    setDeleteProgress({
+      current: 0,
+      total: candidateIds.length,
+      title: 'Starting...',
+      status: 'deleting',
+      deleted: 0,
+      failed: 0,
+      skipped: 0,
+      total_size: 0,
+    })
+
     try {
-      const result = await api.post<BulkDeleteResult>('/api/maintenance/candidates/bulk-delete', {
-        candidate_ids: deleteConfirm.map(c => c.id)
+      // Use fetch with SSE for streaming progress
+      const response = await fetch('/api/maintenance/candidates/bulk-delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+        },
+        body: JSON.stringify({ candidate_ids: candidateIds }),
       })
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) throw new Error('No response body')
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let finalResult: BulkDeleteResult | null = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6))
+            if (mountedRef.current) {
+              setDeleteProgress(data)
+            }
+          } else if (line.startsWith('event: complete')) {
+            // Next data line will be the final result
+          } else if (line.startsWith('data: ') && finalResult === null) {
+            // This shouldn't happen but handle it
+          }
+          // Check if this is the complete event data
+          if (buffer.startsWith('data: ') && lines[lines.length - 1] === 'event: complete') {
+            // Will be handled in next iteration
+          }
+        }
+
+        // Check for complete event in buffer
+        if (buffer.includes('event: complete')) {
+          const completeMatch = buffer.match(/event: complete\ndata: (.+)/)
+          if (completeMatch) {
+            finalResult = JSON.parse(completeMatch[1])
+          }
+        }
+      }
+
+      // Process any remaining buffer for final result
+      if (!finalResult && buffer) {
+        const completeMatch = buffer.match(/event: complete\ndata: (.+)/)
+        if (completeMatch) {
+          finalResult = JSON.parse(completeMatch[1])
+        }
+      }
+
       if (!mountedRef.current) return
 
-      // Extract error details for display (ensure array, never null/undefined)
-      const errorDetails = result.errors?.map(e => ({ title: e.title, error: e.error })) ?? []
-      const totalRequested = result.deleted + result.failed + result.skipped
+      if (finalResult) {
+        const errorDetails = finalResult.errors?.map(e => ({ title: e.title, error: e.error })) ?? []
+        const totalRequested = finalResult.deleted + finalResult.failed + finalResult.skipped
 
-      if (result.failed === 0 && result.skipped === 0) {
-        setOperationResult({ type: 'success', message: `Deleted ${result.deleted} items (${formatSize(result.total_size)} reclaimed)` })
-      } else if (result.deleted > 0) {
-        // Build message with skipped info if any
-        let msg = `Deleted ${result.deleted} of ${totalRequested} items.`
-        if (result.failed > 0) msg += ` ${result.failed} failed.`
-        if (result.skipped > 0) msg += ` ${result.skipped} skipped (excluded).`
-        setOperationResult({
-          type: 'partial',
-          message: msg,
-          errors: errorDetails
-        })
-      } else if (result.skipped > 0 && result.failed === 0) {
-        // All items were skipped (excluded)
-        setOperationResult({
-          type: 'partial',
-          message: `All ${result.skipped} items were skipped (excluded since page load)`,
-          errors: errorDetails
-        })
-      } else {
-        setOperationResult({
-          type: 'error',
-          message: `Failed to delete items`,
-          errors: errorDetails
-        })
+        if (finalResult.failed === 0 && finalResult.skipped === 0) {
+          setOperationResult({ type: 'success', message: `Deleted ${finalResult.deleted} items (${formatSize(finalResult.total_size)} reclaimed)` })
+        } else if (finalResult.deleted > 0) {
+          let msg = `Deleted ${finalResult.deleted} of ${totalRequested} items.`
+          if (finalResult.failed > 0) msg += ` ${finalResult.failed} failed.`
+          if (finalResult.skipped > 0) msg += ` ${finalResult.skipped} skipped (excluded).`
+          setOperationResult({ type: 'partial', message: msg, errors: errorDetails })
+        } else if (finalResult.skipped > 0 && finalResult.failed === 0) {
+          setOperationResult({ type: 'partial', message: `All ${finalResult.skipped} items were skipped (excluded since page load)`, errors: errorDetails })
+        } else {
+          setOperationResult({ type: 'error', message: `Failed to delete items`, errors: errorDetails })
+        }
       }
+
       clearSelection()
-      // Page clamping is handled by useEffect when totalPages changes after refetch
       refetch()
     } catch (err) {
       console.error('Bulk delete failed:', err)
@@ -567,8 +633,7 @@ function CandidatesView({
     } finally {
       if (mountedRef.current) {
         setOperating(false)
-        setDeleteConfirm(null)
-        // Don't reset showDetails here - let user preference persist
+        setDeleteProgress(null)
       }
     }
   }
@@ -864,6 +929,11 @@ function CandidatesView({
           onCancel={() => setExcludeConfirm(null)}
           disabled={operating}
         />
+      )}
+
+      {/* Delete Progress Modal */}
+      {deleteProgress && (
+        <DeleteProgressModal progress={deleteProgress} />
       )}
     </div>
   )

@@ -1,5 +1,6 @@
 export { BackButton } from './BackButton'
 export { ConfirmDialog } from './ConfirmDialog'
+export { DeleteProgressModal, type DeleteProgress } from './DeleteProgressModal'
 export { OperationResult } from './OperationResult'
 export { SearchInput } from './SearchInput'
 export { SelectionActionBar } from './SelectionActionBar'

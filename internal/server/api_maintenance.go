@@ -698,6 +698,7 @@ func (s *Server) handleBulkRemoveExclusions(w http.ResponseWriter, r *http.Reque
 }
 
 // POST /api/maintenance/candidates/bulk-delete
+// Streams progress via SSE if Accept: text/event-stream, otherwise returns JSON
 func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CandidateIDs []int64 `json:"candidate_ids"`
@@ -742,19 +743,90 @@ func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Reque
 
 	deletedBy := getUserEmail(r)
 
+	// Check if client wants SSE streaming
+	if r.Header.Get("Accept") == "text/event-stream" {
+		s.streamBulkDelete(w, r, req.CandidateIDs, candidateMap, deletedBy)
+		return
+	}
+
+	// Non-streaming JSON response (backwards compatible)
+	result := s.executeBulkDelete(r.Context(), req.CandidateIDs, candidateMap, deletedBy, nil)
+	writeJSON(w, http.StatusOK, result)
+}
+
+// BulkDeleteProgress represents a progress update during bulk delete
+type BulkDeleteProgress struct {
+	Current   int    `json:"current"`
+	Total     int    `json:"total"`
+	Title     string `json:"title"`
+	Status    string `json:"status"` // "deleting", "deleted", "failed", "skipped"
+	Deleted   int    `json:"deleted"`
+	Failed    int    `json:"failed"`
+	Skipped   int    `json:"skipped"`
+	TotalSize int64  `json:"total_size"`
+}
+
+// streamBulkDelete streams progress via SSE
+func (s *Server) streamBulkDelete(w http.ResponseWriter, r *http.Request, candidateIDs []int64, candidateMap map[int64]models.MaintenanceCandidate, deletedBy string) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	sendProgress := func(p BulkDeleteProgress) {
+		data, _ := json.Marshal(p)
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	result := s.executeBulkDelete(r.Context(), candidateIDs, candidateMap, deletedBy, sendProgress)
+
+	// Send final result
+	finalData, _ := json.Marshal(result)
+	fmt.Fprintf(w, "event: complete\ndata: %s\n\n", finalData)
+	flusher.Flush()
+}
+
+// executeBulkDelete performs the bulk delete with optional progress callback
+func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, candidateMap map[int64]models.MaintenanceCandidate, deletedBy string, onProgress func(BulkDeleteProgress)) models.BulkDeleteResult {
 	result := models.BulkDeleteResult{
 		Errors: []models.BulkDeleteError{},
 	}
 
-	// Process deletions sequentially with context cancellation check
-	for _, candidateID := range req.CandidateIDs {
+	total := len(candidateIDs)
+
+	for i, candidateID := range candidateIDs {
 		// Check for context cancellation between iterations
-		if r.Context().Err() != nil {
-			log.Printf("bulk delete cancelled: %v", r.Context().Err())
+		if ctx.Err() != nil {
+			log.Printf("bulk delete cancelled: %v", ctx.Err())
 			break
 		}
 
 		candidate, exists := candidateMap[candidateID]
+		title := "Unknown"
+		if exists && candidate.Item != nil {
+			title = candidate.Item.Title
+		}
+
+		// Send progress update before processing
+		if onProgress != nil {
+			onProgress(BulkDeleteProgress{
+				Current:   i + 1,
+				Total:     total,
+				Title:     title,
+				Status:    "deleting",
+				Deleted:   result.Deleted,
+				Failed:    result.Failed,
+				Skipped:   result.Skipped,
+				TotalSize: result.TotalSize,
+			})
+		}
+
 		if !exists {
 			result.Failed++
 			result.Errors = append(result.Errors, models.BulkDeleteError{
@@ -777,7 +849,7 @@ func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Reque
 
 		// Re-check exclusions at delete time to prevent TOCTOU race condition
 		// (item may have been excluded since user loaded the candidates list)
-		excluded, err := s.store.IsItemExcluded(r.Context(), candidate.RuleID, candidate.LibraryItemID)
+		excluded, err := s.store.IsItemExcluded(ctx, candidate.RuleID, candidate.LibraryItemID)
 		if err != nil {
 			log.Printf("check exclusion for candidate %d: %v", candidateID, err)
 			// On error, fail safe - don't delete
@@ -814,5 +886,5 @@ func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	return result
 }
