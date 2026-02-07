@@ -180,7 +180,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
       <div
         ref={modalRef}
         className="card w-full max-w-lg max-h-[90vh] overflow-y-auto p-0
-                      lg:max-w-xl animate-in"
+                      lg:max-w-xl animate-slide-up"
       >
         <div className="flex items-center justify-between px-6 py-4
                         border-b border-border dark:border-border-dark">

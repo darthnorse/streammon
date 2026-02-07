@@ -79,9 +79,8 @@ func (s *Server) routes() {
 		})
 
 		r.Route("/settings/display", func(sr chi.Router) {
-			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleGetDisplaySettings)
-			sr.Put("/", s.handleUpdateDisplaySettings)
+			sr.With(RequireRole(models.RoleAdmin)).Put("/", s.handleUpdateDisplaySettings)
 		})
 
 		r.Route("/rules", func(sr chi.Router) {

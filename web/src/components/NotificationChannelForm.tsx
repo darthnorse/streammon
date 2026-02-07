@@ -117,7 +117,7 @@ export function NotificationChannelForm({ channel, onClose, onSaved }: Notificat
     >
       <div
         ref={modalRef}
-        className="card w-full max-w-lg max-h-[90vh] overflow-y-auto p-0 animate-in"
+        className="card w-full max-w-lg max-h-[90vh] overflow-y-auto p-0 animate-slide-up"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border-dark">
           <h2 className="text-lg font-semibold">
