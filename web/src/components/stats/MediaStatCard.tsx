@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import type { MediaStat } from '../../types'
-import { formatHours } from '../../lib/format'
 import { useItemDetails } from '../../hooks/useItemDetails'
 import { MediaDetailModal } from '../MediaDetailModal'
 
@@ -77,14 +76,14 @@ export function MediaStatCard({ title, items }: MediaStatCardProps) {
                 <div className="w-5 h-5 rounded-full bg-accent/20 dark:bg-accent/10 flex items-center justify-center text-[10px] font-medium text-accent shrink-0">
                   {idx + 1}
                 </div>
-                <div className="flex-1 min-w-0 text-xs font-medium truncate" title={item.title}>
+                <div className="flex-1 min-w-0 text-sm font-medium truncate" title={item.title}>
                   {item.title}
                   {item.year ? (
                     <span className="text-muted dark:text-muted-dark ml-1">({item.year})</span>
                   ) : null}
                 </div>
-                <div className="text-[10px] text-muted dark:text-muted-dark whitespace-nowrap">
-                  {item.play_count} plays · {formatHours(item.total_hours)}
+                <div className="text-xs text-muted dark:text-muted-dark whitespace-nowrap">
+                  {item.play_count} plays
                 </div>
               </div>
             ))}

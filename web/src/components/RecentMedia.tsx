@@ -79,10 +79,10 @@ export function RecentMedia() {
               title={item.server_name}
             />
             <div className="mt-1">
-              <div className="text-[11px] font-medium truncate" title={item.title}>
+              <div className="text-xs font-medium truncate" title={item.title}>
                 {item.title}
               </div>
-              <div className="text-[10px] text-muted dark:text-muted-dark truncate">
+              <div className="text-[11px] text-muted dark:text-muted-dark truncate">
                 {item.media_type === 'episode' && item.season_number != null && item.episode_number != null
                   ? `S${item.season_number} · E${item.episode_number}`
                   : item.year && item.year > 0 ? item.year : ''}

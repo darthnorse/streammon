@@ -28,12 +28,12 @@ export function TopUsersCard({ users, compact = false }: TopUsersCardProps) {
                 </div>
                 <Link
                   to={`/users/${encodeURIComponent(user.user_name)}`}
-                  className="flex-1 min-w-0 text-xs font-medium truncate hover:text-accent transition-colors"
+                  className="flex-1 min-w-0 text-sm font-medium truncate hover:text-accent transition-colors"
                 >
                   {user.user_name}
                 </Link>
-                <div className="text-[10px] text-muted dark:text-muted-dark whitespace-nowrap">
-                  {user.play_count} plays · {formatHours(user.total_hours)}
+                <div className="text-xs text-muted dark:text-muted-dark whitespace-nowrap">
+                  {user.play_count} plays
                 </div>
               </div>
             ))}
