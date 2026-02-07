@@ -1,20 +1,21 @@
 import { ReactNode } from 'react'
+import { Navigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { LoadingScreen } from './LoadingScreen'
 
 export function AuthGuard({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth()
+  const { user, loading, setupRequired } = useAuth()
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-muted dark:text-muted-dark">Loading...</div>
-      </div>
-    )
+    return <LoadingScreen />
+  }
+
+  if (setupRequired) {
+    return <Navigate to="/setup" replace />
   }
 
   if (!user) {
-    window.location.href = '/auth/login'
-    return null
+    return <Navigate to="/login" replace />
   }
 
   return <>{children}</>

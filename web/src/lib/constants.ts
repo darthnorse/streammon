@@ -19,6 +19,8 @@ export const MS_PER_DAY = 86_400_000
 
 export const plexBtnClass = 'px-4 py-2.5 text-sm font-semibold rounded-lg bg-[#e5a00d] text-gray-900 hover:bg-[#cc8e0b] transition-colors'
 
+export const inputClass = 'w-full px-3 py-2 rounded-lg border border-border dark:border-border-dark bg-surface dark:bg-surface-dark focus:outline-none focus:ring-2 focus:ring-accent'
+
 export const navLinks = [
   { to: '/', label: 'Dashboard', icon: 'LayoutDashboard' },
   { to: '/history', label: 'History', icon: 'History' },

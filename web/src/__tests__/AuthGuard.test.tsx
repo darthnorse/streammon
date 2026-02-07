@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from '../context/AuthContext'
 import { AuthGuard } from '../components/AuthGuard'
 
@@ -24,19 +25,26 @@ const mockApi = vi.mocked(api)
 
 beforeEach(() => {
   vi.clearAllMocks()
-  Object.defineProperty(window, 'location', {
-    value: { href: '/' },
-    writable: true,
-  })
 })
 
-function TestApp() {
+function TestApp({ initialPath = '/' }: { initialPath?: string }) {
   return (
-    <AuthProvider>
-      <AuthGuard>
-        <div>Protected content</div>
-      </AuthGuard>
-    </AuthProvider>
+    <MemoryRouter initialEntries={[initialPath]}>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<div>Login page</div>} />
+          <Route path="/setup" element={<div>Setup page</div>} />
+          <Route
+            path="/"
+            element={
+              <AuthGuard>
+                <div>Protected content</div>
+              </AuthGuard>
+            }
+          />
+        </Routes>
+      </AuthProvider>
+    </MemoryRouter>
   )
 }
 
@@ -48,7 +56,9 @@ describe('AuthGuard + AuthProvider', () => {
   })
 
   it('renders children when user is authenticated', async () => {
-    mockApi.get.mockResolvedValue({ id: 1, name: 'test', role: 'admin' })
+    mockApi.get
+      .mockResolvedValueOnce({ setup_required: false, enabled_providers: [] })
+      .mockResolvedValueOnce({ id: 1, name: 'test', role: 'admin' })
     render(<TestApp />)
     await waitFor(() => {
       expect(screen.getByText('Protected content')).toBeInTheDocument()
@@ -56,10 +66,20 @@ describe('AuthGuard + AuthProvider', () => {
   })
 
   it('redirects to login on 401', async () => {
-    mockApi.get.mockRejectedValue(new ApiError(401, 'unauthorized'))
+    mockApi.get
+      .mockResolvedValueOnce({ setup_required: false, enabled_providers: [] })
+      .mockRejectedValueOnce(new ApiError(401, 'unauthorized'))
     render(<TestApp />)
     await waitFor(() => {
-      expect(window.location.href).toBe('/auth/login')
+      expect(screen.getByText('Login page')).toBeInTheDocument()
+    })
+  })
+
+  it('redirects to setup when setup is required', async () => {
+    mockApi.get.mockResolvedValueOnce({ setup_required: true, enabled_providers: [] })
+    render(<TestApp />)
+    await waitFor(() => {
+      expect(screen.getByText('Setup page')).toBeInTheDocument()
     })
   })
 })

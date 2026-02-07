@@ -28,6 +28,7 @@ type Server struct {
 	store       *store.Store
 	poller      *poller.Poller
 	authService *auth.Service
+	authManager *auth.Manager
 	corsOrigin  string
 	geoResolver GeoLookup
 	geoUpdater  *geoip.Updater
@@ -66,6 +67,10 @@ func WithGeoResolver(r GeoLookup) Option {
 
 func WithAuth(a *auth.Service) Option {
 	return func(s *Server) { s.authService = a }
+}
+
+func WithAuthManager(m *auth.Manager) Option {
+	return func(s *Server) { s.authManager = m }
 }
 
 func WithGeoUpdater(u *geoip.Updater) Option {

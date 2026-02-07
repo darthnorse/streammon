@@ -14,7 +14,10 @@ func isSecureRequest(r *http.Request) bool {
 
 func generateState() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// Panic is appropriate here - cryptographic failure should halt the process
+		panic("failed to generate random state: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }
 

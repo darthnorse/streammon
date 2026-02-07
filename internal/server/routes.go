@@ -11,7 +11,36 @@ import (
 func (s *Server) routes() {
 	s.router.Get("/api/health", s.handleHealth)
 
-	if s.authService != nil {
+	// Multi-provider auth routes (new)
+	if s.authManager != nil {
+		// Setup endpoints (only work when no users exist)
+		s.router.Route("/api/setup", func(r chi.Router) {
+			r.Use(corsMiddleware(s.corsOrigin))
+			r.Get("/status", s.authManager.HandleGetStatus)
+			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/local", s.handleSetupLocal)
+			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/plex", s.handleSetupPlex)
+		})
+
+		// Auth endpoints
+		s.router.Route("/auth", func(r chi.Router) {
+			r.Use(corsMiddleware(s.corsOrigin))
+			r.Get("/providers", s.authManager.HandleGetProviders)
+			r.Post("/logout", s.authManager.HandleLogout)
+
+			// Local auth
+			r.With(RateLimitAuth).Post("/local/login", s.handleLocalLogin)
+
+			// Plex auth
+			r.With(RateLimitAuth).Post("/plex/login", s.handlePlexLogin)
+
+			// OIDC auth (uses existing routes for backward compatibility)
+			r.Get("/oidc/login", s.handleOIDCLogin)
+			r.Get("/oidc/callback", s.handleOIDCCallback)
+		})
+	}
+
+	// Legacy OIDC routes (backward compatibility)
+	if s.authService != nil && s.authManager == nil {
 		s.router.Get("/auth/login", s.authService.HandleLogin)
 		s.router.Get("/auth/callback", s.authService.HandleCallback)
 		s.router.Post("/auth/logout", s.authService.HandleLogout)
@@ -21,7 +50,11 @@ func (s *Server) routes() {
 		r.Use(limitBody)
 		r.Use(jsonContentType)
 		r.Use(corsMiddleware(s.corsOrigin))
-		if s.authService != nil {
+
+		// Apply auth middleware
+		if s.authManager != nil {
+			r.Use(RequireAuthManager(s.authManager))
+		} else if s.authService != nil {
 			r.Use(RequireAuth(s.authService))
 		}
 
@@ -147,7 +180,9 @@ func (s *Server) routes() {
 
 	s.router.Group(func(r chi.Router) {
 		r.Use(corsMiddleware(s.corsOrigin))
-		if s.authService != nil {
+		if s.authManager != nil {
+			r.Use(RequireAuthManager(s.authManager))
+		} else if s.authService != nil {
 			r.Use(RequireAuth(s.authService))
 		}
 		r.Get("/api/servers/{id}/thumb/*", s.handleThumbProxy)

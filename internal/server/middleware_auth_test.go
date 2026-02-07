@@ -59,8 +59,8 @@ func TestRequireAuth_Enabled_NoCookie_Returns401(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	if gotUser.Name != "admin" {
-		t.Errorf("expected default admin, got %s", gotUser.Name)
+	if gotUser.Name != "test-admin" {
+		t.Errorf("expected test-admin, got %s", gotUser.Name)
 	}
 }
 
