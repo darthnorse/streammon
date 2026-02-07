@@ -129,7 +129,7 @@ func TestListExclusionsForRule(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := s.ListExclusionsForRule(ctx, ruleID, 1, 10)
+	result, err := s.ListExclusionsForRule(ctx, ruleID, 1, 10, "")
 	if err != nil {
 		t.Fatalf("ListExclusionsForRule: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestListExclusionsForRulePagination(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	page1, _ := s.ListExclusionsForRule(ctx, ruleID, 1, 2)
+	page1, _ := s.ListExclusionsForRule(ctx, ruleID, 1, 2, "")
 	if len(page1.Items) != 2 {
 		t.Errorf("page 1 items = %d, want 2", len(page1.Items))
 	}
@@ -172,7 +172,7 @@ func TestListExclusionsForRulePagination(t *testing.T) {
 		t.Errorf("total = %d, want 5", page1.Total)
 	}
 
-	page3, _ := s.ListExclusionsForRule(ctx, ruleID, 3, 2)
+	page3, _ := s.ListExclusionsForRule(ctx, ruleID, 3, 2, "")
 	if len(page3.Items) != 1 {
 		t.Errorf("page 3 items = %d, want 1", len(page3.Items))
 	}
@@ -241,7 +241,7 @@ func TestCandidatesExcludeExcludedItems(t *testing.T) {
 	}
 
 	// Verify we have 3 candidates
-	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
 	if result.Total != 3 {
 		t.Fatalf("setup: expected 3 candidates, got %d", result.Total)
 	}
@@ -252,7 +252,7 @@ func TestCandidatesExcludeExcludedItems(t *testing.T) {
 	}
 
 	// Now list should return only 2
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,4 +323,70 @@ func createAdditionalItems(t *testing.T, s *Store, ctx context.Context, serverID
 	}
 
 	return ids
+}
+
+func TestListExclusionsForRuleSearch(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Search by title should find the item
+	result, err := s.ListExclusionsForRule(ctx, ruleID, 1, 10, "Test Movie")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Errorf("search by title: total = %d, want 1", result.Total)
+	}
+
+	// Search by year should find the item
+	result, err = s.ListExclusionsForRule(ctx, ruleID, 1, 10, "2024")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Errorf("search by year: total = %d, want 1", result.Total)
+	}
+
+	// Search for non-existent term should return empty
+	result, err = s.ListExclusionsForRule(ctx, ruleID, 1, 10, "nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Errorf("search non-existent: total = %d, want 0", result.Total)
+	}
+}
+
+func TestListExclusionsForRuleSearchEscapesWildcards(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Search with SQL wildcard characters should be escaped and not match everything
+	result, err := s.ListExclusionsForRule(ctx, ruleID, 1, 10, "%")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Errorf("search with %%: total = %d, want 0 (should not match everything)", result.Total)
+	}
+
+	result, err = s.ListExclusionsForRule(ctx, ruleID, 1, 10, "_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Errorf("search with _: total = %d, want 0 (should not match single char)", result.Total)
+	}
 }

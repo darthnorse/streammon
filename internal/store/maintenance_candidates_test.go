@@ -70,7 +70,7 @@ func TestBatchUpsertCandidates(t *testing.T) {
 		t.Fatalf("BatchUpsertCandidates: %v", err)
 	}
 
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
 	if err != nil {
 		t.Fatalf("ListCandidatesForRule: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestBatchUpsertCandidatesReplacesExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestListCandidatesForRulePagination(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	page1, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 2)
+	page1, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 2, "")
 	if len(page1.Items) != 2 {
 		t.Errorf("page 1 items = %d, want 2", len(page1.Items))
 	}
@@ -152,12 +152,12 @@ func TestListCandidatesForRulePagination(t *testing.T) {
 		t.Errorf("total = %d, want 5", page1.Total)
 	}
 
-	page2, _ := s.ListCandidatesForRule(ctx, ruleID, 2, 2)
+	page2, _ := s.ListCandidatesForRule(ctx, ruleID, 2, 2, "")
 	if len(page2.Items) != 2 {
 		t.Errorf("page 2 items = %d, want 2", len(page2.Items))
 	}
 
-	page3, _ := s.ListCandidatesForRule(ctx, ruleID, 3, 2)
+	page3, _ := s.ListCandidatesForRule(ctx, ruleID, 3, 2, "")
 	if len(page3.Items) != 1 {
 		t.Errorf("page 3 items = %d, want 1", len(page3.Items))
 	}
@@ -227,7 +227,7 @@ func TestUpsertMaintenanceCandidate(t *testing.T) {
 		t.Fatalf("UpsertMaintenanceCandidate: %v", err)
 	}
 
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestUpsertMaintenanceCandidate(t *testing.T) {
 		t.Fatalf("UpsertMaintenanceCandidate update: %v", err)
 	}
 
-	result, _ = s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	result, _ = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
 	if result.Total != 1 {
 		t.Errorf("total = %d, want 1 (should update, not insert)", result.Total)
 	}
@@ -262,7 +262,7 @@ func TestListCandidatesForRuleItemPopulated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestGetMaintenanceCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
 	candidateID := result.Items[0].ID
 
 	got, err := s.GetMaintenanceCandidate(ctx, candidateID)
@@ -327,7 +327,7 @@ func TestDeleteMaintenanceCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10)
+	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
 	candidateID := result.Items[0].ID
 
 	if err := s.DeleteMaintenanceCandidate(ctx, candidateID); err != nil {
@@ -428,5 +428,73 @@ func TestListAllCandidatesForRuleEmpty(t *testing.T) {
 	}
 	if len(all) != 0 {
 		t.Errorf("got %d candidates, want 0", len(all))
+	}
+}
+
+func TestListCandidatesForRuleSearch(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	// Search by title should find the item
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "Test Movie")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Errorf("search by title: total = %d, want 1", result.Total)
+	}
+
+	// Search by year should find the item
+	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "2024")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Errorf("search by year: total = %d, want 1", result.Total)
+	}
+
+	// Search for non-existent term should return empty
+	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Errorf("search non-existent: total = %d, want 0", result.Total)
+	}
+}
+
+func TestListCandidatesForRuleSearchEscapesWildcards(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	// Search with SQL wildcard characters should be escaped and not match everything
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "%")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Errorf("search with %%: total = %d, want 0 (should not match everything)", result.Total)
+	}
+
+	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Errorf("search with _: total = %d, want 0 (should not match single char)", result.Total)
 	}
 }

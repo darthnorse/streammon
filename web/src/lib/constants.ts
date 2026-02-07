@@ -10,6 +10,7 @@ export const mediaTypeLabels: Record<MediaType, string> = {
 }
 
 export const PER_PAGE = 20
+export const SEARCH_DEBOUNCE_MS = 300
 
 export const MS_PER_MINUTE = 60_000
 export const MS_PER_HOUR = 3_600_000

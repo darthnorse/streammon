@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useMultiSelect } from '../hooks/useMultiSelect'
 import { useMountedRef } from '../hooks/useMountedRef'
+import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
+import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
 import { api } from '../lib/api'
-import { PER_PAGE } from '../lib/constants'
 import { formatCount, formatSize } from '../lib/format'
 import { Pagination } from '../components/Pagination'
 import {
@@ -467,9 +468,7 @@ function CandidatesView({
   onManageExclusions: () => void
 }) {
   const [page, setPage] = useState(1)
-  const [perPage, setPerPage] = useState(PER_PAGE)
-  const [search, setSearch] = useState('')
-  const [searchInput, setSearchInput] = useState('')
+  const [perPage, setPerPage] = usePersistedPerPage()
   const [deleteConfirm, setDeleteConfirm] = useState<MaintenanceCandidate[] | null>(null)
   const [excludeConfirm, setExcludeConfirm] = useState<MaintenanceCandidate[] | null>(null)
   const [showDetails, setShowDetails] = useState(false)
@@ -478,6 +477,8 @@ function CandidatesView({
   const [rowMenuOpen, setRowMenuOpen] = useState<number | null>(null)
   const mountedRef = useMountedRef()
 
+  const { searchInput, setSearchInput, search, resetSearch } = useDebouncedSearch(() => setPage(1))
+
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
   const { data, loading, refetch } = useFetch<MaintenanceCandidatesResponse>(
     `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}`
@@ -485,17 +486,6 @@ function CandidatesView({
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
   const filteredItems = data?.items || []
-
-  // Debounced search - update actual search after user stops typing
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchInput !== search) {
-        setSearch(searchInput)
-        setPage(1)
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [searchInput, search])
 
   const {
     selected,
@@ -512,9 +502,8 @@ function CandidatesView({
   useEffect(() => {
     setPage(1)
     clearSelection()
-    setSearch('')
-    setSearchInput('')
-  }, [rule.id, clearSelection])
+    resetSearch()
+  }, [rule.id, clearSelection, resetSearch])
 
   // Clamp page to valid range after data changes (e.g., after delete)
   useEffect(() => {
@@ -651,10 +640,11 @@ function CandidatesView({
           placeholder="Search title, year, resolution..."
         />
         <div className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark">
-          <span>Show</span>
+          <label htmlFor="candidates-per-page">Show</label>
           <select
+            id="candidates-per-page"
             value={perPage}
-            onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1) }}
+            onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); clearSelection() }}
             className="px-2 py-1 rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
           >
             <option value={10}>10</option>
@@ -860,12 +850,12 @@ function ExclusionsView({
   onBack: () => void
 }) {
   const [page, setPage] = useState(1)
-  const [perPage, setPerPage] = useState(PER_PAGE)
-  const [search, setSearch] = useState('')
-  const [searchInput, setSearchInput] = useState('')
+  const [perPage, setPerPage] = usePersistedPerPage()
   const [operating, setOperating] = useState(false)
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const mountedRef = useMountedRef()
+
+  const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setPage(1))
 
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
   const { data, loading, refetch } = useFetch<MaintenanceExclusionsResponse>(
@@ -874,17 +864,6 @@ function ExclusionsView({
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
   const filteredItems = data?.items || []
-
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (searchInput !== search) {
-        setSearch(searchInput)
-        setPage(1)
-      }
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [searchInput, search])
 
   const {
     selected,
@@ -945,13 +924,14 @@ function ExclusionsView({
         <SearchInput
           value={searchInput}
           onChange={setSearchInput}
-          placeholder="Search title, year..."
+          placeholder="Search title, year, resolution..."
         />
         <div className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark">
-          <span>Show</span>
+          <label htmlFor="exclusions-per-page">Show</label>
           <select
+            id="exclusions-per-page"
             value={perPage}
-            onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1) }}
+            onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); clearSelection() }}
             className="px-2 py-1 rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
           >
             <option value={10}>10</option>

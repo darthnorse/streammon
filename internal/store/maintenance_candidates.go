@@ -11,6 +11,14 @@ import (
 	"streammon/internal/models"
 )
 
+// escapeLikePattern escapes SQL LIKE wildcard characters (%, _, \)
+func escapeLikePattern(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
+
 // candidateSelectColumns defines the columns for candidate queries with joined library items
 const candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
@@ -66,8 +74,8 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 	args = append(args, ruleID)
 
 	if search != "" {
-		searchPattern := "%" + search + "%"
-		baseWhere += ` AND (i.title LIKE ? OR CAST(i.year AS TEXT) LIKE ? OR i.video_resolution LIKE ? OR c.reason LIKE ?)`
+		searchPattern := "%" + escapeLikePattern(search) + "%"
+		baseWhere += ` AND (i.title LIKE ? ESCAPE '\' OR CAST(i.year AS TEXT) LIKE ? ESCAPE '\' OR i.video_resolution LIKE ? ESCAPE '\' OR c.reason LIKE ? ESCAPE '\')`
 		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
 	}
 

@@ -3,10 +3,19 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"streammon/internal/models"
 )
+
+// escapeLikePattern escapes SQL LIKE wildcard characters (%, _, \)
+func escapeLikePatternExclusions(s string) string {
+	s = strings.ReplaceAll(s, "\\", "\\\\")
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
 
 const exclusionSelectColumns = `
 	e.id, e.rule_id, e.library_item_id, e.excluded_by, e.excluded_at,
@@ -172,9 +181,9 @@ func (s *Store) ListExclusionsForRule(ctx context.Context, ruleID int64, page, p
 	args = append(args, ruleID)
 
 	if search != "" {
-		searchPattern := "%" + search + "%"
-		baseWhere += ` AND (i.title LIKE ? OR CAST(i.year AS TEXT) LIKE ?)`
-		args = append(args, searchPattern, searchPattern)
+		searchPattern := "%" + escapeLikePatternExclusions(search) + "%"
+		baseWhere += ` AND (i.title LIKE ? ESCAPE '\' OR CAST(i.year AS TEXT) LIKE ? ESCAPE '\' OR i.video_resolution LIKE ? ESCAPE '\')`
+		args = append(args, searchPattern, searchPattern, searchPattern)
 	}
 
 	countQuery := `
