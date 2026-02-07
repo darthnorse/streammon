@@ -95,7 +95,12 @@ func (p *OIDCProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := generateState()
+	state, err := generateState()
+	if err != nil {
+		log.Printf("failed to generate OIDC state: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     stateCookieName,
 		Value:    state,
@@ -181,11 +186,14 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clear state cookie
+	// Clear state cookie with consistent attributes
 	http.SetCookie(w, &http.Cookie{
-		Name:   stateCookieName,
-		Path:   "/",
-		MaxAge: -1,
+		Name:     stateCookieName,
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   isSecureRequest(r),
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	http.Redirect(w, r, "/", http.StatusFound)

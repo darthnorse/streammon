@@ -46,6 +46,7 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 	}
 	srv.router.Use(middleware.Logger)
 	srv.router.Use(middleware.Recoverer)
+	srv.router.Use(securityHeaders)
 	srv.routes()
 	return srv
 }

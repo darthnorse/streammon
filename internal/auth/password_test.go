@@ -99,3 +99,15 @@ func TestVerifyPasswordConstantTime(t *testing.T) {
 	VerifyPassword("wrong", hash)
 	VerifyPassword("", hash)
 }
+
+func TestDummyHashIsValid(t *testing.T) {
+	// DummyHash must be a valid argon2id hash for timing attack prevention
+	valid, err := VerifyPassword("anypassword", DummyHash)
+	if err != nil {
+		t.Fatalf("DummyHash is not a valid argon2id hash: %v", err)
+	}
+	// It should never match any password (that's the point)
+	if valid {
+		t.Error("DummyHash should not match any password")
+	}
+}

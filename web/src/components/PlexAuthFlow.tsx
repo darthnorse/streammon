@@ -77,9 +77,12 @@ export function PlexAuthFlow({
       if (signal.aborted) return
 
       if (popupRef.current?.closed) {
+        // Only show error if not already aborted (component still mounted)
+        if (!signal.aborted) {
+          setError('Sign-in window was closed. Please try again.')
+          setPhase('idle')
+        }
         abortRef.current?.abort()
-        setError('Sign-in window was closed. Please try again.')
-        setPhase('idle')
         return
       }
 

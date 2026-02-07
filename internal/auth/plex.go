@@ -75,7 +75,7 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.AuthToken == "" {
-		writeJSONError(w, "auth_token is required", http.StatusBadRequest)
+		writeJSONError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 
@@ -230,7 +230,7 @@ func (p *PlexProvider) HandleSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.AuthToken == "" {
-		writeJSONError(w, "auth_token is required", http.StatusBadRequest)
+		writeJSONError(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 

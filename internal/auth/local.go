@@ -77,20 +77,17 @@ func (p *LocalProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user, passwordHash, err := p.store.GetUserByUsername(req.Username)
-	if err != nil {
-		// Generic error to prevent username enumeration
-		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
-		return
+	userFound := err == nil && passwordHash != ""
+
+	// Always perform password verification to prevent timing attacks.
+	// If user not found or has no password, verify against a dummy hash.
+	hashToVerify := passwordHash
+	if !userFound {
+		hashToVerify = DummyHash
 	}
 
-	if passwordHash == "" {
-		// User exists but has no password (e.g., OIDC/Plex user)
-		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
-		return
-	}
-
-	valid, err := VerifyPassword(req.Password, passwordHash)
-	if err != nil || !valid {
+	valid, _ := VerifyPassword(req.Password, hashToVerify)
+	if !userFound || !valid {
 		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}

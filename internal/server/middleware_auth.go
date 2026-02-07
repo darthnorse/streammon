@@ -136,7 +136,7 @@ func (l *authRateLimiter) cleanup() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	cutoff := time.Now().Add(-l.window)
+	cutoff := time.Now().UTC().Add(-l.window)
 	for ip, attempts := range l.attempts {
 		if valid := filterValid(attempts, cutoff); len(valid) == 0 {
 			delete(l.attempts, ip)
@@ -150,7 +150,7 @@ func (l *authRateLimiter) allow(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	cutoff := time.Now().Add(-l.window)
+	cutoff := time.Now().UTC().Add(-l.window)
 	valid := filterValid(l.attempts[ip], cutoff)
 
 	if len(valid) >= l.limit {
@@ -158,12 +158,18 @@ func (l *authRateLimiter) allow(ip string) bool {
 		return false
 	}
 
-	l.attempts[ip] = append(valid, time.Now())
+	l.attempts[ip] = append(valid, time.Now().UTC())
 	return true
 }
 
 // Global rate limiter for auth endpoints: 10 attempts per 15 minutes
 var globalAuthRateLimiter = newAuthRateLimiter(10, 15*time.Minute)
+
+// StopAuthRateLimiter stops the background cleanup goroutine for the auth rate limiter.
+// Call this during graceful shutdown.
+func StopAuthRateLimiter() {
+	globalAuthRateLimiter.Stop()
+}
 
 // RateLimitAuth applies rate limiting to authentication endpoints
 // NOTE: Uses RemoteAddr only. If behind a trusted reverse proxy that sets

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"streammon/internal/models"
@@ -100,7 +101,7 @@ func (s *Store) LinkProviderAccount(userID int64, provider, providerID string) e
 func (s *Store) maybeUpdateAvatar(user *models.User, thumbURL string) {
 	if thumbURL != "" && thumbURL != user.ThumbURL {
 		if err := s.UpdateUserAvatar(user.Name, thumbURL); err != nil {
-			fmt.Printf("warning: failed to update avatar for %s: %v\n", user.Name, err)
+			log.Printf("warning: failed to update avatar for %s: %v", user.Name, err)
 		}
 		user.ThumbURL = thumbURL
 	}
@@ -129,7 +130,7 @@ func (s *Store) GetOrLinkUserByEmail(email, name, provider, providerID, thumbURL
 			&existingUser.ThumbURL, &existingUser.CreatedAt, &existingUser.UpdatedAt)
 
 		if err == nil {
-			fmt.Printf("info: linking provider %s (id=%s) to existing user %s (id=%d) via email %s\n",
+			log.Printf("info: linking provider %s (id=%s) to existing user %s (id=%d) via email %s",
 				provider, providerID, existingUser.Name, existingUser.ID, email)
 
 			if providerID != "" {

@@ -25,6 +25,10 @@ var (
 	ErrInvalidHash      = errors.New("invalid password hash format")
 )
 
+// DummyHash is a pre-computed argon2id hash used for timing attack prevention.
+// When a user doesn't exist, we verify against this to ensure constant-time response.
+const DummyHash = "$argon2id$v=19$m=65536,t=1,p=4$dGltaW5nLWF0dGFjaw$aSfHnpGNSgY4Gu8Q3vKzm0bVdJ6R5cX1cWbO3L2nZ8k"
+
 // ValidatePassword checks password meets minimum requirements
 func ValidatePassword(password string) error {
 	if len(password) < 8 {

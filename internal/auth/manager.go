@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -15,9 +14,6 @@ type Manager struct {
 	mu        sync.RWMutex
 	store     *store.Store
 	providers map[ProviderType]Provider
-
-	// Cached state
-	setupRequired bool
 }
 
 // NewManager creates a new auth manager
@@ -68,17 +64,8 @@ func (m *Manager) IsSetupRequired() (bool, error) {
 }
 
 // Reload refreshes provider configurations (called when settings change)
-func (m *Manager) Reload(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Check setup status
-	required, err := m.store.IsSetupRequired()
-	if err != nil {
-		return err
-	}
-	m.setupRequired = required
-
+func (m *Manager) Reload() error {
+	// Currently a no-op, but provides hook for future provider reloads
 	return nil
 }
 
