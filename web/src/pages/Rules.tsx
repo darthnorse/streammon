@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
+import { useUnits } from '../hooks/useUnits'
 import type { Rule, RuleViolation, NotificationChannel, PaginatedResult } from '../types'
 import { RULE_TYPE_LABELS } from '../types'
 import { SEVERITY_COLORS, PER_PAGE } from '../lib/constants'
@@ -18,6 +19,7 @@ export function Rules() {
   const [editingChannel, setEditingChannel] = useState<NotificationChannel | null>(null)
   const [showChannelForm, setShowChannelForm] = useState(false)
   const [page, setPage] = useState(1)
+  const units = useUnits()
 
   const { data: rules, refetch: refetchRules } = useFetch<Rule[]>('/api/rules')
   const { data: violations } = useFetch<PaginatedResult<RuleViolation>>(
@@ -132,7 +134,7 @@ export function Rules() {
                         </span>
                       </div>
                       <p className="text-sm text-muted dark:text-muted-dark mt-1">
-                        {formatRuleConfig(rule)}
+                        {formatRuleConfig(rule, units)}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -339,7 +341,12 @@ function formatTimeWindow(hours: number): string {
   return days === 1 ? '1 day' : `${days} days`
 }
 
-function formatRuleConfig(rule: Rule): string {
+interface UnitsInfo {
+  formatDistance: (km: number) => string
+  formatSpeed: (kmh: number) => string
+}
+
+function formatRuleConfig(rule: Rule, units: UnitsInfo): string {
   const config = rule.config
   switch (rule.type) {
     case 'concurrent_streams':
@@ -356,9 +363,9 @@ function formatRuleConfig(rule: Rule): string {
       return 'No restrictions configured'
     }
     case 'impossible_travel':
-      return `Max ${config.max_speed_km_h || 800} km/h, min ${config.min_distance_km || 100} km`
+      return `Max ${units.formatSpeed((config.max_speed_km_h as number) || 800)}, min ${units.formatDistance((config.min_distance_km as number) || 100)}`
     case 'simultaneous_locations':
-      return `Min distance: ${config.min_distance_km || 50} km${config.exempt_household ? ' (household exempt)' : ''}`
+      return `Min distance: ${units.formatDistance((config.min_distance_km as number) || 50)}${config.exempt_household ? ' (household exempt)' : ''}`
     case 'device_velocity': {
       const maxDevices = getConfigNumber(config.max_devices_per_hour, 3)
       const hours = getConfigNumber(config.time_window_hours, 1)
@@ -372,7 +379,7 @@ function formatRuleConfig(rule: Rule): string {
     case 'new_device':
       return 'Alert on new device'
     case 'new_location':
-      return `Alert on new location${config.min_distance_km ? ` (>${config.min_distance_km} km)` : ''}`
+      return `Alert on new location${config.min_distance_km ? ` (>${units.formatDistance(config.min_distance_km as number)})` : ''}`
     default:
       return JSON.stringify(config)
   }

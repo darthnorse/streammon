@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"streammon/internal/models"
+	"streammon/internal/units"
 )
 
 // maxHistoricalIPsToCheck limits the number of historical IPs to check for new location detection.
@@ -112,11 +113,13 @@ func (e *NewLocationEvaluator) Evaluate(ctx context.Context, rule *models.Rule, 
 		{Name: "new_location", Weight: 0.3, Value: true},
 	}
 
+	distStr := units.FormatDistance(minDistance, input.UnitSystem)
+
 	violation := &models.RuleViolation{
 		RuleID:   rule.ID,
 		UserName: stream.UserName,
 		Severity: severity,
-		Message:  fmt.Sprintf("streaming from new location: %s, %s (%.0f km from nearest known location)", currentGeo.City, currentGeo.Country, minDistance),
+		Message:  fmt.Sprintf("streaming from new location: %s, %s (%s from nearest known location)", currentGeo.City, currentGeo.Country, distStr),
 		Details: map[string]interface{}{
 			"city":         currentGeo.City,
 			"country":      currentGeo.Country,

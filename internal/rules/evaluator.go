@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"streammon/internal/models"
+	"streammon/internal/units"
 )
 
 type Evaluator interface {
@@ -18,6 +19,7 @@ type EvaluationInput struct {
 	AllStreams []models.ActiveStream
 	Households []models.HouseholdLocation
 	GeoData    *models.GeoResult
+	UnitSystem units.System
 }
 
 type EvaluationResult struct {

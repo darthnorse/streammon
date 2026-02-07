@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"streammon/internal/units"
 )
 
 func (s *Store) GetSetting(key string) (string, error) {
@@ -129,4 +131,24 @@ func (s *Store) DeleteTautulliConfig() error {
 		return fmt.Errorf("deleting Tautulli config: %w", err)
 	}
 	return nil
+}
+
+const unitSystemKey = "display.units"
+
+func (s *Store) GetUnitSystem() (string, error) {
+	val, err := s.GetSetting(unitSystemKey)
+	if err != nil {
+		return "", err
+	}
+	if val == "" {
+		return "metric", nil
+	}
+	return val, nil
+}
+
+func (s *Store) SetUnitSystem(system string) error {
+	if !units.IsValid(system) {
+		return fmt.Errorf("invalid unit system: %s", system)
+	}
+	return s.SetSetting(unitSystemKey, system)
 }

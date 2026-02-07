@@ -63,6 +63,8 @@ export function ActivityByHourChart({ data }: ActivityByHourChartProps) {
             />
             <Tooltip
               content={<BarChartTooltip labelFormatter={(h) => formatHour(Number(h))} />}
+              wrapperStyle={{ backgroundColor: 'transparent', border: 'none', boxShadow: 'none' }}
+              cursor={{ fill: 'currentColor', opacity: 0.1 }}
             />
             <Bar
               dataKey="play_count"

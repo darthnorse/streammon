@@ -8,6 +8,7 @@ import (
 
 	"streammon/internal/models"
 	"streammon/internal/store"
+	"streammon/internal/units"
 )
 
 type Engine struct {
@@ -110,9 +111,15 @@ func (e *Engine) EvaluateSession(ctx context.Context, stream *models.ActiveStrea
 		return
 	}
 
+	unitSys := units.Metric
+	if sys, err := e.store.GetUnitSystem(); err == nil {
+		unitSys = units.ParseSystem(sys)
+	}
+
 	input := &EvaluationInput{
 		Stream:     stream,
 		AllStreams: allStreams,
+		UnitSystem: unitSys,
 	}
 
 	if e.geoResolver != nil && stream.IPAddress != "" {
@@ -153,14 +160,13 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *models.Rule, evaluator 
 	}
 
 	// Set session key from the current stream for session-based deduplication
-	// This prevents duplicate alerts for the same stream session even if it runs > 15 minutes
-	sessionKey := ""
 	if input.Stream != nil && input.Stream.SessionID != "" {
-		sessionKey = input.Stream.SessionID
-		result.Violation.SessionKey = sessionKey
+		result.Violation.SessionKey = input.Stream.SessionID
+	} else {
+		log.Printf("rules engine: no session key available for rule %d (%s) - using time-based deduplication", rule.ID, rule.Name)
 	}
 
-	exists, err := e.store.ViolationExistsRecent(rule.ID, result.Violation.UserName, sessionKey, e.violationCooldown)
+	exists, err := e.store.ViolationExistsRecent(rule.ID, result.Violation.UserName, result.Violation.SessionKey, e.violationCooldown)
 	if err != nil {
 		log.Printf("rules engine: error checking recent violation: %v", err)
 		return

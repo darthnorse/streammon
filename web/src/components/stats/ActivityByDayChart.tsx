@@ -52,7 +52,11 @@ export function ActivityByDayChart({ data }: ActivityByDayChartProps) {
               tickLine={false}
               axisLine={false}
             />
-            <Tooltip content={<BarChartTooltip />} />
+            <Tooltip
+              content={<BarChartTooltip />}
+              wrapperStyle={{ backgroundColor: 'transparent', border: 'none', boxShadow: 'none' }}
+              cursor={{ fill: 'currentColor', opacity: 0.1 }}
+            />
             <Bar
               dataKey="play_count"
               fill={CHART_COLORS[0]}

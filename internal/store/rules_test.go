@@ -488,6 +488,18 @@ func TestViolationExistsRecentWithSessionKey(t *testing.T) {
 	}
 	s.InsertViolation(v)
 
+	// Verify session key was persisted
+	result, err := s.ListViolations(1, 10, ViolationFilters{UserName: "testuser"})
+	if err != nil {
+		t.Fatalf("ListViolations: %v", err)
+	}
+	if len(result.Items) == 0 {
+		t.Fatal("expected at least one violation")
+	}
+	if result.Items[0].SessionKey != "session123" {
+		t.Errorf("SessionKey = %q, want %q", result.Items[0].SessionKey, "session123")
+	}
+
 	// Same session should find existing violation
 	exists, err = s.ViolationExistsRecent(rule.ID, "testuser", "session123", time.Hour)
 	if err != nil {
@@ -504,6 +516,46 @@ func TestViolationExistsRecentWithSessionKey(t *testing.T) {
 	}
 	if exists {
 		t.Error("expected no violation for different session")
+	}
+}
+
+func TestViolationExistsRecentSessionKeyAcrossRules(t *testing.T) {
+	s := setupTestStore(t)
+
+	rule1 := &models.Rule{Name: "Rule1", Type: models.RuleTypeConcurrentStreams, Enabled: true, Config: json.RawMessage(`{}`)}
+	s.CreateRule(rule1)
+
+	rule2 := &models.Rule{Name: "Rule2", Type: models.RuleTypeImpossibleTravel, Enabled: true, Config: json.RawMessage(`{}`)}
+	s.CreateRule(rule2)
+
+	// Insert violation for rule1 with session123
+	v := &models.RuleViolation{
+		RuleID:          rule1.ID,
+		UserName:        "testuser",
+		Severity:        models.SeverityWarning,
+		Message:         "test",
+		ConfidenceScore: 80,
+		SessionKey:      "session123",
+		OccurredAt:      time.Now().UTC(),
+	}
+	s.InsertViolation(v)
+
+	// Same session key with rule1 should find existing violation
+	exists, err := s.ViolationExistsRecent(rule1.ID, "testuser", "session123", time.Hour)
+	if err != nil {
+		t.Fatalf("ViolationExistsRecent for rule1: %v", err)
+	}
+	if !exists {
+		t.Error("expected violation to exist for rule1 with session123")
+	}
+
+	// Same session key with different rule (rule2) should NOT find violation
+	exists, err = s.ViolationExistsRecent(rule2.ID, "testuser", "session123", time.Hour)
+	if err != nil {
+		t.Fatalf("ViolationExistsRecent for rule2: %v", err)
+	}
+	if exists {
+		t.Error("expected no violation for rule2 with session123 - different rules should be independent")
 	}
 }
 

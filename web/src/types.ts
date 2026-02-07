@@ -390,6 +390,7 @@ export interface RuleViolation {
   message: string
   details?: Record<string, unknown>
   confidence_score: number
+  session_key?: string
   occurred_at: string
   created_at: string
 }

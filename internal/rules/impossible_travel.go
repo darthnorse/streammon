@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"streammon/internal/models"
+	"streammon/internal/units"
 )
 
 type ImpossibleTravelEvaluator struct {
@@ -84,12 +85,15 @@ func (e *ImpossibleTravelEvaluator) Evaluate(ctx context.Context, rule *models.R
 
 	severity := determineSeverityByVelocity(velocity, config.MaxSpeedKmH)
 
+	distStr := units.FormatDistance(distance, input.UnitSystem)
+	velStr := units.FormatSpeed(velocity, input.UnitSystem)
+
 	violation := &models.RuleViolation{
 		RuleID:   rule.ID,
 		UserName: stream.UserName,
 		Severity: severity,
-		Message: fmt.Sprintf("impossible travel detected: %s to %s (%.0f km in %.1f hours = %.0f km/h)",
-			prevGeo.City, currentGeo.City, distance, timeDelta.Hours(), velocity),
+		Message: fmt.Sprintf("impossible travel detected: %s to %s (%s in %.1f hours = %s)",
+			prevGeo.City, currentGeo.City, distStr, timeDelta.Hours(), velStr),
 		Details: map[string]interface{}{
 			"from_city":     prevGeo.City,
 			"from_country":  prevGeo.Country,

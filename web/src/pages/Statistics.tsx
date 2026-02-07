@@ -14,14 +14,23 @@ import type { StatsResponse } from '../types'
 
 type DaysFilter = 0 | 7 | 30
 
+const STORAGE_KEY = 'streammon:stats-days'
+
 const filterOptions: { value: DaysFilter; label: string }[] = [
   { value: 0, label: 'All time' },
   { value: 7, label: 'Last 7 days' },
   { value: 30, label: 'Last 30 days' },
 ]
 
+function getStoredDays(): DaysFilter {
+  const stored = localStorage.getItem(STORAGE_KEY)
+  if (stored === '7') return 7
+  if (stored === '30') return 30
+  return 0
+}
+
 export function Statistics() {
-  const [days, setDays] = useState<DaysFilter>(0)
+  const [days, setDays] = useState<DaysFilter>(getStoredDays)
   const url = days === 0 ? '/api/stats' : `/api/stats?days=${days}`
   const { data, loading, error } = useFetch<StatsResponse>(url)
 
@@ -56,7 +65,10 @@ export function Statistics() {
           {filterOptions.map(opt => (
             <button
               key={opt.value}
-              onClick={() => setDays(opt.value)}
+              onClick={() => {
+                setDays(opt.value)
+                localStorage.setItem(STORAGE_KEY, String(opt.value))
+              }}
               className={`px-3 py-1.5 rounded text-xs font-medium transition-colors
                 ${days === opt.value
                   ? 'bg-accent/15 text-accent-dim dark:text-accent'

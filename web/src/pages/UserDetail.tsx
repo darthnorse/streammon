@@ -52,6 +52,21 @@ export function UserDetail() {
     setPage(1)
   }, [])
 
+  const resetFilters = useCallback(() => {
+    setPage(1)
+    setViolationsPage(1)
+    setSort(null)
+  }, [])
+
+  const handleTabChange = useCallback((newTab: Tab) => {
+    setTab(newTab)
+    resetFilters()
+  }, [resetFilters])
+
+  const handleViolationsClick = useCallback(() => {
+    handleTabChange('violations')
+  }, [handleTabChange])
+
   const { data: user, loading: userLoading, error: userError } = useFetch<User>(
     decodedName ? `/api/users/${encodeURIComponent(decodedName)}` : null
   )
@@ -97,21 +112,6 @@ export function UserDetail() {
 
   const totalPages = history ? Math.ceil(history.total / history.per_page) : 0
   const violationsTotalPages = violations ? Math.ceil(violations.total / violations.per_page) : 0
-
-  const resetFilters = useCallback(() => {
-    setPage(1)
-    setViolationsPage(1)
-    setSort(null)
-  }, [])
-
-  const handleTabChange = useCallback((newTab: Tab) => {
-    setTab(newTab)
-    resetFilters()
-  }, [resetFilters])
-
-  const handleViolationsClick = useCallback(() => {
-    handleTabChange('violations')
-  }, [handleTabChange])
 
   return (
     <div className="space-y-6">

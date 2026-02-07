@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"streammon/internal/models"
@@ -157,22 +158,14 @@ func (s *Store) ListRulesByType(ruleType models.RuleType) ([]models.Rule, error)
 	return scanRuleRows(rows)
 }
 
-const violationColumns = `id, rule_id, user_name, severity, message, details, confidence_score, session_key, occurred_at, created_at`
 const violationColumnsWithRule = `v.id, v.rule_id, r.name, r.type, v.user_name, v.severity, v.message, v.details, v.confidence_score, v.session_key, v.occurred_at, v.created_at`
 
-func scanViolation(scanner interface{ Scan(...any) error }) (models.RuleViolation, error) {
-	var v models.RuleViolation
-	var detailsJSON string
-	err := scanner.Scan(&v.ID, &v.RuleID, &v.UserName, &v.Severity, &v.Message, &detailsJSON, &v.ConfidenceScore, &v.SessionKey, &v.OccurredAt, &v.CreatedAt)
-	if err != nil {
-		return v, err
-	}
+func unmarshalViolationDetails(v *models.RuleViolation, detailsJSON string) {
 	if detailsJSON != "" && detailsJSON != "{}" {
 		if err := json.Unmarshal([]byte(detailsJSON), &v.Details); err != nil {
 			log.Printf("warning: failed to unmarshal violation details (id=%d): %v", v.ID, err)
 		}
 	}
-	return v, nil
 }
 
 func scanViolationWithRule(scanner interface{ Scan(...any) error }) (models.RuleViolation, error) {
@@ -182,11 +175,7 @@ func scanViolationWithRule(scanner interface{ Scan(...any) error }) (models.Rule
 	if err != nil {
 		return v, err
 	}
-	if detailsJSON != "" && detailsJSON != "{}" {
-		if err := json.Unmarshal([]byte(detailsJSON), &v.Details); err != nil {
-			log.Printf("warning: failed to unmarshal violation details (id=%d): %v", v.ID, err)
-		}
-	}
+	unmarshalViolationDetails(&v, detailsJSON)
 	return v, nil
 }
 
@@ -698,24 +687,24 @@ func (s *Store) GetChannelsForRule(ruleID int64) ([]models.NotificationChannel, 
 // If sessionKey is provided, it checks for an existing violation with that session key (ignoring time).
 // Otherwise, it falls back to time-based deduplication using the within duration.
 func (s *Store) ViolationExistsRecent(ruleID int64, userName, sessionKey string, within time.Duration) (bool, error) {
-	var count int
+	var exists bool
 	var err error
 
 	if sessionKey != "" {
 		// Session-based deduplication: check if this exact session already has a violation
-		err = s.db.QueryRow(`SELECT COUNT(*) FROM rule_violations WHERE rule_id = ? AND user_name = ? AND session_key = ?`,
-			ruleID, userName, sessionKey).Scan(&count)
+		err = s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM rule_violations WHERE rule_id = ? AND user_name = ? AND session_key = ? LIMIT 1)`,
+			ruleID, userName, sessionKey).Scan(&exists)
 	} else {
 		// Time-based deduplication fallback
 		since := time.Now().UTC().Add(-within)
-		err = s.db.QueryRow(`SELECT COUNT(*) FROM rule_violations WHERE rule_id = ? AND user_name = ? AND occurred_at >= ?`,
-			ruleID, userName, since).Scan(&count)
+		err = s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM rule_violations WHERE rule_id = ? AND user_name = ? AND occurred_at >= ? LIMIT 1)`,
+			ruleID, userName, since).Scan(&exists)
 	}
 
 	if err != nil {
 		return false, fmt.Errorf("checking recent violation: %w", err)
 	}
-	return count > 0, nil
+	return exists, nil
 }
 
 func (s *Store) InsertViolationWithTx(ctx context.Context, v *models.RuleViolation, trustDecrement int) error {
@@ -738,6 +727,9 @@ func (s *Store) InsertViolationWithTx(ctx context.Context, v *models.RuleViolati
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		v.RuleID, v.UserName, v.Severity, v.Message, detailsJSON, v.ConfidenceScore, v.SessionKey, v.OccurredAt)
 	if err != nil {
+		if isUniqueConstraintError(err) {
+			return nil
+		}
 		return fmt.Errorf("inserting violation: %w", err)
 	}
 	id, _ := result.LastInsertId()
@@ -756,4 +748,12 @@ func (s *Store) InsertViolationWithTx(ctx context.Context, v *models.RuleViolati
 	}
 
 	return tx.Commit()
+}
+
+func isUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "UNIQUE constraint failed")
 }

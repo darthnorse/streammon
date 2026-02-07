@@ -3,6 +3,7 @@ import type { Rule, RuleType, NotificationChannel } from '../types'
 import { RULE_TYPES } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
+import { useUnits } from '../hooks/useUnits'
 import { MultiSelectChannels } from './MultiSelectChannels'
 
 interface RuleFormProps {
@@ -25,6 +26,7 @@ function parseIntOrDefault(value: string, defaultValue: number): number {
 export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   const isEdit = !!rule?.id
   const modalRef = useRef<HTMLDivElement>(null)
+  const units = useUnits()
 
   const [name, setName] = useState(rule?.name ?? '')
   const [ruleType, setRuleType] = useState<RuleType>(rule?.type ?? 'concurrent_streams')
@@ -164,7 +166,7 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
 
           <div className="border-t border-border dark:border-border-dark pt-4">
             <h3 className="text-sm font-semibold mb-3">Configuration</h3>
-            {renderConfigFields(ruleType, config, setConfig)}
+            {renderConfigFields(ruleType, config, setConfig, units)}
           </div>
 
           <div className="border-t border-border dark:border-border-dark pt-4">
@@ -232,13 +234,34 @@ function getDefaultConfig(type: RuleType): Record<string, unknown> {
   }
 }
 
+interface UnitsInfo {
+  distanceUnit: string
+  speedUnit: string
+  fromKm: (km: number) => number
+  toKm: (value: number) => number
+  fromKmh: (kmh: number) => number
+  toKmh: (value: number) => number
+  isImperial: boolean
+}
+
 function renderConfigFields(
   type: RuleType,
   config: Record<string, unknown>,
-  setConfig: (c: Record<string, unknown>) => void
+  setConfig: (c: Record<string, unknown>) => void,
+  units: UnitsInfo
 ) {
   const updateField = (key: string, value: unknown) => {
     setConfig({ ...config, [key]: value })
+  }
+
+  const updateDistanceField = (key: string, displayValue: number, defaultKm: number) => {
+    const kmValue = units.toKm(displayValue)
+    setConfig({ ...config, [key]: kmValue || defaultKm })
+  }
+
+  const updateSpeedField = (key: string, displayValue: number, defaultKmh: number) => {
+    const kmhValue = units.toKmh(displayValue)
+    setConfig({ ...config, [key]: kmhValue || defaultKmh })
   }
 
   switch (type) {
@@ -313,13 +336,13 @@ function renderConfigFields(
       return (
         <div className="space-y-3">
           <div>
-            <label htmlFor="cfg-sim-min-distance" className="block text-sm mb-1">Minimum Distance (km)</label>
+            <label htmlFor="cfg-sim-min-distance" className="block text-sm mb-1">Minimum Distance ({units.distanceUnit})</label>
             <input
               id="cfg-sim-min-distance"
               type="number"
-              min={10}
-              value={(config.min_distance_km as number) ?? 50}
-              onChange={e => updateField('min_distance_km', parseIntOrDefault(e.target.value, 50))}
+              min={units.isImperial ? 6 : 10}
+              value={units.fromKm((config.min_distance_km as number) ?? 50)}
+              onChange={e => updateDistanceField('min_distance_km', parseIntOrDefault(e.target.value, units.fromKm(50)), 50)}
               className={fieldClass}
             />
           </div>
@@ -340,25 +363,27 @@ function renderConfigFields(
       return (
         <div className="space-y-3">
           <div>
-            <label htmlFor="cfg-max-speed" className="block text-sm mb-1">Max Speed (km/h)</label>
+            <label htmlFor="cfg-max-speed" className="block text-sm mb-1">Max Speed ({units.speedUnit})</label>
             <input
               id="cfg-max-speed"
               type="number"
-              min={100}
-              value={(config.max_speed_km_h as number) ?? 800}
-              onChange={e => updateField('max_speed_km_h', parseIntOrDefault(e.target.value, 800))}
+              min={units.isImperial ? 62 : 100}
+              value={units.fromKmh((config.max_speed_km_h as number) ?? 800)}
+              onChange={e => updateSpeedField('max_speed_km_h', parseIntOrDefault(e.target.value, units.fromKmh(800)), 800)}
               className={fieldClass}
             />
-            <p className="text-xs text-muted dark:text-muted-dark mt-1">~800 km/h is typical commercial flight speed</p>
+            <p className="text-xs text-muted dark:text-muted-dark mt-1">
+              ~{units.isImperial ? '500 mph' : '800 km/h'} is typical commercial flight speed
+            </p>
           </div>
           <div>
-            <label htmlFor="cfg-it-min-distance" className="block text-sm mb-1">Min Distance (km)</label>
+            <label htmlFor="cfg-it-min-distance" className="block text-sm mb-1">Min Distance ({units.distanceUnit})</label>
             <input
               id="cfg-it-min-distance"
               type="number"
-              min={10}
-              value={(config.min_distance_km as number) ?? 100}
-              onChange={e => updateField('min_distance_km', parseIntOrDefault(e.target.value, 100))}
+              min={units.isImperial ? 6 : 10}
+              value={units.fromKm((config.min_distance_km as number) ?? 100)}
+              onChange={e => updateDistanceField('min_distance_km', parseIntOrDefault(e.target.value, units.fromKm(100)), 100)}
               className={fieldClass}
             />
           </div>
@@ -473,25 +498,25 @@ function renderConfigFields(
             <label htmlFor="cfg-nl-notify" className="text-sm">Notify on new location</label>
           </div>
           <div>
-            <label htmlFor="cfg-nl-min-distance" className="block text-sm mb-1">Minimum Distance (km)</label>
+            <label htmlFor="cfg-nl-min-distance" className="block text-sm mb-1">Minimum Distance ({units.distanceUnit})</label>
             <input
               id="cfg-nl-min-distance"
               type="number"
-              min={10}
-              value={(config.min_distance_km as number) ?? 50}
-              onChange={e => updateField('min_distance_km', parseIntOrDefault(e.target.value, 50))}
+              min={units.isImperial ? 6 : 10}
+              value={units.fromKm((config.min_distance_km as number) ?? 50)}
+              onChange={e => updateDistanceField('min_distance_km', parseIntOrDefault(e.target.value, units.fromKm(50)), 50)}
               className={fieldClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">Only alert if new location is at least this far from known locations</p>
           </div>
           <div>
-            <label htmlFor="cfg-nl-severity-threshold" className="block text-sm mb-1">Warning Threshold (km)</label>
+            <label htmlFor="cfg-nl-severity-threshold" className="block text-sm mb-1">Warning Threshold ({units.distanceUnit})</label>
             <input
               id="cfg-nl-severity-threshold"
               type="number"
-              min={100}
-              value={(config.severity_threshold_km as number) ?? 500}
-              onChange={e => updateField('severity_threshold_km', parseIntOrDefault(e.target.value, 500))}
+              min={units.isImperial ? 62 : 100}
+              value={units.fromKm((config.severity_threshold_km as number) ?? 500)}
+              onChange={e => updateDistanceField('severity_threshold_km', parseIntOrDefault(e.target.value, units.fromKm(500)), 500)}
               className={fieldClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">Severity escalates to warning if distance exceeds this threshold</p>

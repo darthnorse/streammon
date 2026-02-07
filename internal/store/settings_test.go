@@ -245,3 +245,59 @@ func TestTautulliConfigEmpty(t *testing.T) {
 		t.Fatalf("expected zero value, got %+v", got)
 	}
 }
+
+func TestUnitSystemRoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	if err := s.SetUnitSystem("imperial"); err != nil {
+		t.Fatalf("SetUnitSystem: %v", err)
+	}
+
+	val, err := s.GetUnitSystem()
+	if err != nil {
+		t.Fatalf("GetUnitSystem: %v", err)
+	}
+	if val != "imperial" {
+		t.Fatalf("expected imperial, got %s", val)
+	}
+}
+
+func TestUnitSystemDefault(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	val, err := s.GetUnitSystem()
+	if err != nil {
+		t.Fatalf("GetUnitSystem: %v", err)
+	}
+	if val != "metric" {
+		t.Fatalf("expected metric (default), got %s", val)
+	}
+}
+
+func TestUnitSystemInvalidValue(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	err := s.SetUnitSystem("invalid")
+	if err == nil {
+		t.Fatal("expected error for invalid unit system")
+	}
+}
+
+func TestUnitSystemOverwrite(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	if err := s.SetUnitSystem("imperial"); err != nil {
+		t.Fatalf("SetUnitSystem imperial: %v", err)
+	}
+	if err := s.SetUnitSystem("metric"); err != nil {
+		t.Fatalf("SetUnitSystem metric: %v", err)
+	}
+
+	val, err := s.GetUnitSystem()
+	if err != nil {
+		t.Fatalf("GetUnitSystem: %v", err)
+	}
+	if val != "metric" {
+		t.Fatalf("expected metric, got %s", val)
+	}
+}

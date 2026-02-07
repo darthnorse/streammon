@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"streammon/internal/models"
+	"streammon/internal/units"
 )
 
 type SimultaneousLocsEvaluator struct {
@@ -50,12 +51,11 @@ func (e *SimultaneousLocsEvaluator) Evaluate(ctx context.Context, rule *models.R
 
 		key := fmt.Sprintf("%s,%s", geo.City, geo.Country)
 		locations[key] = append(locations[key], locationInfo{
-			ip:        s.IPAddress,
-			sessionID: s.SessionID,
-			lat:       geo.Lat,
-			lng:       geo.Lng,
-			city:      geo.City,
-			country:   geo.Country,
+			ip:      s.IPAddress,
+			lat:     geo.Lat,
+			lng:     geo.Lng,
+			city:    geo.City,
+			country: geo.Country,
 		})
 	}
 
@@ -101,12 +101,14 @@ func (e *SimultaneousLocsEvaluator) Evaluate(ctx context.Context, rule *models.R
 		confidence = 70
 	}
 
+	distStr := units.FormatDistance(maxDistance, input.UnitSystem)
+
 	v := &models.RuleViolation{
 		RuleID:   rule.ID,
 		UserName: userName,
 		Severity: determineSeverityByDistance(maxDistance),
-		Message: fmt.Sprintf("streaming from %d different locations simultaneously (%.0f km apart)",
-			len(locations), maxDistance),
+		Message: fmt.Sprintf("streaming from %d different locations simultaneously (%s apart)",
+			len(locations), distStr),
 		Details: map[string]interface{}{
 			"location_count": len(locations),
 			"max_distance":   maxDistance,
@@ -132,12 +134,11 @@ func (e *SimultaneousLocsEvaluator) Evaluate(ctx context.Context, rule *models.R
 }
 
 type locationInfo struct {
-	ip        string
-	sessionID string
-	lat       float64
-	lng       float64
-	city      string
-	country   string
+	ip      string
+	lat     float64
+	lng     float64
+	city    string
+	country string
 }
 
 func (e *SimultaneousLocsEvaluator) resolveGeo(ctx context.Context, ip string, input *EvaluationInput) *models.GeoResult {

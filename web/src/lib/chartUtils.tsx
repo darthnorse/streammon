@@ -53,6 +53,7 @@ export function LineChartTooltip({ active, payload, label, labelFormatter, filte
   if (!active || !payload?.length) return null
   const formattedLabel = labelFormatter && typeof label === 'string' ? labelFormatter(label) : label
   const items = filterZero ? payload.filter(item => item.value > 0) : payload
+  const total = payload.reduce((sum, item) => sum + item.value, 0)
   return (
     <div className={tooltipWrapper}>
       <div className="font-medium mb-1 text-gray-800 dark:text-gray-100">{formattedLabel}</div>
@@ -63,6 +64,10 @@ export function LineChartTooltip({ active, payload, label, labelFormatter, filte
           <span className="font-mono ml-auto">{item.value}</span>
         </div>
       ))}
+      <div className="flex items-center gap-2 text-xs mt-1 pt-1 border-t border-border dark:border-border-dark">
+        <span className="font-semibold text-gray-800 dark:text-gray-100">Total</span>
+        <span className="font-mono font-semibold ml-auto">{total}</span>
+      </div>
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { Server, OIDCSettings, TautulliSettings } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
+import { useUnits } from '../hooks/useUnits'
 import { ServerForm } from '../components/ServerForm'
 import { OIDCForm } from '../components/OIDCForm'
 import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
@@ -19,12 +20,13 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'auth', label: 'Authentication' },
   { key: 'geoip', label: 'GeoIP' },
   { key: 'import', label: 'Import' },
+  { key: 'display', label: 'Display' },
 ]
 
 const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
 const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
 
-type TabKey = 'servers' | 'auth' | 'geoip' | 'import'
+type TabKey = 'servers' | 'auth' | 'geoip' | 'import' | 'display'
 
 export function Settings() {
   const [tab, setTab] = useState<TabKey>('servers')
@@ -421,6 +423,45 @@ export function Settings() {
           )}
         </>
       )}
+
+      {tab === 'display' && (
+        <DisplaySettings />
+      )}
+    </div>
+  )
+}
+
+function DisplaySettings() {
+  const { system, setSystem } = useUnits()
+
+  return (
+    <div className="card p-5">
+      <h3 className="font-semibold text-base mb-4">Units</h3>
+      <p className="text-sm text-muted dark:text-muted-dark mb-4">
+        Choose how distances and speeds are displayed throughout the app.
+      </p>
+      <div className="flex gap-2">
+        <button
+          onClick={() => setSystem('metric')}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+            system === 'metric'
+              ? 'bg-accent text-gray-900'
+              : 'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/20'
+          }`}
+        >
+          Metric (km, km/h)
+        </button>
+        <button
+          onClick={() => setSystem('imperial')}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+            system === 'imperial'
+              ? 'bg-accent text-gray-900'
+              : 'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/20'
+          }`}
+        >
+          Imperial (mi, mph)
+        </button>
+      </div>
     </div>
   )
 }

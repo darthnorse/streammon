@@ -220,7 +220,7 @@ type RuleViolation struct {
 	Message         string                 `json:"message"`
 	Details         map[string]interface{} `json:"details,omitempty"`
 	ConfidenceScore float64                `json:"confidence_score"`
-	SessionKey      string                 `json:"session_key,omitempty"` // For deduplication - identifies the stream session
+	SessionKey      string                 `json:"session_key,omitempty"`
 	OccurredAt      time.Time              `json:"occurred_at"`
 	CreatedAt       time.Time              `json:"created_at"`
 }
@@ -240,6 +240,9 @@ func (v *RuleViolation) Validate() error {
 	}
 	if len(v.Message) > 1000 {
 		return errors.New("message must be 1000 characters or less")
+	}
+	if len(v.SessionKey) > 255 {
+		return errors.New("session_key must be 255 characters or less")
 	}
 	if v.OccurredAt.IsZero() {
 		v.OccurredAt = time.Now().UTC()

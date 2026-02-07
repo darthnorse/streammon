@@ -78,6 +78,12 @@ func (s *Server) routes() {
 			sr.Post("/import", s.handleTautulliImport)
 		})
 
+		r.Route("/settings/display", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleGetDisplaySettings)
+			sr.Put("/", s.handleUpdateDisplaySettings)
+		})
+
 		r.Route("/rules", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleListRules)
