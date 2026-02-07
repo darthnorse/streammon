@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { PER_PAGE } from '../lib/constants'
+import { PER_PAGE, PER_PAGE_OPTIONS } from '../lib/constants'
 
 const STORAGE_KEY = 'streammon:per_page'
 
@@ -8,7 +8,7 @@ function getStoredPerPage(): number {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) {
       const parsed = parseInt(stored, 10)
-      if ([10, 25, 50].includes(parsed)) {
+      if ((PER_PAGE_OPTIONS as readonly number[]).includes(parsed)) {
         return parsed
       }
     }

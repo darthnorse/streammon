@@ -9,7 +9,8 @@ export const mediaTypeLabels: Record<MediaType, string> = {
   book: 'Book',
 }
 
-export const PER_PAGE = 20
+export const PER_PAGE_OPTIONS = [10, 25, 50] as const
+export const PER_PAGE = 25
 export const SEARCH_DEBOUNCE_MS = 300
 
 export const MS_PER_MINUTE = 60_000

@@ -11,14 +11,6 @@ import (
 	"streammon/internal/models"
 )
 
-// escapeLikePattern escapes SQL LIKE wildcard characters (%, _, \)
-func escapeLikePattern(s string) string {
-	s = strings.ReplaceAll(s, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "%", "\\%")
-	s = strings.ReplaceAll(s, "_", "\\_")
-	return s
-}
-
 // candidateSelectColumns defines the columns for candidate queries with joined library items
 const candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,

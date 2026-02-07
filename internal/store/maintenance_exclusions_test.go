@@ -264,46 +264,22 @@ func TestCandidatesExcludeExcludedItems(t *testing.T) {
 // Helper to create additional library items for testing
 func createAdditionalItems(t *testing.T, s *Store, ctx context.Context, serverID int64, count int) []int64 {
 	t.Helper()
-	var ids []int64
+	now := time.Now().UTC()
+	ids := []int64{}
 
 	for i := 0; i < count; i++ {
-		items := []struct {
-			ServerID   int64
-			LibraryID  string
-			ItemID     string
-			MediaType  string
-			Title      string
-			Year       int
-			AddedAt    time.Time
-			FileSize   int64
-			SyncedAt   time.Time
-		}{{
+		itemID := fmt.Sprintf("extra_item_%d", i)
+		libItems := []models.LibraryItemCache{{
 			ServerID:  serverID,
 			LibraryID: "lib1",
-			ItemID:    fmt.Sprintf("extra_item_%d", i),
-			MediaType: "movie",
+			ItemID:    itemID,
+			MediaType: models.MediaTypeMovie,
 			Title:     fmt.Sprintf("Extra Movie %d", i),
 			Year:      2024,
-			AddedAt:   time.Now().UTC().AddDate(0, 0, -100),
+			AddedAt:   now.AddDate(0, 0, -100),
 			FileSize:  1024 * 1024 * 1024,
-			SyncedAt:  time.Now().UTC(),
+			SyncedAt:  now,
 		}}
-
-		// Need to use UpsertLibraryItems properly
-		libItems := make([]models.LibraryItemCache, len(items))
-		for j, item := range items {
-			libItems[j] = models.LibraryItemCache{
-				ServerID:  item.ServerID,
-				LibraryID: item.LibraryID,
-				ItemID:    item.ItemID,
-				MediaType: models.MediaType(item.MediaType),
-				Title:     item.Title,
-				Year:      item.Year,
-				AddedAt:   item.AddedAt,
-				FileSize:  item.FileSize,
-				SyncedAt:  item.SyncedAt,
-			}
-		}
 
 		if _, err := s.UpsertLibraryItems(ctx, libItems); err != nil {
 			t.Fatal(err)
@@ -315,7 +291,7 @@ func createAdditionalItems(t *testing.T, s *Store, ctx context.Context, serverID
 			t.Fatal(err)
 		}
 		for _, item := range allItems {
-			if item.ItemID == fmt.Sprintf("extra_item_%d", i) {
+			if item.ItemID == itemID {
 				ids = append(ids, item.ID)
 				break
 			}

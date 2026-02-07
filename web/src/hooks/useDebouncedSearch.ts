@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { SEARCH_DEBOUNCE_MS } from '../lib/constants'
 
 interface UseDebouncedSearchResult {
@@ -8,24 +8,35 @@ interface UseDebouncedSearchResult {
   resetSearch: () => void
 }
 
+/**
+ * Hook for debounced search input with optional callback on search change.
+ * @param onSearchChange - Called when the debounced search value changes.
+ *                         Use a stable reference (useCallback) to avoid unnecessary effect triggers.
+ */
 export function useDebouncedSearch(onSearchChange?: () => void): UseDebouncedSearchResult {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+  const onChangeRef = useRef(onSearchChange)
+
+  // Keep ref updated without triggering effect
+  useEffect(() => {
+    onChangeRef.current = onSearchChange
+  }, [onSearchChange])
 
   useEffect(() => {
     const timer = setTimeout(() => {
       if (searchInput !== search) {
         setSearch(searchInput)
-        onSearchChange?.()
+        onChangeRef.current?.()
       }
     }, SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [searchInput, search, onSearchChange])
+  }, [searchInput, search])
 
-  const resetSearch = () => {
+  const resetSearch = useCallback(() => {
     setSearchInput('')
     setSearch('')
-  }
+  }, [])
 
   return { searchInput, setSearchInput, search, resetSearch }
 }

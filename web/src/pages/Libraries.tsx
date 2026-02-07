@@ -5,6 +5,7 @@ import { useMountedRef } from '../hooks/useMountedRef'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
 import { api } from '../lib/api'
+import { PER_PAGE_OPTIONS } from '../lib/constants'
 import { formatCount, formatSize } from '../lib/format'
 import { Pagination } from '../components/Pagination'
 import {
@@ -647,9 +648,7 @@ function CandidatesView({
             onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); clearSelection() }}
             className="px-2 py-1 rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
           >
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
+            {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
       </div>
@@ -934,9 +933,7 @@ function ExclusionsView({
             onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); clearSelection() }}
             className="px-2 py-1 rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
           >
-            <option value={10}>10</option>
-            <option value={25}>25</option>
-            <option value={50}>50</option>
+            {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
         </div>
       </div>
