@@ -551,3 +551,225 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 		t.Errorf("expected candidate to still exist, got err: %v", err)
 	}
 }
+
+func TestCreateExclusionsAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	serverID := setupDeleteCandidateTest(t, s, "item1")
+
+	body := `{"library_item_ids":[1]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/rules/1/exclusions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["excluded"].(float64) != 1 {
+		t.Errorf("excluded = %v, want 1", resp["excluded"])
+	}
+
+	count, _ := s.CountExclusionsForRule(context.Background(), 1)
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+
+	_ = serverID
+}
+
+func TestListExclusionsAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	ctx := context.Background()
+	setupDeleteCandidateTest(t, s, "item1")
+
+	if _, err := s.CreateExclusions(ctx, 1, []int64{1}, "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/rules/1/exclusions", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["total"].(float64) != 1 {
+		t.Errorf("total = %v, want 1", resp["total"])
+	}
+}
+
+func TestDeleteExclusionAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	ctx := context.Background()
+	setupDeleteCandidateTest(t, s, "item1")
+
+	if _, err := s.CreateExclusions(ctx, 1, []int64{1}, "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/rules/1/exclusions/1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	count, _ := s.CountExclusionsForRule(ctx, 1)
+	if count != 0 {
+		t.Errorf("count = %d, want 0", count)
+	}
+}
+
+func TestBulkRemoveExclusionsAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	ctx := context.Background()
+	setupDeleteCandidateTest(t, s, "item1")
+
+	if _, err := s.CreateExclusions(ctx, 1, []int64{1}, "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"library_item_ids":[1]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/rules/1/exclusions/bulk-remove", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	count, _ := s.CountExclusionsForRule(ctx, 1)
+	if count != 0 {
+		t.Errorf("count = %d, want 0", count)
+	}
+}
+
+func TestBulkDeleteCandidatesAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	ctx := context.Background()
+	serverID := setupDeleteCandidateTest(t, s, "item1")
+
+	p := poller.New(s, time.Hour)
+	srv.poller = p
+	pCtx, cancel := context.WithCancel(context.Background())
+	p.Start(pCtx)
+	t.Cleanup(func() {
+		cancel()
+		p.Stop()
+	})
+
+	mock := &mockDeleteServer{}
+	p.AddServer(serverID, mock)
+
+	body := `{"candidate_ids":[1]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/candidates/bulk-delete", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["deleted"].(float64) != 1 {
+		t.Errorf("deleted = %v, want 1", resp["deleted"])
+	}
+	if resp["failed"].(float64) != 0 {
+		t.Errorf("failed = %v, want 0", resp["failed"])
+	}
+
+	_, err := s.GetMaintenanceCandidate(ctx, 1)
+	if !errors.Is(err, models.ErrNotFound) {
+		t.Errorf("expected candidate to be deleted")
+	}
+}
+
+func TestBulkDeleteCandidatesPartialFailureAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	serverID := setupDeleteCandidateTest(t, s, "item1")
+
+	p := poller.New(s, time.Hour)
+	srv.poller = p
+	pCtx, cancel := context.WithCancel(context.Background())
+	p.Start(pCtx)
+	t.Cleanup(func() {
+		cancel()
+		p.Stop()
+	})
+
+	mock := &mockDeleteServer{deleteErr: errors.New("server error")}
+	p.AddServer(serverID, mock)
+
+	body := `{"candidate_ids":[1, 99999]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/candidates/bulk-delete", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["deleted"].(float64) != 0 {
+		t.Errorf("deleted = %v, want 0", resp["deleted"])
+	}
+	if resp["failed"].(float64) != 2 {
+		t.Errorf("failed = %v, want 2", resp["failed"])
+	}
+	errs := resp["errors"].([]any)
+	if len(errs) != 2 {
+		t.Errorf("errors count = %d, want 2", len(errs))
+	}
+}
+
+func TestExcludedCandidatesFilteredFromListAPI(t *testing.T) {
+	srv, s := newTestServer(t)
+	ctx := context.Background()
+	setupDeleteCandidateTest(t, s, "item1")
+
+	// List candidates - should have 1
+	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/rules/1/candidates", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	var resp map[string]any
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["total"].(float64) != 1 {
+		t.Fatalf("expected 1 candidate before exclusion, got %v", resp["total"])
+	}
+
+	// Exclude the item
+	if _, err := s.CreateExclusions(ctx, 1, []int64{1}, "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// List candidates again - should have 0
+	req = httptest.NewRequest(http.MethodGet, "/api/maintenance/rules/1/candidates", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["total"].(float64) != 0 {
+		t.Errorf("expected 0 candidates after exclusion, got %v", resp["total"])
+	}
+}

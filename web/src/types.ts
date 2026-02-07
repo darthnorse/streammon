@@ -593,3 +593,33 @@ export interface MaintenanceCandidatesResponse {
   page: number
   per_page: number
 }
+
+export interface MaintenanceExclusion {
+  id: number
+  rule_id: number
+  library_item_id: number
+  excluded_by: string
+  excluded_at: string
+  item?: LibraryItemCache
+}
+
+export interface MaintenanceExclusionsResponse {
+  items: MaintenanceExclusion[]
+  total: number
+  page: number
+  per_page: number
+}
+
+export interface BulkDeleteError {
+  candidate_id: number
+  title: string
+  error: string
+}
+
+export interface BulkDeleteResult {
+  deleted: number
+  failed: number
+  skipped: number  // Items skipped because they were excluded since page load
+  total_size: number
+  errors?: BulkDeleteError[]
+}

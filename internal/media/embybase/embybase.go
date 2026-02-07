@@ -93,6 +93,10 @@ func (c *Client) DeleteItem(ctx context.Context, itemID string) error {
 	}
 	defer httputil.DrainBody(resp)
 
+	// 404 means item already gone - treat as idempotent success
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("%s delete: status %d", c.serverType, resp.StatusCode)
 	}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"streammon/internal/models"
@@ -56,10 +57,13 @@ func (s *Store) DeleteCandidatesForRule(ctx context.Context, ruleID int64) error
 	return nil
 }
 
-// ListCandidatesForRule returns candidates with their library items
+// ListCandidatesForRule returns candidates with their library items, excluding excluded items
 func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int) (*models.PaginatedResult[models.MaintenanceCandidate], error) {
 	var total int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM maintenance_candidates WHERE rule_id = ?`, ruleID).Scan(&total)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM maintenance_candidates c
+		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		WHERE c.rule_id = ? AND e.id IS NULL`, ruleID).Scan(&total)
 	if err != nil {
 		return nil, fmt.Errorf("count candidates: %w", err)
 	}
@@ -69,7 +73,8 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
-		WHERE c.rule_id = ?
+		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		WHERE c.rule_id = ? AND e.id IS NULL
 		ORDER BY i.added_at DESC
 		LIMIT ? OFFSET ?`,
 		ruleID, perPage, offset)
@@ -95,10 +100,13 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 	}, rows.Err()
 }
 
-// CountCandidatesForRule returns the count of candidates for a rule
+// CountCandidatesForRule returns the count of candidates for a rule, excluding excluded items
 func (s *Store) CountCandidatesForRule(ctx context.Context, ruleID int64) (int, error) {
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM maintenance_candidates WHERE rule_id = ?`, ruleID).Scan(&count)
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM maintenance_candidates c
+		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		WHERE c.rule_id = ? AND e.id IS NULL`, ruleID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count candidates for rule: %w", err)
 	}
@@ -193,6 +201,43 @@ func (s *Store) DeleteLibraryItem(ctx context.Context, id int64) error {
 	return nil
 }
 
+// GetMaintenanceCandidates returns multiple candidates by IDs with their library items
+func (s *Store) GetMaintenanceCandidates(ctx context.Context, ids []int64) ([]models.MaintenanceCandidate, error) {
+	if len(ids) == 0 {
+		return []models.MaintenanceCandidate{}, nil
+	}
+
+	// Build query with placeholders
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+
+	query := `
+		SELECT ` + candidateSelectColumns + `
+		FROM maintenance_candidates c
+		JOIN library_items i ON c.library_item_id = i.id
+		WHERE c.id IN (` + strings.Join(placeholders, ",") + `)`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get candidates: %w", err)
+	}
+	defer rows.Close()
+
+	candidates := []models.MaintenanceCandidate{}
+	for rows.Next() {
+		c, err := scanCandidate(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan candidate: %w", err)
+		}
+		candidates = append(candidates, c)
+	}
+	return candidates, rows.Err()
+}
+
 // RecordDeleteAction records a deletion in the audit log
 func (s *Store) RecordDeleteAction(ctx context.Context, serverID int64, itemID, title, mediaType string, fileSize int64, deletedBy string, serverDeleted bool, errMsg string) error {
 	_, err := s.db.ExecContext(ctx, `
@@ -205,13 +250,14 @@ func (s *Store) RecordDeleteAction(ctx context.Context, serverID int64, itemID, 
 	return nil
 }
 
-// ListAllCandidatesForRule returns all candidates without pagination
+// ListAllCandidatesForRule returns all candidates without pagination, excluding excluded items
 func (s *Store) ListAllCandidatesForRule(ctx context.Context, ruleID int64) ([]models.MaintenanceCandidate, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
-		WHERE c.rule_id = ?
+		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		WHERE c.rule_id = ? AND e.id IS NULL
 		ORDER BY i.added_at DESC`, ruleID)
 	if err != nil {
 		return nil, fmt.Errorf("list all candidates: %w", err)

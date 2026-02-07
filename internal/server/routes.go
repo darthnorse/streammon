@@ -119,7 +119,12 @@ func (s *Server) routes() {
 			mr.Post("/rules/{id}/evaluate", s.handleEvaluateRule)
 			mr.Get("/rules/{id}/candidates", s.handleListCandidates)
 			mr.Get("/rules/{id}/candidates/export", s.handleExportCandidates)
+			mr.Get("/rules/{id}/exclusions", s.handleListExclusions)
+			mr.Post("/rules/{id}/exclusions", s.handleCreateExclusions)
+			mr.Delete("/rules/{id}/exclusions/{itemId}", s.handleDeleteExclusion)
+			mr.Post("/rules/{id}/exclusions/bulk-remove", s.handleBulkRemoveExclusions)
 			mr.Delete("/candidates/{id}", s.handleDeleteCandidate)
+			mr.Post("/candidates/bulk-delete", s.handleBulkDeleteCandidates)
 		})
 
 		r.Get("/users/{name}/trust", s.handleGetUserTrustScore)

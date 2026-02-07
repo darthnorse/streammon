@@ -1,7 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useFetch } from '../hooks/useFetch'
+import { useMultiSelect } from '../hooks/useMultiSelect'
+import { useMountedRef } from '../hooks/useMountedRef'
 import { api } from '../lib/api'
 import { PER_PAGE } from '../lib/constants'
+import { formatCount, formatSize } from '../lib/format'
+import { Pagination } from '../components/Pagination'
+import {
+  SubViewHeader,
+  SearchInput,
+  SelectionActionBar,
+  ConfirmDialog,
+  OperationResult,
+} from '../components/shared'
 import type {
   LibrariesResponse,
   Library,
@@ -11,6 +22,9 @@ import type {
   LibraryMaintenance,
   MaintenanceRuleWithCount,
   MaintenanceCandidatesResponse,
+  MaintenanceExclusionsResponse,
+  MaintenanceCandidate,
+  BulkDeleteResult,
   CriterionTypeInfo,
   CriterionType,
 } from '../types'
@@ -41,18 +55,7 @@ type ViewState =
   | { type: 'violations'; library: Library; maintenance: LibraryMaintenance }
   | { type: 'rule-form'; library: Library; maintenance: LibraryMaintenance | null; rule?: MaintenanceRuleWithCount }
   | { type: 'candidates'; library: Library; rule: MaintenanceRuleWithCount }
-
-function formatCount(count: number): string {
-  return count.toLocaleString()
-}
-
-function formatSize(bytes: number): string {
-  if (bytes === 0) return '-'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  const value = bytes / Math.pow(1024, i)
-  return `${value.toFixed(i > 1 ? 1 : 0)} ${units[i]}`
-}
+  | { type: 'exclusions'; library: Library; rule: MaintenanceRuleWithCount }
 
 function getUniqueServers(libraries: Library[]): { id: number; name: string }[] {
   const seen = new Map<number, string>()
@@ -74,47 +77,32 @@ const criterionFormatters: Record<CriterionType, (params: Record<string, unknown
 
 function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
   const params = rule.parameters as Record<string, unknown>
-  const formatter = criterionFormatters[rule.criterion_type]
-  return formatter ? formatter(params) : JSON.stringify(params)
+  return criterionFormatters[rule.criterion_type]?.(params) ?? JSON.stringify(params)
 }
 
 function getLibraryIcon(type: LibraryType): string {
   return libraryTypeIcon[type] || '▤'
 }
 
-function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="p-2 rounded-lg hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-      aria-label="Go back"
-    >
-      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-      </svg>
-    </button>
-  )
-}
-
-interface SubViewHeaderProps {
+// Wrapper for SubViewHeader that adds library icon
+function LibrarySubViewHeader({
+  library,
+  title,
+  subtitle,
+  onBack,
+}: {
   library: Library
   title: string
   subtitle: string
   onBack: () => void
-}
-
-function SubViewHeader({ library, title, subtitle, onBack }: SubViewHeaderProps) {
+}) {
   return (
-    <div className="flex items-center gap-4">
-      <BackButton onClick={onBack} />
-      <div className="flex items-center gap-3">
-        <span className="text-2xl">{getLibraryIcon(library.type)}</span>
-        <div>
-          <h1 className="text-2xl font-semibold">{title}</h1>
-          <p className="text-sm text-muted dark:text-muted-dark">{subtitle}</p>
-        </div>
-      </div>
-    </div>
+    <SubViewHeader
+      icon={getLibraryIcon(library.type)}
+      title={title}
+      subtitle={subtitle}
+      onBack={onBack}
+    />
   )
 }
 
@@ -232,6 +220,7 @@ function RulesView({
   const rules = maintenance?.rules || []
   const [operationError, setOperationError] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<MaintenanceRuleWithCount | null>(null)
+  const mountedRef = useMountedRef()
 
   const handleToggleRule = async (rule: MaintenanceRuleWithCount) => {
     setOperationError(null)
@@ -242,10 +231,10 @@ function RulesView({
         parameters: rule.parameters,
         enabled: !rule.enabled,
       })
-      onRefresh()
+      if (mountedRef.current) onRefresh()
     } catch (err) {
       console.error('Failed to toggle rule:', err)
-      setOperationError(`Failed to ${rule.enabled ? 'disable' : 'enable'} rule "${rule.name}"`)
+      if (mountedRef.current) setOperationError(`Failed to ${rule.enabled ? 'disable' : 'enable'} rule "${rule.name}"`)
     }
   }
 
@@ -253,12 +242,16 @@ function RulesView({
     setOperationError(null)
     try {
       await api.del(`/api/maintenance/rules/${rule.id}`)
-      setDeleteConfirm(null)
-      onRefresh()
+      if (mountedRef.current) {
+        setDeleteConfirm(null)
+        onRefresh()
+      }
     } catch (err) {
       console.error('Failed to delete rule:', err)
-      setOperationError(`Failed to delete rule "${rule.name}"`)
-      setDeleteConfirm(null)
+      if (mountedRef.current) {
+        setOperationError(`Failed to delete rule "${rule.name}"`)
+        setDeleteConfirm(null)
+      }
     }
   }
 
@@ -266,16 +259,16 @@ function RulesView({
     setOperationError(null)
     try {
       await api.post(`/api/maintenance/rules/${rule.id}/evaluate`)
-      onRefresh()
+      if (mountedRef.current) onRefresh()
     } catch (err) {
       console.error('Failed to evaluate rule:', err)
-      setOperationError(`Failed to evaluate rule "${rule.name}"`)
+      if (mountedRef.current) setOperationError(`Failed to evaluate rule "${rule.name}"`)
     }
   }
 
   return (
     <div className="space-y-6">
-      <SubViewHeader
+      <LibrarySubViewHeader
         library={library}
         title={library.name}
         subtitle={`${library.server_name} - Maintenance Rules`}
@@ -283,42 +276,22 @@ function RulesView({
       />
 
       {operationError && (
-        <div className="p-3 rounded-lg bg-red-500/10 text-red-500 text-sm flex items-center justify-between">
-          <span>{operationError}</span>
-          <button
-            onClick={() => setOperationError(null)}
-            className="ml-4 text-red-400 hover:text-red-300"
-            aria-label="Dismiss error"
-          >
-            ✕
-          </button>
-        </div>
+        <OperationResult
+          type="error"
+          message={operationError}
+          onDismiss={() => setOperationError(null)}
+        />
       )}
 
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="card p-6 max-w-sm mx-4">
-            <h3 className="text-lg font-semibold mb-2">Delete Rule</h3>
-            <p className="text-muted dark:text-muted-dark mb-4">
-              Are you sure you want to delete "{deleteConfirm.name}"? This action cannot be undone.
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="px-4 py-2 text-sm font-medium rounded-lg border border-border dark:border-border-dark
-                         hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleDeleteRule(deleteConfirm)}
-                className="px-4 py-2 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Delete Rule"
+          message={`Are you sure you want to delete "${deleteConfirm.name}"? This action cannot be undone.`}
+          confirmLabel="Delete"
+          onConfirm={() => handleDeleteRule(deleteConfirm)}
+          onCancel={() => setDeleteConfirm(null)}
+          isDestructive
+        />
       )}
 
       <div className="flex items-center justify-between">
@@ -439,7 +412,7 @@ function ViolationsView({
 
   return (
     <div className="space-y-6">
-      <SubViewHeader
+      <LibrarySubViewHeader
         library={library}
         title={library.name}
         subtitle={`${library.server_name} - ${formatCount(totalViolations)} violations`}
@@ -486,39 +459,218 @@ function CandidatesView({
   library,
   rule,
   onBack,
+  onManageExclusions,
 }: {
   library: Library
   rule: MaintenanceRuleWithCount
   onBack: () => void
+  onManageExclusions: () => void
 }) {
   const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [deleteConfirm, setDeleteConfirm] = useState<MaintenanceCandidate[] | null>(null)
+  const [excludeConfirm, setExcludeConfirm] = useState<MaintenanceCandidate[] | null>(null)
+  const [showDetails, setShowDetails] = useState(false)
+  const [operating, setOperating] = useState(false)
+  const [operationResult, setOperationResult] = useState<{ type: 'success' | 'partial' | 'error'; message: string; errors?: Array<{ title: string; error: string }> } | null>(null)
+  const [rowMenuOpen, setRowMenuOpen] = useState<number | null>(null)
+  const mountedRef = useMountedRef()
 
-  useEffect(() => {
-    setPage(1)
-  }, [rule.id])
-
-  const { data, loading } = useFetch<MaintenanceCandidatesResponse>(
+  const { data, loading, refetch } = useFetch<MaintenanceCandidatesResponse>(
     `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${PER_PAGE}`
   )
 
   const totalPages = data ? Math.ceil(data.total / PER_PAGE) : 0
 
+  const filteredItems = useMemo(() => {
+    if (!data?.items || !search.trim()) return data?.items || []
+    const searchLower = search.toLowerCase()
+    return data.items.filter(c => {
+      const title = c.item?.title?.toLowerCase() || ''
+      const year = String(c.item?.year || '')
+      const resolution = c.item?.video_resolution?.toLowerCase() || ''
+      const reason = c.reason.toLowerCase()
+      return title.includes(searchLower) || year.includes(searchLower) ||
+             resolution.includes(searchLower) || reason.includes(searchLower)
+    })
+  }, [data?.items, search])
+
+  const {
+    selected,
+    toggleSelect,
+    toggleSelectAll,
+    clearSelection,
+    allVisibleSelected,
+    selectedItems,
+  } = useMultiSelect(
+    data?.items || [],
+    (c) => c.id,
+    () => filteredItems
+  )
+
+  useEffect(() => {
+    setPage(1)
+    clearSelection()
+    setSearch('')
+  }, [rule.id, clearSelection])
+
+  // Clamp page to valid range after data changes (e.g., after delete)
+  useEffect(() => {
+    if (totalPages > 0 && page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [totalPages, page])
+
+  const handleBulkDelete = async () => {
+    if (!deleteConfirm) return
+    setOperating(true)
+    setOperationResult(null)
+    try {
+      const result = await api.post<BulkDeleteResult>('/api/maintenance/candidates/bulk-delete', {
+        candidate_ids: deleteConfirm.map(c => c.id)
+      })
+      if (!mountedRef.current) return
+
+      // Extract error details for display (ensure array, never null/undefined)
+      const errorDetails = result.errors?.map(e => ({ title: e.title, error: e.error })) ?? []
+      const totalRequested = result.deleted + result.failed + result.skipped
+
+      if (result.failed === 0 && result.skipped === 0) {
+        setOperationResult({ type: 'success', message: `Deleted ${result.deleted} items (${formatSize(result.total_size)} reclaimed)` })
+      } else if (result.deleted > 0) {
+        // Build message with skipped info if any
+        let msg = `Deleted ${result.deleted} of ${totalRequested} items.`
+        if (result.failed > 0) msg += ` ${result.failed} failed.`
+        if (result.skipped > 0) msg += ` ${result.skipped} skipped (excluded).`
+        setOperationResult({
+          type: 'partial',
+          message: msg,
+          errors: errorDetails
+        })
+      } else if (result.skipped > 0 && result.failed === 0) {
+        // All items were skipped (excluded)
+        setOperationResult({
+          type: 'partial',
+          message: `All ${result.skipped} items were skipped (excluded since page load)`,
+          errors: errorDetails
+        })
+      } else {
+        setOperationResult({
+          type: 'error',
+          message: `Failed to delete items`,
+          errors: errorDetails
+        })
+      }
+      clearSelection()
+      // Page clamping is handled by useEffect when totalPages changes after refetch
+      refetch()
+    } catch (err) {
+      console.error('Bulk delete failed:', err)
+      if (mountedRef.current) setOperationResult({ type: 'error', message: 'Failed to delete items' })
+    } finally {
+      if (mountedRef.current) {
+        setOperating(false)
+        setDeleteConfirm(null)
+        // Don't reset showDetails here - let user preference persist
+      }
+    }
+  }
+
+  const handleBulkExclude = async () => {
+    if (!excludeConfirm) return
+    setOperating(true)
+    setOperationResult(null)
+    try {
+      await api.post(`/api/maintenance/rules/${rule.id}/exclusions`, {
+        library_item_ids: excludeConfirm.map(c => c.library_item_id)
+      })
+      if (!mountedRef.current) return
+      setOperationResult({ type: 'success', message: `Excluded ${excludeConfirm.length} items from this rule` })
+      clearSelection()
+      refetch()
+    } catch (err) {
+      console.error('Bulk exclude failed:', err)
+      if (mountedRef.current) setOperationResult({ type: 'error', message: 'Failed to exclude items' })
+    } finally {
+      if (mountedRef.current) {
+        setOperating(false)
+        setExcludeConfirm(null)
+      }
+    }
+  }
+
+  const handleSingleDelete = (candidate: MaintenanceCandidate) => {
+    setRowMenuOpen(null)
+    setShowDetails(false) // Reset on dialog open
+    setDeleteConfirm([candidate])
+  }
+
+  const handleSingleExclude = (candidate: MaintenanceCandidate) => {
+    setRowMenuOpen(null)
+    setExcludeConfirm([candidate])
+  }
+
+  const handleBulkDeleteClick = () => {
+    setShowDetails(false) // Reset on dialog open
+    setDeleteConfirm(selectedItems)
+  }
+
   return (
     <div className="space-y-6">
-      <SubViewHeader
-        library={library}
-        title={rule.name}
-        subtitle={`${library.name} - ${data ? formatCount(data.total) : '0'} violations`}
-        onBack={onBack}
+      <div className="flex items-center justify-between">
+        <LibrarySubViewHeader
+          library={library}
+          title={rule.name}
+          subtitle={`${library.name} - ${data ? formatCount(data.total) : '0'} violations`}
+          onBack={onBack}
+        />
+        <button
+          onClick={onManageExclusions}
+          className="px-3 py-1.5 text-sm font-medium rounded border border-border dark:border-border-dark
+                     hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+        >
+          Manage Exclusions
+        </button>
+      </div>
+
+      {operationResult && (
+        <OperationResult
+          type={operationResult.type}
+          message={operationResult.message}
+          onDismiss={() => setOperationResult(null)}
+          errors={operationResult.errors}
+        />
+      )}
+
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search title, year, resolution..."
       />
+
+      <SelectionActionBar selectedCount={selected.size}>
+        <button
+          onClick={() => setExcludeConfirm(selectedItems)}
+          className="px-3 py-1.5 text-sm font-medium rounded border border-border dark:border-border-dark
+                     hover:bg-panel dark:hover:bg-panel-dark transition-colors"
+        >
+          Exclude Selected
+        </button>
+        <button
+          onClick={handleBulkDeleteClick}
+          className="px-3 py-1.5 text-sm font-medium rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+        >
+          Delete Selected
+        </button>
+      </SelectionActionBar>
 
       {loading && !data ? (
         <div className="card p-12 text-center">
           <div className="text-muted dark:text-muted-dark animate-pulse">Loading...</div>
         </div>
-      ) : !data?.items.length ? (
+      ) : !filteredItems.length ? (
         <div className="card p-8 text-center text-muted dark:text-muted-dark">
-          No violations found for this rule.
+          {search ? 'No matching items found.' : 'No violations found for this rule.'}
         </div>
       ) : (
         <>
@@ -527,6 +679,14 @@ function CandidatesView({
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-white/5 border-b border-border dark:border-border-dark">
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAll}
+                        className="rounded border-border dark:border-border-dark"
+                      />
+                    </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
                       Title
                     </th>
@@ -537,19 +697,29 @@ function CandidatesView({
                       Resolution
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Added
+                      Size
                     </th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
                       Reason
                     </th>
+                    <th className="px-4 py-3 w-10"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.items.map((candidate) => (
+                  {filteredItems.map((candidate) => (
                     <tr
                       key={candidate.id}
-                      className="border-b border-border dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5 transition-colors"
+                      className={`border-b border-border dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5 transition-colors
+                        ${selected.has(candidate.id) ? 'bg-accent/5' : ''}`}
                     >
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(candidate.id)}
+                          onChange={() => toggleSelect(candidate.id)}
+                          className="rounded border-border dark:border-border-dark"
+                        />
+                      </td>
                       <td className="px-4 py-3 font-medium">
                         {candidate.item?.title || 'Unknown'}
                       </td>
@@ -560,10 +730,41 @@ function CandidatesView({
                         {candidate.item?.video_resolution || '-'}
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
-                        {candidate.item?.added_at ? new Date(candidate.item.added_at).toLocaleString() : '-'}
+                        {candidate.item?.file_size ? formatSize(candidate.item.file_size) : '-'}
                       </td>
                       <td className="px-4 py-3 text-sm text-amber-500">
                         {candidate.reason}
+                      </td>
+                      <td className="px-4 py-3 relative">
+                        <button
+                          onClick={() => setRowMenuOpen(rowMenuOpen === candidate.id ? null : candidate.id)}
+                          className="p-1 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+                        >
+                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <circle cx="12" cy="5" r="2" />
+                            <circle cx="12" cy="12" r="2" />
+                            <circle cx="12" cy="19" r="2" />
+                          </svg>
+                        </button>
+                        {rowMenuOpen === candidate.id && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setRowMenuOpen(null)} />
+                            <div className="absolute right-0 top-full mt-1 z-20 bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded-lg shadow-lg min-w-[140px]">
+                              <button
+                                onClick={() => handleSingleExclude(candidate)}
+                                className="w-full px-4 py-2 text-left text-sm hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+                              >
+                                Exclude from Rule
+                              </button>
+                              <button
+                                onClick={() => handleSingleDelete(candidate)}
+                                className="w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -572,27 +773,246 @@ function CandidatesView({
             </div>
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex justify-center gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="px-3 py-1 text-sm rounded border border-border dark:border-border-dark disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <span className="px-3 py-1 text-sm">
-                Page {page} of {totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages}
-                className="px-3 py-1 text-sm rounded border border-border dark:border-border-dark disabled:opacity-50"
-              >
-                Next
-              </button>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={(p) => { setPage(p); clearSelection() }}
+          />
+        </>
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {deleteConfirm && (
+        <ConfirmDialog
+          title={`Delete ${deleteConfirm.length} item${deleteConfirm.length > 1 ? 's' : ''} from ${library.server_name}?`}
+          message={
+            <>
+              <p className="mb-2">
+                This will permanently delete these files from your media server. Cannot be undone.
+              </p>
+              <p className="text-sm font-medium">
+                Total size: {formatSize(deleteConfirm.reduce((sum, c) => sum + (c.item?.file_size || 0), 0))}
+              </p>
+            </>
+          }
+          confirmLabel={operating ? 'Deleting...' : `Delete ${deleteConfirm.length} Item${deleteConfirm.length > 1 ? 's' : ''}`}
+          onConfirm={handleBulkDelete}
+          onCancel={() => { setDeleteConfirm(null); setShowDetails(false) }}
+          isDestructive
+          disabled={operating}
+        >
+          <button
+            onClick={() => setShowDetails(!showDetails)}
+            className="text-sm text-accent hover:underline mb-3 flex items-center gap-1"
+          >
+            {showDetails ? '▼ Hide details' : '▶ Show details'}
+          </button>
+          {showDetails && (
+            <div className="max-h-40 overflow-y-auto mb-4 p-2 rounded bg-surface dark:bg-surface-dark text-sm">
+              {deleteConfirm.map(c => (
+                <div key={c.id} className="py-1">
+                  • {c.item?.title} ({c.item?.year}) - {formatSize(c.item?.file_size || 0)}
+                </div>
+              ))}
             </div>
           )}
+        </ConfirmDialog>
+      )}
+
+      {/* Exclude Confirmation Dialog */}
+      {excludeConfirm && (
+        <ConfirmDialog
+          title={`Exclude ${excludeConfirm.length} item${excludeConfirm.length > 1 ? 's' : ''} from this rule?`}
+          message="They won't appear in future evaluations of this rule. You can manage exclusions later."
+          confirmLabel={operating ? 'Excluding...' : 'Exclude'}
+          onConfirm={handleBulkExclude}
+          onCancel={() => setExcludeConfirm(null)}
+          disabled={operating}
+        />
+      )}
+    </div>
+  )
+}
+
+function ExclusionsView({
+  library,
+  rule,
+  onBack,
+}: {
+  library: Library
+  rule: MaintenanceRuleWithCount
+  onBack: () => void
+}) {
+  const [page, setPage] = useState(1)
+  const [search, setSearch] = useState('')
+  const [operating, setOperating] = useState(false)
+  const [operationResult, setOperationResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const mountedRef = useMountedRef()
+
+  const { data, loading, refetch } = useFetch<MaintenanceExclusionsResponse>(
+    `/api/maintenance/rules/${rule.id}/exclusions?page=${page}&per_page=${PER_PAGE}`
+  )
+
+  const totalPages = data ? Math.ceil(data.total / PER_PAGE) : 0
+
+  const filteredItems = useMemo(() => {
+    if (!data?.items || !search.trim()) return data?.items || []
+    const searchLower = search.toLowerCase()
+    return data.items.filter(e => {
+      const title = e.item?.title?.toLowerCase() || ''
+      const year = String(e.item?.year || '')
+      return title.includes(searchLower) || year.includes(searchLower)
+    })
+  }, [data?.items, search])
+
+  const {
+    selected,
+    toggleSelect,
+    toggleSelectAll,
+    clearSelection,
+    allVisibleSelected,
+  } = useMultiSelect(
+    data?.items || [],
+    (e) => e.library_item_id,
+    () => filteredItems
+  )
+
+  // Clamp page to valid range after data changes (e.g., after removal)
+  useEffect(() => {
+    if (totalPages > 0 && page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [totalPages, page])
+
+  const handleRemoveExclusions = async () => {
+    if (selected.size === 0) return
+    setOperating(true)
+    setOperationResult(null)
+    try {
+      await api.post(`/api/maintenance/rules/${rule.id}/exclusions/bulk-remove`, {
+        library_item_ids: Array.from(selected)
+      })
+      if (!mountedRef.current) return
+      setOperationResult({ type: 'success', message: `Removed ${selected.size} exclusions` })
+      clearSelection()
+      refetch()
+    } catch (err) {
+      console.error('Remove exclusions failed:', err)
+      if (mountedRef.current) setOperationResult({ type: 'error', message: 'Failed to remove exclusions' })
+    } finally {
+      if (mountedRef.current) setOperating(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <LibrarySubViewHeader
+        library={library}
+        title="Excluded Items"
+        subtitle={`Rule: ${rule.name} - ${data ? formatCount(data.total) : '0'} excluded`}
+        onBack={onBack}
+      />
+
+      {operationResult && (
+        <OperationResult
+          type={operationResult.type}
+          message={operationResult.message}
+          onDismiss={() => setOperationResult(null)}
+        />
+      )}
+
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search title, year..."
+      />
+
+      <SelectionActionBar selectedCount={selected.size}>
+        <button
+          onClick={handleRemoveExclusions}
+          disabled={operating}
+          className="px-3 py-1.5 text-sm font-medium rounded bg-accent text-gray-900 hover:bg-accent/90 transition-colors disabled:opacity-50"
+        >
+          {operating ? 'Removing...' : 'Remove Exclusion'}
+        </button>
+      </SelectionActionBar>
+
+      {loading && !data ? (
+        <div className="card p-12 text-center">
+          <div className="text-muted dark:text-muted-dark animate-pulse">Loading...</div>
+        </div>
+      ) : !filteredItems.length ? (
+        <div className="card p-8 text-center text-muted dark:text-muted-dark">
+          {search ? 'No matching excluded items found.' : 'No excluded items for this rule.'}
+        </div>
+      ) : (
+        <>
+          <div className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-white/5 border-b border-border dark:border-border-dark">
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAll}
+                        className="rounded border-border dark:border-border-dark"
+                      />
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
+                      Title
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
+                      Year
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
+                      Excluded At
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
+                      Excluded By
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredItems.map((exclusion) => (
+                    <tr
+                      key={exclusion.id}
+                      className={`border-b border-border dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5 transition-colors
+                        ${selected.has(exclusion.library_item_id) ? 'bg-accent/5' : ''}`}
+                    >
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(exclusion.library_item_id)}
+                          onChange={() => toggleSelect(exclusion.library_item_id)}
+                          className="rounded border-border dark:border-border-dark"
+                        />
+                      </td>
+                      <td className="px-4 py-3 font-medium">
+                        {exclusion.item?.title || 'Unknown'}
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {exclusion.item?.year || '-'}
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {new Date(exclusion.excluded_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {exclusion.excluded_by}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={(p) => { setPage(p); clearSelection() }}
+          />
         </>
       )}
     </div>
@@ -689,7 +1109,7 @@ function RuleFormView({
 
   return (
     <div className="space-y-6">
-      <SubViewHeader
+      <LibrarySubViewHeader
         library={library}
         title={`${isEdit ? 'Edit' : 'Create'} Rule`}
         subtitle={library.name}
@@ -924,6 +1344,17 @@ export function Libraries() {
             setView({ type: 'list' })
           }
         }}
+        onManageExclusions={() => setView({ type: 'exclusions', library: view.library, rule: view.rule })}
+      />
+    )
+  }
+
+  if (view.type === 'exclusions') {
+    return (
+      <ExclusionsView
+        library={view.library}
+        rule={view.rule}
+        onBack={() => setView({ type: 'candidates', library: view.library, rule: view.rule })}
       />
     )
   }

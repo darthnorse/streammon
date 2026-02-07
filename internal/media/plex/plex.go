@@ -168,6 +168,10 @@ func (s *Server) DeleteItem(ctx context.Context, itemID string) error {
 	}
 	defer httputil.DrainBody(resp)
 
+	// 404 means item already gone - treat as idempotent success
+	if resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		return fmt.Errorf("plex delete: status %d", resp.StatusCode)
 	}

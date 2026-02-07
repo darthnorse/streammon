@@ -123,22 +123,35 @@ func (s *Store) GetLastSyncTime(ctx context.Context, serverID int64, libraryID s
 	return &syncedAt, nil
 }
 
-// parseTimeString parses time strings from SQLite which may use space or T as separator
+// parseTimeString parses time strings from SQLite which may use space or T as separator.
+// Times without timezone are assumed to be UTC (per CLAUDE.md: "UTC everywhere").
 func parseTimeString(s string) (time.Time, error) {
-	formats := []string{
+	// Formats with explicit timezone - parse normally
+	formatsWithTZ := []string{
 		time.RFC3339Nano,
 		time.RFC3339,
 		"2006-01-02 15:04:05.999999999-07:00",
 		"2006-01-02 15:04:05.999999999+00:00",
 		"2006-01-02 15:04:05-07:00",
 		"2006-01-02 15:04:05+00:00",
-		"2006-01-02 15:04:05",
 	}
-	for _, f := range formats {
+	for _, f := range formatsWithTZ {
 		if t, err := time.Parse(f, s); err == nil {
 			return t.UTC(), nil
 		}
 	}
+
+	// Formats without timezone - parse in UTC location explicitly
+	formatsNoTZ := []string{
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	}
+	for _, f := range formatsNoTZ {
+		if t, err := time.ParseInLocation(f, s, time.UTC); err == nil {
+			return t, nil // Already UTC
+		}
+	}
+
 	return time.Time{}, fmt.Errorf("unrecognized time format: %s", s)
 }
 
@@ -151,6 +164,73 @@ func (s *Store) DeleteStaleLibraryItems(ctx context.Context, serverID int64, lib
 		return 0, fmt.Errorf("delete stale library items: %w", err)
 	}
 	return result.RowsAffected()
+}
+
+// SyncLibraryItems atomically upserts items and deletes stale ones in a single transaction.
+// This prevents race conditions between concurrent syncs for the same library.
+func (s *Store) SyncLibraryItems(ctx context.Context, serverID int64, libraryID string, items []models.LibraryItemCache) (upserted int, deleted int64, err error) {
+	if len(items) == 0 {
+		// Even with no items, we should delete stale items
+		deleted, err = s.DeleteStaleLibraryItems(ctx, serverID, libraryID, time.Now().UTC())
+		return 0, deleted, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Record sync time BEFORE any operations - this is the cutoff for stale items
+	syncTime := time.Now().UTC()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO library_items (server_id, library_id, item_id, media_type, title, year,
+			added_at, video_resolution, file_size, episode_count, thumb_url, synced_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(server_id, item_id) DO UPDATE SET
+			library_id = excluded.library_id,
+			media_type = excluded.media_type,
+			title = excluded.title,
+			year = excluded.year,
+			video_resolution = excluded.video_resolution,
+			file_size = excluded.file_size,
+			episode_count = excluded.episode_count,
+			thumb_url = excluded.thumb_url,
+			synced_at = excluded.synced_at`)
+	if err != nil {
+		return 0, 0, fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, item := range items {
+		if ctx.Err() != nil {
+			return upserted, 0, ctx.Err()
+		}
+		_, err := stmt.ExecContext(ctx, item.ServerID, item.LibraryID, item.ItemID,
+			item.MediaType, item.Title, item.Year, item.AddedAt, item.VideoResolution,
+			item.FileSize, item.EpisodeCount, item.ThumbURL, syncTime)
+		if err != nil {
+			return upserted, 0, fmt.Errorf("upsert item %s: %w", item.ItemID, err)
+		}
+		upserted++
+	}
+
+	// Delete stale items within the same transaction
+	result, err := tx.ExecContext(ctx,
+		`DELETE FROM library_items WHERE server_id = ? AND library_id = ? AND synced_at < ?`,
+		serverID, libraryID, syncTime)
+	if err != nil {
+		return upserted, 0, fmt.Errorf("delete stale items: %w", err)
+	}
+
+	deleted, _ = result.RowsAffected()
+
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("commit: %w", err)
+	}
+
+	return upserted, deleted, nil
 }
 
 // CountLibraryItems returns the count of cached items for a library

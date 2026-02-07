@@ -1,3 +1,21 @@
+/**
+ * Format a number with locale-specific thousands separators
+ */
+export function formatCount(count: number): string {
+  return count.toLocaleString()
+}
+
+/**
+ * Format bytes into human-readable size (B, KB, MB, GB, TB, PB)
+ */
+export function formatSize(bytes: number): string {
+  if (bytes === 0) return '-'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const value = bytes / Math.pow(1024, i)
+  return `${value.toFixed(i > 1 ? 1 : 0)} ${units[i]}`
+}
+
 export function formatTimestamp(ms: number): string {
   const totalSec = Math.floor(ms / 1000)
   const h = Math.floor(totalSec / 3600)

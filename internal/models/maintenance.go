@@ -218,3 +218,29 @@ type LowResolutionParams struct {
 type LargeFilesParams struct {
 	MinSizeGB float64 `json:"min_size_gb"`
 }
+
+// BulkDeleteResult represents the result of a bulk delete operation
+type BulkDeleteResult struct {
+	Deleted   int               `json:"deleted"`
+	Failed    int               `json:"failed"`
+	Skipped   int               `json:"skipped"` // Items skipped because they were excluded since page load
+	TotalSize int64             `json:"total_size"`
+	Errors    []BulkDeleteError `json:"errors,omitempty"`
+}
+
+// BulkDeleteError represents a single deletion failure
+type BulkDeleteError struct {
+	CandidateID int64  `json:"candidate_id"`
+	Title       string `json:"title"`
+	Error       string `json:"error"`
+}
+
+// MaintenanceExclusion represents an excluded item for a rule
+type MaintenanceExclusion struct {
+	ID            int64             `json:"id"`
+	RuleID        int64             `json:"rule_id"`
+	LibraryItemID int64             `json:"library_item_id"`
+	ExcludedBy    string            `json:"excluded_by"`
+	ExcludedAt    time.Time         `json:"excluded_at"`
+	Item          *LibraryItemCache `json:"item,omitempty"`
+}

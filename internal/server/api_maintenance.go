@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -17,7 +18,80 @@ import (
 	"streammon/internal/models"
 )
 
-// parsePagination extracts and validates page and perPage from query params
+const maxBulkOperationSize = 500  // SQLite SQLITE_MAX_VARIABLE_NUMBER limit is 999
+const maxExportSize = 10000       // Prevent OOM on large exports
+
+// deleteItemResult captures the outcome of deleting a single item
+type deleteItemResult struct {
+	ServerDeleted bool   // File was deleted from media server
+	DBCleaned     bool   // Database record was removed
+	FileSize      int64  // Size of deleted file (for reporting)
+	Error         string // Error message if any step failed
+}
+
+// deleteItemFromServer handles the core deletion logic for a single item.
+// Uses background contexts to ensure operations complete even if request is cancelled.
+func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, deletedBy string) deleteItemResult {
+	result := deleteItemResult{FileSize: candidate.Item.FileSize}
+
+	// Get the media server
+	ms, ok := s.poller.GetServer(candidate.Item.ServerID)
+	if !ok {
+		result.Error = "server not configured"
+		return result
+	}
+
+	// Delete from media server with timeout
+	deleteCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	deleteErr := ms.DeleteItem(deleteCtx, candidate.Item.ItemID)
+	cancel()
+
+	if deleteErr != nil {
+		result.Error = deleteErr.Error()
+		// Record failed attempt in audit log
+		s.recordDeleteAudit(candidate, deletedBy, false, result.Error)
+		return result
+	}
+
+	result.ServerDeleted = true
+
+	// Clean up database
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	dbErr := s.store.DeleteLibraryItem(cleanupCtx, candidate.LibraryItemID)
+	cleanupCancel()
+
+	if dbErr != nil {
+		log.Printf("delete library item %d: %v", candidate.LibraryItemID, dbErr)
+		result.Error = "file deleted but database cleanup failed - please refresh"
+	} else {
+		result.DBCleaned = true
+	}
+
+	// Record audit log with final status
+	s.recordDeleteAudit(candidate, deletedBy, result.ServerDeleted && result.DBCleaned, result.Error)
+
+	return result
+}
+
+// recordDeleteAudit records a deletion attempt in the audit log
+func (s *Server) recordDeleteAudit(candidate models.MaintenanceCandidate, deletedBy string, success bool, errMsg string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := s.store.RecordDeleteAction(ctx,
+		candidate.Item.ServerID,
+		candidate.Item.ItemID,
+		candidate.Item.Title,
+		string(candidate.Item.MediaType),
+		candidate.Item.FileSize,
+		deletedBy,
+		success,
+		errMsg,
+	); err != nil {
+		log.Printf("record delete action: %v", err)
+	}
+}
+
 func parsePagination(r *http.Request, defaultPerPage, maxPerPage int) (page, perPage int) {
 	const maxPage = 10000
 	page, _ = strconv.Atoi(r.URL.Query().Get("page"))
@@ -31,6 +105,38 @@ func parsePagination(r *http.Request, defaultPerPage, maxPerPage int) (page, per
 		perPage = defaultPerPage
 	}
 	return page, perPage
+}
+
+func parseIDParam(r *http.Request, name string) (int64, bool) {
+	id, err := strconv.ParseInt(chi.URLParam(r, name), 10, 64)
+	return id, err == nil && id > 0
+}
+
+func getUserEmail(r *http.Request) string {
+	if user := UserFromContext(r.Context()); user != nil {
+		return user.Email
+	}
+	return "unknown"
+}
+
+func validateBulkIDs(ids []int64) error {
+	if len(ids) == 0 {
+		return fmt.Errorf("ids required")
+	}
+	if len(ids) > maxBulkOperationSize {
+		return fmt.Errorf("cannot process more than %d items at once", maxBulkOperationSize)
+	}
+	seen := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			return fmt.Errorf("invalid id: must be positive")
+		}
+		if seen[id] {
+			return fmt.Errorf("duplicate id in request")
+		}
+		seen[id] = true
+	}
+	return nil
 }
 
 // GET /api/maintenance/criterion-types
@@ -130,8 +236,6 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
 
-	syncStart := time.Now().UTC()
-
 	items, err := ms.GetLibraryItems(ctx, req.LibraryID)
 	if err != nil {
 		log.Printf("sync library: fetch items failed: %v", err)
@@ -139,17 +243,13 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	count, err := s.store.UpsertLibraryItems(ctx, items)
+	// Atomic sync: upsert and delete stale items in a single transaction
+	// This prevents race conditions between concurrent syncs
+	count, deleted, err := s.store.SyncLibraryItems(ctx, req.ServerID, req.LibraryID, items)
 	if err != nil {
 		log.Printf("sync library: save items failed: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to save library items")
 		return
-	}
-
-	// Delete items not seen in this sync
-	deleted, err := s.store.DeleteStaleLibraryItems(ctx, req.ServerID, req.LibraryID, syncStart)
-	if err != nil {
-		log.Printf("failed to delete stale items: %v", err)
 	}
 
 	// Re-evaluate all enabled rules for this library
@@ -210,8 +310,8 @@ func (s *Server) handleCreateMaintenanceRule(w http.ResponseWriter, r *http.Requ
 
 // GET /api/maintenance/rules/{id}
 func (s *Server) handleGetMaintenanceRule(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil || id <= 0 {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id parameter")
 		return
 	}
@@ -231,8 +331,8 @@ func (s *Server) handleGetMaintenanceRule(w http.ResponseWriter, r *http.Request
 
 // PUT /api/maintenance/rules/{id}
 func (s *Server) handleUpdateMaintenanceRule(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil || id <= 0 {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id parameter")
 		return
 	}
@@ -258,8 +358,8 @@ func (s *Server) handleUpdateMaintenanceRule(w http.ResponseWriter, r *http.Requ
 
 // DELETE /api/maintenance/rules/{id}
 func (s *Server) handleDeleteMaintenanceRule(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil || id <= 0 {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id parameter")
 		return
 	}
@@ -278,8 +378,8 @@ func (s *Server) handleDeleteMaintenanceRule(w http.ResponseWriter, r *http.Requ
 
 // POST /api/maintenance/rules/{id}/evaluate
 func (s *Server) handleEvaluateRule(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil || id <= 0 {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id parameter")
 		return
 	}
@@ -315,8 +415,8 @@ func (s *Server) handleEvaluateRule(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/maintenance/rules/{id}/candidates
 func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
-	ruleID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil || ruleID <= 0 {
+	ruleID, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id parameter")
 		return
 	}
@@ -333,8 +433,8 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 
 // DELETE /api/maintenance/candidates/{id}
 func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil || id <= 0 {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id parameter")
 		return
 	}
@@ -355,60 +455,28 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ms, ok := s.poller.GetServer(candidate.Item.ServerID)
-	if !ok {
-		writeError(w, http.StatusNotFound, "server not found or not configured")
+	// Re-check exclusions at delete time to prevent TOCTOU race condition
+	excluded, err := s.store.IsItemExcluded(r.Context(), candidate.RuleID, candidate.LibraryItemID)
+	if err != nil {
+		log.Printf("check exclusion for candidate %d: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to verify exclusion status")
+		return
+	}
+	if excluded {
+		writeError(w, http.StatusConflict, "item was excluded and cannot be deleted")
 		return
 	}
 
-	// Get user for audit
-	user := UserFromContext(r.Context())
-	deletedBy := "unknown"
-	if user != nil {
-		deletedBy = user.Email
-	}
+	// Use shared delete helper
+	result := s.deleteItemFromServer(*candidate, getUserEmail(r))
 
-	// Delete from media server with timeout
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	defer cancel()
-
-	var serverDeleted bool
-	var errMsg string
-	if err := ms.DeleteItem(ctx, candidate.Item.ItemID); err != nil {
-		log.Printf("delete item %s from server: %v", candidate.Item.ItemID, err)
-		errMsg = err.Error()
-	} else {
-		serverDeleted = true
-	}
-
-	// Record audit log
-	if err := s.store.RecordDeleteAction(r.Context(),
-		candidate.Item.ServerID,
-		candidate.Item.ItemID,
-		candidate.Item.Title,
-		string(candidate.Item.MediaType),
-		candidate.Item.FileSize,
-		deletedBy,
-		serverDeleted,
-		errMsg,
-	); err != nil {
-		log.Printf("record delete action: %v", err)
-	}
-
-	// Only remove from DB if server deletion succeeded
-	if !serverDeleted {
+	if !result.ServerDeleted {
 		writeError(w, http.StatusInternalServerError, "failed to delete from media server")
 		return
 	}
-
-	// Delete candidate from DB
-	if err := s.store.DeleteMaintenanceCandidate(r.Context(), id); err != nil {
-		log.Printf("delete candidate %d: %v", id, err)
-	}
-
-	// Delete library item from cache
-	if err := s.store.DeleteLibraryItem(r.Context(), candidate.LibraryItemID); err != nil {
-		log.Printf("delete library item %d: %v", candidate.LibraryItemID, err)
+	if !result.DBCleaned {
+		writeError(w, http.StatusInternalServerError, result.Error)
+		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -416,8 +484,8 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/maintenance/rules/{id}/candidates/export?format=csv|json
 func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) {
-	ruleID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil || ruleID <= 0 {
+	ruleID, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id parameter")
 		return
 	}
@@ -435,24 +503,43 @@ func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Limit export size to prevent OOM
+	if len(candidates) > maxExportSize {
+		writeError(w, http.StatusRequestEntityTooLarge,
+			fmt.Sprintf("too many candidates to export (%d). Maximum is %d. Please filter or paginate.", len(candidates), maxExportSize))
+		return
+	}
+
 	timestamp := time.Now().UTC().Format("20060102-150405")
 	filename := fmt.Sprintf("candidates-%d-%s.%s", ruleID, timestamp, format)
 
+	// Buffer output in memory first to detect errors before sending headers
 	if format == "csv" {
+		data, err := exportCandidatesCSV(candidates)
+		if err != nil {
+			log.Printf("csv export error: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to generate CSV export")
+			return
+		}
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		exportCandidatesCSV(w, candidates)
+		w.Write(data)
 	} else {
+		data, err := exportCandidatesJSON(candidates, ruleID)
+		if err != nil {
+			log.Printf("json export error: %v", err)
+			writeError(w, http.StatusInternalServerError, "failed to generate JSON export")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		exportCandidatesJSON(w, candidates, ruleID)
+		w.Write(data)
 	}
 }
 
-func exportCandidatesCSV(w http.ResponseWriter, candidates []models.MaintenanceCandidate) {
-	cw := csv.NewWriter(w)
-
-	// Header
+func exportCandidatesCSV(candidates []models.MaintenanceCandidate) ([]byte, error) {
+	var buf bytes.Buffer
+	cw := csv.NewWriter(&buf)
 	cw.Write([]string{"ID", "Title", "Media Type", "Year", "Added At", "Resolution", "File Size (GB)", "Reason", "Computed At"})
 
 	for _, c := range candidates {
@@ -475,18 +562,246 @@ func exportCandidatesCSV(w http.ResponseWriter, candidates []models.MaintenanceC
 
 	cw.Flush()
 	if err := cw.Error(); err != nil {
-		log.Printf("csv export error: %v", err)
+		return nil, err
 	}
+	return buf.Bytes(), nil
 }
 
-func exportCandidatesJSON(w http.ResponseWriter, candidates []models.MaintenanceCandidate, ruleID int64) {
+func exportCandidatesJSON(candidates []models.MaintenanceCandidate, ruleID int64) ([]byte, error) {
 	response := map[string]any{
 		"rule_id":     ruleID,
 		"candidates":  candidates,
 		"total":       len(candidates),
 		"exported_at": time.Now().UTC(),
 	}
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("json export encoding error: %v", err)
+	return json.Marshal(response)
+}
+
+// GET /api/maintenance/rules/{id}/exclusions
+func (s *Server) handleListExclusions(w http.ResponseWriter, r *http.Request) {
+	ruleID, ok := parseIDParam(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
 	}
+	page, perPage := parsePagination(r, 20, 100)
+
+	result, err := s.store.ListExclusionsForRule(r.Context(), ruleID, page, perPage)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list exclusions")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// POST /api/maintenance/rules/{id}/exclusions
+func (s *Server) handleCreateExclusions(w http.ResponseWriter, r *http.Request) {
+	ruleID, ok := parseIDParam(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
+
+	var req struct {
+		LibraryItemIDs []int64 `json:"library_item_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := validateBulkIDs(req.LibraryItemIDs); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	excludedBy := getUserEmail(r)
+
+	count, err := s.store.CreateExclusions(r.Context(), ruleID, req.LibraryItemIDs, excludedBy)
+	if err != nil {
+		log.Printf("create exclusions: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to create exclusions")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"excluded": count})
+}
+
+// DELETE /api/maintenance/rules/{id}/exclusions/{itemId}
+func (s *Server) handleDeleteExclusion(w http.ResponseWriter, r *http.Request) {
+	ruleID, ok := parseIDParam(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
+
+	itemID, itemOK := parseIDParam(r, "itemId")
+	if !itemOK {
+		writeError(w, http.StatusBadRequest, "invalid itemId parameter")
+		return
+	}
+
+	if err := s.store.DeleteExclusion(r.Context(), ruleID, itemID); err != nil {
+		if errors.Is(err, models.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "exclusion not found")
+			return
+		}
+		log.Printf("delete exclusion: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to delete exclusion")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// POST /api/maintenance/rules/{id}/exclusions/bulk-remove
+func (s *Server) handleBulkRemoveExclusions(w http.ResponseWriter, r *http.Request) {
+	ruleID, ok := parseIDParam(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
+
+	var req struct {
+		LibraryItemIDs []int64 `json:"library_item_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := validateBulkIDs(req.LibraryItemIDs); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	count, err := s.store.DeleteExclusions(r.Context(), ruleID, req.LibraryItemIDs)
+	if err != nil {
+		log.Printf("delete exclusions: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to remove exclusions")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"removed": count})
+}
+
+// POST /api/maintenance/candidates/bulk-delete
+func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		CandidateIDs []int64 `json:"candidate_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if err := validateBulkIDs(req.CandidateIDs); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	if s.poller == nil {
+		writeError(w, http.StatusInternalServerError, "server not configured")
+		return
+	}
+
+	// Get all candidates - use background context to ensure we get the data
+	// even if request context is starting to be cancelled
+	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	candidates, err := s.store.GetMaintenanceCandidates(fetchCtx, req.CandidateIDs)
+	fetchCancel()
+	if err != nil {
+		log.Printf("get candidates for bulk delete: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to get candidates")
+		return
+	}
+
+	// Build a map for quick lookup and track which IDs were found
+	candidateMap := make(map[int64]models.MaintenanceCandidate)
+	for _, c := range candidates {
+		candidateMap[c.ID] = c
+	}
+
+	// Log warning if some candidates weren't found (may have been deleted by sync)
+	if len(candidates) != len(req.CandidateIDs) {
+		log.Printf("bulk delete: requested %d candidates but only found %d (some may have been removed by sync)",
+			len(req.CandidateIDs), len(candidates))
+	}
+
+	deletedBy := getUserEmail(r)
+
+	result := models.BulkDeleteResult{
+		Errors: []models.BulkDeleteError{},
+	}
+
+	// Process deletions sequentially with context cancellation check
+	for _, candidateID := range req.CandidateIDs {
+		// Check for context cancellation between iterations
+		if r.Context().Err() != nil {
+			log.Printf("bulk delete cancelled: %v", r.Context().Err())
+			break
+		}
+
+		candidate, exists := candidateMap[candidateID]
+		if !exists {
+			result.Failed++
+			result.Errors = append(result.Errors, models.BulkDeleteError{
+				CandidateID: candidateID,
+				Title:       "Unknown",
+				Error:       "candidate not found",
+			})
+			continue
+		}
+
+		if candidate.Item == nil {
+			result.Failed++
+			result.Errors = append(result.Errors, models.BulkDeleteError{
+				CandidateID: candidateID,
+				Title:       "Unknown",
+				Error:       "library item not found",
+			})
+			continue
+		}
+
+		// Re-check exclusions at delete time to prevent TOCTOU race condition
+		// (item may have been excluded since user loaded the candidates list)
+		excluded, err := s.store.IsItemExcluded(r.Context(), candidate.RuleID, candidate.LibraryItemID)
+		if err != nil {
+			log.Printf("check exclusion for candidate %d: %v", candidateID, err)
+			// On error, fail safe - don't delete
+			result.Failed++
+			result.Errors = append(result.Errors, models.BulkDeleteError{
+				CandidateID: candidateID,
+				Title:       candidate.Item.Title,
+				Error:       "failed to verify exclusion status",
+			})
+			continue
+		}
+		if excluded {
+			result.Skipped++
+			// Don't add to Errors array - skipped items aren't errors, just protected
+			continue
+		}
+
+		// Use shared delete helper
+		delResult := s.deleteItemFromServer(candidate, deletedBy)
+
+		if delResult.ServerDeleted {
+			result.TotalSize += delResult.FileSize
+		}
+
+		if delResult.ServerDeleted && delResult.DBCleaned {
+			result.Deleted++
+		} else {
+			result.Failed++
+			result.Errors = append(result.Errors, models.BulkDeleteError{
+				CandidateID: candidateID,
+				Title:       candidate.Item.Title,
+				Error:       delResult.Error,
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
