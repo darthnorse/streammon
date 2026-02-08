@@ -43,20 +43,51 @@ func (s *Server) ServerID() int64         { return s.serverID }
 func (s *Server) URL() string             { return s.url }
 
 func (s *Server) TestConnection(ctx context.Context) error {
+	_, err := s.GetIdentity(ctx)
+	return err
+}
+
+// IdentityInfo contains server identity information from Plex
+type IdentityInfo struct {
+	MachineIdentifier string
+	Version           string
+}
+
+// GetIdentity returns the server's identity information including machine_id
+func (s *Server) GetIdentity(ctx context.Context) (*IdentityInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url+"/identity", nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	s.setHeaders(req)
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer httputil.DrainBody(resp)
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("plex returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("plex returned status %d", resp.StatusCode)
 	}
-	return nil
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return nil, err
+	}
+
+	var ic identityContainer
+	if err := xml.Unmarshal(body, &ic); err != nil {
+		return nil, fmt.Errorf("parsing identity: %w", err)
+	}
+
+	return &IdentityInfo{
+		MachineIdentifier: ic.MachineIdentifier,
+		Version:           ic.Version,
+	}, nil
+}
+
+type identityContainer struct {
+	XMLName           xml.Name `xml:"MediaContainer"`
+	MachineIdentifier string   `xml:"machineIdentifier,attr"`
+	Version           string   `xml:"version,attr"`
 }
 
 func (s *Server) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {

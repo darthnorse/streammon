@@ -156,13 +156,41 @@ func TestTestConnection(t *testing.T) {
 		if r.Header.Get("X-Plex-Token") == "" {
 			t.Error("missing X-Plex-Token header")
 		}
+		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer machineIdentifier="abc123" version="1.40.0"/>`))
 	}))
 	defer ts.Close()
 
 	srv := New(models.Server{URL: ts.URL, APIKey: "tok"})
 	if err := srv.TestConnection(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGetIdentity(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/identity" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer machineIdentifier="xyz789" version="1.40.0"/>`))
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{URL: ts.URL, APIKey: "tok"})
+	info, err := srv.GetIdentity(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.MachineIdentifier != "xyz789" {
+		t.Errorf("machine_id = %q, want xyz789", info.MachineIdentifier)
+	}
+	if info.Version != "1.40.0" {
+		t.Errorf("version = %q, want 1.40.0", info.Version)
 	}
 }
 

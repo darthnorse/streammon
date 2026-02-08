@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"streammon/internal/media"
+	"streammon/internal/media/plex"
 	"streammon/internal/models"
 )
 
@@ -144,8 +145,9 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 }
 
 type testConnectionResult struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+	MachineID string `json:"machine_id,omitempty"`
 }
 
 func sanitizeConnError(err error) string {
@@ -176,12 +178,28 @@ func testConnection(w http.ResponseWriter, r *http.Request, srv models.Server) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := ms.TestConnection(r.Context()); err != nil {
-		log.Printf("test connection for %s failed: %v", srv.Name, err)
-		writeJSON(w, http.StatusOK, testConnectionResult{Success: false, Error: sanitizeConnError(err)})
-		return
+
+	// For Plex servers, get identity info including machine_id
+	var machineID string
+	if srv.Type == models.ServerTypePlex {
+		if plexSrv, ok := ms.(*plex.Server); ok {
+			identity, err := plexSrv.GetIdentity(r.Context())
+			if err != nil {
+				log.Printf("test connection for %s failed: %v", srv.Name, err)
+				writeJSON(w, http.StatusOK, testConnectionResult{Success: false, Error: sanitizeConnError(err)})
+				return
+			}
+			machineID = identity.MachineIdentifier
+		}
+	} else {
+		if err := ms.TestConnection(r.Context()); err != nil {
+			log.Printf("test connection for %s failed: %v", srv.Name, err)
+			writeJSON(w, http.StatusOK, testConnectionResult{Success: false, Error: sanitizeConnError(err)})
+			return
+		}
 	}
-	writeJSON(w, http.StatusOK, testConnectionResult{Success: true})
+
+	writeJSON(w, http.StatusOK, testConnectionResult{Success: true, MachineID: machineID})
 }
 
 func (s *Server) handleTestServerAdHoc(w http.ResponseWriter, r *http.Request) {

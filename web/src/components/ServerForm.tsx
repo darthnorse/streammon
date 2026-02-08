@@ -14,6 +14,7 @@ interface FormData {
   type: ServerType
   url: string
   api_key: string
+  machine_id: string
   enabled: boolean
   show_recent_media: boolean
 }
@@ -21,6 +22,7 @@ interface FormData {
 interface TestResult {
   success: boolean
   error?: string
+  machine_id?: string
 }
 
 const serverTypes: { value: ServerType; label: string }[] = [
@@ -47,6 +49,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
     type: server?.type ?? 'plex',
     url: server?.url ?? '',
     api_key: '',
+    machine_id: server?.machine_id ?? '',
     enabled: server?.enabled ?? true,
     show_recent_media: server?.show_recent_media ?? false,
   })
@@ -111,7 +114,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
       type: form.type,
       url: form.url.trim(),
       api_key: form.api_key,
-      machine_id: server?.machine_id ?? '',
+      machine_id: form.machine_id,
       enabled: form.enabled,
       show_recent_media: form.show_recent_media,
     }
@@ -163,6 +166,10 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
         result = await api.post<TestResult>('/api/servers/test', buildPayload())
       }
       setTestResult(result)
+      // Auto-populate machine_id from successful Plex test
+      if (result.success && result.machine_id && form.type === 'plex') {
+        setField('machine_id', result.machine_id)
+      }
     } catch (err) {
       setTestResult({ success: false, error: (err as Error).message })
     } finally {
@@ -257,6 +264,32 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
               className={inputClass}
             />
           </div>
+
+          {form.type === 'plex' && (
+            <div>
+              <label htmlFor="srv-machine-id" className="block text-sm font-medium mb-1.5">
+                Machine ID
+                {!form.machine_id && isEdit && (
+                  <span className="ml-2 text-xs text-amber-500 dark:text-amber-400">
+                    (missing — test connection to populate)
+                  </span>
+                )}
+              </label>
+              <input
+                id="srv-machine-id"
+                type="text"
+                value={form.machine_id}
+                readOnly
+                placeholder="Auto-populated from test connection"
+                className={`${inputClass} bg-gray-100 dark:bg-gray-800 cursor-not-allowed`}
+              />
+              {!form.machine_id && (
+                <p className="text-xs text-muted dark:text-muted-dark mt-1">
+                  Machine ID is required for secure authentication. Click "Test Connection" to populate.
+                </p>
+              )}
+            </div>
+          )}
 
           <label className="flex items-center gap-3 cursor-pointer">
             <input
