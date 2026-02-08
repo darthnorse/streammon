@@ -166,22 +166,6 @@ func (s *Store) DeleteStaleLibraryItems(ctx context.Context, serverID int64, lib
 	return result.RowsAffected()
 }
 
-// ClearServerMaintenanceData removes all library items and maintenance rules for a server.
-// This should be called when a server's URL or type changes to prevent stale data
-// from causing deletions on the wrong content.
-// Cascade deletes will remove maintenance_candidates and maintenance_exclusions.
-func (s *Store) ClearServerMaintenanceData(ctx context.Context, serverID int64) error {
-	// Delete library items first (cascades to maintenance_candidates via foreign key)
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM library_items WHERE server_id = ?`, serverID); err != nil {
-		return fmt.Errorf("delete library items for server %d: %w", serverID, err)
-	}
-	// Delete maintenance rules (cascades to maintenance_candidates, maintenance_exclusions)
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM maintenance_rules WHERE server_id = ?`, serverID); err != nil {
-		return fmt.Errorf("delete maintenance rules for server %d: %w", serverID, err)
-	}
-	return nil
-}
-
 // SyncLibraryItems atomically upserts items and deletes stale ones in a single transaction.
 // This prevents race conditions between concurrent syncs for the same library.
 func (s *Store) SyncLibraryItems(ctx context.Context, serverID int64, libraryID string, items []models.LibraryItemCache) (upserted int, deleted int64, err error) {
