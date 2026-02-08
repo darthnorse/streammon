@@ -6,7 +6,7 @@ interface UserISPCardProps {
 }
 
 export function UserISPCard({ isps }: UserISPCardProps) {
-  if (isps.length === 0) {
+  if (!isps || isps.length === 0) {
     return (
       <div className="card p-4">
         <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">

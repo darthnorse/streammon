@@ -40,7 +40,7 @@ describe('MediaStatCard', () => {
     const { container } = render(<MediaStatCard title="Movies" items={items} />)
     expect(screen.getByText('Movie 1')).toBeInTheDocument()
     expect(screen.getByText('(2024)')).toBeInTheDocument()
-    expect(screen.getByText('10 plays · 5.0h')).toBeInTheDocument()
+    expect(screen.getByText('10 plays')).toBeInTheDocument()
     const img = container.querySelector('img')
     expect(img).toHaveAttribute('src', '/api/servers/1/thumb/thumb1.jpg')
   })

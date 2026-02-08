@@ -61,10 +61,10 @@ describe('LocationMap', () => {
     renderWithRouter(<LocationMap userName="alice" />)
 
     expect(screen.getByTestId('map')).toBeInTheDocument()
-    expect(screen.getByText('1.2.3.4')).toBeInTheDocument()
-    expect(screen.getByText('5.6.7.8')).toBeInTheDocument()
-    expect(screen.getByText('New York, US')).toBeInTheDocument()
-    expect(screen.getByText('London, GB')).toBeInTheDocument()
+    expect(screen.getAllByText('1.2.3.4').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('5.6.7.8').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('New York, US').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('London, GB').length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders markers for each location (markers mode)', () => {

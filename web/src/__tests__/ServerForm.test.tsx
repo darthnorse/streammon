@@ -46,18 +46,19 @@ describe('ServerForm', () => {
   })
 
   it('submits create request for new server', async () => {
-    mockApi.post.mockResolvedValue({ ...baseServer })
+    mockApi.post.mockResolvedValue({ ...baseServer, type: 'jellyfin' })
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
 
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'My Plex' } })
-    fireEvent.change(screen.getByLabelText(/url/i), { target: { value: 'http://localhost:32400' } })
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'My Jellyfin' } })
+    fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'jellyfin' } })
+    fireEvent.change(screen.getByLabelText(/url/i), { target: { value: 'http://localhost:8096' } })
     fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'abc123' } })
     fireEvent.click(screen.getByRole('button', { name: /save/i }))
 
     await waitFor(() => {
       expect(mockApi.post).toHaveBeenCalledWith('/api/servers', expect.objectContaining({
-        name: 'My Plex',
-        url: 'http://localhost:32400',
+        name: 'My Jellyfin',
+        url: 'http://localhost:8096',
         api_key: 'abc123',
       }))
       expect(onSaved).toHaveBeenCalled()

@@ -1,7 +1,11 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithRouter } from '../test-utils'
 import { Layout } from '../components/Layout'
+
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({ user: { name: 'admin', role: 'admin' }, loading: false, logout: vi.fn() }),
+}))
 
 describe('Layout', () => {
   it('renders sidebar nav links', () => {

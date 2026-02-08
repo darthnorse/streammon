@@ -28,7 +28,7 @@ describe('App routes', () => {
         <App />
       </MemoryRouter>
     )
-    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument()
+    expect(screen.getByText(/no active streams/i)).toBeInTheDocument()
   })
 
   it('renders history at /history', () => {
