@@ -10,6 +10,7 @@ import {
   Users,
   ShieldAlert,
   Settings,
+  Film,
 } from 'lucide-react'
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -20,6 +21,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Users,
   ShieldAlert,
   Settings,
+  Film,
 }
 
 export function Sidebar() {

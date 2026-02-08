@@ -15,6 +15,14 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
+func writeRawJSON(w http.ResponseWriter, status int, data []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if _, err := w.Write(data); err != nil {
+		log.Printf("writing response: %v", err)
+	}
+}
+
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }

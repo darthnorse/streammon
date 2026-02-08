@@ -10,6 +10,7 @@ import {
   Users,
   ShieldAlert,
   Settings,
+  Film,
   MoreHorizontal,
   X,
 } from 'lucide-react'
@@ -22,6 +23,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Users,
   ShieldAlert,
   Settings,
+  Film,
 }
 
 const navPanelBase = `lg:hidden fixed bottom-0 left-0 right-0 z-50

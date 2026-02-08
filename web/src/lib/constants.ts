@@ -23,6 +23,7 @@ export const inputClass = 'w-full px-3 py-2 rounded-lg border border-border dark
 
 export const navLinks = [
   { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', adminOnly: false },
+  { to: '/requests', label: 'Requests', icon: 'Film', adminOnly: false },
   { to: '/history', label: 'History', icon: 'History', adminOnly: false },
   { to: '/statistics', label: 'Statistics', icon: 'BarChart3', adminOnly: true },
   { to: '/library', label: 'Library', icon: 'Library', adminOnly: false },

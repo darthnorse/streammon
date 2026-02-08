@@ -133,6 +133,50 @@ func (s *Store) DeleteTautulliConfig() error {
 	return nil
 }
 
+type OverseerrConfig struct {
+	URL    string
+	APIKey string
+}
+
+func (s *Store) GetOverseerrConfig() (OverseerrConfig, error) {
+	var cfg OverseerrConfig
+	var err error
+	if cfg.URL, err = s.GetSetting("overseerr.url"); err != nil {
+		return cfg, err
+	}
+	if cfg.APIKey, err = s.GetSetting("overseerr.api_key"); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func (s *Store) SetOverseerrConfig(cfg OverseerrConfig) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(settingUpsert, "overseerr.url", cfg.URL); err != nil {
+		return fmt.Errorf("setting %q: %w", "overseerr.url", err)
+	}
+	if cfg.APIKey != "" {
+		if _, err := tx.Exec(settingUpsert, "overseerr.api_key", cfg.APIKey); err != nil {
+			return fmt.Errorf("setting %q: %w", "overseerr.api_key", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) DeleteOverseerrConfig() error {
+	_, err := s.db.Exec(`DELETE FROM settings WHERE key IN ('overseerr.url', 'overseerr.api_key')`)
+	if err != nil {
+		return fmt.Errorf("deleting Overseerr config: %w", err)
+	}
+	return nil
+}
+
 const unitSystemKey = "display.units"
 
 func (s *Store) GetUnitSystem() (string, error) {

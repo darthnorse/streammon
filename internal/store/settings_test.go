@@ -246,6 +246,90 @@ func TestTautulliConfigEmpty(t *testing.T) {
 	}
 }
 
+func TestOverseerrConfigRoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	cfg := OverseerrConfig{
+		URL:    "http://localhost:5055",
+		APIKey: "my-overseerr-api-key",
+	}
+	if err := s.SetOverseerrConfig(cfg); err != nil {
+		t.Fatalf("SetOverseerrConfig: %v", err)
+	}
+
+	got, err := s.GetOverseerrConfig()
+	if err != nil {
+		t.Fatalf("GetOverseerrConfig: %v", err)
+	}
+	if got != cfg {
+		t.Fatalf("expected %+v, got %+v", cfg, got)
+	}
+}
+
+func TestOverseerrConfigAPIKeyPreservation(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	cfg := OverseerrConfig{
+		URL:    "http://localhost:5055",
+		APIKey: "original-key",
+	}
+	if err := s.SetOverseerrConfig(cfg); err != nil {
+		t.Fatalf("SetOverseerrConfig: %v", err)
+	}
+
+	updated := OverseerrConfig{
+		URL:    "http://newhost:5055",
+		APIKey: "",
+	}
+	if err := s.SetOverseerrConfig(updated); err != nil {
+		t.Fatalf("SetOverseerrConfig: %v", err)
+	}
+
+	got, err := s.GetOverseerrConfig()
+	if err != nil {
+		t.Fatalf("GetOverseerrConfig: %v", err)
+	}
+	if got.URL != "http://newhost:5055" {
+		t.Fatalf("expected updated URL, got %s", got.URL)
+	}
+	if got.APIKey != "original-key" {
+		t.Fatalf("expected preserved API key, got %s", got.APIKey)
+	}
+}
+
+func TestOverseerrConfigDelete(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.SetOverseerrConfig(OverseerrConfig{
+		URL:    "http://localhost:5055",
+		APIKey: "my-key",
+	})
+
+	if err := s.DeleteOverseerrConfig(); err != nil {
+		t.Fatalf("DeleteOverseerrConfig: %v", err)
+	}
+
+	got, err := s.GetOverseerrConfig()
+	if err != nil {
+		t.Fatalf("GetOverseerrConfig: %v", err)
+	}
+	if got != (OverseerrConfig{}) {
+		t.Fatalf("expected zero value after delete, got %+v", got)
+	}
+}
+
+func TestOverseerrConfigEmpty(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	got, err := s.GetOverseerrConfig()
+	if err != nil {
+		t.Fatalf("GetOverseerrConfig: %v", err)
+	}
+	if got != (OverseerrConfig{}) {
+		t.Fatalf("expected zero value, got %+v", got)
+	}
+}
+
 func TestUnitSystemRoundTrip(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 

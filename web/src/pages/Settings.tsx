@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { Server, OIDCSettings, TautulliSettings } from '../types'
+import type { Server, OIDCSettings, TautulliSettings, OverseerrSettings } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
@@ -7,6 +7,7 @@ import { ServerForm } from '../components/ServerForm'
 import { OIDCForm } from '../components/OIDCForm'
 import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
 import { TautulliForm } from '../components/TautulliForm'
+import { OverseerrForm } from '../components/OverseerrForm'
 import { EmptyState } from '../components/EmptyState'
 import { UserManagement } from '../components/UserManagement'
 
@@ -20,6 +21,7 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'servers', label: 'Servers' },
   { key: 'users', label: 'Users' },
   { key: 'auth', label: 'Authentication' },
+  { key: 'integrations', label: 'Integrations' },
   { key: 'geoip', label: 'GeoIP' },
   { key: 'import', label: 'Import' },
   { key: 'display', label: 'Display' },
@@ -28,7 +30,7 @@ const tabs: { key: TabKey; label: string }[] = [
 const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
 const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
 
-type TabKey = 'servers' | 'users' | 'auth' | 'geoip' | 'import' | 'display'
+type TabKey = 'servers' | 'users' | 'auth' | 'integrations' | 'geoip' | 'import' | 'display'
 
 export function Settings() {
   const [tab, setTab] = useState<TabKey>('servers')
@@ -36,11 +38,13 @@ export function Settings() {
   const { data: oidc, loading: oidcLoading, error: oidcFetchError, refetch: refetchOidc } = useFetch<OIDCSettings>(tab === 'auth' ? '/api/settings/oidc' : null)
   const { data: maxmind, loading: maxmindLoading, refetch: refetchMaxmind } = useFetch<MaxMindSettings>(tab === 'geoip' ? '/api/settings/maxmind' : null)
   const { data: tautulli, loading: tautulliLoading, error: tautulliFetchError, refetch: refetchTautulli } = useFetch<TautulliSettings>(tab === 'import' ? '/api/settings/tautulli' : null)
+  const { data: overseerr, loading: overseerrLoading, error: overseerrFetchError, refetch: refetchOverseerr } = useFetch<OverseerrSettings>(tab === 'integrations' ? '/api/settings/overseerr' : null)
 
   const [editingServer, setEditingServer] = useState<Server | undefined>()
   const [showForm, setShowForm] = useState(false)
   const [showOidcForm, setShowOidcForm] = useState(false)
   const [showTautulliForm, setShowTautulliForm] = useState(false)
+  const [showOverseerrForm, setShowOverseerrForm] = useState(false)
   const [actionError, setActionError] = useState('')
   const [calculatingHouseholds, setCalculatingHouseholds] = useState(false)
   const [householdResult, setHouseholdResult] = useState<{ created: number } | null>(null)
@@ -50,6 +54,7 @@ export function Settings() {
   const serverList = servers ?? []
   const oidcConfigured = !!oidc?.issuer
   const tautulliConfigured = !!tautulli?.url
+  const overseerrConfigured = !!overseerr?.url
 
   function openAdd() {
     setEditingServer(undefined)
@@ -111,6 +116,22 @@ export function Settings() {
       refetchTautulli()
     } catch {
       setActionError('Failed to delete Tautulli configuration')
+    }
+  }
+
+  function handleOverseerrSaved() {
+    setShowOverseerrForm(false)
+    refetchOverseerr()
+  }
+
+  async function handleDeleteOverseerr() {
+    if (!window.confirm('Remove Overseerr configuration?')) return
+    try {
+      await api.del('/api/settings/overseerr')
+      setActionError('')
+      refetchOverseerr()
+    } catch {
+      setActionError('Failed to delete Overseerr configuration')
     }
   }
 
@@ -361,6 +382,61 @@ export function Settings() {
               settings={oidc ?? undefined}
               onClose={() => setShowOidcForm(false)}
               onSaved={handleOidcSaved}
+            />
+          )}
+        </>
+      )}
+
+      {tab === 'integrations' && (
+        <>
+          {overseerrLoading && <EmptyState icon="&#8635;" title="Loading..." />}
+
+          {overseerrFetchError && !overseerrLoading && (
+            <EmptyState icon="!" title="Failed to load Overseerr settings">
+              <button onClick={refetchOverseerr} className="text-sm text-accent hover:underline">Retry</button>
+            </EmptyState>
+          )}
+
+          {!overseerrLoading && !overseerrFetchError && !overseerrConfigured && (
+            <EmptyState icon="&#127916;" title="Overseerr Not Configured" description="Connect to Overseerr to enable media requests directly from StreamMon.">
+              <button
+                onClick={() => setShowOverseerrForm(true)}
+                className="px-4 py-2.5 text-sm font-semibold rounded-lg
+                           bg-accent text-gray-900 hover:bg-accent/90 transition-colors"
+              >
+                Configure Overseerr
+              </button>
+            </EmptyState>
+          )}
+
+          {!overseerrLoading && !overseerrFetchError && overseerrConfigured && overseerr && (
+            <div className="card p-5">
+              <div className="flex items-start justify-between mb-4">
+                <h3 className="font-semibold text-base">Overseerr</h3>
+                <span className="badge badge-accent">Connected</span>
+              </div>
+              <div className="space-y-2 text-sm mb-4">
+                <div>
+                  <span className="text-muted dark:text-muted-dark">URL: </span>
+                  <span className="font-mono">{overseerr.url}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
+                <button onClick={() => setShowOverseerrForm(true)} className={btnOutline}>
+                  Edit
+                </button>
+                <button onClick={handleDeleteOverseerr} className={btnDanger}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showOverseerrForm && (
+            <OverseerrForm
+              settings={overseerr ?? undefined}
+              onClose={() => setShowOverseerrForm(false)}
+              onSaved={handleOverseerrSaved}
             />
           )}
         </>

@@ -97,6 +97,27 @@ func (s *Server) routes() {
 			sr.Post("/import", s.handleTautulliImport)
 		})
 
+		r.Route("/settings/overseerr", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleGetOverseerrSettings)
+			sr.Put("/", s.handleUpdateOverseerrSettings)
+			sr.Delete("/", s.handleDeleteOverseerrSettings)
+			sr.Post("/test", s.handleTestOverseerrConnection)
+		})
+
+		r.Route("/overseerr", func(sr chi.Router) {
+			sr.Get("/search", s.handleOverseerrSearch)
+			sr.Get("/discover/trending", s.handleOverseerrDiscoverTrending)
+			sr.Get("/movie/{id}", s.handleOverseerrMovie)
+			sr.Get("/tv/{id}", s.handleOverseerrTV)
+			sr.Get("/tv/{id}/season/{seasonNumber}", s.handleOverseerrTVSeason)
+			sr.Get("/requests", s.handleOverseerrListRequests)
+			sr.Get("/requests/count", s.handleOverseerrRequestCount)
+			sr.Post("/requests", s.handleOverseerrCreateRequest)
+			sr.With(RequireRole(models.RoleAdmin)).Post("/requests/{id}/{action}", s.handleOverseerrRequestAction)
+			sr.With(RequireRole(models.RoleAdmin)).Delete("/requests/{id}", s.handleOverseerrDeleteRequest)
+		})
+
 		r.Route("/settings/display", func(sr chi.Router) {
 			sr.Get("/", s.handleGetDisplaySettings)
 			sr.With(RequireRole(models.RoleAdmin)).Put("/", s.handleUpdateDisplaySettings)

@@ -632,3 +632,183 @@ export interface BulkDeleteResult {
   total_size: number
   errors?: BulkDeleteError[]
 }
+
+// Overseerr types
+
+export interface OverseerrSettings {
+  url: string
+  api_key: string
+}
+
+export interface OverseerrMediaInfo {
+  id?: number
+  tmdbId?: number
+  tvdbId?: number
+  status: number // 1=UNKNOWN, 2=PENDING, 3=PROCESSING, 4=PARTIALLY_AVAILABLE, 5=AVAILABLE, 6=DELETED
+  requests?: OverseerrRequest[]
+}
+
+export interface OverseerrSearchResult {
+  page: number
+  totalPages: number
+  totalResults: number
+  results: OverseerrMediaResult[]
+}
+
+export interface OverseerrMediaResult {
+  id: number
+  mediaType: 'movie' | 'tv' | 'person'
+  posterPath?: string
+  backdropPath?: string
+  voteAverage?: number
+  voteCount?: number
+  overview?: string
+  genreIds?: number[]
+  originalLanguage?: string
+  popularity?: number
+  mediaInfo?: OverseerrMediaInfo
+  // Movie fields
+  title?: string
+  releaseDate?: string
+  // TV fields
+  name?: string
+  firstAirDate?: string
+}
+
+export interface OverseerrGenre {
+  id: number
+  name: string
+}
+
+export interface OverseerrCast {
+  id: number
+  character?: string
+  name: string
+  profilePath?: string
+  order?: number
+}
+
+export interface OverseerrCrew {
+  id: number
+  job: string
+  name: string
+  department?: string
+  profilePath?: string
+}
+
+export interface OverseerrSeason {
+  id: number
+  seasonNumber: number
+  name: string
+  overview?: string
+  posterPath?: string
+  episodeCount: number
+  airDate?: string
+  episodes?: OverseerrEpisode[]
+}
+
+export interface OverseerrEpisode {
+  id: number
+  episodeNumber: number
+  seasonNumber: number
+  name: string
+  overview?: string
+  airDate?: string
+  stillPath?: string
+  voteAverage?: number
+}
+
+export interface OverseerrMovieDetails {
+  id: number
+  title: string
+  overview?: string
+  posterPath?: string
+  backdropPath?: string
+  releaseDate?: string
+  runtime?: number
+  voteAverage?: number
+  voteCount?: number
+  genres?: OverseerrGenre[]
+  status?: string
+  tagline?: string
+  credits?: { cast?: OverseerrCast[]; crew?: OverseerrCrew[] }
+  mediaInfo?: OverseerrMediaInfo
+}
+
+export interface OverseerrTVDetails {
+  id: number
+  name: string
+  overview?: string
+  posterPath?: string
+  backdropPath?: string
+  firstAirDate?: string
+  lastAirDate?: string
+  voteAverage?: number
+  voteCount?: number
+  genres?: OverseerrGenre[]
+  status?: string
+  tagline?: string
+  numberOfEpisodes?: number
+  numberOfSeasons?: number
+  episodeRunTime?: number[]
+  inProduction?: boolean
+  seasons?: OverseerrSeason[]
+  credits?: { cast?: OverseerrCast[]; crew?: OverseerrCrew[] }
+  mediaInfo?: OverseerrMediaInfo
+  networks?: { id: number; name: string; logoPath?: string }[]
+}
+
+export interface OverseerrRequestUser {
+  id: number
+  email?: string
+  username?: string
+  plexUsername?: string
+  avatar?: string
+}
+
+export interface OverseerrRequest {
+  id: number
+  status: number // 1=PENDING, 2=APPROVED, 3=DECLINED
+  media: OverseerrMediaInfo
+  createdAt: string
+  updatedAt: string
+  requestedBy: OverseerrRequestUser
+  modifiedBy?: OverseerrRequestUser | null
+  is4k: boolean
+  serverId?: number
+  profileId?: number
+  rootFolder?: string
+  type: 'movie' | 'tv'
+  seasons?: number[]
+}
+
+export interface OverseerrRequestList {
+  pageInfo: { page: number; pages: number; results: number }
+  results: OverseerrRequest[]
+}
+
+export interface OverseerrRequestCount {
+  total: number
+  movie: number
+  tv: number
+  pending: number
+  approved: number
+  declined: number
+  processing: number
+  available: number
+}
+
+export const OVERSEERR_MEDIA_STATUS: Record<number, { label: string; color: string }> = {
+  1: { label: 'Unknown', color: 'badge-muted' },
+  2: { label: 'Pending', color: 'bg-yellow-500/20 text-yellow-500' },
+  3: { label: 'Processing', color: 'bg-blue-500/20 text-blue-400' },
+  4: { label: 'Partial', color: 'bg-orange-500/20 text-orange-400' },
+  5: { label: 'Available', color: 'bg-green-500/20 text-green-400' },
+  6: { label: 'Deleted', color: 'bg-red-500/20 text-red-400' },
+}
+
+export const OVERSEERR_REQUEST_STATUS: Record<number, { label: string; color: string }> = {
+  1: { label: 'Pending', color: 'bg-yellow-500/20 text-yellow-500' },
+  2: { label: 'Approved', color: 'bg-green-500/20 text-green-400' },
+  3: { label: 'Declined', color: 'bg-red-500/20 text-red-400' },
+}
