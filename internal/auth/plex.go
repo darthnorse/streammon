@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 
 	"streammon/internal/models"
@@ -184,22 +183,26 @@ func (p *PlexProvider) verifyServerAccess(ctx context.Context, token string) (bo
 		return false, fmt.Errorf("listing servers: %w", err)
 	}
 
-	// Build lookup maps: machine_id (secure) and name (legacy fallback)
+	// Build lookup map for machine_id only (name matching removed for security)
 	configuredMachineIDs := make(map[string]bool)
-	configuredNames := make(map[string]bool)
+	var legacyServerNames []string
 	for _, s := range servers {
 		if s.Type == models.ServerTypePlex && s.Enabled {
 			if s.MachineID != "" {
 				configuredMachineIDs[s.MachineID] = true
 			} else {
-				// Legacy servers without machine_id use name matching
-				configuredNames[strings.ToLower(s.Name)] = true
+				// Track legacy servers for warning - they won't be matched
+				legacyServerNames = append(legacyServerNames, s.Name)
 			}
 		}
 	}
 
-	if len(configuredMachineIDs) == 0 && len(configuredNames) == 0 {
-		return false, nil // No Plex servers configured
+	if len(legacyServerNames) > 0 {
+		log.Printf("WARNING: %d Plex server(s) have no machine_id and cannot be used for auth: %v. Edit each server and click 'Test Connection' to fix.", len(legacyServerNames), legacyServerNames)
+	}
+
+	if len(configuredMachineIDs) == 0 {
+		return false, nil // No Plex servers with machine_id configured
 	}
 
 	var resources []plexResource
@@ -211,14 +214,9 @@ func (p *PlexProvider) verifyServerAccess(ctx context.Context, token string) (bo
 		if r.Provides != "server" {
 			continue
 		}
-		// Prefer machine_id match (secure, non-spoofable)
+		// Only match on machine_id (secure, non-spoofable)
 		if configuredMachineIDs[r.ClientIdentifier] {
 			log.Printf("Plex user has access to configured server: %s (machine_id: %s)", r.Name, r.ClientIdentifier)
-			return true, nil
-		}
-		// Fallback to name match for legacy servers (less secure)
-		if configuredNames[strings.ToLower(r.Name)] {
-			log.Printf("Plex user has access to configured server: %s (name match only - consider updating server config)", r.Name)
 			return true, nil
 		}
 	}
