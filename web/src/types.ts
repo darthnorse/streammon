@@ -8,6 +8,7 @@ export interface Server {
   name: string
   type: ServerType
   url: string
+  machine_id?: string
   enabled: boolean
   show_recent_media: boolean
   created_at: string

@@ -6,17 +6,16 @@ import (
 	"sync"
 	"time"
 
+	"streammon/internal/models"
 	"streammon/internal/store"
 )
 
-// Manager coordinates multiple authentication providers
 type Manager struct {
 	mu        sync.RWMutex
 	store     *store.Store
 	providers map[ProviderType]Provider
 }
 
-// NewManager creates a new auth manager
 func NewManager(st *store.Store) *Manager {
 	return &Manager{
 		store:     st,
@@ -24,19 +23,16 @@ func NewManager(st *store.Store) *Manager {
 	}
 }
 
-// Store returns the underlying store
 func (m *Manager) Store() *store.Store {
 	return m.store
 }
 
-// RegisterProvider adds a provider to the manager
 func (m *Manager) RegisterProvider(p Provider) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.providers[p.Name()] = p
 }
 
-// GetProvider returns a provider by type
 func (m *Manager) GetProvider(pt ProviderType) (Provider, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -44,7 +40,6 @@ func (m *Manager) GetProvider(pt ProviderType) (Provider, bool) {
 	return p, ok
 }
 
-// GetEnabledProviders returns list of enabled provider names
 func (m *Manager) GetEnabledProviders() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -58,18 +53,15 @@ func (m *Manager) GetEnabledProviders() []string {
 	return enabled
 }
 
-// IsSetupRequired checks if initial setup is needed (no users exist)
 func (m *Manager) IsSetupRequired() (bool, error) {
 	return m.store.IsSetupRequired()
 }
 
-// Reload refreshes provider configurations (called when settings change)
+// Reload is a no-op hook for future provider config reloads
 func (m *Manager) Reload() error {
-	// Currently a no-op, but provides hook for future provider reloads
 	return nil
 }
 
-// HandleLogin routes to the appropriate provider
 func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request, pt ProviderType) {
 	p, ok := m.GetProvider(pt)
 	if !ok || !p.Enabled() {
@@ -79,7 +71,6 @@ func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request, pt Provide
 	p.HandleLogin(w, r)
 }
 
-// HandleCallback routes to the appropriate provider's callback handler
 func (m *Manager) HandleCallback(w http.ResponseWriter, r *http.Request, pt ProviderType) {
 	p, ok := m.GetProvider(pt)
 	if !ok || !p.Enabled() {
@@ -89,27 +80,30 @@ func (m *Manager) HandleCallback(w http.ResponseWriter, r *http.Request, pt Prov
 	p.HandleCallback(w, r)
 }
 
-// CreateSession creates a new session for the user and sets the cookie
 func (m *Manager) CreateSession(w http.ResponseWriter, r *http.Request, userID int64) error {
 	token, err := m.store.CreateSession(userID, time.Now().UTC().Add(SessionDuration))
 	if err != nil {
 		return err
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     CookieName,
-		Value:    token,
-		Path:     "/",
-		MaxAge:   int(SessionDuration.Seconds()),
-		HttpOnly: true,
-		Secure:   isSecureRequest(r),
-		SameSite: http.SameSiteLaxMode,
-	})
-
+	http.SetCookie(w, makeCookie(CookieName, token, "/", int(SessionDuration.Seconds()), r))
 	return nil
 }
 
-// HandleGetProviders returns the list of enabled providers
+// CreateSessionAndRespond creates session and writes user JSON.
+// statusCode: http.StatusOK for login, http.StatusCreated for setup.
+func (m *Manager) CreateSessionAndRespond(w http.ResponseWriter, r *http.Request, user *models.User, statusCode int) error {
+	if err := m.CreateSession(w, r, user.ID); err != nil {
+		return err
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if statusCode != http.StatusOK {
+		w.WriteHeader(statusCode)
+	}
+	return json.NewEncoder(w).Encode(user)
+}
+
 func (m *Manager) HandleGetProviders(w http.ResponseWriter, r *http.Request) {
 	type providerInfo struct {
 		Name    string `json:"name"`
@@ -130,7 +124,6 @@ func (m *Manager) HandleGetProviders(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(providers)
 }
 
-// HandleGetStatus returns auth status (setup required, current user, etc.)
 func (m *Manager) HandleGetStatus(w http.ResponseWriter, r *http.Request) {
 	setupRequired, _ := m.IsSetupRequired()
 
@@ -141,20 +134,11 @@ func (m *Manager) HandleGetStatus(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleLogout invalidates the current session
 func (m *Manager) HandleLogout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(CookieName); err == nil {
 		m.store.DeleteSession(cookie.Value)
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     CookieName,
-		Value:    "",
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   isSecureRequest(r),
-		SameSite: http.SameSiteLaxMode,
-	})
+	http.SetCookie(w, clearCookie(CookieName, "/", r))
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }

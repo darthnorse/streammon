@@ -229,3 +229,96 @@ func TestDeleteServerAPI(t *testing.T) {
 		t.Fatalf("expected 204, got %d", w.Code)
 	}
 }
+
+func TestCreateServerWithMachineID(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	body := `{"name":"Plex","type":"plex","url":"http://plex:32400","api_key":"abc","machine_id":"abc123def456","enabled":true}`
+	req := httptest.NewRequest(http.MethodPost, "/api/servers", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var s models.Server
+	if err := json.NewDecoder(w.Body).Decode(&s); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if s.MachineID != "abc123def456" {
+		t.Fatalf("expected machine_id abc123def456, got %s", s.MachineID)
+	}
+
+	// Verify it's stored in the database
+	got, err := st.GetServer(s.ID)
+	if err != nil {
+		t.Fatalf("get server: %v", err)
+	}
+	if got.MachineID != "abc123def456" {
+		t.Fatalf("expected stored machine_id abc123def456, got %s", got.MachineID)
+	}
+}
+
+func TestUpdateServerPreservesMachineID(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	st.CreateServer(&models.Server{
+		Name:      "Plex",
+		Type:      models.ServerTypePlex,
+		URL:       "http://plex",
+		APIKey:    "secret",
+		MachineID: "original-machine-id",
+		Enabled:   true,
+	})
+
+	// Update without machine_id in payload - should preserve the original
+	body := `{"name":"New Plex","type":"plex","url":"http://new-plex","api_key":"","enabled":true}`
+	req := httptest.NewRequest(http.MethodPut, "/api/servers/1", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	got, err := st.GetServer(1)
+	if err != nil {
+		t.Fatalf("get server: %v", err)
+	}
+	if got.MachineID != "original-machine-id" {
+		t.Fatalf("expected machine_id to be preserved as original-machine-id, got %s", got.MachineID)
+	}
+	if got.Name != "New Plex" {
+		t.Fatalf("expected name 'New Plex', got %s", got.Name)
+	}
+}
+
+func TestUpdateServerWithNewMachineID(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	st.CreateServer(&models.Server{
+		Name:      "Plex",
+		Type:      models.ServerTypePlex,
+		URL:       "http://plex",
+		APIKey:    "secret",
+		MachineID: "old-machine-id",
+		Enabled:   true,
+	})
+
+	// Update with new machine_id
+	body := `{"name":"Plex","type":"plex","url":"http://plex","api_key":"","machine_id":"new-machine-id","enabled":true}`
+	req := httptest.NewRequest(http.MethodPut, "/api/servers/1", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	got, err := st.GetServer(1)
+	if err != nil {
+		t.Fatalf("get server: %v", err)
+	}
+	if got.MachineID != "new-machine-id" {
+		t.Fatalf("expected machine_id to be updated to new-machine-id, got %s", got.MachineID)
+	}
+}

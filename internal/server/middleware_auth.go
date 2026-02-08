@@ -46,8 +46,10 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 	}
 }
 
-// RequireSetup allows access only when setup is required (no users exist)
-func RequireSetup(mgr *auth.Manager) func(http.Handler) http.Handler {
+// setupCheck creates middleware that checks setup status.
+// If requireSetup is true, only allows access when setup is needed.
+// If requireSetup is false, only allows access when setup is complete.
+func setupCheck(mgr *auth.Manager, requireSetup bool) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			required, err := mgr.IsSetupRequired()
@@ -55,13 +57,28 @@ func RequireSetup(mgr *auth.Manager) func(http.Handler) http.Handler {
 				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
 				return
 			}
-			if !required {
+			if requireSetup && !required {
 				http.Error(w, `{"error":"setup already complete"}`, http.StatusForbidden)
+				return
+			}
+			if !requireSetup && required {
+				http.Error(w, `{"error":"setup required"}`, http.StatusForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// RequireSetup allows access only when setup is required (no users exist)
+func RequireSetup(mgr *auth.Manager) func(http.Handler) http.Handler {
+	return setupCheck(mgr, true)
+}
+
+// RequireSetupComplete blocks access when setup is still required.
+// This prevents login endpoints from being used before an admin is created.
+func RequireSetupComplete(mgr *auth.Manager) func(http.Handler) http.Handler {
+	return setupCheck(mgr, false)
 }
 
 func RequireRole(role models.Role) func(http.Handler) http.Handler {
@@ -146,23 +163,27 @@ func (l *authRateLimiter) cleanup() {
 	}
 }
 
-func (l *authRateLimiter) allow(ip string) bool {
+// check returns true if the IP is under the rate limit (does not increment)
+func (l *authRateLimiter) check(ip string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	cutoff := time.Now().UTC().Add(-l.window)
 	valid := filterValid(l.attempts[ip], cutoff)
+	l.attempts[ip] = valid
 
-	if len(valid) >= l.limit {
-		l.attempts[ip] = valid
-		return false
-	}
-
-	l.attempts[ip] = append(valid, time.Now().UTC())
-	return true
+	return len(valid) < l.limit
 }
 
-// Global rate limiter for auth endpoints: 10 attempts per 15 minutes
+// record adds a failed attempt for the IP
+func (l *authRateLimiter) record(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.attempts[ip] = append(l.attempts[ip], time.Now().UTC())
+}
+
+// Global rate limiter for auth endpoints: 10 failed attempts per 15 minutes
 var globalAuthRateLimiter = newAuthRateLimiter(10, 15*time.Minute)
 
 // StopAuthRateLimiter stops the background cleanup goroutine for the auth rate limiter.
@@ -171,27 +192,42 @@ func StopAuthRateLimiter() {
 	globalAuthRateLimiter.Stop()
 }
 
-// RateLimitAuth applies rate limiting to authentication endpoints
+// statusRecorder wraps ResponseWriter to capture the status code
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
+}
+
+// RateLimitAuth applies rate limiting to authentication endpoints.
+// Only failed attempts (4xx/5xx responses) count toward the limit.
 // NOTE: Uses RemoteAddr only. If behind a trusted reverse proxy that sets
 // X-Forwarded-For, configure the proxy to set RemoteAddr correctly instead.
 func RateLimitAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Use RemoteAddr directly - don't trust X-Forwarded-For which can be spoofed.
-		// For deployments behind reverse proxies, configure the proxy to strip
-		// client-provided X-Forwarded-For headers and set RemoteAddr correctly.
 		ip := r.RemoteAddr
-
-		// Strip port if present
 		if host, _, err := net.SplitHostPort(ip); err == nil {
 			ip = host
 		}
 
-		if !globalAuthRateLimiter.allow(ip) {
+		if !globalAuthRateLimiter.check(ip) {
 			w.Header().Set("Retry-After", "900") // 15 minutes
 			http.Error(w, `{"error":"too many login attempts, try again later"}`, http.StatusTooManyRequests)
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		// Wrap response to capture status code
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(rec, r)
+
+		// Only count failed attempts (4xx/5xx)
+		if rec.status >= 400 {
+			globalAuthRateLimiter.record(ip)
+		}
 	})
 }

@@ -27,15 +27,11 @@ func (s *Server) routes() {
 			r.Get("/providers", s.authManager.HandleGetProviders)
 			r.Post("/logout", s.authManager.HandleLogout)
 
-			// Local auth
-			r.With(RateLimitAuth).Post("/local/login", s.handleLocalLogin)
-
-			// Plex auth
-			r.With(RateLimitAuth).Post("/plex/login", s.handlePlexLogin)
-
-			// OIDC auth (uses existing routes for backward compatibility)
-			r.Get("/oidc/login", s.handleOIDCLogin)
-			r.Get("/oidc/callback", s.handleOIDCCallback)
+			// Login endpoints require setup to be complete (prevents creating users before admin exists)
+			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/local/login", s.handleLocalLogin)
+			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/plex/login", s.handlePlexLogin)
+			r.With(RequireSetupComplete(s.authManager)).Get("/oidc/login", s.handleOIDCLogin)
+			r.With(RequireSetupComplete(s.authManager)).Get("/oidc/callback", s.handleOIDCCallback)
 		})
 	}
 

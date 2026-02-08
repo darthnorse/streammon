@@ -12,7 +12,6 @@ import (
 	"streammon/internal/store"
 )
 
-// OIDCProvider wraps the existing OIDC Service to implement the Provider interface
 type OIDCProvider struct {
 	mu       sync.RWMutex
 	enabled  bool
@@ -23,7 +22,6 @@ type OIDCProvider struct {
 	verifier *gooidc.IDTokenVerifier
 }
 
-// NewOIDCProvider creates an OIDC provider from config
 func NewOIDCProvider(cfg Config, st *store.Store, mgr *Manager) (*OIDCProvider, error) {
 	p := &OIDCProvider{
 		store:   st,
@@ -49,7 +47,6 @@ func (p *OIDCProvider) Enabled() bool {
 	return p.enabled
 }
 
-// Reload updates the OIDC configuration
 func (p *OIDCProvider) Reload(ctx context.Context, cfg Config) error {
 	if !cfg.isSet() {
 		p.mu.Lock()
@@ -80,14 +77,12 @@ func (p *OIDCProvider) Reload(ctx context.Context, cfg Config) error {
 	return nil
 }
 
-// getConfig returns thread-safe copy of OIDC config
 func (p *OIDCProvider) getConfig() (bool, oauth2.Config, *gooidc.IDTokenVerifier) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.enabled, p.oauth2, p.verifier
 }
 
-// HandleLogin initiates OIDC authentication flow
 func (p *OIDCProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	enabled, oauth2Cfg, _ := p.getConfig()
 	if !enabled {
@@ -101,19 +96,10 @@ func (p *OIDCProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     stateCookieName,
-		Value:    state,
-		Path:     "/",
-		MaxAge:   300,
-		HttpOnly: true,
-		Secure:   isSecureRequest(r),
-		SameSite: http.SameSiteLaxMode,
-	})
+	http.SetCookie(w, makeCookie(stateCookieName, state, "/", 300, r))
 	http.Redirect(w, r, oauth2Cfg.AuthCodeURL(state), http.StatusFound)
 }
 
-// HandleCallback processes OIDC callback with authorization code
 func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	enabled, oauth2Cfg, verifier := p.getConfig()
 	if !enabled {
@@ -148,30 +134,30 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var claims struct {
-		Email string `json:"email"`
-		Name  string `json:"name"`
-		Sub   string `json:"sub"`
+		Email         string `json:"email"`
+		EmailVerified bool   `json:"email_verified"`
+		Name          string `json:"name"`
+		Sub           string `json:"sub"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		http.Error(w, "invalid claims", http.StatusUnauthorized)
 		return
 	}
 
-	name := claims.Name
-	if name == "" {
-		name = claims.Email
-	}
-	if name == "" {
-		name = claims.Sub
+	name := firstNonEmpty(claims.Name, claims.Email, claims.Sub)
+
+	// Only link by email if verified by the IdP (prevents account hijacking)
+	emailForLinking := ""
+	if claims.EmailVerified {
+		emailForLinking = claims.Email
 	}
 
-	// Use new account linking method
 	user, err := p.store.GetOrLinkUserByEmail(
-		claims.Email,
+		emailForLinking,
 		name,
 		string(ProviderOIDC),
 		claims.Sub,
-		"", // No thumb from OIDC
+		"",
 	)
 	if err != nil {
 		log.Printf("user creation error: %v", err)
@@ -179,22 +165,12 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create session using manager
 	if err := p.manager.CreateSession(w, r, user.ID); err != nil {
 		log.Printf("session creation error: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
-	// Clear state cookie with consistent attributes
-	http.SetCookie(w, &http.Cookie{
-		Name:     stateCookieName,
-		Path:     "/",
-		MaxAge:   -1,
-		HttpOnly: true,
-		Secure:   isSecureRequest(r),
-		SameSite: http.SameSiteLaxMode,
-	})
-
+	http.SetCookie(w, clearCookie(stateCookieName, "/", r))
 	http.Redirect(w, r, "/", http.StatusFound)
 }

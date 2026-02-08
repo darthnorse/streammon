@@ -30,11 +30,3 @@ type Provider interface {
 	// HandleCallback processes OAuth callback (no-op for local auth)
 	HandleCallback(w http.ResponseWriter, r *http.Request)
 }
-
-// ProviderUser represents authenticated user info from a provider
-type ProviderUser struct {
-	ProviderID string // Unique ID from provider (email for local, plex user ID, OIDC sub)
-	Email      string
-	Name       string
-	ThumbURL   string
-}

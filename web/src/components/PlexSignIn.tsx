@@ -138,6 +138,7 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
           type: 'plex',
           url,
           api_key: token || r.accessToken,
+          machine_id: r.clientIdentifier,
           enabled: true,
         })
       }

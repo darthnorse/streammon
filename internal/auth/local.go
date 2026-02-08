@@ -15,7 +15,6 @@ import (
 
 var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
-// validateUsername checks username requirements
 func validateUsername(username string) error {
 	length := utf8.RuneCountInString(username)
 	if length < 3 {
@@ -30,20 +29,17 @@ func validateUsername(username string) error {
 	return nil
 }
 
-// writeJSONError writes a safe JSON error response
 func writeJSONError(w http.ResponseWriter, message string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
-// LocalProvider handles username/password authentication
 type LocalProvider struct {
 	store   *store.Store
 	manager *Manager
 }
 
-// NewLocalProvider creates a new local authentication provider
 func NewLocalProvider(st *store.Store, mgr *Manager) *LocalProvider {
 	return &LocalProvider{
 		store:   st,
@@ -56,10 +52,9 @@ func (p *LocalProvider) Name() ProviderType {
 }
 
 func (p *LocalProvider) Enabled() bool {
-	return true // Local auth is always available
+	return true
 }
 
-// HandleLogin processes username/password login
 func (p *LocalProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
@@ -71,16 +66,14 @@ func (p *LocalProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Username == "" || req.Password == "" {
-		// Generic error to prevent username enumeration
-		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
+		writeJSONError(w, "invalid credentials", http.StatusUnauthorized) // Generic to prevent enumeration
 		return
 	}
 
 	user, passwordHash, err := p.store.GetUserByUsername(req.Username)
 	userFound := err == nil && passwordHash != ""
 
-	// Always perform password verification to prevent timing attacks.
-	// If user not found or has no password, verify against a dummy hash.
+	// Always verify against a hash (real or dummy) to prevent timing attacks
 	hashToVerify := passwordHash
 	if !userFound {
 		hashToVerify = DummyHash
@@ -92,23 +85,17 @@ func (p *LocalProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create session
-	if err := p.manager.CreateSession(w, r, user.ID); err != nil {
+	if err := p.manager.CreateSessionAndRespond(w, r, user, http.StatusOK); err != nil {
 		log.Printf("session creation error: %v", err)
 		writeJSONError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
 }
 
-// HandleCallback is a no-op for local auth (no OAuth flow)
 func (p *LocalProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	writeJSONError(w, "not supported", http.StatusNotFound)
 }
 
-// CreateUser creates a new local user (admin only)
 func (p *LocalProvider) CreateUser(username, password, email string, role models.Role) (*models.User, error) {
 	if err := ValidatePassword(password); err != nil {
 		return nil, err
@@ -122,12 +109,10 @@ func (p *LocalProvider) CreateUser(username, password, email string, role models
 	return p.store.CreateLocalUser(username, email, hash, role)
 }
 
-// CreateFirstAdmin creates the first admin user during setup
 func (p *LocalProvider) CreateFirstAdmin(username, password, email string) (*models.User, error) {
 	return p.CreateUser(username, password, email, models.RoleAdmin)
 }
 
-// UpdatePassword updates a user's password
 func (p *LocalProvider) UpdatePassword(userID int64, newPassword string) error {
 	if err := ValidatePassword(newPassword); err != nil {
 		return err
@@ -141,7 +126,6 @@ func (p *LocalProvider) UpdatePassword(userID int64, newPassword string) error {
 	return p.store.UpdatePassword(userID, hash)
 }
 
-// HandleSetup processes the setup wizard for local auth
 func (p *LocalProvider) HandleSetup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
@@ -182,14 +166,9 @@ func (p *LocalProvider) HandleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create session
-	if err := p.manager.CreateSession(w, r, user.ID); err != nil {
+	if err := p.manager.CreateSessionAndRespond(w, r, user, http.StatusCreated); err != nil {
 		log.Printf("session creation error: %v", err)
 		writeJSONError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(user)
 }

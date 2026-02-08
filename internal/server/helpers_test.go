@@ -73,3 +73,23 @@ func newTestServerWrapped(t *testing.T) (*testServer, *store.Store) {
 	srv, s := newTestServer(t)
 	return &testServer{srv}, s
 }
+
+// newEmptyStore creates a store with migrations but no users.
+// Use this for tests that need to verify behavior when no users exist.
+func newEmptyStore(t *testing.T) *store.Store {
+	t.Helper()
+	s, err := store.New(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, f, _, _ := runtime.Caller(0)
+	dir := filepath.Join(filepath.Dir(f), "..", "..", "migrations")
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("migrations dir: %v", err)
+	}
+	if err := s.Migrate(dir); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+	return s
+}

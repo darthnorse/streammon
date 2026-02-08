@@ -19,14 +19,12 @@ const (
 	plexAPITimeout = 10 * time.Second
 )
 
-// PlexProvider handles Plex.tv OAuth authentication
 type PlexProvider struct {
 	store   *store.Store
 	manager *Manager
 	client  *http.Client
 }
 
-// NewPlexProvider creates a new Plex authentication provider
 func NewPlexProvider(st *store.Store, mgr *Manager) *PlexProvider {
 	return &PlexProvider{
 		store:   st,
@@ -42,10 +40,9 @@ func (p *PlexProvider) Name() ProviderType {
 }
 
 func (p *PlexProvider) Enabled() bool {
-	return true // Plex auth is always available (uses plex.tv)
+	return true
 }
 
-// plexUser represents user info from Plex.tv API
 type plexUser struct {
 	ID       int    `json:"id"`
 	UUID     string `json:"uuid"`
@@ -55,7 +52,6 @@ type plexUser struct {
 	Thumb    string `json:"thumb"`
 }
 
-// plexResource represents a Plex server resource
 type plexResource struct {
 	Name             string `json:"name"`
 	ClientIdentifier string `json:"clientIdentifier"`
@@ -64,7 +60,6 @@ type plexResource struct {
 	Home             bool   `json:"home"`
 }
 
-// HandleLogin processes Plex auth token from frontend PIN flow
 func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AuthToken string `json:"auth_token"`
@@ -79,7 +74,6 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify token with Plex.tv
 	plexUser, err := p.verifyToken(r.Context(), req.AuthToken)
 	if err != nil {
 		log.Printf("Plex token verification error: %v", err)
@@ -87,131 +81,144 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check server access if guest mode disabled
-	guestAccess, _ := p.store.GetPlexGuestAccess()
-	if !guestAccess {
-		hasAccess, err := p.verifyServerAccess(r.Context(), req.AuthToken)
-		if err != nil {
-			log.Printf("Plex server access check error: %v", err)
-			writeJSONError(w, "failed to verify server access", http.StatusInternalServerError)
-			return
-		}
-		if !hasAccess {
-			writeJSONError(w, "no access to configured Plex servers", http.StatusForbidden)
-			return
-		}
-	}
-
-	// Get or create user with account linking
-	providerID := fmt.Sprintf("%d", plexUser.ID)
-	user, err := p.store.GetOrLinkUserByEmail(
-		plexUser.Email,
-		plexUser.Title, // Display name
-		string(ProviderPlex),
-		providerID,
-		plexUser.Thumb,
-	)
+	hasAccess, err := p.verifyServerAccess(r.Context(), req.AuthToken)
 	if err != nil {
-		log.Printf("user creation error: %v", err)
-		writeJSONError(w, "internal error", http.StatusInternalServerError)
+		log.Printf("Plex server access check error: %v", err)
+		writeJSONError(w, "failed to verify server access", http.StatusInternalServerError)
+		return
+	}
+	if !hasAccess {
+		writeJSONError(w, "no access to configured Plex servers", http.StatusForbidden)
 		return
 	}
 
-	// Create session
-	if err := p.manager.CreateSession(w, r, user.ID); err != nil {
+	providerID := fmt.Sprintf("%d", plexUser.ID)
+	existingUser, _ := p.store.GetUserByProvider(string(ProviderPlex), providerID)
+
+	// Also check by email for admins who haven't linked Plex yet
+	var emailUser *models.User
+	if existingUser == nil && plexUser.Email != "" {
+		emailUser, _ = p.store.GetUserByEmail(plexUser.Email)
+	}
+
+	// Guest access disabled = only existing admins can login
+	guestAccess, _ := p.store.GetPlexGuestAccess()
+	if !guestAccess {
+		isAdmin := (existingUser != nil && existingUser.Role == models.RoleAdmin) ||
+			(emailUser != nil && emailUser.Role == models.RoleAdmin)
+		if !isAdmin {
+			writeJSONError(w, "plex login not enabled for non-admin users", http.StatusForbidden)
+			return
+		}
+	}
+
+	var user *models.User
+	if existingUser != nil {
+		user = existingUser
+		if plexUser.Thumb != "" && plexUser.Thumb != user.ThumbURL {
+			_ = p.store.UpdateUserAvatar(user.Name, plexUser.Thumb)
+			user.ThumbURL = plexUser.Thumb
+		}
+	} else {
+		var linkErr error
+		user, linkErr = p.store.GetOrLinkUserByEmail(
+			plexUser.Email,
+			plexUser.Title,
+			string(ProviderPlex),
+			providerID,
+			plexUser.Thumb,
+		)
+		if linkErr != nil {
+			log.Printf("user creation error: %v", linkErr)
+			writeJSONError(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := p.manager.CreateSessionAndRespond(w, r, user, http.StatusOK); err != nil {
 		log.Printf("session creation error: %v", err)
 		writeJSONError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
 }
 
-// HandleCallback is not used for Plex (PIN flow handled client-side)
 func (p *PlexProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	writeJSONError(w, "not supported", http.StatusNotFound)
 }
 
-// verifyToken validates the auth token with Plex.tv and returns user info
-func (p *PlexProvider) verifyToken(ctx context.Context, token string) (*plexUser, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", plexAPIBase+"/user", nil)
+func (p *PlexProvider) doPlexRequest(ctx context.Context, token, path string, result interface{}) error {
+	req, err := http.NewRequestWithContext(ctx, "GET", plexAPIBase+path, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	req.Header.Set("X-Plex-Token", token)
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("plex API request failed: %w", err)
+		return fmt.Errorf("plex API request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("plex API returned status %d", resp.StatusCode)
+		return fmt.Errorf("plex API returned status %d", resp.StatusCode)
 	}
 
+	if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		return fmt.Errorf("decoding plex response: %w", err)
+	}
+	return nil
+}
+
+func (p *PlexProvider) verifyToken(ctx context.Context, token string) (*plexUser, error) {
 	var user plexUser
-	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		return nil, fmt.Errorf("decoding plex user: %w", err)
+	if err := p.doPlexRequest(ctx, token, "/user", &user); err != nil {
+		return nil, err
 	}
-
 	return &user, nil
 }
 
-// verifyServerAccess checks if user has access to any configured Plex server
 func (p *PlexProvider) verifyServerAccess(ctx context.Context, token string) (bool, error) {
-	// Get configured Plex servers
 	servers, err := p.store.ListServers()
 	if err != nil {
 		return false, fmt.Errorf("listing servers: %w", err)
 	}
 
-	// Build set of configured Plex server names (normalized for comparison)
+	// Build lookup maps: machine_id (secure) and name (legacy fallback)
+	configuredMachineIDs := make(map[string]bool)
 	configuredNames := make(map[string]bool)
 	for _, s := range servers {
 		if s.Type == models.ServerTypePlex && s.Enabled {
-			configuredNames[strings.ToLower(s.Name)] = true
+			if s.MachineID != "" {
+				configuredMachineIDs[s.MachineID] = true
+			} else {
+				// Legacy servers without machine_id use name matching
+				configuredNames[strings.ToLower(s.Name)] = true
+			}
 		}
 	}
 
-	// If no Plex servers configured, allow access (no restriction)
-	if len(configuredNames) == 0 {
-		return true, nil
-	}
-
-	// Fetch user's resources from Plex.tv
-	req, err := http.NewRequestWithContext(ctx, "GET", plexAPIBase+"/resources?includeHttps=1", nil)
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("X-Plex-Token", token)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := p.client.Do(req)
-	if err != nil {
-		return false, fmt.Errorf("plex API request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("plex API returned status %d", resp.StatusCode)
+	if len(configuredMachineIDs) == 0 && len(configuredNames) == 0 {
+		return false, nil // No Plex servers configured
 	}
 
 	var resources []plexResource
-	if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
-		return false, fmt.Errorf("decoding plex resources: %w", err)
+	if err := p.doPlexRequest(ctx, token, "/resources?includeHttps=1", &resources); err != nil {
+		return false, err
 	}
 
-	// Check if user has access to any of our configured servers
 	for _, r := range resources {
 		if r.Provides != "server" {
 			continue
 		}
-		// Match by server name (case-insensitive)
+		// Prefer machine_id match (secure, non-spoofable)
+		if configuredMachineIDs[r.ClientIdentifier] {
+			log.Printf("Plex user has access to configured server: %s (machine_id: %s)", r.Name, r.ClientIdentifier)
+			return true, nil
+		}
+		// Fallback to name match for legacy servers (less secure)
 		if configuredNames[strings.ToLower(r.Name)] {
-			log.Printf("Plex user has access to configured server: %s", r.Name)
+			log.Printf("Plex user has access to configured server: %s (name match only - consider updating server config)", r.Name)
 			return true, nil
 		}
 	}
@@ -219,7 +226,6 @@ func (p *PlexProvider) verifyServerAccess(ctx context.Context, token string) (bo
 	return false, nil
 }
 
-// HandleSetup processes Plex auth for setup wizard
 func (p *PlexProvider) HandleSetup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AuthToken string `json:"auth_token"`
@@ -234,7 +240,6 @@ func (p *PlexProvider) HandleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify token with Plex.tv
 	plexUser, err := p.verifyToken(r.Context(), req.AuthToken)
 	if err != nil {
 		log.Printf("Plex token verification error: %v", err)
@@ -242,7 +247,7 @@ func (p *PlexProvider) HandleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Atomically create the first admin user (handles race condition)
+	// Atomic insert prevents race condition during setup
 	providerID := fmt.Sprintf("%d", plexUser.ID)
 	user, err := p.store.CreateFirstAdmin(plexUser.Title, plexUser.Email, "", string(ProviderPlex), providerID, plexUser.Thumb)
 	if err != nil {
@@ -255,14 +260,9 @@ func (p *PlexProvider) HandleSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create session
-	if err := p.manager.CreateSession(w, r, user.ID); err != nil {
+	if err := p.manager.CreateSessionAndRespond(w, r, user, http.StatusCreated); err != nil {
 		log.Printf("session creation error: %v", err)
 		writeJSONError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(user)
 }

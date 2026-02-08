@@ -111,6 +111,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
       type: form.type,
       url: form.url.trim(),
       api_key: form.api_key,
+      machine_id: server?.machine_id ?? '',
       enabled: form.enabled,
       show_recent_media: form.show_recent_media,
     }

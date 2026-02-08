@@ -96,3 +96,79 @@ func TestRequireRole_Allowed(t *testing.T) {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
 }
+
+func TestRequireSetup_AllowsWhenNoUsers(t *testing.T) {
+	st := newEmptyStore(t)
+	mgr := auth.NewManager(st)
+
+	mw := RequireSetup(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 when no users exist, got %d", w.Code)
+	}
+}
+
+func TestRequireSetup_BlocksWhenUsersExist(t *testing.T) {
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
+
+	st.GetOrCreateUser("existing_user")
+
+	mw := RequireSetup(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when users exist, got %d", w.Code)
+	}
+}
+
+func TestRequireSetupComplete_BlocksWhenNoUsers(t *testing.T) {
+	st := newEmptyStore(t)
+	mgr := auth.NewManager(st)
+
+	mw := RequireSetupComplete(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 when no users exist, got %d", w.Code)
+	}
+}
+
+func TestRequireSetupComplete_AllowsWhenUsersExist(t *testing.T) {
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
+
+	st.GetOrCreateUser("existing_user")
+
+	mw := RequireSetupComplete(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 when users exist, got %d", w.Code)
+	}
+}

@@ -8,13 +8,13 @@ import (
 
 const maxBodySize = 1 << 20 // 1MB
 
-// rateLimiter implements a per-IP sliding window rate limiter
 type rateLimiter struct {
 	mu       sync.Mutex
 	requests map[string][]time.Time
 	limit    int
 	window   time.Duration
 	done     chan struct{}
+	stopOnce sync.Once
 }
 
 func newRateLimiter(limit int, window time.Duration) *rateLimiter {
@@ -29,7 +29,9 @@ func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 }
 
 func (rl *rateLimiter) stop() {
-	close(rl.done)
+	rl.stopOnce.Do(func() {
+		close(rl.done)
+	})
 }
 
 func (rl *rateLimiter) cleanup() {

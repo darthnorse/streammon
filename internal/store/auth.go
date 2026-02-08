@@ -43,6 +43,23 @@ func (s *Store) GetUserByProvider(provider, providerID string) (*models.User, er
 	return &u, nil
 }
 
+// GetUserByEmail retrieves a user by email address
+func (s *Store) GetUserByEmail(email string) (*models.User, error) {
+	if email == "" {
+		return nil, fmt.Errorf("user: %w", models.ErrNotFound)
+	}
+	u, err := scanUser(s.db.QueryRow(
+		`SELECT `+userColumns+` FROM users WHERE email = ?`, email,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("user: %w", models.ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting user by email: %w", err)
+	}
+	return &u, nil
+}
+
 // CreateLocalUser creates a new local user with password
 func (s *Store) CreateLocalUser(username, email, passwordHash string, role models.Role) (*models.User, error) {
 	result, err := s.db.Exec(

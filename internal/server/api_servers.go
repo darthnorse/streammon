@@ -97,13 +97,19 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	if input.APIKey == "" {
+	// Preserve existing API key and machine_id if not provided in update
+	if input.APIKey == "" || input.MachineID == "" {
 		existing, err := s.store.GetServer(id)
 		if err != nil {
 			writeStoreError(w, err)
 			return
 		}
-		input.APIKey = existing.APIKey
+		if input.APIKey == "" {
+			input.APIKey = existing.APIKey
+		}
+		if input.MachineID == "" {
+			input.MachineID = existing.MachineID
+		}
 	}
 	srv := input.ToServer()
 	srv.ID = id

@@ -61,6 +61,7 @@ type Server struct {
 	Type            ServerType `json:"type"`
 	URL             string     `json:"url"`
 	APIKey          string     `json:"-"`
+	MachineID       string     `json:"machine_id,omitempty"`
 	Enabled         bool       `json:"enabled"`
 	ShowRecentMedia bool       `json:"show_recent_media"`
 	CreatedAt       time.Time  `json:"created_at"`
@@ -88,6 +89,7 @@ type ServerInput struct {
 	Type            ServerType `json:"type"`
 	URL             string     `json:"url"`
 	APIKey          string     `json:"api_key"`
+	MachineID       string     `json:"machine_id,omitempty"`
 	Enabled         bool       `json:"enabled"`
 	ShowRecentMedia bool       `json:"show_recent_media"`
 }
@@ -98,6 +100,7 @@ func (si *ServerInput) ToServer() *Server {
 		Type:            si.Type,
 		URL:             si.URL,
 		APIKey:          si.APIKey,
+		MachineID:       si.MachineID,
 		Enabled:         si.Enabled,
 		ShowRecentMedia: si.ShowRecentMedia,
 	}
