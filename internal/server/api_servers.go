@@ -123,12 +123,23 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Remove from poller BEFORE DB update to prevent race condition:
+	// - Any sync starting now won't find the server in poller (skips)
+	// - Any sync that already captured old adapter will fail identity check
+	if s.poller != nil {
+		s.poller.RemoveServer(id)
+	}
+
 	// Atomically update server and clear maintenance data if identity changed
 	// Identity = URL + Type + MachineID - any change clears cached data
 	if err := s.store.UpdateServerAtomic(existing, srv); err != nil {
+		// Restore old adapter on failure
+		s.syncServerToPoller(existing)
 		writeStoreError(w, err)
 		return
 	}
+
+	// Add new adapter after DB update succeeds
 	s.syncServerToPoller(srv)
 	s.InvalidateLibraryCache()
 	writeJSON(w, http.StatusOK, srv)
