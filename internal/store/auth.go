@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"streammon/internal/models"
@@ -114,21 +115,82 @@ func (s *Store) LinkProviderAccount(userID int64, provider, providerID string) e
 	return nil
 }
 
-// maybeUpdateAvatar updates user's avatar if changed, logging warnings on failure
+// ErrNoPassword is returned when trying to unlink a user with no password set
+var ErrNoPassword = errors.New("user has no password set")
+
+// UnlinkUserProvider removes the provider link from a user, allowing re-linking.
+// Returns ErrNoPassword if the user has no password (would be locked out).
+func (s *Store) UnlinkUserProvider(userID int64) error {
+	var hasPassword bool
+	err := s.db.QueryRow(
+		`SELECT password_hash != '' AND password_hash IS NOT NULL FROM users WHERE id = ?`, userID,
+	).Scan(&hasPassword)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("user %d: %w", userID, models.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("checking user password: %w", err)
+	}
+	if !hasPassword {
+		return ErrNoPassword
+	}
+
+	result, err := s.db.Exec(
+		`UPDATE users SET provider = '', provider_id = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("unlinking provider: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("user %d: %w", userID, models.ErrNotFound)
+	}
+	return nil
+}
+
+// GetUnlinkedUserByName finds a user by name (case-insensitive) that has no provider linked.
+// This is used for auto-linking streaming users to their login accounts.
+func (s *Store) GetUnlinkedUserByName(name string) (*models.User, error) {
+	if name == "" {
+		return nil, fmt.Errorf("user: %w", models.ErrNotFound)
+	}
+	u, err := scanUser(s.db.QueryRow(
+		`SELECT `+userColumns+` FROM users WHERE LOWER(name) = LOWER(?) AND (provider_id = '' OR provider_id IS NULL)`,
+		name,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("user: %w", models.ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting unlinked user by name: %w", err)
+	}
+	return &u, nil
+}
+
 func (s *Store) maybeUpdateAvatar(user *models.User, thumbURL string) {
 	if thumbURL != "" && thumbURL != user.ThumbURL {
 		if err := s.UpdateUserAvatar(user.Name, thumbURL); err != nil {
 			log.Printf("warning: failed to update avatar for %s: %v", user.Name, err)
+			return
 		}
 		user.ThumbURL = thumbURL
 	}
 }
 
-// GetOrLinkUserByEmail finds user by provider ID first, then by email for account linking.
+// GetOrLinkUserByEmail finds user by provider ID first, then by email, then by username for account linking.
 // SECURITY: Account linking by email is only performed for OAuth providers (plex, oidc)
 // where the email is verified by the provider. Local accounts are not linked by email.
+// Username linking only matches unlinked users (no provider_id set).
 func (s *Store) GetOrLinkUserByEmail(email, name, provider, providerID, thumbURL string) (*models.User, error) {
-	// First try to find by provider + providerID (exact match)
+	return s.GetOrLinkUser(email, []string{name}, name, provider, providerID, thumbURL)
+}
+
+// GetOrLinkUser finds user by provider ID, email, or usernames (in order) for account linking.
+// namesToTry is a list of usernames to try matching against unlinked users (e.g., [username, display_name]).
+// displayName is used when creating a new user.
+func (s *Store) GetOrLinkUser(email string, namesToTry []string, displayName, provider, providerID, thumbURL string) (*models.User, error) {
+	// Tier 1: Try to find by provider + providerID (exact match)
 	if providerID != "" {
 		user, err := s.GetUserByProvider(provider, providerID)
 		if err == nil {
@@ -137,48 +199,114 @@ func (s *Store) GetOrLinkUserByEmail(email, name, provider, providerID, thumbURL
 		}
 	}
 
-	// Try to find by email for account linking
+	// Tier 2: Try to find by email for account linking
 	// SECURITY: Only link for OAuth providers where email is verified
+	// Only link if user has no provider or the same provider (don't overwrite different provider)
 	if email != "" && provider != "local" {
 		var existingUser models.User
+		var existingProvider string
 		err := s.db.QueryRow(
-			`SELECT `+userColumns+` FROM users WHERE email = ? AND email != ''`, email,
+			`SELECT `+userColumns+`, COALESCE(provider, '') FROM users WHERE email = ? AND email != ''`, email,
 		).Scan(&existingUser.ID, &existingUser.Name, &existingUser.Email, &existingUser.Role,
-			&existingUser.ThumbURL, &existingUser.CreatedAt, &existingUser.UpdatedAt)
+			&existingUser.ThumbURL, &existingUser.CreatedAt, &existingUser.UpdatedAt, &existingProvider)
 
 		if err == nil {
-			log.Printf("info: linking provider %s (id=%s) to existing user %s (id=%d) via email %s",
-				provider, providerID, existingUser.Name, existingUser.ID, email)
+			// Only link if user has no provider or same provider (don't overwrite different provider)
+			if existingProvider == "" || existingProvider == provider {
+				log.Printf("info: linking provider %s (id=%s) to existing user %s (id=%d) via email %s",
+					provider, providerID, existingUser.Name, existingUser.ID, email)
 
-			if providerID != "" {
-				if err := s.LinkProviderAccount(existingUser.ID, provider, providerID); err != nil {
-					return nil, fmt.Errorf("linking provider account: %w", err)
+				if providerID != "" {
+					if err := s.LinkProviderAccount(existingUser.ID, provider, providerID); err != nil {
+						return nil, fmt.Errorf("linking provider account: %w", err)
+					}
 				}
+				s.maybeUpdateAvatar(&existingUser, thumbURL)
+				return &existingUser, nil
 			}
-			s.maybeUpdateAvatar(&existingUser, thumbURL)
-			return &existingUser, nil
+			// User exists with different provider - fall through to create new account
+			log.Printf("info: user %s already linked to %s, creating new account for %s login",
+				existingUser.Name, existingProvider, provider)
 		}
 	}
 
-	// No existing user found - create new one
-	displayName := name
+	// Tier 3: Try to find by username (case-insensitive) for unlinked users
+	// This links streaming users (from watch history) to their login accounts
+	// SECURITY: Only link if unlinked user has no email (pure streaming user)
+	// to prevent account hijacking via display name collision
+	if provider != "local" {
+		for _, name := range namesToTry {
+			if name == "" {
+				continue
+			}
+			existingUser, err := s.GetUnlinkedUserByName(name)
+			if err == nil {
+				// Only auto-link if the existing user has no email set
+				// (they're a pure streaming user with no prior OAuth identity)
+				if existingUser.Email != "" {
+					log.Printf("info: skipping username link for %q - existing user has email set", name)
+					continue
+				}
+
+				log.Printf("info: auto-linking provider %s (id=%s) to existing user %s (id=%d) via username match on %q",
+					provider, providerID, existingUser.Name, existingUser.ID, name)
+
+				if providerID != "" {
+					if err := s.LinkProviderAccount(existingUser.ID, provider, providerID); err != nil {
+						return nil, fmt.Errorf("linking provider account: %w", err)
+					}
+				}
+				// Update email if we have one
+				if email != "" {
+					if _, err := s.db.Exec(`UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+						email, existingUser.ID); err != nil {
+						log.Printf("warning: failed to update email for user %s: %v", existingUser.Name, err)
+					} else {
+						existingUser.Email = email
+					}
+				}
+				s.maybeUpdateAvatar(existingUser, thumbURL)
+				return existingUser, nil
+			}
+		}
+	}
+
+	// Tier 4: Create new user
+	if displayName == "" && email == "" {
+		return nil, fmt.Errorf("cannot create user: no name or email provided")
+	}
 	if displayName == "" {
 		displayName = email
 	}
-	if displayName == "" {
-		return nil, fmt.Errorf("cannot create user: no name or email provided")
+
+	// Try to create user with desired name, handling conflicts atomically
+	// Uses INSERT with retry on UNIQUE constraint to avoid race conditions
+	const maxUsernameRetries = 100
+	finalName := displayName
+	for i := 1; i <= maxUsernameRetries; i++ {
+		_, err := s.db.Exec(
+			`INSERT INTO users (name, email, role, provider, provider_id, thumb_url)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			finalName, email, models.RoleViewer, provider, providerID, thumbURL,
+		)
+		if err == nil {
+			if finalName != displayName {
+				log.Printf("info: username %s already exists, created user as %s", displayName, finalName)
+			}
+			return s.GetUser(finalName)
+		}
+
+		// Only retry on name uniqueness violations, not provider conflicts
+		if !strings.Contains(err.Error(), "UNIQUE constraint failed") ||
+			!strings.Contains(err.Error(), "users.name") {
+			return nil, fmt.Errorf("creating user: %w", err)
+		}
+
+		// Try next suffix
+		finalName = fmt.Sprintf("%s_%d", displayName, i+1)
 	}
 
-	_, err := s.db.Exec(
-		`INSERT INTO users (name, email, role, provider, provider_id, thumb_url)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		displayName, email, models.RoleViewer, provider, providerID, thumbURL,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("creating user: %w", err)
-	}
-
-	return s.GetUser(displayName)
+	return nil, fmt.Errorf("cannot create user: too many users with name %s", displayName)
 }
 
 // IsSetupRequired returns true if no users exist (first run)

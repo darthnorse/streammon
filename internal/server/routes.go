@@ -167,8 +167,10 @@ func (s *Server) routes() {
 		r.Route("/admin/users", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleAdminListUsers)
+			sr.Post("/merge", s.handleAdminMergeUsers)
 			sr.Get("/{id}", s.handleAdminGetUser)
 			sr.Put("/{id}/role", s.handleAdminUpdateUserRole)
+			sr.Post("/{id}/unlink", s.handleAdminUnlinkUser)
 			sr.Delete("/{id}", s.handleAdminDeleteUser)
 		})
 	})

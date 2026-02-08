@@ -119,10 +119,19 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 			user.ThumbURL = plexUser.Thumb
 		}
 	} else {
+		// Try to link by username first, then by title (display name)
+		// This handles cases where streaming users might be stored under either name
+		namesToTry := []string{plexUser.Username, plexUser.Title}
+		displayName := plexUser.Title
+		if displayName == "" {
+			displayName = plexUser.Username
+		}
+
 		var linkErr error
-		user, linkErr = p.store.GetOrLinkUserByEmail(
+		user, linkErr = p.store.GetOrLinkUser(
 			plexUser.Email,
-			plexUser.Title,
+			namesToTry,
+			displayName,
 			string(ProviderPlex),
 			providerID,
 			plexUser.Thumb,

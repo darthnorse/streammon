@@ -25,6 +25,11 @@ export interface User {
   updated_at: string
 }
 
+export interface AdminUser extends User {
+  provider: string
+  provider_id: string
+}
+
 export interface UserSummary {
   name: string
   thumb_url: string

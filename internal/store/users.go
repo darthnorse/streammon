@@ -4,16 +4,31 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"streammon/internal/models"
 )
 
 const userColumns = `id, name, email, role, thumb_url, created_at, updated_at`
+const userColumnsWithProvider = `id, name, email, role, thumb_url, created_at, updated_at, provider, provider_id`
 
 func scanUser(scanner interface{ Scan(...any) error }) (models.User, error) {
 	var u models.User
 	err := scanner.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ThumbURL, &u.CreatedAt, &u.UpdatedAt)
+	return u, err
+}
+
+// AdminUser extends User with provider information
+type AdminUser struct {
+	models.User
+	Provider   string `json:"provider"`
+	ProviderID string `json:"provider_id"`
+}
+
+func scanAdminUser(scanner interface{ Scan(...any) error }) (AdminUser, error) {
+	var u AdminUser
+	err := scanner.Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.ThumbURL, &u.CreatedAt, &u.UpdatedAt, &u.Provider, &u.ProviderID)
 	return u, err
 }
 
@@ -262,19 +277,37 @@ func (s *Store) GetUserByID(id int64) (*models.User, error) {
 	return &u, nil
 }
 
-// UpdateUserRoleByID updates a user's role by ID
-func (s *Store) UpdateUserRoleByID(id int64, role models.Role) error {
-	result, err := s.db.Exec(
-		`UPDATE users SET role = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, role, id,
-	)
+// ListAdminUsers returns all users with provider information (for admin UI)
+func (s *Store) ListAdminUsers() ([]AdminUser, error) {
+	rows, err := s.db.Query(`SELECT ` + userColumnsWithProvider + ` FROM users ORDER BY name`)
 	if err != nil {
-		return fmt.Errorf("updating user role: %w", err)
+		return nil, fmt.Errorf("listing admin users: %w", err)
 	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("user %d: %w", id, models.ErrNotFound)
+	defer rows.Close()
+
+	users := []AdminUser{}
+	for rows.Next() {
+		u, err := scanAdminUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, u)
 	}
-	return nil
+	return users, rows.Err()
+}
+
+// GetAdminUserByID retrieves a user by ID with provider information (for admin UI)
+func (s *Store) GetAdminUserByID(id int64) (*AdminUser, error) {
+	u, err := scanAdminUser(s.db.QueryRow(
+		`SELECT `+userColumnsWithProvider+` FROM users WHERE id = ?`, id,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("user %d: %w", id, models.ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("getting admin user by id: %w", err)
+	}
+	return &u, nil
 }
 
 // ErrLastAdmin is returned when trying to delete or demote the last admin
@@ -368,4 +401,115 @@ func (s *Store) UpdateUserRoleByIDSafe(id int64, newRole models.Role) error {
 	}
 
 	return tx.Commit()
+}
+
+// MergeUsersResult contains the result of a user merge operation
+type MergeUsersResult struct {
+	WatchHistoryMoved int `json:"watch_history_moved"`
+}
+
+// scanUserFromTx scans a user from a transaction query row
+func scanUserFromTx(tx *sql.Tx, id int64) (models.User, error) {
+	var u models.User
+	err := tx.QueryRow(`SELECT `+userColumns+` FROM users WHERE id = ?`, id).Scan(
+		&u.ID, &u.Name, &u.Email, &u.Role, &u.ThumbURL, &u.CreatedAt, &u.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return u, fmt.Errorf("user %d: %w", id, models.ErrNotFound)
+	}
+	if err != nil {
+		return u, fmt.Errorf("getting user %d: %w", id, err)
+	}
+	return u, nil
+}
+
+// MergeUsers merges one user into another, transferring all watch history.
+// The "from" user is deleted after merging.
+// Returns ErrLastAdmin if trying to delete the last admin.
+func (s *Store) MergeUsers(keepID, deleteID int64) (*MergeUsersResult, error) {
+	if keepID == deleteID {
+		return nil, fmt.Errorf("cannot merge user with itself")
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("beginning transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	keepUser, err := scanUserFromTx(tx, keepID)
+	if err != nil {
+		return nil, err
+	}
+	deleteUser, err := scanUserFromTx(tx, deleteID)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := checkLastAdmin(tx, deleteID); err != nil {
+		return nil, err
+	}
+
+	result, err := tx.Exec(
+		`UPDATE watch_history SET user_name = ? WHERE user_name = ?`,
+		keepUser.Name, deleteUser.Name,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("transferring watch history: %w", err)
+	}
+	historyMoved, _ := result.RowsAffected()
+
+	// Transfer rule violations - delete conflicting keep-user violations first
+	// Only for non-empty session_keys (unique index only applies when session_key != '')
+	if _, err := tx.Exec(`DELETE FROM rule_violations WHERE user_name = ? AND session_key != '' AND (rule_id, session_key) IN
+		(SELECT rule_id, session_key FROM rule_violations WHERE user_name = ? AND session_key != '')`,
+		keepUser.Name, deleteUser.Name); err != nil {
+		log.Printf("warning: failed to clear conflicting violations for %s: %v", keepUser.Name, err)
+	}
+	if _, err := tx.Exec(`UPDATE rule_violations SET user_name = ? WHERE user_name = ?`,
+		keepUser.Name, deleteUser.Name); err != nil {
+		log.Printf("warning: failed to transfer rule violations during merge: %v", err)
+	}
+
+	// Transfer trust scores only if delete-user has one (avoid losing keep-user's data)
+	var hasDeleteUserTrust bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM user_trust_scores WHERE user_name = ?)`,
+		deleteUser.Name).Scan(&hasDeleteUserTrust); err == nil && hasDeleteUserTrust {
+		if _, err := tx.Exec(`DELETE FROM user_trust_scores WHERE user_name = ?`, keepUser.Name); err != nil {
+			log.Printf("warning: failed to clear trust scores for %s: %v", keepUser.Name, err)
+		}
+		if _, err := tx.Exec(`UPDATE user_trust_scores SET user_name = ? WHERE user_name = ?`,
+			keepUser.Name, deleteUser.Name); err != nil {
+			log.Printf("warning: failed to transfer trust scores during merge: %v", err)
+		}
+	}
+
+	// Transfer household locations only if delete-user has some (avoid losing keep-user's data)
+	var hasDeleteUserLocations bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM household_locations WHERE user_name = ?)`,
+		deleteUser.Name).Scan(&hasDeleteUserLocations); err == nil && hasDeleteUserLocations {
+		if _, err := tx.Exec(`DELETE FROM household_locations WHERE user_name = ?`, keepUser.Name); err != nil {
+			log.Printf("warning: failed to clear household locations for %s: %v", keepUser.Name, err)
+		}
+		if _, err := tx.Exec(`UPDATE household_locations SET user_name = ? WHERE user_name = ?`,
+			keepUser.Name, deleteUser.Name); err != nil {
+			log.Printf("warning: failed to transfer household locations during merge: %v", err)
+		}
+	}
+
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, deleteID); err != nil {
+		return nil, fmt.Errorf("deleting sessions: %w", err)
+	}
+
+	if _, err := tx.Exec(`DELETE FROM users WHERE id = ?`, deleteID); err != nil {
+		return nil, fmt.Errorf("deleting user: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("committing transaction: %w", err)
+	}
+
+	return &MergeUsersResult{
+		WatchHistoryMoved: int(historyMoved),
+	}, nil
 }
