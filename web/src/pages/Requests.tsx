@@ -9,7 +9,6 @@ import { TMDB_IMG, mediaStatusBadge, requestStatusBadge } from '../lib/overseerr
 import type {
   OverseerrSearchResult,
   OverseerrMediaResult,
-  OverseerrSettings,
   OverseerrRequestList,
   OverseerrRequestCount,
   OverseerrRequest,
@@ -152,8 +151,8 @@ export function Requests() {
   const [error, setError] = useState('')
   const [selectedItem, setSelectedItem] = useState<OverseerrMediaResult | null>(null)
 
-  const { data: config } = useFetch<OverseerrSettings>('/api/settings/overseerr')
-  const configured = !!config?.url
+  const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
+  const configured = !!configStatus?.configured
 
   const resetPage = useCallback(() => {
     setSearchResults(null)

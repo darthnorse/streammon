@@ -528,6 +528,56 @@ func TestOverseerrDeleteRequest(t *testing.T) {
 	}
 }
 
+func TestOverseerrConfigured_ViewerCanAccess(t *testing.T) {
+	srv, st := newTestServer(t)
+
+	mock := mockOverseerr(t)
+	defer mock.Close()
+	configureOverseerr(t, st, mock.URL)
+
+	viewer, err := st.CreateLocalUser("viewer-cfg", "viewer-cfg@test.local", "", models.RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewerToken, err := st.CreateSession(viewer.ID, time.Now().UTC().Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/configured", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]bool
+	json.NewDecoder(w.Body).Decode(&resp)
+	if !resp["configured"] {
+		t.Fatal("expected configured=true when Overseerr is set up")
+	}
+}
+
+func TestOverseerrConfigured_NotConfigured(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/configured", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]bool
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["configured"] {
+		t.Fatal("expected configured=false when Overseerr is not set up")
+	}
+}
+
 func TestOverseerrApproveRequest_ViewerForbidden(t *testing.T) {
 	mock := mockOverseerr(t)
 	defer mock.Close()

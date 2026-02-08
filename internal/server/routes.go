@@ -106,6 +106,7 @@ func (s *Server) routes() {
 		})
 
 		r.Route("/overseerr", func(sr chi.Router) {
+			sr.Get("/configured", s.handleOverseerrConfigured)
 			sr.Get("/search", s.handleOverseerrSearch)
 			sr.Get("/discover/trending", s.handleOverseerrDiscoverTrending)
 			sr.Get("/movie/{id}", s.handleOverseerrMovie)

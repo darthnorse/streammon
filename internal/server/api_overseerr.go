@@ -152,6 +152,17 @@ func (s *Server) handleTestOverseerrConnection(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, overseerrTestResponse{Success: true})
 }
 
+func (s *Server) handleOverseerrConfigured(w http.ResponseWriter, r *http.Request) {
+	cfg, err := s.store.GetOverseerrConfig()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"configured": cfg.URL != "" && cfg.APIKey != "",
+	})
+}
+
 func (s *Server) newOverseerrClient() (*overseerr.Client, error) {
 	cfg, err := s.store.GetOverseerrConfig()
 	if err != nil {
