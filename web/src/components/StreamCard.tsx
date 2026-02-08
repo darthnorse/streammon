@@ -137,17 +137,12 @@ export function StreamCard({ stream }: StreamCardProps) {
         </div>
 
         <div className="min-w-0 flex-1 flex flex-col">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <MediaTitle stream={stream} />
-            </div>
-            <div className="text-right shrink-0 space-y-1">
-              <div className="text-xs text-muted dark:text-muted-dark font-mono">
-                {stream.server_name}
-              </div>
-              <div className="text-xs text-muted dark:text-muted-dark">
-                {stream.player}
-              </div>
+          <div>
+            <MediaTitle stream={stream} />
+            <div className="flex items-center gap-2 mt-1 text-xs text-muted dark:text-muted-dark">
+              <span className="font-mono">{stream.server_name}</span>
+              <span>·</span>
+              <span className="truncate">{stream.player}</span>
             </div>
           </div>
 
