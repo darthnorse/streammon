@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useAuth } from '../context/AuthContext'
@@ -172,7 +173,12 @@ export function UserManagement() {
 
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="font-medium truncate">{user.name}</span>
+                    <Link
+                      to={`/users/${encodeURIComponent(user.name)}`}
+                      className="font-medium truncate hover:text-accent transition-colors"
+                    >
+                      {user.name}
+                    </Link>
                     {isCurrentUser && (
                       <span className="text-xs text-muted dark:text-muted-dark">(you)</span>
                     )}
