@@ -228,9 +228,16 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Capture original server identity before sync
+	originalServer, err := s.store.GetServer(req.ServerID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
 	ms, ok := s.poller.GetServer(req.ServerID)
 	if !ok {
-		writeError(w, http.StatusNotFound, "server not found")
+		writeError(w, http.StatusNotFound, "server not found in poller")
 		return
 	}
 
@@ -241,6 +248,20 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		log.Printf("sync library: fetch items failed: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to fetch library items")
+		return
+	}
+
+	// Check if server identity changed during fetch - abort if so to avoid writing stale data
+	currentServer, err := s.store.GetServer(req.ServerID)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	if currentServer.URL != originalServer.URL ||
+		currentServer.Type != originalServer.Type ||
+		currentServer.MachineID != originalServer.MachineID {
+		log.Printf("sync library: server %d identity changed during sync, aborting", req.ServerID)
+		writeError(w, http.StatusConflict, "server configuration changed during sync, please retry")
 		return
 	}
 
