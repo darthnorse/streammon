@@ -98,20 +98,22 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	// Preserve existing API key and machine_id if not provided in update
-	if input.APIKey == "" || input.MachineID == "" {
-		existing, err := s.store.GetServer(id)
-		if err != nil {
-			writeStoreError(w, err)
-			return
-		}
-		if input.APIKey == "" {
-			input.APIKey = existing.APIKey
-		}
-		if input.MachineID == "" {
-			input.MachineID = existing.MachineID
-		}
+
+	// Always fetch existing server for comparison and preservation
+	existing, err := s.store.GetServer(id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
 	}
+
+	// Preserve existing API key and machine_id if not provided in update
+	if input.APIKey == "" {
+		input.APIKey = existing.APIKey
+	}
+	if input.MachineID == "" {
+		input.MachineID = existing.MachineID
+	}
+
 	srv := input.ToServer()
 	srv.ID = id
 	// Use ValidateForCreate to enforce machine_id for Plex servers on update too
@@ -120,6 +122,18 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// Clear maintenance data if URL or type changes to prevent stale item IDs
+	// from being sent to the wrong endpoint during deletion
+	if existing.URL != srv.URL || existing.Type != srv.Type {
+		if err := s.store.ClearServerMaintenanceData(r.Context(), id); err != nil {
+			log.Printf("failed to clear maintenance data for server %d: %v", id, err)
+			writeError(w, http.StatusInternalServerError, "failed to clear stale maintenance data")
+			return
+		}
+		log.Printf("cleared maintenance data for server %d due to URL/type change", id)
+	}
+
 	if err := s.store.UpdateServer(srv); err != nil {
 		writeStoreError(w, err)
 		return
