@@ -114,7 +114,9 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	srv := input.ToServer()
 	srv.ID = id
-	if err := srv.Validate(); err != nil {
+	// Use ValidateForCreate to enforce machine_id for Plex servers on update too
+	// This forces remediation of legacy servers when they're edited
+	if err := srv.ValidateForCreate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

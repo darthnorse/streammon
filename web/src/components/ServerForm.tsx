@@ -134,8 +134,8 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
       setError('API key is required')
       return
     }
-    // Require machine_id for new Plex servers (security: prevents name-spoofing auth bypass)
-    if (form.type === 'plex' && !form.machine_id && !isEdit) {
+    // Require machine_id for all Plex servers (security: prevents name-spoofing auth bypass)
+    if (form.type === 'plex' && !form.machine_id) {
       setError('Machine ID is required — click "Test Connection" to populate it')
       return
     }

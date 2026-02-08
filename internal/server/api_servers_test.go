@@ -127,9 +127,9 @@ func TestGetServerNotFoundAPI(t *testing.T) {
 
 func TestUpdateServerAPI(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
-	st.CreateServer(&models.Server{Name: "Old", Type: models.ServerTypePlex, URL: "http://old", APIKey: "k", Enabled: true})
+	st.CreateServer(&models.Server{Name: "Old", Type: models.ServerTypePlex, URL: "http://old", APIKey: "k", MachineID: "machine123", Enabled: true})
 
-	body := `{"name":"New","type":"plex","url":"http://new","api_key":"k2","enabled":false}`
+	body := `{"name":"New","type":"plex","url":"http://new","api_key":"k2","machine_id":"machine123","enabled":false}`
 	req := httptest.NewRequest(http.MethodPut, "/api/servers/1", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -147,11 +147,28 @@ func TestUpdateServerAPI(t *testing.T) {
 	}
 }
 
+func TestUpdateServerRequiresMachineIDForPlex(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	// Create a legacy Plex server without machine_id
+	st.CreateServer(&models.Server{Name: "Legacy", Type: models.ServerTypePlex, URL: "http://legacy", APIKey: "k", Enabled: true})
+
+	// Try to update without providing machine_id - should fail
+	body := `{"name":"Updated","type":"plex","url":"http://legacy","api_key":"k","enabled":true}`
+	req := httptest.NewRequest(http.MethodPut, "/api/servers/1", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing machine_id, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestUpdateServerPreservesAPIKeyWhenEmpty(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
-	st.CreateServer(&models.Server{Name: "Old", Type: models.ServerTypePlex, URL: "http://old", APIKey: "secret", Enabled: true})
+	st.CreateServer(&models.Server{Name: "Old", Type: models.ServerTypePlex, URL: "http://old", APIKey: "secret", MachineID: "m123", Enabled: true})
 
-	body := `{"name":"New","type":"plex","url":"http://new","api_key":"","enabled":true}`
+	// machine_id provided, api_key empty - should preserve api_key
+	body := `{"name":"New","type":"plex","url":"http://new","api_key":"","machine_id":"m123","enabled":true}`
 	req := httptest.NewRequest(http.MethodPut, "/api/servers/1", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -175,7 +192,7 @@ func TestUpdateServerPreservesAPIKeyWhenEmpty(t *testing.T) {
 func TestUpdateServerNotFoundAPI(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
 
-	body := `{"name":"X","type":"plex","url":"http://x","api_key":"k","enabled":true}`
+	body := `{"name":"X","type":"plex","url":"http://x","api_key":"k","machine_id":"m123","enabled":true}`
 	req := httptest.NewRequest(http.MethodPut, "/api/servers/999", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
