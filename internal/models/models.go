@@ -84,6 +84,18 @@ func (s *Server) Validate() error {
 	return nil
 }
 
+// ValidateForCreate performs validation for new server creation.
+// Plex servers require machine_id for secure authentication.
+func (s *Server) ValidateForCreate() error {
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if s.Type == ServerTypePlex && s.MachineID == "" {
+		return errors.New("machine_id is required for Plex servers — use Test Connection to populate")
+	}
+	return nil
+}
+
 type ServerInput struct {
 	Name            string     `json:"name"`
 	Type            ServerType `json:"type"`

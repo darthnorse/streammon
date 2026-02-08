@@ -134,6 +134,11 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
       setError('API key is required')
       return
     }
+    // Require machine_id for new Plex servers (security: prevents name-spoofing auth bypass)
+    if (form.type === 'plex' && !form.machine_id && !isEdit) {
+      setError('Machine ID is required — click "Test Connection" to populate it')
+      return
+    }
 
     setSaving(true)
     setError('')
@@ -269,6 +274,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
             <div>
               <label htmlFor="srv-machine-id" className="block text-sm font-medium mb-1.5">
                 Machine ID
+                <span className="text-red-500 ml-0.5">*</span>
                 {!form.machine_id && isEdit && (
                   <span className="ml-2 text-xs text-amber-500 dark:text-amber-400">
                     (missing — test connection to populate)
@@ -280,12 +286,12 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
                 type="text"
                 value={form.machine_id}
                 readOnly
-                placeholder="Auto-populated from test connection"
-                className={`${inputClass} bg-gray-100 dark:bg-gray-800 cursor-not-allowed`}
+                placeholder="Click 'Test Connection' to populate"
+                className={`${inputClass} ${!form.machine_id ? 'border-amber-400 dark:border-amber-500' : ''} bg-gray-100 dark:bg-gray-800 cursor-not-allowed`}
               />
               {!form.machine_id && (
-                <p className="text-xs text-muted dark:text-muted-dark mt-1">
-                  Machine ID is required for secure authentication. Click "Test Connection" to populate.
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  Required for secure authentication. Click "Test Connection" below to populate.
                 </p>
               )}
             </div>

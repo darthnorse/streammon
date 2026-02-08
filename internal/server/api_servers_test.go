@@ -13,7 +13,8 @@ import (
 func TestCreateServerAPI(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
 
-	body := `{"name":"Plex","type":"plex","url":"http://plex:32400","api_key":"abc","enabled":true}`
+	// Plex servers require machine_id
+	body := `{"name":"Plex","type":"plex","url":"http://plex:32400","api_key":"abc","machine_id":"abc123","enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/api/servers", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -35,6 +36,9 @@ func TestCreateServerAPI(t *testing.T) {
 	if s.APIKey != "" {
 		t.Fatal("api_key should not be in JSON response")
 	}
+	if s.MachineID != "abc123" {
+		t.Fatalf("expected machine_id abc123, got %s", s.MachineID)
+	}
 }
 
 func TestCreateServerValidationAPI(t *testing.T) {
@@ -44,10 +48,11 @@ func TestCreateServerValidationAPI(t *testing.T) {
 		name string
 		body string
 	}{
-		{"empty name", `{"name":"","type":"plex","url":"http://x","api_key":"k"}`},
+		{"empty name", `{"name":"","type":"plex","url":"http://x","api_key":"k","machine_id":"m"}`},
 		{"bad type", `{"name":"X","type":"invalid","url":"http://x","api_key":"k"}`},
-		{"empty url", `{"name":"X","type":"plex","url":"","api_key":"k"}`},
-		{"empty api_key", `{"name":"X","type":"plex","url":"http://x","api_key":""}`},
+		{"empty url", `{"name":"X","type":"plex","url":"","api_key":"k","machine_id":"m"}`},
+		{"empty api_key", `{"name":"X","type":"plex","url":"http://x","api_key":"","machine_id":"m"}`},
+		{"plex without machine_id", `{"name":"X","type":"plex","url":"http://x","api_key":"k"}`},
 		{"invalid json", `{bad`},
 	}
 	for _, tt := range tests {
