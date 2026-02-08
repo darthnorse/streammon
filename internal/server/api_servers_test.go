@@ -439,3 +439,55 @@ func TestUpdateServerPreservesMaintenanceDataOnSameURL(t *testing.T) {
 		t.Fatalf("expected 1 item preserved when URL unchanged, got %d", count)
 	}
 }
+
+func TestUpdateServerClearsMaintenanceDataOnMachineIDChange(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	// Create a Plex server
+	st.CreateServer(&models.Server{
+		Name:      "Plex",
+		Type:      models.ServerTypePlex,
+		URL:       "http://plex:32400",
+		APIKey:    "secret",
+		MachineID: "old-machine-id",
+		Enabled:   true,
+	})
+
+	// Add some library items to simulate cached data
+	ctx := context.Background()
+	_, err := st.UpsertLibraryItems(ctx, []models.LibraryItemCache{
+		{ServerID: 1, LibraryID: "1", ItemID: "item1", MediaType: "movie", Title: "Movie 1"},
+	})
+	if err != nil {
+		t.Fatalf("upsert library items: %v", err)
+	}
+
+	// Verify items exist
+	count, err := st.CountLibraryItems(ctx, 1, "1")
+	if err != nil {
+		t.Fatalf("count items: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 item before update, got %d", count)
+	}
+
+	// Update server with new machine_id (same URL) - should clear maintenance data
+	// This represents pointing to a different physical Plex server at same IP
+	body := `{"name":"Plex","type":"plex","url":"http://plex:32400","api_key":"","machine_id":"new-machine-id","enabled":true}`
+	req := httptest.NewRequest(http.MethodPut, "/api/servers/1", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify items were deleted
+	count, err = st.CountLibraryItems(ctx, 1, "1")
+	if err != nil {
+		t.Fatalf("count items after: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected 0 items after machine_id change, got %d", count)
+	}
+}

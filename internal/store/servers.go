@@ -75,6 +75,52 @@ func (s *Store) UpdateServer(srv *models.Server) error {
 	return nil
 }
 
+// UpdateServerAtomic updates a server and clears maintenance data if identity changed.
+// Identity is defined by URL, Type, and MachineID - if any of these change, cached
+// library items and maintenance rules are cleared to prevent stale data from causing
+// deletions on wrong content. All operations happen in a single transaction.
+func (s *Store) UpdateServerAtomic(existing, srv *models.Server) error {
+	identityChanged := existing.URL != srv.URL ||
+		existing.Type != srv.Type ||
+		existing.MachineID != srv.MachineID
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	// Clear maintenance data first if identity changed
+	if identityChanged {
+		if _, err := tx.Exec(`DELETE FROM library_items WHERE server_id = ?`, srv.ID); err != nil {
+			return fmt.Errorf("delete library items: %w", err)
+		}
+		if _, err := tx.Exec(`DELETE FROM maintenance_rules WHERE server_id = ?`, srv.ID); err != nil {
+			return fmt.Errorf("delete maintenance rules: %w", err)
+		}
+	}
+
+	// Update the server
+	updated, err := scanServer(tx.QueryRow(
+		`UPDATE servers SET name = ?, type = ?, url = ?, api_key = ?, machine_id = ?, enabled = ?, show_recent_media = ?, updated_at = CURRENT_TIMESTAMP
+		WHERE id = ? RETURNING `+serverColumns,
+		srv.Name, srv.Type, srv.URL, srv.APIKey, srv.MachineID, srv.Enabled, srv.ShowRecentMedia, srv.ID,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("server %d: %w", srv.ID, models.ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("updating server: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+
+	*srv = updated
+	return nil
+}
+
 func (s *Store) DeleteServer(id int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {

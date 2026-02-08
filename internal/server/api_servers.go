@@ -123,18 +123,9 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clear maintenance data if URL or type changes to prevent stale item IDs
-	// from being sent to the wrong endpoint during deletion
-	if existing.URL != srv.URL || existing.Type != srv.Type {
-		if err := s.store.ClearServerMaintenanceData(r.Context(), id); err != nil {
-			log.Printf("failed to clear maintenance data for server %d: %v", id, err)
-			writeError(w, http.StatusInternalServerError, "failed to clear stale maintenance data")
-			return
-		}
-		log.Printf("cleared maintenance data for server %d due to URL/type change", id)
-	}
-
-	if err := s.store.UpdateServer(srv); err != nil {
+	// Atomically update server and clear maintenance data if identity changed
+	// Identity = URL + Type + MachineID - any change clears cached data
+	if err := s.store.UpdateServerAtomic(existing, srv); err != nil {
 		writeStoreError(w, err)
 		return
 	}
