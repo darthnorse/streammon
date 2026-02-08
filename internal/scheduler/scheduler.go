@@ -131,6 +131,9 @@ func (sch *Scheduler) SyncAll(ctx context.Context) error {
 			continue
 		}
 
+		// Capture server identity at sync start - used to detect changes during sync
+		identity := serverIdentity{URL: srv.URL, Type: srv.Type, MachineID: srv.MachineID}
+
 		libs, err := ms.GetLibraries(ctx)
 		if err != nil {
 			log.Printf("scheduler: get libraries for %s: %v", srv.Name, err)
@@ -146,7 +149,7 @@ func (sch *Scheduler) SyncAll(ctx context.Context) error {
 				continue
 			}
 
-			itemCount, candidateCount, syncErr := sch.syncLibrary(ctx, srv.ID, srv.Name, lib.ID, lib.Name, ms)
+			itemCount, candidateCount, syncErr := sch.syncLibrary(ctx, srv.ID, srv.Name, lib.ID, lib.Name, ms, identity)
 			if syncErr != nil {
 				log.Printf("scheduler: sync %s/%s: %v", srv.Name, lib.Name, syncErr)
 				totalErrors++
@@ -171,7 +174,15 @@ func (sch *Scheduler) SyncAll(ctx context.Context) error {
 	return nil
 }
 
-func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverName, libraryID, libraryName string, ms media.MediaServer) (int, int, error) {
+// serverIdentity captures the fields that define a server's "identity" for sync purposes.
+// If any of these change during a sync, the sync should abort to avoid writing stale data.
+type serverIdentity struct {
+	URL       string
+	Type      models.ServerType
+	MachineID string
+}
+
+func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverName, libraryID, libraryName string, ms media.MediaServer, originalIdentity serverIdentity) (int, int, error) {
 	syncCtx, cancel := context.WithTimeout(ctx, sch.syncTimeout)
 	defer cancel()
 
@@ -180,6 +191,18 @@ func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverNam
 	items, err := ms.GetLibraryItems(syncCtx, libraryID)
 	if err != nil {
 		return 0, 0, err
+	}
+
+	// Check if server identity changed during fetch - abort if so to avoid writing stale data
+	currentServer, err := sch.store.GetServer(serverID)
+	if err != nil {
+		return 0, 0, err
+	}
+	if currentServer.URL != originalIdentity.URL ||
+		currentServer.Type != originalIdentity.Type ||
+		currentServer.MachineID != originalIdentity.MachineID {
+		log.Printf("scheduler: server %s identity changed during sync, aborting to prevent stale data", serverName)
+		return 0, 0, nil
 	}
 
 	count, err := sch.store.UpsertLibraryItems(syncCtx, items)
