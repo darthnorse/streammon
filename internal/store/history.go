@@ -227,10 +227,28 @@ func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string)
 }
 
 func (s *Store) HistoryForTitle(title string, limit int) ([]models.WatchHistoryEntry, error) {
-	query := `SELECT ` + historyColumns + ` FROM watch_history
-		WHERE title = ? OR grandparent_title = ?
-		ORDER BY started_at DESC LIMIT ?`
-	rows, err := s.db.Query(query, title, title, limit)
+	return s.HistoryForTitleByUser(title, "", limit)
+}
+
+// HistoryForTitleByUser returns watch history for a title, optionally filtered by user.
+// If userName is empty, returns history for all users.
+func (s *Store) HistoryForTitleByUser(title, userName string, limit int) ([]models.WatchHistoryEntry, error) {
+	var query string
+	var args []any
+
+	if userName != "" {
+		query = `SELECT ` + historyColumns + ` FROM watch_history
+			WHERE (title = ? OR grandparent_title = ?) AND user_name = ?
+			ORDER BY started_at DESC LIMIT ?`
+		args = []any{title, title, userName, limit}
+	} else {
+		query = `SELECT ` + historyColumns + ` FROM watch_history
+			WHERE title = ? OR grandparent_title = ?
+			ORDER BY started_at DESC LIMIT ?`
+		args = []any{title, title, limit}
+	}
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("history for title: %w", err)
 	}

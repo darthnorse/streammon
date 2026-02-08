@@ -53,7 +53,13 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 	if details.SeriesTitle != "" {
 		searchTitle = details.SeriesTitle
 	}
-	history, _ := s.store.HistoryForTitle(searchTitle, 10)
+
+	// Viewers can only see their own watch history
+	userFilter := ""
+	if user := UserFromContext(r.Context()); user != nil && user.Role == models.RoleViewer {
+		userFilter = user.Name
+	}
+	history, _ := s.store.HistoryForTitleByUser(searchTitle, userFilter, 10)
 
 	resp := itemDetailsResponse{
 		ItemDetails:  details,

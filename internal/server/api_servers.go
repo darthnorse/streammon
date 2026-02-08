@@ -44,12 +44,27 @@ func (s *Server) syncServerToPoller(srv *models.Server) {
 	}
 }
 
+// redactServerForViewer removes sensitive infrastructure details from server for non-admin users
+func redactServerForViewer(srv models.Server) models.Server {
+	srv.URL = ""
+	srv.MachineID = ""
+	return srv
+}
+
 func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
 	servers, err := s.store.ListServers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
+
+	// Redact infrastructure details for non-admin users
+	if user := UserFromContext(r.Context()); user == nil || user.Role != models.RoleAdmin {
+		for i := range servers {
+			servers[i] = redactServerForViewer(servers[i])
+		}
+	}
+
 	writeJSON(w, http.StatusOK, servers)
 }
 
@@ -84,6 +99,13 @@ func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
 		writeStoreError(w, err)
 		return
 	}
+
+	// Redact infrastructure details for non-admin users
+	if user := UserFromContext(r.Context()); user == nil || user.Role != models.RoleAdmin {
+		redacted := redactServerForViewer(*srv)
+		srv = &redacted
+	}
+
 	writeJSON(w, http.StatusOK, srv)
 }
 
