@@ -165,6 +165,14 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if user.Role != "admin" {
+		guestAccess, _ := p.store.GetGuestAccess()
+		if !guestAccess {
+			http.Error(w, "guest access is disabled", http.StatusForbidden)
+			return
+		}
+	}
+
 	if err := p.manager.CreateSession(w, r, user.ID); err != nil {
 		log.Printf("session creation error: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

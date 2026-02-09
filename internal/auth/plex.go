@@ -100,13 +100,12 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		emailUser, _ = p.store.GetUserByEmail(plexUser.Email)
 	}
 
-	// Guest access disabled = only existing admins can login
-	guestAccess, _ := p.store.GetPlexGuestAccess()
+	guestAccess, _ := p.store.GetGuestAccess()
 	if !guestAccess {
 		isAdmin := (existingUser != nil && existingUser.Role == models.RoleAdmin) ||
 			(emailUser != nil && emailUser.Role == models.RoleAdmin)
 		if !isAdmin {
-			writeJSONError(w, "plex login not enabled for non-admin users", http.StatusForbidden)
+			writeJSONError(w, "guest access is disabled", http.StatusForbidden)
 			return
 		}
 	}

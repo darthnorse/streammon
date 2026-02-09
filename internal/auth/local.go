@@ -85,6 +85,14 @@ func (p *LocalProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if user.Role != models.RoleAdmin {
+		guestAccess, _ := p.store.GetGuestAccess()
+		if !guestAccess {
+			writeJSONError(w, "guest access is disabled", http.StatusForbidden)
+			return
+		}
+	}
+
 	if err := p.manager.CreateSessionAndRespond(w, r, user, http.StatusOK); err != nil {
 		log.Printf("session creation error: %v", err)
 		writeJSONError(w, "internal error", http.StatusInternalServerError)

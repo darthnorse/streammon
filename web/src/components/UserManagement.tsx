@@ -7,12 +7,12 @@ import { errorMessage } from '../lib/utils'
 import { EmptyState } from './EmptyState'
 import type { AdminUser } from '../types'
 
-interface PlexGuestAccess {
+interface GuestAccess {
   enabled: boolean
 }
 
-function PlexGuestAccessToggle() {
-  const { data, loading, refetch } = useFetch<PlexGuestAccess>('/api/settings/plex-guest-access')
+function GuestAccessToggle() {
+  const { data, loading, refetch } = useFetch<GuestAccess>('/api/settings/guest-access')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -21,7 +21,7 @@ function PlexGuestAccessToggle() {
     setSaving(true)
     setError('')
     try {
-      await api.put('/api/settings/plex-guest-access', { enabled: !data.enabled })
+      await api.put('/api/settings/guest-access', { enabled: !data.enabled })
       refetch()
     } catch (err) {
       setError(errorMessage(err))
@@ -36,9 +36,9 @@ function PlexGuestAccessToggle() {
     <div className="card p-4 mb-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-semibold">Plex Guest Access</h3>
+          <h3 className="font-semibold">Guest Access</h3>
           <p className="text-sm text-muted dark:text-muted-dark mt-0.5">
-            Allow Plex users who share your server to sign in. When disabled, only admins can log in via Plex.
+            Allow non-admin users to sign in. When disabled, only admins can log in.
           </p>
           {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
         </div>
@@ -187,7 +187,7 @@ export function UserManagement() {
 
   return (
     <div>
-      <PlexGuestAccessToggle />
+      <GuestAccessToggle />
 
       {actionError && (
         <div className="card p-4 mb-4 text-center text-red-500 dark:text-red-400">

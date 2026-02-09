@@ -8,11 +8,11 @@ import (
 	"testing"
 )
 
-func TestPlexGuestAccess(t *testing.T) {
+func TestGuestAccess(t *testing.T) {
 	t.Run("get default returns false", func(t *testing.T) {
 		srv, _ := newTestServerWrapped(t)
 
-		req := httptest.NewRequest(http.MethodGet, "/api/settings/plex-guest-access", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/settings/guest-access", nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 
@@ -20,7 +20,7 @@ func TestPlexGuestAccess(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 
-		var resp plexGuestAccessPayload
+		var resp guestAccessPayload
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
@@ -32,7 +32,7 @@ func TestPlexGuestAccess(t *testing.T) {
 	t.Run("put enables guest access", func(t *testing.T) {
 		srv, st := newTestServerWrapped(t)
 
-		req := httptest.NewRequest(http.MethodPut, "/api/settings/plex-guest-access", strings.NewReader(`{"enabled":true}`))
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/guest-access", strings.NewReader(`{"enabled":true}`))
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 
@@ -40,7 +40,7 @@ func TestPlexGuestAccess(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 
-		enabled, err := st.GetPlexGuestAccess()
+		enabled, err := st.GetGuestAccess()
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -51,11 +51,11 @@ func TestPlexGuestAccess(t *testing.T) {
 
 	t.Run("put disables guest access", func(t *testing.T) {
 		srv, st := newTestServerWrapped(t)
-		if err := st.SetPlexGuestAccess(true); err != nil {
+		if err := st.SetGuestAccess(true); err != nil {
 			t.Fatal(err)
 		}
 
-		req := httptest.NewRequest(http.MethodPut, "/api/settings/plex-guest-access", strings.NewReader(`{"enabled":false}`))
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/guest-access", strings.NewReader(`{"enabled":false}`))
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 
@@ -63,7 +63,7 @@ func TestPlexGuestAccess(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 
-		enabled, _ := st.GetPlexGuestAccess()
+		enabled, _ := st.GetGuestAccess()
 		if enabled {
 			t.Fatal("expected disabled after PUT false")
 		}
@@ -71,11 +71,11 @@ func TestPlexGuestAccess(t *testing.T) {
 
 	t.Run("get after enable returns true", func(t *testing.T) {
 		srv, st := newTestServerWrapped(t)
-		if err := st.SetPlexGuestAccess(true); err != nil {
+		if err := st.SetGuestAccess(true); err != nil {
 			t.Fatal(err)
 		}
 
-		req := httptest.NewRequest(http.MethodGet, "/api/settings/plex-guest-access", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/settings/guest-access", nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 
@@ -83,7 +83,7 @@ func TestPlexGuestAccess(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 
-		var resp plexGuestAccessPayload
+		var resp guestAccessPayload
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
@@ -95,7 +95,7 @@ func TestPlexGuestAccess(t *testing.T) {
 	t.Run("put malformed JSON returns 400", func(t *testing.T) {
 		srv, _ := newTestServerWrapped(t)
 
-		req := httptest.NewRequest(http.MethodPut, "/api/settings/plex-guest-access", strings.NewReader("{bad"))
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/guest-access", strings.NewReader("{bad"))
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 

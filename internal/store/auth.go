@@ -396,22 +396,27 @@ func (s *Store) UpdateUserEmail(userID int64, email string) error {
 	return nil
 }
 
-// GetPlexGuestAccess returns whether Plex guests are allowed
-func (s *Store) GetPlexGuestAccess() (bool, error) {
-	val, err := s.GetSetting("auth.plex.guest_access")
+func (s *Store) GetGuestAccess() (bool, error) {
+	val, err := s.GetSetting("auth.guest_access")
 	if err != nil {
-		return false, nil // Default to false (require server access)
+		return false, nil
+	}
+	if val == "" {
+		// Migrate from old Plex-specific key
+		val, err = s.GetSetting("auth.plex.guest_access")
+		if err != nil {
+			return false, nil
+		}
 	}
 	return val == "true", nil
 }
 
-// SetPlexGuestAccess sets whether Plex guests are allowed
-func (s *Store) SetPlexGuestAccess(allowed bool) error {
+func (s *Store) SetGuestAccess(allowed bool) error {
 	val := "false"
 	if allowed {
 		val = "true"
 	}
-	return s.SetSetting("auth.plex.guest_access", val)
+	return s.SetSetting("auth.guest_access", val)
 }
 
 // UpdateSessionActivity updates the last_used_at timestamp for a session
