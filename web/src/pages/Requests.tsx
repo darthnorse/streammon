@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
+import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { useHorizontalScroll } from '../hooks/useHorizontalScroll'
 import { useAuth } from '../context/AuthContext'
@@ -9,20 +10,21 @@ import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS } from '../lib/constants'
 import { EmptyState } from '../components/EmptyState'
 import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
+import { RequestCard } from '../components/RequestCard'
 import { OverseerrDetailModal } from '../components/OverseerrDetailModal'
-import { TMDB_IMG, requestStatusBadge } from '../lib/overseerr'
 import type {
   OverseerrSearchResult,
   OverseerrMediaResult,
-  OverseerrRequestList,
   OverseerrRequestCount,
   OverseerrRequest,
-  OverseerrMovieDetails,
-  OverseerrTVDetails,
 } from '../types'
 
 type Tab = 'discover' | 'requests'
 type SelectedItem = OverseerrMediaResult & { mediaType: 'movie' | 'tv' }
+
+function isSelectableMedia(r: OverseerrMediaResult): r is SelectedItem {
+  return r.mediaType === 'movie' || r.mediaType === 'tv'
+}
 
 const scrollBtnClass = `p-1.5 rounded-md text-gray-500 dark:text-gray-300
   hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/10
@@ -34,105 +36,6 @@ function tabClass(active: boolean) {
       ? 'border-accent text-accent'
       : 'border-transparent text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
   }`
-}
-
-function RequestCard({
-  request,
-  isAdmin,
-  onAction,
-}: {
-  request: OverseerrRequest
-  isAdmin: boolean
-  onAction: () => void
-}) {
-  const [acting, setActing] = useState(false)
-
-  const detailUrl = request.media?.tmdbId
-    ? `/api/overseerr/${request.type === 'movie' ? 'movie' : 'tv'}/${request.media.tmdbId}`
-    : null
-  const { data: details } = useFetch<OverseerrMovieDetails | OverseerrTVDetails>(detailUrl)
-
-  const mediaTitle = details
-    ? ('title' in details ? details.title : details.name)
-    : null
-  const posterPath = details?.posterPath
-  const year = details
-    ? ('releaseDate' in details
-        ? (details as OverseerrMovieDetails).releaseDate?.slice(0, 4)
-        : (details as OverseerrTVDetails).firstAirDate?.slice(0, 4))
-    : null
-
-  async function handleAction(action: 'approve' | 'decline') {
-    setActing(true)
-    try {
-      await api.post(`/api/overseerr/requests/${request.id}/${action}`)
-      onAction()
-    } catch {
-      // silently fail — refetch will show current state
-    } finally {
-      setActing(false)
-    }
-  }
-
-  const typeBadge = request.type === 'movie' ? 'Movie' : 'TV Show'
-  const requester = request.requestedBy?.username || request.requestedBy?.plexUsername || request.requestedBy?.email || 'Unknown'
-
-  return (
-    <div className="card p-4 flex items-start gap-4">
-      {posterPath ? (
-        <img
-          src={`${TMDB_IMG}/w92${posterPath}`}
-          alt={mediaTitle ?? ''}
-          className="w-12 h-[72px] rounded object-cover bg-gray-200 dark:bg-gray-800 shrink-0"
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-12 h-[72px] rounded bg-gray-200 dark:bg-gray-800 shrink-0 flex items-center justify-center text-muted dark:text-muted-dark text-lg">
-          {request.type === 'movie' ? '\uD83C\uDFAC' : '\uD83D\uDCFA'}
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className="font-medium truncate">
-          {mediaTitle ?? <span className="text-muted dark:text-muted-dark">Loading...</span>}
-          {year && <span className="text-sm text-muted dark:text-muted-dark ml-1.5">({year})</span>}
-        </p>
-        <div className="flex items-center gap-2 flex-wrap mt-1">
-          <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/10">
-            {typeBadge}
-          </span>
-          {requestStatusBadge(request.status)}
-          {request.is4k && (
-            <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400">4K</span>
-          )}
-        </div>
-        <p className="text-sm text-muted dark:text-muted-dark mt-1">
-          Requested by <span className="font-medium text-foreground dark:text-foreground-dark">{requester}</span>
-          {' · '}
-          {new Date(request.createdAt).toLocaleDateString()}
-        </p>
-      </div>
-      {isAdmin && request.status === 1 && (
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => handleAction('approve')}
-            disabled={acting}
-            className="px-3 py-1.5 text-xs font-medium rounded-md bg-green-500/20 text-green-400
-                       hover:bg-green-500/30 transition-colors disabled:opacity-50"
-          >
-            Approve
-          </button>
-          <button
-            onClick={() => handleAction('decline')}
-            disabled={acting}
-            className="px-3 py-1.5 text-xs font-medium rounded-md bg-red-500/20 text-red-400
-                       hover:bg-red-500/30 transition-colors disabled:opacity-50"
-          >
-            Decline
-          </button>
-        </div>
-      )}
-    </div>
-  )
 }
 
 function DiscoverSection({
@@ -149,9 +52,7 @@ function DiscoverSection({
   onSelect: (item: SelectedItem) => void
 }) {
   const { canScrollLeft, canScrollRight, scrollBy, ...scrollHandlers } = useHorizontalScroll()
-  const items = data?.results?.filter(
-    (r): r is SelectedItem => r.mediaType === 'movie' || r.mediaType === 'tv'
-  )
+  const items = data?.results?.filter(isSelectableMedia)
   if (!loading && (!items || items.length === 0)) return null
 
   return (
@@ -233,12 +134,20 @@ export function Requests() {
   const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setSearchResults(null))
 
   const [requestFilter, setRequestFilter] = useState('all')
-  const [requestsTick, setRequestsTick] = useState(0)
-  // _t is a cache-busting parameter incremented after approve/decline actions
-  const requestsUrl = tab === 'requests' && configured
-    ? `/api/overseerr/requests?take=20&skip=0&filter=${requestFilter}&sort=added&_t=${requestsTick}`
+
+  const requestsBaseUrl = tab === 'requests' && configured
+    ? `/api/overseerr/requests?filter=${requestFilter}&sort=added`
     : null
-  const { data: requests, loading: requestsLoading } = useFetch<OverseerrRequestList>(requestsUrl)
+  const {
+    items: requestItems,
+    loading: requestsLoading,
+    loadingMore,
+    error: requestsError,
+    sentinelRef,
+    retry: retryRequests,
+    refetch: refetchRequests,
+  } = useInfiniteFetch<OverseerrRequest>(requestsBaseUrl, 30)
+
   const { data: counts } = useFetch<OverseerrRequestCount>(configured ? '/api/overseerr/requests/count' : null)
 
   useEffect(() => {
@@ -279,9 +188,7 @@ export function Requests() {
     )
   }
 
-  const searchFiltered = searchResults?.results?.filter(
-    (r): r is SelectedItem => r.mediaType === 'movie' || r.mediaType === 'tv'
-  )
+  const searchFiltered = searchResults?.results?.filter(isSelectableMedia)
 
   return (
     <div>
@@ -389,20 +296,43 @@ export function Requests() {
 
           {requestsLoading && <EmptyState icon="&#8635;" title="Loading..." />}
 
-          {!requestsLoading && requests && requests.results.length === 0 && (
+          {!requestsLoading && requestsError && requestItems.length === 0 && (
+            <div className="card p-4 text-center">
+              <p className="text-red-500 dark:text-red-400 mb-2">{requestsError}</p>
+              <button onClick={retryRequests} className="text-sm text-accent hover:underline">
+                Try again
+              </button>
+            </div>
+          )}
+
+          {!requestsLoading && !requestsError && requestItems.length === 0 && (
             <EmptyState icon="&#128203;" title="No requests" description="No media requests found with this filter." />
           )}
 
-          {!requestsLoading && requests && requests.results.length > 0 && (
+          {!requestsLoading && requestItems.length > 0 && (
             <div className="space-y-3">
-              {requests.results.map(req => (
+              {requestItems.map(req => (
                 <RequestCard
                   key={req.id}
                   request={req}
                   isAdmin={isAdmin}
-                  onAction={() => setRequestsTick(t => t + 1)}
+                  onAction={refetchRequests}
                 />
               ))}
+              <div ref={sentinelRef} />
+              {loadingMore && (
+                <div className="flex justify-center py-4">
+                  <div className="h-6 w-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+              {requestsError && (
+                <div className="text-center py-4">
+                  <p className="text-sm text-red-500 dark:text-red-400 mb-2">{requestsError}</p>
+                  <button onClick={retryRequests} className="text-sm text-accent hover:underline">
+                    Try again
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </>
