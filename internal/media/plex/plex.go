@@ -538,10 +538,10 @@ func heightToResolution(h string) string {
 }
 
 func plexSessionID(item plexItem) string {
-	if item.Session.ID != "" {
-		return item.Session.ID
+	if item.SessionKey != "" {
+		return item.SessionKey
 	}
-	return item.SessionKey
+	return item.Session.ID
 }
 
 func atoi(s string) int {

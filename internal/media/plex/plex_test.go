@@ -57,8 +57,8 @@ func TestGetSessions(t *testing.T) {
 	}
 
 	s := sessions[0]
-	if s.SessionID != "abc123" {
-		t.Errorf("session id = %q, want abc123", s.SessionID)
+	if s.SessionID != "1" {
+		t.Errorf("session id = %q, want 1 (from sessionKey)", s.SessionID)
 	}
 	if s.ServerID != 1 {
 		t.Errorf("server id = %d, want 1", s.ServerID)
@@ -206,7 +206,7 @@ func TestTestConnectionFailure(t *testing.T) {
 	}
 }
 
-func TestSessionIDFallsBackToSessionKey(t *testing.T) {
+func TestSessionIDPrefersSessionKey(t *testing.T) {
 	xmlData := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer>
   <Video sessionKey="42" type="movie" title="Test">
@@ -228,7 +228,7 @@ func TestSessionIDFallsBackToSessionKey(t *testing.T) {
 		t.Fatalf("expected 1 session, got %d", len(sessions))
 	}
 	if sessions[0].SessionID != "42" {
-		t.Errorf("session id = %q, want 42 (from sessionKey fallback)", sessions[0].SessionID)
+		t.Errorf("session id = %q, want 42 (from sessionKey)", sessions[0].SessionID)
 	}
 }
 

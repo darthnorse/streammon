@@ -10,13 +10,15 @@ import { EmptyState } from '../components/EmptyState'
 import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
 import { OverseerrDetailModal } from '../components/OverseerrDetailModal'
-import { requestStatusBadge } from '../lib/overseerr'
+import { TMDB_IMG, requestStatusBadge } from '../lib/overseerr'
 import type {
   OverseerrSearchResult,
   OverseerrMediaResult,
   OverseerrRequestList,
   OverseerrRequestCount,
   OverseerrRequest,
+  OverseerrMovieDetails,
+  OverseerrTVDetails,
 } from '../types'
 
 type Tab = 'discover' | 'requests'
@@ -45,6 +47,21 @@ function RequestCard({
 }) {
   const [acting, setActing] = useState(false)
 
+  const detailUrl = request.media?.tmdbId
+    ? `/api/overseerr/${request.type === 'movie' ? 'movie' : 'tv'}/${request.media.tmdbId}`
+    : null
+  const { data: details } = useFetch<OverseerrMovieDetails | OverseerrTVDetails>(detailUrl)
+
+  const mediaTitle = details
+    ? ('title' in details ? details.title : details.name)
+    : null
+  const posterPath = details?.posterPath
+  const year = details
+    ? ('releaseDate' in details
+        ? (details as OverseerrMovieDetails).releaseDate?.slice(0, 4)
+        : (details as OverseerrTVDetails).firstAirDate?.slice(0, 4))
+    : null
+
   async function handleAction(action: 'approve' | 'decline') {
     setActing(true)
     try {
@@ -57,15 +74,31 @@ function RequestCard({
     }
   }
 
-  const title = request.type === 'movie' ? 'Movie' : 'TV Show'
+  const typeBadge = request.type === 'movie' ? 'Movie' : 'TV Show'
   const requester = request.requestedBy?.username || request.requestedBy?.plexUsername || request.requestedBy?.email || 'Unknown'
 
   return (
-    <div className="card p-4 flex items-center gap-4">
+    <div className="card p-4 flex items-start gap-4">
+      {posterPath ? (
+        <img
+          src={`${TMDB_IMG}/w92${posterPath}`}
+          alt={mediaTitle ?? ''}
+          className="w-12 h-[72px] rounded object-cover bg-gray-200 dark:bg-gray-800 shrink-0"
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-12 h-[72px] rounded bg-gray-200 dark:bg-gray-800 shrink-0 flex items-center justify-center text-muted dark:text-muted-dark text-lg">
+          {request.type === 'movie' ? '\uD83C\uDFAC' : '\uD83D\uDCFA'}
+        </div>
+      )}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
+        <p className="font-medium truncate">
+          {mediaTitle ?? <span className="text-muted dark:text-muted-dark">Loading...</span>}
+          {year && <span className="text-sm text-muted dark:text-muted-dark ml-1.5">({year})</span>}
+        </p>
+        <div className="flex items-center gap-2 flex-wrap mt-1">
           <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-white/10">
-            {title}
+            {typeBadge}
           </span>
           {requestStatusBadge(request.status)}
           {request.is4k && (
