@@ -101,6 +101,10 @@ func (c *Client) DeleteItem(ctx context.Context, itemID string) error {
 		return nil
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if len(body) > 0 {
+			return fmt.Errorf("%s delete: status %d: %s", c.serverType, resp.StatusCode, body)
+		}
 		return fmt.Errorf("%s delete: status %d", c.serverType, resp.StatusCode)
 	}
 	return nil

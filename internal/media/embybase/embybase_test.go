@@ -1085,3 +1085,21 @@ func TestDeleteItemError(t *testing.T) {
 		t.Error("expected error for 403")
 	}
 }
+
+func TestDeleteItemErrorIncludesBody(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Access to the path is denied"))
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "test-key"}, models.ServerTypeJellyfin)
+	err := c.DeleteItem(context.Background(), "12345")
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+	want := "jellyfin delete: status 500: Access to the path is denied"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}

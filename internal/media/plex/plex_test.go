@@ -458,6 +458,24 @@ func TestDeleteItemError(t *testing.T) {
 	}
 }
 
+func TestDeleteItemErrorIncludesBody(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("Internal server error"))
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{URL: ts.URL, APIKey: "tok"})
+	err := srv.DeleteItem(context.Background(), "12345")
+	if err == nil {
+		t.Fatal("expected error for 500")
+	}
+	want := "plex delete: status 500: Internal server error"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
 func TestDeriveDynamicRange(t *testing.T) {
 	tests := []struct {
 		name   string

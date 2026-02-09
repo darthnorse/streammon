@@ -204,6 +204,10 @@ func (s *Server) DeleteItem(ctx context.Context, itemID string) error {
 		return nil
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		if len(body) > 0 {
+			return fmt.Errorf("plex delete: status %d: %s", resp.StatusCode, body)
+		}
 		return fmt.Errorf("plex delete: status %d", resp.StatusCode)
 	}
 	return nil
