@@ -165,14 +165,14 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 pb-20 lg:pb-4 bg-black/70 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="overseerr-modal-title"
     >
       <div
-        className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl
+        className="relative w-full max-w-3xl max-h-[90dvh] overflow-y-auto rounded-xl
                    bg-panel dark:bg-panel-dark shadow-2xl animate-slide-up"
         onClick={e => e.stopPropagation()}
       >
