@@ -399,13 +399,18 @@ func (s *Store) UpdateUserEmail(userID int64, email string) error {
 func (s *Store) GetGuestAccess() (bool, error) {
 	val, err := s.GetSetting("auth.guest_access")
 	if err != nil {
+		log.Printf("reading guest access setting: %v", err)
 		return false, nil
 	}
 	if val == "" {
-		// Migrate from old Plex-specific key
 		val, err = s.GetSetting("auth.plex.guest_access")
 		if err != nil {
+			log.Printf("reading legacy guest access setting: %v", err)
 			return false, nil
+		}
+		if val != "" {
+			_ = s.SetSetting("auth.guest_access", val)
+			_ = s.SetSetting("auth.plex.guest_access", "")
 		}
 	}
 	return val == "true", nil

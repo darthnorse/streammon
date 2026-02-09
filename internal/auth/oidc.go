@@ -9,6 +9,7 @@ import (
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
+	"streammon/internal/models"
 	"streammon/internal/store"
 )
 
@@ -152,6 +153,24 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		emailForLinking = claims.Email
 	}
 
+	// Check guest access before creating/linking accounts to avoid side effects
+	guestAccess, _ := p.store.GetGuestAccess()
+	if !guestAccess {
+		isAdmin := false
+		if existing, err := p.store.GetUserByProvider(string(ProviderOIDC), claims.Sub); err == nil {
+			isAdmin = existing.Role == models.RoleAdmin
+		} else if emailForLinking != "" {
+			if emailUser, err := p.store.GetUserByEmail(emailForLinking); err == nil {
+				isAdmin = emailUser.Role == models.RoleAdmin
+			}
+		}
+		if !isAdmin {
+			http.SetCookie(w, clearCookie(stateCookieName, "/", r))
+			http.Redirect(w, r, "/?error=guest_access_disabled", http.StatusFound)
+			return
+		}
+	}
+
 	user, err := p.store.GetOrLinkUserByEmail(
 		emailForLinking,
 		name,
@@ -163,14 +182,6 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		log.Printf("user creation error: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
-	}
-
-	if user.Role != "admin" {
-		guestAccess, _ := p.store.GetGuestAccess()
-		if !guestAccess {
-			http.Error(w, "guest access is disabled", http.StatusForbidden)
-			return
-		}
 	}
 
 	if err := p.manager.CreateSession(w, r, user.ID); err != nil {

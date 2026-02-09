@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"streammon/internal/auth"
 )
 
 func TestGuestAccess(t *testing.T) {
@@ -101,6 +103,46 @@ func TestGuestAccess(t *testing.T) {
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
+
+	t.Run("unauthenticated get returns 401", func(t *testing.T) {
+		srv, _ := newTestServer(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/settings/guest-access", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("expected 401, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("viewer get returns 403", func(t *testing.T) {
+		srv, st := newTestServer(t)
+		viewerToken := createViewerSession(t, st, "viewer-guest")
+
+		req := httptest.NewRequest(http.MethodGet, "/api/settings/guest-access", nil)
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("viewer put returns 403", func(t *testing.T) {
+		srv, st := newTestServer(t)
+		viewerToken := createViewerSession(t, st, "viewer-guest2")
+
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/guest-access", strings.NewReader(`{"enabled":true}`))
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }

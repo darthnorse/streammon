@@ -13,22 +13,28 @@ interface GuestAccess {
 
 function GuestAccessToggle() {
   const { data, loading, refetch } = useFetch<GuestAccess>('/api/settings/guest-access')
+  const [optimistic, setOptimistic] = useState<boolean | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  const enabled = optimistic ?? data?.enabled ?? false
+
   const toggle = useCallback(async () => {
     if (!data) return
+    const newValue = !enabled
+    setOptimistic(newValue)
     setSaving(true)
     setError('')
     try {
-      await api.put('/api/settings/guest-access', { enabled: !data.enabled })
+      await api.put('/api/settings/guest-access', { enabled: newValue })
       refetch()
     } catch (err) {
+      setOptimistic(null)
       setError(errorMessage(err))
     } finally {
       setSaving(false)
     }
-  }, [data, refetch])
+  }, [data, enabled, refetch])
 
   if (loading) return null
 
@@ -46,14 +52,14 @@ function GuestAccessToggle() {
           onClick={toggle}
           disabled={saving}
           className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
-            data?.enabled ? 'bg-accent' : 'bg-gray-300 dark:bg-white/20'
+            enabled ? 'bg-accent' : 'bg-gray-300 dark:bg-white/20'
           } ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
           role="switch"
-          aria-checked={data?.enabled ?? false}
+          aria-checked={enabled}
         >
           <span
             className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${
-              data?.enabled ? 'translate-x-5' : 'translate-x-0'
+              enabled ? 'translate-x-5' : 'translate-x-0'
             }`}
           />
         </button>
