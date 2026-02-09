@@ -14,55 +14,58 @@ const historyColumns = `id, server_id, item_id, grandparent_item_id, user_name, 
 	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at, created_at,
 	season_number, episode_number, thumb_url, video_resolution, transcode_decision,
 	video_codec, audio_codec, audio_channels, bandwidth, video_decision, audio_decision,
-	transcode_hw_decode, transcode_hw_encode, dynamic_range`
+	transcode_hw_decode, transcode_hw_encode, dynamic_range, paused_ms, watched`
 
 const historyColumnsWithGeo = `h.id, h.server_id, h.item_id, h.grandparent_item_id, h.user_name, h.media_type, h.title, h.parent_title,
 	h.grandparent_title, h.year, h.duration_ms, h.watched_ms, h.player, h.platform, h.ip_address,
 	h.started_at, h.stopped_at, h.created_at, h.season_number, h.episode_number, h.thumb_url,
 	h.video_resolution, h.transcode_decision,
 	h.video_codec, h.audio_codec, h.audio_channels, h.bandwidth, h.video_decision, h.audio_decision,
-	h.transcode_hw_decode, h.transcode_hw_encode, h.dynamic_range,
+	h.transcode_hw_decode, h.transcode_hw_encode, h.dynamic_range, h.paused_ms, h.watched,
 	COALESCE(g.city, ''), COALESCE(g.country, ''), COALESCE(g.isp, '')`
 
 const historyInsertSQL = `INSERT INTO watch_history (server_id, item_id, grandparent_item_id, user_name, media_type, title, parent_title, grandparent_title,
 	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at,
 	season_number, episode_number, thumb_url, video_resolution, transcode_decision,
 	video_codec, audio_codec, audio_channels, bandwidth, video_decision, audio_decision,
-	transcode_hw_decode, transcode_hw_encode, dynamic_range)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	transcode_hw_decode, transcode_hw_encode, dynamic_range, paused_ms, watched)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 func scanHistoryEntry(scanner interface{ Scan(...any) error }) (models.WatchHistoryEntry, error) {
 	var e models.WatchHistoryEntry
-	var hwDecode, hwEncode int
+	var hwDecode, hwEncode, watched int
 	err := scanner.Scan(&e.ID, &e.ServerID, &e.ItemID, &e.GrandparentItemID, &e.UserName, &e.MediaType, &e.Title,
 		&e.ParentTitle, &e.GrandparentTitle, &e.Year, &e.DurationMs, &e.WatchedMs,
 		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
 		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL, &e.VideoResolution, &e.TranscodeDecision,
 		&e.VideoCodec, &e.AudioCodec, &e.AudioChannels, &e.Bandwidth, &e.VideoDecision, &e.AudioDecision,
-		&hwDecode, &hwEncode, &e.DynamicRange)
+		&hwDecode, &hwEncode, &e.DynamicRange, &e.PausedMs, &watched)
 	e.TranscodeHWDecode = hwDecode != 0
 	e.TranscodeHWEncode = hwEncode != 0
+	e.Watched = watched != 0
 	return e, err
 }
 
 func scanHistoryEntryWithGeo(scanner interface{ Scan(...any) error }) (models.WatchHistoryEntry, error) {
 	var e models.WatchHistoryEntry
-	var hwDecode, hwEncode int
+	var hwDecode, hwEncode, watched int
 	err := scanner.Scan(&e.ID, &e.ServerID, &e.ItemID, &e.GrandparentItemID, &e.UserName, &e.MediaType, &e.Title,
 		&e.ParentTitle, &e.GrandparentTitle, &e.Year, &e.DurationMs, &e.WatchedMs,
 		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
 		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL, &e.VideoResolution, &e.TranscodeDecision,
 		&e.VideoCodec, &e.AudioCodec, &e.AudioChannels, &e.Bandwidth, &e.VideoDecision, &e.AudioDecision,
-		&hwDecode, &hwEncode, &e.DynamicRange,
+		&hwDecode, &hwEncode, &e.DynamicRange, &e.PausedMs, &watched,
 		&e.City, &e.Country, &e.ISP)
 	e.TranscodeHWDecode = hwDecode != 0
 	e.TranscodeHWEncode = hwEncode != 0
+	e.Watched = watched != 0
 	return e, err
 }
 
 func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 	hwDecode := boolToInt(entry.TranscodeHWDecode)
 	hwEncode := boolToInt(entry.TranscodeHWEncode)
+	watched := boolToInt(entry.Watched)
 	result, err := s.db.Exec(historyInsertSQL,
 		entry.ServerID, entry.ItemID, entry.GrandparentItemID, entry.UserName, entry.MediaType, entry.Title,
 		entry.ParentTitle, entry.GrandparentTitle, entry.Year,
@@ -72,6 +75,7 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		entry.VideoResolution, entry.TranscodeDecision,
 		entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
 		entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,
+		entry.PausedMs, watched,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting history: %w", err)
@@ -230,8 +234,6 @@ func (s *Store) HistoryForTitle(title string, limit int) ([]models.WatchHistoryE
 	return s.HistoryForTitleByUser(title, "", limit)
 }
 
-// HistoryForTitleByUser returns watch history for a title, optionally filtered by user.
-// If userName is empty, returns history for all users.
 func (s *Store) HistoryForTitleByUser(title, userName string, limit int) ([]models.WatchHistoryEntry, error) {
 	var query string
 	var args []any
@@ -318,8 +320,6 @@ func (s *Store) ListHistoryNeedingEnrichment(serverID int64, limit int) ([]model
 	return items, rows.Err()
 }
 
-// GetLastStreamBeforeTime returns the most recent history entry for a user
-// before the specified time, within the given time window (hours).
 func (s *Store) GetLastStreamBeforeTime(userName string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
 	since := beforeTime.Add(-time.Duration(withinHours) * time.Hour)
 
@@ -339,8 +339,6 @@ func (s *Store) GetLastStreamBeforeTime(userName string, beforeTime time.Time, w
 	return &e, nil
 }
 
-// GetDeviceLastStream returns the most recent history entry for a specific device
-// (player+platform) before the specified time, within the given time window.
 func (s *Store) GetDeviceLastStream(userName, player, platform string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
 	since := beforeTime.Add(-time.Duration(withinHours) * time.Hour)
 
@@ -361,8 +359,6 @@ func (s *Store) GetDeviceLastStream(userName, player, platform string, beforeTim
 	return &e, nil
 }
 
-// HasDeviceBeenUsed checks if a device (player+platform) has been used by a user
-// before the specified time.
 func (s *Store) HasDeviceBeenUsed(userName, player, platform string, beforeTime time.Time) (bool, error) {
 	var dummy int
 	err := s.db.QueryRow(
@@ -379,7 +375,6 @@ func (s *Store) HasDeviceBeenUsed(userName, player, platform string, beforeTime 
 	return true, nil
 }
 
-// GetUserDistinctIPs returns distinct IP addresses used by a user before the specified time.
 func (s *Store) GetUserDistinctIPs(userName string, beforeTime time.Time, limit int) ([]string, error) {
 	query := `SELECT ip_address FROM watch_history
 		WHERE user_name = ? AND started_at < ? AND ip_address != ''
@@ -403,8 +398,6 @@ func (s *Store) GetUserDistinctIPs(userName string, beforeTime time.Time, limit 
 	return ips, rows.Err()
 }
 
-// GetRecentDevices returns distinct devices (player+platform) used by a user
-// in the time window before the specified time.
 func (s *Store) GetRecentDevices(userName string, beforeTime time.Time, withinHours int) ([]models.DeviceInfo, error) {
 	since := beforeTime.Add(-time.Duration(withinHours) * time.Hour)
 
@@ -428,7 +421,6 @@ func (s *Store) GetRecentDevices(userName string, beforeTime time.Time, withinHo
 	return devices, rows.Err()
 }
 
-// GetRecentISPs returns distinct ISPs used by a user in the time window before the specified time.
 func (s *Store) GetRecentISPs(userName string, beforeTime time.Time, withinHours int) ([]string, error) {
 	since := beforeTime.Add(-time.Duration(withinHours) * time.Hour)
 
@@ -498,6 +490,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 
 		hwDecode := boolToInt(entry.TranscodeHWDecode)
 		hwEncode := boolToInt(entry.TranscodeHWEncode)
+		watched := boolToInt(entry.Watched)
 		_, err = insertStmt.ExecContext(ctx,
 			entry.ServerID, entry.ItemID, entry.GrandparentItemID, entry.UserName, entry.MediaType, entry.Title,
 			entry.ParentTitle, entry.GrandparentTitle, entry.Year,
@@ -507,6 +500,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			entry.VideoResolution, entry.TranscodeDecision,
 			entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
 			entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,
+			entry.PausedMs, watched,
 		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("inserting entry: %w", err)
@@ -521,7 +515,6 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 	return inserted, skipped, nil
 }
 
-// IsItemWatched checks if an item has been watched by any user
 func (s *Store) IsItemWatched(ctx context.Context, serverID int64, itemID string) (bool, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
@@ -538,7 +531,6 @@ func (s *Store) IsItemWatched(ctx context.Context, serverID int64, itemID string
 	return true, nil
 }
 
-// GetWatchedEpisodeCount returns the count of watched episodes for a show
 func (s *Store) GetWatchedEpisodeCount(ctx context.Context, serverID int64, showItemID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `

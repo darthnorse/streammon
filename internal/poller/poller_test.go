@@ -71,6 +71,16 @@ func newTestStore(t *testing.T) *store.Store {
 	return s
 }
 
+func newTestStoreWithServer(t *testing.T) (*store.Store, *models.Server) {
+	t.Helper()
+	s := newTestStore(t)
+	srv := &models.Server{Name: "srv", Type: models.ServerTypePlex, URL: "http://x", APIKey: "k", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	return s, srv
+}
+
 func newTestPoller(t *testing.T, s *store.Store) *Poller {
 	t.Helper()
 	p := New(s, time.Hour) // long interval; we trigger polls manually
@@ -123,13 +133,7 @@ func TestNewSessionAppears(t *testing.T) {
 }
 
 func TestSessionDisappearsCreatesHistory(t *testing.T) {
-	s := newTestStore(t)
-
-	srv := &models.Server{Name: "srv", Type: models.ServerTypePlex, URL: "http://x", APIKey: "k", Enabled: true}
-	if err := s.CreateServer(srv); err != nil {
-		t.Fatal(err)
-	}
-
+	s, srv := newTestStoreWithServer(t)
 	p := newTestPoller(t, s)
 
 	ms := &mockServer{
@@ -338,4 +342,430 @@ func TestDoubleUnsubscribeDoesNotPanic(t *testing.T) {
 	ch := p.Subscribe()
 	p.Unsubscribe(ch)
 	p.Unsubscribe(ch) // should not panic
+}
+
+func TestCompoundSessionKey(t *testing.T) {
+	s := newTestStore(t)
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: 1, ItemID: "100", Title: "Movie A", MediaType: models.MediaTypeMovie, StartedAt: time.Now().UTC()},
+			{SessionID: "s1", ServerID: 1, ItemID: "200", Title: "Movie B", MediaType: models.MediaTypeMovie, StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(1, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	sessions := p.CurrentSessions()
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions (compound key), got %d", len(sessions))
+	}
+
+	p.Stop()
+}
+
+func TestRatingKeyChangeCreatesHistory(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	// Poll 1: session s1 watching item 100
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Episode 1",
+				MediaType: models.MediaTypeTV, DurationMs: 60000, ProgressMs: 55000,
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Poll 2: same session s1 but now watching item 200 (autoplay)
+	ms.setSessions([]models.ActiveStream{
+		{SessionID: "s1", ServerID: srv.ID, ItemID: "200", Title: "Episode 2",
+			MediaType: models.MediaTypeTV, DurationMs: 60000, ProgressMs: 5000,
+			UserName: "alice", StartedAt: time.Now().UTC()},
+	})
+	triggerAndWaitPoll(t, p)
+
+	p.Stop()
+
+	// Should have 1 history entry for Episode 1 (the old item)
+	result, err := s.ListHistory(1, 10, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 history entry for autoplay, got %d", result.Total)
+	}
+	if result.Items[0].Title != "Episode 1" {
+		t.Errorf("expected Episode 1, got %s", result.Items[0].Title)
+	}
+
+	// Should still have 1 active session for Episode 2
+	sessions := p.CurrentSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 active session, got %d", len(sessions))
+	}
+	if sessions[0].Title != "Episode 2" {
+		t.Errorf("expected Episode 2 active, got %s", sessions[0].Title)
+	}
+}
+
+func TestNearEndWatched(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	// Session stops 5 seconds before end
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 120000, ProgressMs: 115000,
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	ms.setSessions(nil)
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, err := s.ListHistory(1, 10, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 history entry, got %d", result.Total)
+	}
+	// Within 10s of end → progressMs should be set to durationMs
+	if result.Items[0].WatchedMs != 120000 {
+		t.Errorf("near-end: watched_ms = %d, want 120000 (duration)", result.Items[0].WatchedMs)
+	}
+}
+
+func TestNearEndNotTriggered(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 120000, ProgressMs: 100000,
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	ms.setSessions(nil)
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, _ := s.ListHistory(1, 10, "", "", "")
+	if result.Items[0].WatchedMs != 100000 {
+		t.Errorf("not near-end: watched_ms = %d, want 100000", result.Items[0].WatchedMs)
+	}
+}
+
+func TestDLNADebounce(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	// Poll 1: DLNA session appears
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "dlna1", ServerID: srv.ID, ItemID: "100", Title: "Movie",
+				Platform: "DLNA", MediaType: models.MediaTypeMovie, DurationMs: 60000,
+				ProgressMs: 1000, UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Session should be in pending, not active yet
+	sessions := p.CurrentSessions()
+	if len(sessions) != 0 {
+		t.Fatalf("expected 0 sessions (DLNA pending), got %d", len(sessions))
+	}
+
+	// Poll 2: DLNA session still present → promote to real session
+	triggerAndWaitPoll(t, p)
+	sessions = p.CurrentSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session after DLNA promotion, got %d", len(sessions))
+	}
+
+	// Poll 3: DLNA session disappears → should create history
+	ms.setSessions(nil)
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, _ := s.ListHistory(1, 10, "", "", "")
+	if result.Total != 1 {
+		t.Fatalf("expected 1 history entry for promoted DLNA session, got %d", result.Total)
+	}
+}
+
+func TestDLNATransientNoHistory(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	// Poll 1: DLNA session appears
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "dlna1", ServerID: srv.ID, ItemID: "100", Title: "Browsing",
+				Platform: "DLNA", MediaType: models.MediaTypeMovie, DurationMs: 60000,
+				ProgressMs: 0, UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Poll 2: DLNA session gone (transient)
+	ms.setSessions(nil)
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, _ := s.ListHistory(1, 10, "", "", "")
+	if result.Total != 0 {
+		t.Fatalf("expected 0 history entries for transient DLNA session, got %d", result.Total)
+	}
+}
+
+func TestWatchedThreshold(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Full Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 100000, ProgressMs: 90000,
+				UserName: "alice", StartedAt: time.Now().UTC()},
+			{SessionID: "s2", ServerID: srv.ID, ItemID: "200", Title: "Abandoned Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 100000, ProgressMs: 30000,
+				UserName: "bob", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	ms.setSessions(nil)
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, err := s.ListHistory(1, 10, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 2 {
+		t.Fatalf("expected 2 history entries, got %d", result.Total)
+	}
+
+	watched := map[string]bool{}
+	for _, item := range result.Items {
+		watched[item.Title] = item.Watched
+	}
+	// 90000/100000 = 90% > 85% threshold → watched
+	if !watched["Full Movie"] {
+		t.Error("expected Full Movie to be marked as watched (90%)")
+	}
+	// 30000/100000 = 30% < 85% threshold → not watched
+	if watched["Abandoned Movie"] {
+		t.Error("expected Abandoned Movie to NOT be marked as watched (30%)")
+	}
+}
+
+func TestCustomWatchedThreshold(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+
+	// Set threshold to 50%
+	if err := s.SetWatchedThreshold(50); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 100000, ProgressMs: 55000,
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	ms.setSessions(nil)
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, _ := s.ListHistory(1, 10, "", "", "")
+	if result.Total != 1 {
+		t.Fatalf("expected 1 entry, got %d", result.Total)
+	}
+	// 55000/100000 = 55% > 50% custom threshold → watched
+	if !result.Items[0].Watched {
+		t.Error("expected watched=true with 50% custom threshold")
+	}
+}
+
+func TestUpdatePauseState(t *testing.T) {
+	s := models.ActiveStream{State: models.SessionStatePlaying}
+
+	// Transition to paused
+	updatePauseState(&s, s.State, models.SessionStatePaused)
+	if s.State != models.SessionStatePaused {
+		t.Errorf("expected paused, got %s", s.State)
+	}
+	if s.LastPausedAt.IsZero() {
+		t.Error("expected LastPausedAt to be set")
+	}
+
+	// Simulate time passing
+	s.LastPausedAt = time.Now().UTC().Add(-2 * time.Second)
+
+	// Transition back to playing
+	updatePauseState(&s, s.State, models.SessionStatePlaying)
+	if s.State != models.SessionStatePlaying {
+		t.Errorf("expected playing, got %s", s.State)
+	}
+	if s.PausedMs < 1000 {
+		t.Errorf("expected PausedMs >= 1000, got %d", s.PausedMs)
+	}
+	if !s.LastPausedAt.IsZero() {
+		t.Error("expected LastPausedAt to be reset")
+	}
+}
+
+func TestPausedMsPersistedToHistory(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	// Poll 1: session playing
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 120000, ProgressMs: 10000,
+				UserName: "alice", StartedAt: time.Now().UTC(),
+				State: models.SessionStatePlaying},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Poll 2: session paused
+	ms.setSessions([]models.ActiveStream{
+		{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Movie",
+			MediaType: models.MediaTypeMovie, DurationMs: 120000, ProgressMs: 30000,
+			UserName: "alice", StartedAt: time.Now().UTC(),
+			State: models.SessionStatePaused},
+	})
+	triggerAndWaitPoll(t, p)
+
+	// Verify session is now paused with LastPausedAt set
+	sessions := p.CurrentSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+	if sessions[0].State != models.SessionStatePaused {
+		t.Errorf("expected paused state, got %s", sessions[0].State)
+	}
+
+	// Poll 3: session resumes then stops
+	ms.setSessions(nil)
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, _ := s.ListHistory(1, 10, "", "", "")
+	if result.Total != 1 {
+		t.Fatalf("expected 1 history entry, got %d", result.Total)
+	}
+	// PausedMs should be >= 0 (time spent paused between polls; may be 0 if polls are instant)
+	if result.Items[0].PausedMs < 0 {
+		t.Errorf("expected non-negative paused_ms, got %d", result.Items[0].PausedMs)
+	}
+	// Verify the field was actually written (not left as default -1 or similar)
+	if result.Items[0].PausedMs > 60000 {
+		t.Errorf("paused_ms unreasonably large: %d", result.Items[0].PausedMs)
+	}
+}
+
+func TestSessionKeyFormat(t *testing.T) {
+	key := sessionKey(42, "abc", "100")
+	if key != "42:abc:100" {
+		t.Errorf("sessionKey = %q, want 42:abc:100", key)
+	}
+}
+
+func TestSessionPrefix(t *testing.T) {
+	prefix := sessionPrefix(42, "abc")
+	if prefix != "42:abc:" {
+		t.Errorf("sessionPrefix = %q, want 42:abc:", prefix)
+	}
+}
+
+func TestIsDLNA(t *testing.T) {
+	tests := []struct {
+		platform string
+		player   string
+		want     bool
+	}{
+		{"DLNA", "LG TV", true},
+		{"dlna", "LG TV", true},
+		{"Chrome", "Plex Web", false},
+		{"iOS", "DLNA Player", true},
+		{"Android", "Plex for Android", false},
+	}
+	for _, tt := range tests {
+		s := models.ActiveStream{Platform: tt.platform, Player: tt.player}
+		if got := isDLNA(s); got != tt.want {
+			t.Errorf("isDLNA(%q, %q) = %v, want %v", tt.platform, tt.player, got, tt.want)
+		}
+	}
 }

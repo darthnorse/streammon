@@ -55,19 +55,7 @@ func (c *Client) TestConnection(ctx context.Context) error {
 }
 
 func (c *Client) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/Sessions", nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.client.Do(c.addAuth(req))
-	if err != nil {
-		return nil, err
-	}
-	defer httputil.DrainBody(resp)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
+	body, err := c.doGet(ctx, c.url+"/Sessions", 10<<20)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +67,22 @@ func (c *Client) addAuth(req *http.Request) *http.Request {
 	return req
 }
 
-// DeleteItem deletes an item from the library
+func (c *Client) doGet(ctx context.Context, fullURL string, maxSize int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.client.Do(c.addAuth(req))
+	if err != nil {
+		return nil, err
+	}
+	defer httputil.DrainBody(resp)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
+	}
+	return io.ReadAll(io.LimitReader(resp.Body, maxSize))
+}
+
 func (c *Client) DeleteItem(ctx context.Context, itemID string) error {
 	reqURL := fmt.Sprintf("%s/Items/%s", c.url, url.PathEscape(itemID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, nil)
@@ -102,7 +105,6 @@ func (c *Client) DeleteItem(ctx context.Context, itemID string) error {
 	}
 	return nil
 }
-
 
 type embySession struct {
 	ID       string    `json:"Id"`
@@ -153,6 +155,7 @@ type mediaStream struct {
 
 type playState struct {
 	PositionTicks int64 `json:"PositionTicks"`
+	IsPaused      bool  `json:"IsPaused"`
 }
 
 type transcodingInfo struct {
@@ -202,12 +205,9 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			Platform:          s.Client,
 			IPAddress:         s.RemoteIP,
 			StartedAt:         time.Now().UTC(),
+			State:             embyPlayerState(s.PlayState),
 		}
-		if s.NowPlaying.SeriesId != "" && s.NowPlaying.SeriesPrimaryImageTag != "" {
-			as.ThumbURL = s.NowPlaying.SeriesId
-		} else if s.NowPlaying.ID != "" && s.NowPlaying.ImageTags["Primary"] != "" {
-			as.ThumbURL = s.NowPlaying.ID
-		}
+		as.ThumbURL = resolveThumbURL(s.NowPlaying.SeriesId, s.NowPlaying.SeriesPrimaryImageTag, s.NowPlaying.ID, s.NowPlaying.ImageTags)
 		var container string
 		var bitrate int64
 		var mediaStreams []mediaStream
@@ -265,6 +265,7 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 		} else {
 			as.VideoDecision = models.TranscodeDecisionDirectPlay
 			as.AudioDecision = models.TranscodeDecisionDirectPlay
+			as.Bandwidth = bitrate
 		}
 		streams = append(streams, as)
 	}
@@ -276,6 +277,23 @@ func playPos(ps *playState) int64 {
 		return 0
 	}
 	return ps.PositionTicks
+}
+
+func resolveThumbURL(seriesID, seriesImageTag, itemID string, imageTags map[string]string) string {
+	if seriesID != "" && seriesImageTag != "" {
+		return seriesID
+	}
+	if itemID != "" && imageTags["Primary"] != "" {
+		return itemID
+	}
+	return ""
+}
+
+func embyPlayerState(ps *playState) models.SessionState {
+	if ps != nil && ps.IsPaused {
+		return models.SessionStatePaused
+	}
+	return models.SessionStatePlaying
 }
 
 func ticksToMs(ticks int64) int64 {
@@ -301,7 +319,6 @@ func embyMediaType(t string) models.MediaType {
 	}
 }
 
-// deriveDynamicRange determines HDR format from Emby/Jellyfin video stream attributes.
 func deriveDynamicRange(ms mediaStream) string {
 	switch ms.VideoRangeType {
 	case "DOVI", "DOVIWithHDR10", "DOVIWithHLG", "DOVIWithSDR":
@@ -339,29 +356,12 @@ type libraryItemJSON struct {
 }
 
 func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
-	url := fmt.Sprintf("%s/Items?Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=%d&IncludeItemTypes=Movie,Episode&Fields=DateCreated,ProviderIds,ProductionYear",
+	reqURL := fmt.Sprintf("%s/Items?Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=%d&IncludeItemTypes=Movie,Episode&Fields=DateCreated,ProviderIds,ProductionYear",
 		c.url, limit)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	body, err := c.doGet(ctx, reqURL, 10<<20)
 	if err != nil {
 		return nil, err
 	}
-
-	resp, err := c.client.Do(c.addAuth(req))
-	if err != nil {
-		return nil, fmt.Errorf("%s recently added: %w", c.serverType, err)
-	}
-	defer httputil.DrainBody(resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s recently added: status %d", c.serverType, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
-	if err != nil {
-		return nil, err
-	}
-
 	var data libraryItemsResponse
 	if err := json.Unmarshal(body, &data); err != nil {
 		return nil, fmt.Errorf("%s parse recently added: %w", c.serverType, err)
@@ -376,12 +376,7 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 			title = item.SeriesName + " - " + item.Name
 		}
 
-		var thumbURL string
-		if item.SeriesId != "" && item.SeriesPrimaryImageTag != "" {
-			thumbURL = item.SeriesId
-		} else if item.ImageTags["Primary"] != "" {
-			thumbURL = item.ID
-		}
+		thumbURL := resolveThumbURL(item.SeriesId, item.SeriesPrimaryImageTag, item.ID, item.ImageTags)
 
 		items = append(items, models.LibraryItem{
 			ItemID:        item.ID,
@@ -509,31 +504,14 @@ type virtualFolder struct {
 }
 
 func (c *Client) getVirtualFolders(ctx context.Context) ([]virtualFolder, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/Library/VirtualFolders", nil)
+	body, err := c.doGet(ctx, c.url+"/Library/VirtualFolders", 1<<20)
 	if err != nil {
 		return nil, err
 	}
-
-	resp, err := c.client.Do(c.addAuth(req))
-	if err != nil {
-		return nil, fmt.Errorf("%s virtual folders: %w", c.serverType, err)
-	}
-	defer httputil.DrainBody(resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s virtual folders: status %d", c.serverType, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, err
-	}
-
 	var folders []virtualFolder
 	if err := json.Unmarshal(body, &folders); err != nil {
 		return nil, fmt.Errorf("%s parse virtual folders: %w", c.serverType, err)
 	}
-
 	return folders, nil
 }
 
@@ -616,32 +594,14 @@ func (c *Client) countItems(ctx context.Context, parentID, itemTypes string) (in
 	if itemTypes != "" {
 		params.Set("IncludeItemTypes", itemTypes)
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/Items?"+params.Encode(), nil)
+	body, err := c.doGet(ctx, c.url+"/Items?"+params.Encode(), 1<<20)
 	if err != nil {
 		return 0, err
 	}
-
-	resp, err := c.client.Do(c.addAuth(req))
-	if err != nil {
-		return 0, fmt.Errorf("%s count items: %w", c.serverType, err)
-	}
-	defer httputil.DrainBody(resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("%s count items: status %d", c.serverType, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return 0, err
-	}
-
 	var countResp itemCountResponse
 	if err := json.Unmarshal(body, &countResp); err != nil {
 		return 0, fmt.Errorf("%s parse count: %w", c.serverType, err)
 	}
-
 	return countResp.TotalRecordCount, nil
 }
 
@@ -769,36 +729,17 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 	return details, nil
 }
 
-// embyUser represents a user from the /Users endpoint.
 type embyUser struct {
 	ID              string `json:"Id"`
 	Name            string `json:"Name"`
 	PrimaryImageTag string `json:"PrimaryImageTag"`
 }
 
-// GetUsers fetches all users from this Emby/Jellyfin server.
-// Returns users with their avatar IDs (to be proxied via /api/servers/{id}/thumb/user/{userId}).
 func (c *Client) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/Users", nil)
+	body, err := c.doGet(ctx, c.url+"/Users", 10<<20)
 	if err != nil {
 		return nil, err
 	}
-
-	resp, err := c.client.Do(c.addAuth(req))
-	if err != nil {
-		return nil, err
-	}
-	defer httputil.DrainBody(resp)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
-	if err != nil {
-		return nil, err
-	}
-
 	var users []embyUser
 	if err := json.Unmarshal(body, &users); err != nil {
 		return nil, fmt.Errorf("parsing users: %w", err)

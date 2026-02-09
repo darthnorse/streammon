@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 
 	"streammon/internal/units"
 )
@@ -195,4 +196,29 @@ func (s *Store) SetUnitSystem(system string) error {
 		return fmt.Errorf("invalid unit system: %s", system)
 	}
 	return s.SetSetting(unitSystemKey, system)
+}
+
+const watchedThresholdKey = "session.watched_threshold"
+const defaultWatchedThreshold = 85
+
+func (s *Store) GetWatchedThreshold() (int, error) {
+	val, err := s.GetSetting(watchedThresholdKey)
+	if err != nil {
+		return 0, err
+	}
+	if val == "" {
+		return defaultWatchedThreshold, nil
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultWatchedThreshold, nil
+	}
+	return n, nil
+}
+
+func (s *Store) SetWatchedThreshold(pct int) error {
+	if pct < 1 || pct > 100 {
+		return fmt.Errorf("watched threshold must be between 1 and 100, got %d", pct)
+	}
+	return s.SetSetting(watchedThresholdKey, strconv.Itoa(pct))
 }

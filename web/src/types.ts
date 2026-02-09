@@ -80,6 +80,8 @@ export interface WatchHistoryEntry {
   transcode_hw_decode?: boolean
   transcode_hw_encode?: boolean
   dynamic_range?: string
+  paused_ms?: number
+  watched?: boolean
   // Geo fields from ip_geo_cache (populated by ListHistory)
   city?: string
   country?: string
@@ -126,6 +128,8 @@ export interface ActiveStream {
   dynamic_range?: string
   season_number?: number
   episode_number?: number
+  state?: 'playing' | 'paused' | 'buffering' | 'stopped'
+  paused_ms?: number
 }
 
 export interface DayStat {
@@ -514,7 +518,6 @@ export const RULE_TYPES: { value: RuleType; label: string; description: string }
   { value: 'new_location', label: 'New Location', description: 'Alert when user streams from new location' },
 ]
 
-// Lookup map for rule type labels
 export const RULE_TYPE_LABELS: Record<RuleType, string> = Object.fromEntries(
   RULE_TYPES.map(rt => [rt.value, rt.label])
 ) as Record<RuleType, string>

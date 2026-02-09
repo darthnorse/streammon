@@ -242,6 +242,7 @@ type player struct {
 	Title   string `xml:"title,attr"`
 	Product string `xml:"product,attr"`
 	Address string `xml:"address,attr"`
+	State   string `xml:"state,attr"`
 }
 
 type session struct {
@@ -285,6 +286,7 @@ type plexStream struct {
 }
 
 type transcodeSession struct {
+	Key              string `xml:"key,attr"`
 	VideoDecision    string `xml:"videoDecision,attr"`
 	AudioDecision    string `xml:"audioDecision,attr"`
 	SubtitleDecision string `xml:"subtitleDecision,attr"`
@@ -398,6 +400,7 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 		IPAddress:         item.Player.Address,
 		Bandwidth:         atoi64(item.Session.Bandwidth) * 1000, // Plex reports kbps
 		StartedAt:         time.Now().UTC(),
+		State:             plexPlayerState(item.Player.State),
 	}
 	// ThumbURL stores either a rating key (e.g., "55555") or a path fragment
 	// (e.g., "library/metadata/12345/thumb/123"). The thumb proxy handler
@@ -447,6 +450,7 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 	}
 
 	if ts := item.TranscodeSession; ts != nil {
+		as.TranscodeKey = ts.Key
 		as.VideoDecision = plexDecision(ts.VideoDecision)
 		as.AudioDecision = plexDecision(ts.AudioDecision)
 		as.TranscodeHWDecode = isHWAccel(ts.HWDecoding)
@@ -504,6 +508,17 @@ func plexDecision(d string) models.TranscodeDecision {
 // Plex can return "1" (older format) or the codec name like "nvdec", "qsv", "vaapi".
 func isHWAccel(val string) bool {
 	return val != "" && val != "0"
+}
+
+func plexPlayerState(s string) models.SessionState {
+	switch s {
+	case "paused":
+		return models.SessionStatePaused
+	case "buffering":
+		return models.SessionStateBuffering
+	default:
+		return models.SessionStatePlaying
+	}
 }
 
 func plexMediaType(t string) models.MediaType {

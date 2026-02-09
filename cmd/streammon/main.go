@@ -120,7 +120,6 @@ func main() {
 	}
 
 	p.Start(context.Background())
-	defer p.Stop()
 
 	var schOpts []scheduler.Option
 	if v := os.Getenv("SCHEDULER_SYNC_TIMEOUT"); v != "" {
@@ -164,6 +163,8 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("Shutting down...")
+	p.Stop()
+	p.PersistActiveSessions()
 	rulesEngine.WaitForNotifications()
 	server.StopRateLimiter()
 	server.StopAuthRateLimiter()

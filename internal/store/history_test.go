@@ -565,6 +565,66 @@ func TestGetUserDistinctIPs(t *testing.T) {
 	}
 }
 
+func TestInsertHistoryWithPausedMsAndWatched(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	entry := &models.WatchHistoryEntry{
+		ServerID:  serverID,
+		UserName:  "alice",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Test Movie",
+		StartedAt: time.Now().UTC().Add(-2 * time.Hour),
+		StoppedAt: time.Now().UTC().Add(-1 * time.Hour),
+		PausedMs:  15000,
+		Watched:   true,
+	}
+	if err := s.InsertHistory(entry); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "")
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 entry, got %d", result.Total)
+	}
+	if result.Items[0].PausedMs != 15000 {
+		t.Errorf("paused_ms = %d, want 15000", result.Items[0].PausedMs)
+	}
+	if !result.Items[0].Watched {
+		t.Error("expected watched = true")
+	}
+}
+
+func TestInsertHistoryWatchedFalse(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	entry := &models.WatchHistoryEntry{
+		ServerID:  serverID,
+		UserName:  "bob",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Abandoned Movie",
+		StartedAt: time.Now().UTC(),
+		StoppedAt: time.Now().UTC(),
+		PausedMs:  0,
+		Watched:   false,
+	}
+	if err := s.InsertHistory(entry); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "")
+	if result.Items[0].Watched {
+		t.Error("expected watched = false")
+	}
+	if result.Items[0].PausedMs != 0 {
+		t.Errorf("paused_ms = %d, want 0", result.Items[0].PausedMs)
+	}
+}
+
 func TestGetRecentISPs(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)

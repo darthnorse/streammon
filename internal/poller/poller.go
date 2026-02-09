@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,7 +20,7 @@ type Poller struct {
 
 	mu       sync.RWMutex
 	servers  map[int64]media.MediaServer
-	sessions map[string]models.ActiveStream // key: "serverID:sessionID"
+	sessions map[string]models.ActiveStream // key: "serverID:sessionID:itemID"
 
 	subMu       sync.Mutex
 	subscribers map[chan []models.ActiveStream]struct{}
@@ -35,12 +36,28 @@ type Poller struct {
 
 	rulesEngine *rules.Engine
 
-	// Household auto-learning settings
-	autoLearnHousehold    bool
-	autoLearnMinSessions  int
+	retryMu    sync.Mutex
+	retryQueue []retryEntry
+
+	// DLNA sessions must be seen on two consecutive polls before being tracked
+	pendingDLNA map[string]models.ActiveStream
+
+	autoLearnHousehold   bool
+	autoLearnMinSessions int
 }
 
-// DefaultAutoLearnMinSessions is the default threshold for auto-learning household locations.
+type retryEntry struct {
+	entry    *models.WatchHistoryEntry
+	title    string // for logging only
+	attempts int
+	nextAt   time.Time
+}
+
+const (
+	maxRetryAttempts = 3
+	retryInterval    = 30 * time.Second
+)
+
 const DefaultAutoLearnMinSessions = 10
 
 type PollerOption func(*Poller)
@@ -58,7 +75,6 @@ func WithRulesEngine(e *rules.Engine) PollerOption {
 func WithHouseholdAutoLearn(minSessions int) PollerOption {
 	return func(p *Poller) {
 		if minSessions <= 0 {
-			// Disabled
 			p.autoLearnHousehold = false
 			p.autoLearnMinSessions = 0
 		} else {
@@ -76,6 +92,7 @@ func New(s *store.Store, interval time.Duration, opts ...PollerOption) *Poller {
 		sessions:    make(map[string]models.ActiveStream),
 		subscribers: make(map[chan []models.ActiveStream]struct{}),
 		wsCancel:    make(map[int64]context.CancelFunc),
+		pendingDLNA: make(map[string]models.ActiveStream),
 	}
 	for _, opt := range opts {
 		opt(p)
@@ -104,12 +121,17 @@ func (p *Poller) RemoveServer(id int64) {
 		delete(p.wsCancel, id)
 	}
 	delete(p.servers, id)
+	var ended []models.ActiveStream
 	for key, s := range p.sessions {
 		if s.ServerID == id {
+			ended = append(ended, s)
 			delete(p.sessions, key)
 		}
 	}
 	p.mu.Unlock()
+	for _, s := range ended {
+		p.persistHistory(s)
+	}
 }
 
 func (p *Poller) GetServer(id int64) (media.MediaServer, bool) {
@@ -180,17 +202,34 @@ func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
 	p.mu.Lock()
 	var ended *models.ActiveStream
 	matched := false
+	prefix := sessionPrefix(serverID, u.SessionKey)
+
+	// Detect rating key change (autoplay) via WebSocket
 	for key, session := range p.sessions {
 		if session.ServerID == serverID && session.SessionID == u.SessionKey {
 			matched = true
-			if u.State == models.SessionStateStopped {
-				ended = &session
+			if u.RatingKey != "" && session.ItemID != "" && u.RatingKey != session.ItemID {
+				old := session
 				delete(p.sessions, key)
-			} else {
-				session.ProgressMs = u.ViewOffset
-				p.sessions[key] = session
+				p.mu.Unlock()
+				p.persistHistory(old)
+				snapshot := p.CurrentSessions()
+				p.publish(snapshot)
+				return
 			}
+			ended = p.applySessionChange(key, session, u)
 			break
+		}
+	}
+
+	// Fallback: prefix match for compound key lookups
+	if !matched {
+		for key, session := range p.sessions {
+			if strings.HasPrefix(key, prefix) {
+				matched = true
+				ended = p.applySessionChange(key, session, u)
+				break
+			}
 		}
 	}
 	p.mu.Unlock()
@@ -205,6 +244,19 @@ func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
 
 	snapshot := p.CurrentSessions()
 	p.publish(snapshot)
+}
+
+// applySessionChange handles stop-vs-update for a matched WebSocket session.
+// Returns non-nil if the session was stopped. Must be called with p.mu held.
+func (p *Poller) applySessionChange(key string, session models.ActiveStream, u models.SessionUpdate) *models.ActiveStream {
+	if u.State == models.SessionStateStopped {
+		delete(p.sessions, key)
+		return &session
+	}
+	session.ProgressMs = u.ViewOffset
+	updatePauseState(&session, session.State, u.State)
+	p.sessions[key] = session
+	return nil
 }
 
 func (p *Poller) run(ctx context.Context) {
@@ -225,8 +277,23 @@ func (p *Poller) run(ctx context.Context) {
 	}
 }
 
+// PersistActiveSessions persists all currently tracked sessions to history
+// and clears the session map. Call during graceful shutdown before Stop().
+func (p *Poller) PersistActiveSessions() {
+	p.mu.Lock()
+	sessions := make([]models.ActiveStream, 0, len(p.sessions))
+	for _, s := range p.sessions {
+		sessions = append(sessions, s)
+	}
+	p.sessions = make(map[string]models.ActiveStream)
+	p.mu.Unlock()
+	for _, s := range sessions {
+		p.persistHistory(s)
+	}
+}
+
 type serverEntry struct {
-	id int64
+	id          int64
 	mediaServer media.MediaServer
 }
 
@@ -240,11 +307,16 @@ func (p *Poller) poll(ctx context.Context) {
 	for k, v := range p.sessions {
 		oldSessions[k] = v
 	}
+	pendingDLNA := make(map[string]models.ActiveStream, len(p.pendingDLNA))
+	for k, v := range p.pendingDLNA {
+		pendingDLNA[k] = v
+	}
 	p.mu.RUnlock()
 
 	failedServers := make(map[int64]struct{})
 	newSessions := make(map[string]models.ActiveStream)
 
+	seenDLNA := make(map[string]struct{})
 	now := time.Now().UTC()
 	for _, entry := range servers {
 		streams, err := entry.mediaServer.GetSessions(ctx)
@@ -254,31 +326,70 @@ func (p *Poller) poll(ctx context.Context) {
 			continue
 		}
 		for _, s := range streams {
-			key := sessionKey(s.ServerID, s.SessionID)
+			// DLNA debounce — new DLNA sessions go to pending first
+			if isDLNA(s) {
+				dlnaKey := sessionKey(s.ServerID, s.SessionID, s.ItemID)
+				seenDLNA[dlnaKey] = struct{}{}
+				if _, wasTracked := oldSessions[dlnaKey]; !wasTracked {
+					if _, wasPending := pendingDLNA[dlnaKey]; !wasPending {
+						pendingDLNA[dlnaKey] = s
+						continue
+					}
+				}
+				// Was pending or already tracked — promote
+				delete(pendingDLNA, dlnaKey)
+			}
+
+			key := sessionKey(s.ServerID, s.SessionID, s.ItemID)
+
+			// Detect rating key change (autoplay) — persist old entry
+			prefix := sessionPrefix(s.ServerID, s.SessionID)
+			for oldKey := range oldSessions {
+				if strings.HasPrefix(oldKey, prefix) && oldKey != key {
+					p.mu.Lock()
+					currentSession, stillActive := p.sessions[oldKey]
+					if stillActive {
+						delete(p.sessions, oldKey)
+					}
+					p.mu.Unlock()
+					if stillActive {
+						p.persistHistory(currentSession)
+					}
+					delete(oldSessions, oldKey)
+					break
+				}
+			}
+
 			if prev, ok := oldSessions[key]; ok {
 				s.StartedAt = prev.StartedAt
+				s.PausedMs = prev.PausedMs
+				s.LastPausedAt = prev.LastPausedAt
+
+				updatePauseState(&s, prev.State, s.State)
+
+				// Log mid-stream quality switches (e.g. bandwidth adaptation)
+				if prev.TranscodeKey != "" && s.TranscodeKey != "" && prev.TranscodeKey != s.TranscodeKey {
+					log.Printf("transcode key changed for %s: %s -> %s", s.Title, prev.TranscodeKey, s.TranscodeKey)
+				}
+			} else {
+				updatePauseState(&s, "", s.State)
 			}
 			s.LastPollSeen = now
 			newSessions[key] = s
 		}
 	}
 
-	// Keep recent sessions from failed servers to avoid false history entries
-	staleThreshold := now.Add(-5 * time.Minute)
-	for key, prev := range oldSessions {
-		if _, failed := failedServers[prev.ServerID]; failed {
-			if _, exists := newSessions[key]; !exists {
-				if prev.LastPollSeen.After(staleThreshold) {
-					newSessions[key] = prev
-				} else {
-					log.Printf("removing stale session %s (last seen %v)", prev.Title, prev.LastPollSeen)
-				}
-			}
+	for dk := range pendingDLNA {
+		if _, seen := seenDLNA[dk]; !seen {
+			delete(pendingDLNA, dk)
 		}
 	}
 
+	preserveFailedSessions(oldSessions, newSessions, failedServers, now.Add(-5*time.Minute))
+
 	p.mu.Lock()
 	p.sessions = newSessions
+	p.pendingDLNA = pendingDLNA
 	p.mu.Unlock()
 
 	for key, prev := range oldSessions {
@@ -287,10 +398,11 @@ func (p *Poller) poll(ctx context.Context) {
 		}
 	}
 
+	p.processRetries()
+
 	snapshot := p.CurrentSessions()
 	p.publish(snapshot)
 
-	// Evaluate active sessions against rules
 	if p.rulesEngine != nil {
 		for i := range snapshot {
 			p.rulesEngine.EvaluateSession(ctx, &snapshot[i], snapshot)
@@ -306,7 +418,47 @@ func (p *Poller) poll(ctx context.Context) {
 }
 
 func (p *Poller) persistHistory(s models.ActiveStream) {
-	// Default to DirectPlay if decision fields are empty
+	progressMs := s.ProgressMs
+
+	// Near-end: if within 10s of end, count as complete
+	if s.DurationMs > 0 && (s.DurationMs-progressMs) <= 10000 {
+		progressMs = s.DurationMs
+	}
+
+	// Finalize pause accumulation on stop (with clock-jump clamping)
+	if s.State == models.SessionStatePaused && !s.LastPausedAt.IsZero() {
+		elapsed := time.Since(s.LastPausedAt).Milliseconds()
+		if elapsed > 0 {
+			s.PausedMs += elapsed
+		}
+	}
+
+	var watched bool
+	if s.DurationMs > 0 {
+		threshold := 85
+		if p.store != nil {
+			if t, err := p.store.GetWatchedThreshold(); err == nil {
+				threshold = t
+			}
+		}
+		watched = progressMs*100 >= s.DurationMs*int64(threshold)
+	}
+
+	entry := p.buildHistoryEntry(s, progressMs, watched)
+	if err := p.store.InsertHistory(entry); err != nil {
+		log.Printf("persisting history for %s: %v (will retry)", s.Title, err)
+		p.enqueueRetry(entry, s.Title)
+		return
+	}
+
+	if p.autoLearnHousehold && s.IPAddress != "" {
+		if _, err := p.store.AutoLearnHouseholdLocation(s.UserName, s.IPAddress, p.autoLearnMinSessions); err != nil {
+			log.Printf("auto-learn household for %s: %v", s.UserName, err)
+		}
+	}
+}
+
+func (p *Poller) buildHistoryEntry(s models.ActiveStream, progressMs int64, watched bool) *models.WatchHistoryEntry {
 	videoDecision := s.VideoDecision
 	if videoDecision == "" {
 		videoDecision = models.TranscodeDecisionDirectPlay
@@ -315,7 +467,7 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 	if audioDecision == "" {
 		audioDecision = models.TranscodeDecisionDirectPlay
 	}
-	entry := &models.WatchHistoryEntry{
+	return &models.WatchHistoryEntry{
 		ServerID:          s.ServerID,
 		ItemID:            s.ItemID,
 		GrandparentItemID: s.GrandparentItemID,
@@ -326,7 +478,7 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 		GrandparentTitle:  s.GrandparentTitle,
 		Year:              s.Year,
 		DurationMs:        s.DurationMs,
-		WatchedMs:         s.ProgressMs,
+		WatchedMs:         progressMs,
 		Player:            s.Player,
 		Platform:          s.Platform,
 		IPAddress:         s.IPAddress,
@@ -336,7 +488,7 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 		EpisodeNumber:     s.EpisodeNumber,
 		ThumbURL:          s.ThumbURL,
 		VideoResolution:   s.VideoResolution,
-		TranscodeDecision: videoDecision,
+		TranscodeDecision: videoDecision, // legacy summary field, same as VideoDecision
 		VideoCodec:        s.VideoCodec,
 		AudioCodec:        s.AudioCodec,
 		AudioChannels:     s.AudioChannels,
@@ -346,16 +498,75 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 		TranscodeHWDecode: s.TranscodeHWDecode,
 		TranscodeHWEncode: s.TranscodeHWEncode,
 		DynamicRange:      s.DynamicRange,
+		PausedMs:          s.PausedMs,
+		Watched:           watched,
 	}
-	if err := p.store.InsertHistory(entry); err != nil {
-		log.Printf("persisting history for %s: %v", s.Title, err)
+}
+
+func (p *Poller) enqueueRetry(entry *models.WatchHistoryEntry, title string) {
+	p.retryMu.Lock()
+	defer p.retryMu.Unlock()
+	p.retryQueue = append(p.retryQueue, retryEntry{
+		entry:    entry,
+		title:    title,
+		attempts: 1,
+		nextAt:   time.Now().UTC().Add(retryInterval),
+	})
+}
+
+func (p *Poller) processRetries() {
+	p.retryMu.Lock()
+	queue := p.retryQueue
+	p.retryQueue = nil
+	p.retryMu.Unlock()
+
+	if len(queue) == 0 {
 		return
 	}
 
-	// Auto-learn household locations if enabled
-	if p.autoLearnHousehold && s.IPAddress != "" {
-		if _, err := p.store.AutoLearnHouseholdLocation(s.UserName, s.IPAddress, p.autoLearnMinSessions); err != nil {
-			log.Printf("auto-learn household for %s: %v", s.UserName, err)
+	now := time.Now().UTC()
+	var remaining []retryEntry
+	for _, r := range queue {
+		if now.Before(r.nextAt) {
+			remaining = append(remaining, r)
+			continue
+		}
+		if err := p.store.InsertHistory(r.entry); err != nil {
+			log.Printf("retry %d for %s failed: %v", r.attempts, r.title, err)
+			r.attempts++
+			if r.attempts > maxRetryAttempts {
+				log.Printf("dropping history for %s after %d failed attempts", r.title, maxRetryAttempts)
+				continue
+			}
+			r.nextAt = now.Add(retryInterval)
+			remaining = append(remaining, r)
+			continue
+		}
+	}
+
+	if len(remaining) > 0 {
+		p.retryMu.Lock()
+		p.retryQueue = append(p.retryQueue, remaining...)
+		p.retryMu.Unlock()
+	}
+}
+
+func updatePauseState(s *models.ActiveStream, oldState, newState models.SessionState) {
+	if oldState == "" {
+		oldState = models.SessionStatePlaying
+	}
+	s.State = newState
+
+	now := time.Now()
+	if newState == models.SessionStatePaused && oldState != models.SessionStatePaused {
+		s.LastPausedAt = now
+	} else if newState != models.SessionStatePaused && oldState == models.SessionStatePaused {
+		if !s.LastPausedAt.IsZero() {
+			elapsed := now.Sub(s.LastPausedAt).Milliseconds()
+			if elapsed > 0 {
+				s.PausedMs += elapsed
+			}
+			s.LastPausedAt = time.Time{}
 		}
 	}
 }
@@ -371,6 +582,31 @@ func (p *Poller) publish(snapshot []models.ActiveStream) {
 	}
 }
 
-func sessionKey(serverID int64, sessionID string) string {
-	return fmt.Sprintf("%d:%s", serverID, sessionID)
+// preserveFailedSessions keeps sessions from servers that errored during polling,
+// so transient failures don't cause false history entries.
+func preserveFailedSessions(oldSessions, newSessions map[string]models.ActiveStream, failedServers map[int64]struct{}, staleThreshold time.Time) {
+	for key, prev := range oldSessions {
+		if _, failed := failedServers[prev.ServerID]; failed {
+			if _, exists := newSessions[key]; !exists {
+				if prev.LastPollSeen.After(staleThreshold) {
+					newSessions[key] = prev
+				} else {
+					log.Printf("removing stale session %s (last seen %v)", prev.Title, prev.LastPollSeen)
+				}
+			}
+		}
+	}
+}
+
+func sessionKey(serverID int64, sessionID, itemID string) string {
+	return fmt.Sprintf("%d:%s:%s", serverID, sessionID, itemID)
+}
+
+func sessionPrefix(serverID int64, sessionID string) string {
+	return fmt.Sprintf("%d:%s:", serverID, sessionID)
+}
+
+func isDLNA(s models.ActiveStream) bool {
+	return strings.EqualFold(s.Platform, "DLNA") ||
+		strings.Contains(strings.ToLower(s.Player), "dlna")
 }

@@ -385,3 +385,57 @@ func TestUnitSystemOverwrite(t *testing.T) {
 		t.Fatalf("expected metric, got %s", val)
 	}
 }
+
+func TestWatchedThresholdDefault(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	val, err := s.GetWatchedThreshold()
+	if err != nil {
+		t.Fatalf("GetWatchedThreshold: %v", err)
+	}
+	if val != 85 {
+		t.Fatalf("expected default 85, got %d", val)
+	}
+}
+
+func TestWatchedThresholdRoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	if err := s.SetWatchedThreshold(50); err != nil {
+		t.Fatalf("SetWatchedThreshold: %v", err)
+	}
+
+	val, err := s.GetWatchedThreshold()
+	if err != nil {
+		t.Fatalf("GetWatchedThreshold: %v", err)
+	}
+	if val != 50 {
+		t.Fatalf("expected 50, got %d", val)
+	}
+}
+
+func TestWatchedThresholdOverwrite(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.SetWatchedThreshold(60)
+	s.SetWatchedThreshold(90)
+
+	val, _ := s.GetWatchedThreshold()
+	if val != 90 {
+		t.Fatalf("expected 90, got %d", val)
+	}
+}
+
+func TestWatchedThresholdInvalidValues(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	if err := s.SetWatchedThreshold(0); err == nil {
+		t.Fatal("expected error for 0")
+	}
+	if err := s.SetWatchedThreshold(101); err == nil {
+		t.Fatal("expected error for 101")
+	}
+	if err := s.SetWatchedThreshold(-1); err == nil {
+		t.Fatal("expected error for -1")
+	}
+}

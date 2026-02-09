@@ -161,6 +161,8 @@ type WatchHistoryEntry struct {
 	TranscodeHWDecode bool              `json:"transcode_hw_decode,omitempty"`
 	TranscodeHWEncode bool              `json:"transcode_hw_encode,omitempty"`
 	DynamicRange      string            `json:"dynamic_range,omitempty"`
+	PausedMs          int64             `json:"paused_ms,omitempty"`
+	Watched           bool              `json:"watched"`
 	// Geo fields from ip_geo_cache (optional, populated by ListHistory)
 	City    string `json:"city,omitempty"`
 	Country string `json:"country,omitempty"`
@@ -217,6 +219,10 @@ type ActiveStream struct {
 	DynamicRange             string            `json:"dynamic_range,omitempty"`
 	SeasonNumber             int               `json:"season_number,omitempty"`
 	EpisodeNumber            int               `json:"episode_number,omitempty"`
+	State                    SessionState      `json:"state,omitempty"`
+	PausedMs                 int64             `json:"paused_ms,omitempty"`
+	LastPausedAt             time.Time         `json:"-"`
+	TranscodeKey             string            `json:"-"`
 }
 
 type SessionState string
