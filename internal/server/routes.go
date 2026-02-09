@@ -45,6 +45,8 @@ func (s *Server) routes() {
 		}
 
 		r.Get("/me", s.handleMe)
+		r.Put("/me", s.handleUpdateProfile)
+		r.With(RateLimitAuth).Post("/me/password", s.handleChangePassword)
 
 		r.Get("/servers", s.handleListServers)
 		r.With(RequireRole(models.RoleAdmin)).Post("/servers", s.handleCreateServer)
@@ -108,7 +110,7 @@ func (s *Server) routes() {
 		r.Route("/overseerr", func(sr chi.Router) {
 			sr.Get("/configured", s.handleOverseerrConfigured)
 			sr.Get("/search", s.handleOverseerrSearch)
-			sr.Get("/discover/trending", s.handleOverseerrDiscoverTrending)
+			sr.Get("/discover/*", s.handleOverseerrDiscover)
 			sr.Get("/movie/{id}", s.handleOverseerrMovie)
 			sr.Get("/tv/{id}", s.handleOverseerrTV)
 			sr.Get("/tv/{id}/season/{seasonNumber}", s.handleOverseerrTVSeason)

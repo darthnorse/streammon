@@ -1,5 +1,6 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
+import { UserAvatar } from './UserAvatar'
 import { navLinks } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -24,7 +25,11 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Film,
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  onOpenProfile: () => void
+}
+
+export function Sidebar({ onOpenProfile }: SidebarProps) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -41,7 +46,8 @@ export function Sidebar() {
     <aside className="hidden lg:flex flex-col w-60 h-screen sticky top-0
                       border-r border-border dark:border-border-dark
                       bg-panel dark:bg-panel-dark">
-      <div className="flex items-center gap-2 px-5 h-16 border-b border-border dark:border-border-dark">
+      <div className="flex items-center gap-2.5 px-5 h-16 border-b border-border dark:border-border-dark">
+        <img src="/android-chrome-192x192.png" alt="" className="w-7 h-7" />
         <span className="text-accent font-mono font-semibold text-sm tracking-widest uppercase">
           StreamMon
         </span>
@@ -72,12 +78,18 @@ export function Sidebar() {
       <div className="px-3 py-4 border-t border-border dark:border-border-dark">
         {user && (
           <div className="mb-3">
-            <div className="text-xs text-muted dark:text-muted-dark truncate mb-1">
-              {user.name}
-            </div>
+            <button
+              onClick={onOpenProfile}
+              className="flex items-center gap-2.5 w-full rounded-lg px-2 py-1.5
+                         hover:bg-surface dark:hover:bg-surface-dark transition-colors text-left"
+            >
+              <UserAvatar name={user.name} thumbUrl={user.thumb_url} />
+              <span className="text-sm truncate">{user.name}</span>
+            </button>
             <button
               onClick={logout}
-              className="text-xs text-muted dark:text-muted-dark hover:text-foreground dark:hover:text-foreground-dark transition-colors"
+              className="text-xs text-muted dark:text-muted-dark hover:text-foreground
+                         dark:hover:text-foreground-dark transition-colors mt-1 ml-2"
             >
               Sign out
             </button>

@@ -58,6 +58,17 @@ func (s *Store) DeleteSession(token string) error {
 	return nil
 }
 
+func (s *Store) DeleteUserSessionsExcept(userID int64, exceptToken string) error {
+	_, err := s.db.Exec(
+		`DELETE FROM sessions WHERE user_id = ? AND id != ?`,
+		userID, exceptToken,
+	)
+	if err != nil {
+		return fmt.Errorf("deleting user sessions: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) DeleteExpiredSessions() (int64, error) {
 	result, err := s.db.Exec(`DELETE FROM sessions WHERE expires_at <= ?`, time.Now().UTC())
 	if err != nil {

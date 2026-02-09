@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import type { Rule, RuleType, NotificationChannel } from '../types'
 import { RULE_TYPES } from '../types'
 import { api } from '../lib/api'
+import { useModal } from '../hooks/useModal'
 import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
 import { MultiSelectChannels } from './MultiSelectChannels'
@@ -25,7 +26,7 @@ function parseIntOrDefault(value: string, defaultValue: number): number {
 
 export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   const isEdit = !!rule?.id
-  const modalRef = useRef<HTMLDivElement>(null)
+  const modalRef = useModal(onClose)
   const units = useUnits()
 
   const [name, setName] = useState(rule?.name ?? '')
@@ -35,15 +36,6 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [selectedChannels, setSelectedChannels] = useState<number[]>([])
-
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleEscape)
-    modalRef.current?.querySelector<HTMLElement>('input')?.focus()
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [onClose])
 
   useEffect(() => {
     if (!rule) {

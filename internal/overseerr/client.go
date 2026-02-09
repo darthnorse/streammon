@@ -50,50 +50,18 @@ func ValidateURL(rawURL string) error {
 	return nil
 }
 
-func (c *Client) doGet(ctx context.Context, path string, query url.Values) ([]byte, error) {
+func (c *Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader) (json.RawMessage, error) {
 	u := c.baseURL + "/api/v1" + path
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("X-Api-Key", c.apiKey)
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("connection failed: %w", err)
-	}
-	defer httputil.DrainBody(resp)
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, truncate(body, 200))
-	}
-
-	return body, nil
-}
-
-func (c *Client) doPost(ctx context.Context, path string, payload json.RawMessage) ([]byte, error) {
-	u := c.baseURL + "/api/v1" + path
-
-	var bodyReader io.Reader
-	if payload != nil {
-		bodyReader = strings.NewReader(string(payload))
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bodyReader)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("X-Api-Key", c.apiKey)
-	if payload != nil {
+	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
@@ -103,38 +71,33 @@ func (c *Client) doPost(ctx context.Context, path string, payload json.RawMessag
 	}
 	defer httputil.DrainBody(resp)
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, truncate(body, 200))
+		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, truncate(respBody, 200))
 	}
 
-	return body, nil
+	return json.RawMessage(respBody), nil
+}
+
+func (c *Client) doGet(ctx context.Context, path string, query url.Values) (json.RawMessage, error) {
+	return c.do(ctx, http.MethodGet, path, query, nil)
+}
+
+func (c *Client) doPost(ctx context.Context, path string, payload json.RawMessage) (json.RawMessage, error) {
+	var body io.Reader
+	if payload != nil {
+		body = strings.NewReader(string(payload))
+	}
+	return c.do(ctx, http.MethodPost, path, nil, body)
 }
 
 func (c *Client) doDelete(ctx context.Context, path string) error {
-	u := c.baseURL + "/api/v1" + path
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
-	if err != nil {
-		return fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("X-Api-Key", c.apiKey)
-
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return fmt.Errorf("connection failed: %w", err)
-	}
-	defer httputil.DrainBody(resp)
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("Overseerr returned status %d", resp.StatusCode)
-	}
-
-	return nil
+	_, err := c.do(ctx, http.MethodDelete, path, nil, nil)
+	return err
 }
 
 func (c *Client) TestConnection(ctx context.Context) error {
@@ -148,47 +111,27 @@ func (c *Client) Search(ctx context.Context, query string, page int) (json.RawMe
 	if page > 0 {
 		params.Set("page", fmt.Sprintf("%d", page))
 	}
-	body, err := c.doGet(ctx, "/search", params)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
+	return c.doGet(ctx, "/search", params)
 }
 
-func (c *Client) DiscoverTrending(ctx context.Context, page int) (json.RawMessage, error) {
+func (c *Client) Discover(ctx context.Context, category string, page int) (json.RawMessage, error) {
 	params := url.Values{}
 	if page > 0 {
 		params.Set("page", fmt.Sprintf("%d", page))
 	}
-	body, err := c.doGet(ctx, "/discover/trending", params)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
+	return c.doGet(ctx, "/discover/"+category, params)
 }
 
 func (c *Client) GetMovie(ctx context.Context, movieID int) (json.RawMessage, error) {
-	body, err := c.doGet(ctx, fmt.Sprintf("/movie/%d", movieID), nil)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
+	return c.doGet(ctx, fmt.Sprintf("/movie/%d", movieID), nil)
 }
 
 func (c *Client) GetTV(ctx context.Context, tvID int) (json.RawMessage, error) {
-	body, err := c.doGet(ctx, fmt.Sprintf("/tv/%d", tvID), nil)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
+	return c.doGet(ctx, fmt.Sprintf("/tv/%d", tvID), nil)
 }
 
 func (c *Client) GetTVSeason(ctx context.Context, tvID, seasonNumber int) (json.RawMessage, error) {
-	body, err := c.doGet(ctx, fmt.Sprintf("/tv/%d/season/%d", tvID, seasonNumber), nil)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
+	return c.doGet(ctx, fmt.Sprintf("/tv/%d/season/%d", tvID, seasonNumber), nil)
 }
 
 func (c *Client) ListRequests(ctx context.Context, take, skip int, filter, sort string) (json.RawMessage, error) {
@@ -205,38 +148,22 @@ func (c *Client) ListRequests(ctx context.Context, take, skip int, filter, sort 
 	if sort != "" {
 		params.Set("sort", sort)
 	}
-	body, err := c.doGet(ctx, "/request", params)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
+	return c.doGet(ctx, "/request", params)
 }
 
 func (c *Client) RequestCount(ctx context.Context) (json.RawMessage, error) {
-	body, err := c.doGet(ctx, "/request/count", nil)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
+	return c.doGet(ctx, "/request/count", nil)
 }
 
 func (c *Client) CreateRequest(ctx context.Context, reqBody json.RawMessage) (json.RawMessage, error) {
-	body, err := c.doPost(ctx, "/request", reqBody)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
+	return c.doPost(ctx, "/request", reqBody)
 }
 
 func (c *Client) UpdateRequestStatus(ctx context.Context, requestID int, status string) (json.RawMessage, error) {
 	if status != "approve" && status != "decline" {
 		return nil, fmt.Errorf("invalid status: must be 'approve' or 'decline'")
 	}
-	body, err := c.doPost(ctx, fmt.Sprintf("/request/%d/%s", requestID, status), nil)
-	if err != nil {
-		return nil, err
-	}
-	return json.RawMessage(body), nil
+	return c.doPost(ctx, fmt.Sprintf("/request/%d/%s", requestID, status), nil)
 }
 
 func (c *Client) DeleteRequest(ctx context.Context, requestID int) error {

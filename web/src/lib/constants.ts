@@ -21,6 +21,12 @@ export const plexBtnClass = 'px-4 py-2.5 text-sm font-semibold rounded-lg bg-[#e
 
 export const inputClass = 'w-full px-3 py-2 rounded-lg border border-border dark:border-border-dark bg-surface dark:bg-surface-dark focus:outline-none focus:ring-2 focus:ring-accent'
 
+export const formInputClass = `w-full px-3 py-2.5 rounded-lg text-sm font-mono
+  bg-surface dark:bg-surface-dark
+  border border-border dark:border-border-dark
+  focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
+  transition-colors placeholder:text-muted/40 dark:placeholder:text-muted-dark/40`
+
 export const navLinks = [
   { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', adminOnly: false },
   { to: '/requests', label: 'Requests', icon: 'Film', adminOnly: false },

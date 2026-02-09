@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState } from 'react'
 import type { OverseerrSettings } from '../types'
 import { api } from '../lib/api'
+import { formInputClass } from '../lib/constants'
+import { useModal } from '../hooks/useModal'
 
 interface OverseerrFormProps {
   settings?: OverseerrSettings
@@ -18,15 +20,9 @@ interface TestResult {
   error?: string
 }
 
-const inputClass = `w-full px-3 py-2.5 rounded-lg text-sm font-mono
-  bg-surface dark:bg-surface-dark
-  border border-border dark:border-border-dark
-  focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-  transition-colors placeholder:text-muted/40 dark:placeholder:text-muted-dark/40`
-
 export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps) {
   const isEdit = !!settings?.url
-  const modalRef = useRef<HTMLDivElement>(null)
+  const modalRef = useModal(onClose)
 
   const [form, setForm] = useState<FormData>({
     url: settings?.url ?? '',
@@ -36,50 +32,7 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
-  const [justSaved, setJustSaved] = useState(false)
   const busy = saving || testing
-
-  const handleClose = useCallback(() => {
-    if (justSaved) onSaved()
-    onClose()
-  }, [justSaved, onSaved, onClose])
-
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') handleClose()
-  }, [handleClose])
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleEscape)
-    const previouslyFocused = document.activeElement as HTMLElement | null
-    modalRef.current?.querySelector<HTMLElement>('input, button')?.focus()
-    return () => {
-      document.removeEventListener('keydown', handleEscape)
-      previouslyFocused?.focus()
-    }
-  }, [handleEscape])
-
-  useEffect(() => {
-    const modal = modalRef.current
-    if (!modal) return
-    function trapFocus(e: KeyboardEvent) {
-      if (e.key !== 'Tab') return
-      const focusable = modal!.querySelectorAll<HTMLElement>(
-        'input, select, button, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', trapFocus)
-    return () => document.removeEventListener('keydown', trapFocus)
-  }, [])
 
   function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -105,7 +58,8 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
         url: form.url.trim(),
         api_key: form.api_key,
       })
-      setJustSaved(true)
+      onClose()
+      onSaved()
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -133,12 +87,12 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
     }
   }
 
-  const saveLabel = saving ? 'Saving...' : justSaved ? 'Saved' : 'Save'
+  const saveLabel = saving ? 'Saving...' : 'Save'
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onClick={e => { if (e.target === e.currentTarget) handleClose() }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
       role="dialog"
       aria-modal="true"
       aria-label={isEdit ? 'Edit Overseerr Settings' : 'Configure Overseerr'}
@@ -154,7 +108,7 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
             {isEdit ? 'Edit Overseerr Settings' : 'Configure Overseerr'}
           </h2>
           <button
-            onClick={handleClose}
+            onClick={onClose}
             aria-label="Close"
             className="text-muted dark:text-muted-dark hover:text-gray-800
                        dark:hover:text-gray-100 transition-colors text-xl leading-none"
@@ -172,7 +126,7 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
               value={form.url}
               onChange={e => setField('url', e.target.value)}
               placeholder="http://localhost:5055"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 
@@ -184,7 +138,7 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
               value={form.api_key}
               onChange={e => setField('api_key', e.target.value)}
               placeholder={isEdit ? '(unchanged)' : 'Enter API key'}
-              className={inputClass}
+              className={formInputClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">
               Found in Overseerr Settings &rarr; General &rarr; API Key
@@ -223,7 +177,7 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
             <div className="flex-1" />
             <button
               type="button"
-              onClick={handleClose}
+              onClick={onClose}
               aria-label="Cancel"
               className="px-4 py-2.5 text-sm font-medium rounded-lg
                          border border-border dark:border-border-dark
@@ -233,7 +187,7 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
             </button>
             <button
               type="submit"
-              disabled={busy || justSaved}
+              disabled={busy}
               className="px-5 py-2.5 text-sm font-semibold rounded-lg
                          bg-accent text-gray-900 hover:bg-accent/90
                          disabled:opacity-50 transition-colors"

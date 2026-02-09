@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState } from 'react'
 import type { Server, ServerType } from '../types'
 import { api } from '../lib/api'
+import { formInputClass } from '../lib/constants'
+import { useModal } from '../hooks/useModal'
 import { PlexSignIn } from './PlexSignIn'
 
 interface ServerFormProps {
@@ -35,15 +37,9 @@ function isValidServerType(value: string): value is ServerType {
   return serverTypes.some(t => t.value === value)
 }
 
-const inputClass = `w-full px-3 py-2.5 rounded-lg text-sm font-mono
-  bg-surface dark:bg-surface-dark
-  border border-border dark:border-border-dark
-  focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-  transition-colors placeholder:text-muted/40 dark:placeholder:text-muted-dark/40`
-
 export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
   const isEdit = !!server
-  const modalRef = useRef<HTMLDivElement>(null)
+  const modalRef = useModal(onClose)
   const [form, setForm] = useState<FormData>({
     name: server?.name ?? '',
     type: server?.type ?? 'plex',
@@ -58,43 +54,6 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
   const busy = saving || testing
-
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') onClose()
-  }, [onClose])
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleEscape)
-    const previouslyFocused = document.activeElement as HTMLElement | null
-    modalRef.current?.querySelector<HTMLElement>('input, select, button')?.focus()
-    return () => {
-      document.removeEventListener('keydown', handleEscape)
-      previouslyFocused?.focus()
-    }
-  }, [handleEscape])
-
-  useEffect(() => {
-    const modal = modalRef.current
-    if (!modal) return
-    function trapFocus(e: KeyboardEvent) {
-      if (e.key !== 'Tab') return
-      const focusable = modal!.querySelectorAll<HTMLElement>(
-        'input, select, button, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', trapFocus)
-    return () => document.removeEventListener('keydown', trapFocus)
-  }, [])
 
   function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -219,7 +178,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
               value={form.name}
               onChange={e => setField('name', e.target.value)}
               placeholder="My Plex Server"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 
@@ -229,7 +188,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
               id="srv-type"
               value={form.type}
               onChange={e => handleTypeChange(e.target.value)}
-              className={inputClass}
+              className={formInputClass}
             >
               {serverTypes.map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -254,7 +213,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
               value={form.url}
               onChange={e => setField('url', e.target.value)}
               placeholder="http://192.168.1.100:32400"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 
@@ -266,7 +225,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
               value={form.api_key}
               onChange={e => setField('api_key', e.target.value)}
               placeholder={isEdit ? '(unchanged)' : 'Enter API key'}
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 
@@ -287,7 +246,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
                 value={form.machine_id}
                 readOnly
                 placeholder="Click 'Test Connection' to populate"
-                className={`${inputClass} ${!form.machine_id ? 'border-amber-400 dark:border-amber-500' : ''} bg-gray-100 dark:bg-gray-800 cursor-not-allowed`}
+                className={`${formInputClass} ${!form.machine_id ? 'border-amber-400 dark:border-amber-500' : ''} bg-gray-100 dark:bg-gray-800 cursor-not-allowed`}
               />
               {!form.machine_id && (
                 <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">

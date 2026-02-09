@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -208,7 +209,21 @@ func (s *Server) handleOverseerrSearch(w http.ResponseWriter, r *http.Request) {
 	writeRawJSON(w, http.StatusOK, data)
 }
 
-func (s *Server) handleOverseerrDiscoverTrending(w http.ResponseWriter, r *http.Request) {
+var allowedDiscoverCategories = map[string]bool{
+	"trending":        true,
+	"movies":          true,
+	"movies/upcoming": true,
+	"tv":              true,
+	"tv/upcoming":     true,
+}
+
+func (s *Server) handleOverseerrDiscover(w http.ResponseWriter, r *http.Request) {
+	category := chi.URLParam(r, "*")
+	if strings.Contains(category, "..") || !allowedDiscoverCategories[category] {
+		writeError(w, http.StatusNotFound, "unknown discover category")
+		return
+	}
+
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 
 	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
@@ -217,7 +232,7 @@ func (s *Server) handleOverseerrDiscoverTrending(w http.ResponseWriter, r *http.
 	}
 	defer cancel()
 
-	data, err := client.DiscoverTrending(ctx, page)
+	data, err := client.Discover(ctx, category, page)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return

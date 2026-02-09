@@ -8,11 +8,6 @@ interface UseDebouncedSearchResult {
   resetSearch: () => void
 }
 
-/**
- * Hook for debounced search input with optional callback on search change.
- * @param onSearchChange - Called when the debounced search value changes.
- *                         Use a stable reference (useCallback) to avoid unnecessary effect triggers.
- */
 export function useDebouncedSearch(onSearchChange?: () => void): UseDebouncedSearchResult {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')

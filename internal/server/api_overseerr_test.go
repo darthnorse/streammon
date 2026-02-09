@@ -6,10 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"streammon/internal/auth"
-	"streammon/internal/models"
 	"streammon/internal/store"
 )
 
@@ -27,7 +25,7 @@ func mockOverseerr(t *testing.T) *httptest.Server {
 				"page": 1, "totalPages": 1, "totalResults": 1,
 				"results": []map[string]any{{"id": 1, "mediaType": "movie", "title": "Test"}},
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/discover/trending":
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/discover/"):
 			json.NewEncoder(w).Encode(map[string]any{
 				"page": 1, "totalPages": 1, "totalResults": 1,
 				"results": []map[string]any{{"id": 2, "mediaType": "tv", "name": "Trending"}},
@@ -72,6 +70,15 @@ func configureOverseerr(t *testing.T, st *store.Store, mockURL string) {
 		t.Fatal(err)
 	}
 }
+
+func newOverseerrTestServer(t *testing.T) (http.Handler, *store.Store, func()) {
+	t.Helper()
+	mock := mockOverseerr(t)
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+	return srv, st, mock.Close
+}
+
 
 func TestGetOverseerrSettings_Empty(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
@@ -198,11 +205,8 @@ func TestUpdateOverseerrSettings_InvalidURL(t *testing.T) {
 }
 
 func TestOverseerrSearch_Success(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/search?query=test", nil)
 	w := httptest.NewRecorder()
@@ -220,28 +224,52 @@ func TestOverseerrSearch_Success(t *testing.T) {
 	}
 }
 
-func TestOverseerrDiscoverTrending(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
+func TestOverseerrDiscoverCategories(t *testing.T) {
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	categories := []string{
+		"trending",
+		"movies",
+		"movies/upcoming",
+		"tv",
+		"tv/upcoming",
+	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/discover/trending", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
+	for _, cat := range categories {
+		t.Run(cat, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/overseerr/discover/"+cat, nil)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200 for %s, got %d: %s", cat, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestOverseerrDiscoverInvalidCategory(t *testing.T) {
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
+
+	invalid := []string{"evil", "../admin", "movies/evil", "tv/../secrets"}
+	for _, cat := range invalid {
+		t.Run(cat, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/overseerr/discover/"+cat, nil)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusNotFound {
+				t.Fatalf("expected 404 for %q, got %d: %s", cat, w.Code, w.Body.String())
+			}
+		})
 	}
 }
 
 func TestOverseerrGetMovie(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/movie/27205", nil)
 	w := httptest.NewRecorder()
@@ -272,11 +300,8 @@ func TestOverseerrGetMovie_InvalidID(t *testing.T) {
 }
 
 func TestOverseerrGetTV(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/tv/1399", nil)
 	w := httptest.NewRecorder()
@@ -288,11 +313,8 @@ func TestOverseerrGetTV(t *testing.T) {
 }
 
 func TestOverseerrGetTVSeason(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/tv/1399/season/1", nil)
 	w := httptest.NewRecorder()
@@ -304,11 +326,8 @@ func TestOverseerrGetTVSeason(t *testing.T) {
 }
 
 func TestOverseerrListRequests(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests?take=10&filter=all&sort=added", nil)
 	w := httptest.NewRecorder()
@@ -320,10 +339,8 @@ func TestOverseerrListRequests(t *testing.T) {
 }
 
 func TestOverseerrListRequests_InvalidFilter(t *testing.T) {
-	srv, st := newTestServerWrapped(t)
-	mock := mockOverseerr(t)
-	defer mock.Close()
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests?filter=evil", nil)
 	w := httptest.NewRecorder()
@@ -335,10 +352,8 @@ func TestOverseerrListRequests_InvalidFilter(t *testing.T) {
 }
 
 func TestOverseerrListRequests_InvalidSort(t *testing.T) {
-	srv, st := newTestServerWrapped(t)
-	mock := mockOverseerr(t)
-	defer mock.Close()
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests?sort=evil", nil)
 	w := httptest.NewRecorder()
@@ -350,11 +365,8 @@ func TestOverseerrListRequests_InvalidSort(t *testing.T) {
 }
 
 func TestOverseerrListRequests_TakeCapped(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests?take=999999", nil)
 	w := httptest.NewRecorder()
@@ -367,11 +379,8 @@ func TestOverseerrListRequests_TakeCapped(t *testing.T) {
 }
 
 func TestOverseerrRequestCount(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests/count", nil)
 	w := httptest.NewRecorder()
@@ -390,11 +399,8 @@ func TestOverseerrRequestCount(t *testing.T) {
 }
 
 func TestOverseerrCreateRequest_Movie(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	body := `{"mediaType":"movie","mediaId":27205}`
 	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
@@ -407,11 +413,8 @@ func TestOverseerrCreateRequest_Movie(t *testing.T) {
 }
 
 func TestOverseerrCreateRequest_TV(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	body := `{"mediaType":"tv","mediaId":1399,"seasons":[1,2,3]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
@@ -463,11 +466,8 @@ func TestOverseerrCreateRequest_InvalidJSON(t *testing.T) {
 }
 
 func TestOverseerrCreateRequest_ExtraFieldsStripped(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	// Include extra fields that should be stripped by the typed struct
 	body := `{"mediaType":"movie","mediaId":27205,"userId":999,"rootFolder":"/evil","serverId":42}`
@@ -481,11 +481,8 @@ func TestOverseerrCreateRequest_ExtraFieldsStripped(t *testing.T) {
 }
 
 func TestOverseerrApproveRequest(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests/1/approve", nil)
 	w := httptest.NewRecorder()
@@ -497,11 +494,8 @@ func TestOverseerrApproveRequest(t *testing.T) {
 }
 
 func TestOverseerrDeclineRequest(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests/1/decline", nil)
 	w := httptest.NewRecorder()
@@ -513,11 +507,8 @@ func TestOverseerrDeclineRequest(t *testing.T) {
 }
 
 func TestOverseerrDeleteRequest(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServerWrapped(t)
-	configureOverseerr(t, st, mock.URL)
+	srv, _, cleanup := newOverseerrTestServer(t)
+	defer cleanup()
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/overseerr/requests/1", nil)
 	w := httptest.NewRecorder()
@@ -535,14 +526,7 @@ func TestOverseerrConfigured_ViewerCanAccess(t *testing.T) {
 	defer mock.Close()
 	configureOverseerr(t, st, mock.URL)
 
-	viewer, err := st.CreateLocalUser("viewer-cfg", "viewer-cfg@test.local", "", models.RoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	viewerToken, err := st.CreateSession(viewer.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
+	viewerToken := createViewerSession(t, st, "viewer-cfg")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/configured", nil)
 	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
@@ -578,81 +562,34 @@ func TestOverseerrConfigured_NotConfigured(t *testing.T) {
 	}
 }
 
-func TestOverseerrApproveRequest_ViewerForbidden(t *testing.T) {
+func TestOverseerrAdminActions_ViewerForbidden(t *testing.T) {
 	mock := mockOverseerr(t)
 	defer mock.Close()
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
+	viewerToken := createViewerSession(t, st, "viewer")
 
-	// Create a viewer user
-	viewer, err := st.CreateLocalUser("viewer", "viewer@test.local", "", models.RoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	viewerToken, err := st.CreateSession(viewer.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests/1/approve", nil)
-	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for viewer on approve, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestOverseerrDeclineRequest_ViewerForbidden(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServer(t)
-	configureOverseerr(t, st, mock.URL)
-
-	viewer, err := st.CreateLocalUser("viewer2", "viewer2@test.local", "", models.RoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	viewerToken, err := st.CreateSession(viewer.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"approve", http.MethodPost, "/api/overseerr/requests/1/approve"},
+		{"decline", http.MethodPost, "/api/overseerr/requests/1/decline"},
+		{"delete", http.MethodDelete, "/api/overseerr/requests/1"},
 	}
 
-	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests/1/decline", nil)
-	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for viewer on decline, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestOverseerrDeleteRequest_ViewerForbidden(t *testing.T) {
-	mock := mockOverseerr(t)
-	defer mock.Close()
-
-	srv, st := newTestServer(t)
-	configureOverseerr(t, st, mock.URL)
-
-	viewer, err := st.CreateLocalUser("viewer3", "viewer3@test.local", "", models.RoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	viewerToken, err := st.CreateSession(viewer.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/overseerr/requests/1", nil)
-	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("expected 403 for viewer on delete, got %d: %s", w.Code, w.Body.String())
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403 for viewer on %s, got %d: %s", tt.name, w.Code, w.Body.String())
+			}
+		})
 	}
 }

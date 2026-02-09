@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { getClientId, requestPin, checkPin, getAuthUrl } from '../lib/plexOAuth'
 import { api } from '../lib/api'
 import { plexBtnClass } from '../lib/constants'
+import { errorMessage } from '../lib/utils'
 import type { User } from '../types'
 
 interface PlexAuthFlowProps {
@@ -13,11 +14,6 @@ interface PlexAuthFlowProps {
 }
 
 type Phase = 'idle' | 'polling' | 'submitting'
-
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
-  return String(err)
-}
 
 export function PlexAuthFlow({
   onSuccess,

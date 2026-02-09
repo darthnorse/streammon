@@ -65,6 +65,7 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-surface dark:bg-surface-dark p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
+          <img src="/android-chrome-192x192.png" alt="StreamMon" className="w-16 h-16 mx-auto mb-4" />
           <h1 className="text-3xl font-bold mb-2">StreamMon</h1>
           <p className="text-muted dark:text-muted-dark">Sign in to continue</p>
         </div>

@@ -4,7 +4,24 @@ import { renderWithRouter } from '../test-utils'
 import { Layout } from '../components/Layout'
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { name: 'admin', role: 'admin' }, loading: false, logout: vi.fn() }),
+  useAuth: () => ({
+    user: {
+      id: 1,
+      name: 'admin',
+      email: 'admin@test.local',
+      role: 'admin',
+      thumb_url: '',
+      has_password: true,
+      created_at: '',
+      updated_at: '',
+    },
+    loading: false,
+    setupRequired: false,
+    setUser: vi.fn(),
+    clearSetupRequired: vi.fn(),
+    refreshUser: vi.fn(),
+    logout: vi.fn(),
+  }),
 }))
 
 describe('Layout', () => {

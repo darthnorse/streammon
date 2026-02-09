@@ -6,6 +6,7 @@ import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
 import { api } from '../lib/api'
 import { PER_PAGE_OPTIONS } from '../lib/constants'
+import { errorMessage } from '../lib/utils'
 import { formatCount, formatSize } from '../lib/format'
 import { Pagination } from '../components/Pagination'
 import {
@@ -1204,7 +1205,7 @@ function RuleFormView({
       }
       onSaved()
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'create'} rule`)
+      setError(errorMessage(err))
     } finally {
       setSaving(false)
     }

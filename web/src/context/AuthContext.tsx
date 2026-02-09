@@ -13,6 +13,7 @@ interface AuthContextValue {
   setupRequired: boolean
   setUser: (user: User) => void
   clearSetupRequired: () => void
+  refreshUser: () => Promise<void>
   logout: () => Promise<void>
 }
 
@@ -22,6 +23,7 @@ const AuthContext = createContext<AuthContextValue>({
   setupRequired: false,
   setUser: () => {},
   clearSetupRequired: () => {},
+  refreshUser: async () => {},
   logout: async () => {},
 })
 
@@ -62,6 +64,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSetupRequired(false)
   }
 
+  const refreshUser = async () => {
+    try {
+      const u = await api.get<User>('/api/me')
+      setUser(u)
+    } catch {
+      // Ignore - user may have been logged out
+    }
+  }
+
   const logout = async () => {
     try {
       await api.post('/auth/logout')
@@ -72,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, setupRequired, setUser, clearSetupRequired, logout }}>
+    <AuthContext.Provider value={{ user, loading, setupRequired, setUser, clearSetupRequired, refreshUser, logout }}>
       {children}
     </AuthContext.Provider>
   )

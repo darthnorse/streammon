@@ -225,8 +225,10 @@ func (s *Store) GetOrLinkUser(email string, namesToTry []string, displayName, pr
 				return &existingUser, nil
 			}
 			// User exists with different provider - fall through to create new account
+			// Clear email since it belongs to the existing user
 			log.Printf("info: user %s already linked to %s, creating new account for %s login",
 				existingUser.Name, existingProvider, provider)
+			email = ""
 		}
 	}
 
@@ -354,6 +356,44 @@ func (s *Store) CreateFirstAdmin(username, email, passwordHash, provider, provid
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}, nil
+}
+
+// ErrEmailInUse is returned when a user tries to set an email already used by another user
+var ErrEmailInUse = errors.New("email already in use")
+
+// GetPasswordHashByUserID retrieves just the password hash for a user by ID
+func (s *Store) GetPasswordHashByUserID(userID int64) (string, error) {
+	var passwordHash sql.NullString
+	err := s.db.QueryRow(
+		`SELECT password_hash FROM users WHERE id = ?`, userID,
+	).Scan(&passwordHash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("user %d: %w", userID, models.ErrNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("getting password hash: %w", err)
+	}
+	return passwordHash.String, nil
+}
+
+// UpdateUserEmail updates a user's email address.
+// Returns ErrEmailInUse if another user already has this email.
+func (s *Store) UpdateUserEmail(userID int64, email string) error {
+	result, err := s.db.Exec(
+		`UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		email, userID,
+	)
+	if err != nil {
+		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
+			return ErrEmailInUse
+		}
+		return fmt.Errorf("updating email: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("user %d: %w", userID, models.ErrNotFound)
+	}
+	return nil
 }
 
 // GetPlexGuestAccess returns whether Plex guests are allowed

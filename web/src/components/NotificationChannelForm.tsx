@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import type { NotificationChannel, ChannelType } from '../types'
 import { api } from '../lib/api'
+import { formInputClass } from '../lib/constants'
+import { useModal } from '../hooks/useModal'
 
 interface NotificationChannelFormProps {
   channel?: NotificationChannel | null
@@ -15,12 +17,6 @@ const CHANNEL_TYPES: { value: ChannelType; label: string }[] = [
   { value: 'ntfy', label: 'Ntfy' },
 ]
 
-const inputClass = `w-full px-3 py-2.5 rounded-lg text-sm font-mono
-  bg-surface dark:bg-surface-dark
-  border border-border dark:border-border-dark
-  focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-  transition-colors placeholder:text-muted/40 dark:placeholder:text-muted-dark/40`
-
 const selectClass = `w-full px-3 py-2.5 rounded-lg text-sm
   bg-surface dark:bg-surface-dark
   border border-border dark:border-border-dark
@@ -29,7 +25,7 @@ const selectClass = `w-full px-3 py-2.5 rounded-lg text-sm
 
 export function NotificationChannelForm({ channel, onClose, onSaved }: NotificationChannelFormProps) {
   const isEdit = !!channel?.id
-  const modalRef = useRef<HTMLDivElement>(null)
+  const modalRef = useModal(onClose)
 
   const [name, setName] = useState(channel?.name ?? '')
   const [channelType, setChannelType] = useState<ChannelType>(channel?.channel_type ?? 'discord')
@@ -39,15 +35,6 @@ export function NotificationChannelForm({ channel, onClose, onSaved }: Notificat
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null)
-
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handleEscape)
-    modalRef.current?.querySelector<HTMLElement>('input')?.focus()
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [onClose])
 
   useEffect(() => {
     if (!channel) {
@@ -141,7 +128,7 @@ export function NotificationChannelForm({ channel, onClose, onSaved }: Notificat
               value={name}
               onChange={e => setName(e.target.value)}
               placeholder="My Discord"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 
@@ -278,7 +265,7 @@ function renderConfigFields(
             value={(config.webhook_url as string) ?? ''}
             onChange={e => updateField('webhook_url', e.target.value)}
             placeholder="https://discord.com/api/webhooks/..."
-            className={inputClass}
+            className={formInputClass}
           />
           <p className="text-xs text-muted dark:text-muted-dark mt-1">
             Server Settings &rarr; Integrations &rarr; Webhooks
@@ -296,7 +283,7 @@ function renderConfigFields(
               value={(config.url as string) ?? ''}
               onChange={e => updateField('url', e.target.value)}
               placeholder="https://example.com/webhook"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
           <div>
@@ -323,7 +310,7 @@ function renderConfigFields(
               value={(config.user_key as string) ?? ''}
               onChange={e => updateField('user_key', e.target.value)}
               placeholder="Your Pushover user key"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
           <div>
@@ -333,7 +320,7 @@ function renderConfigFields(
               value={(config.api_token as string) ?? ''}
               onChange={e => updateField('api_token', e.target.value)}
               placeholder="Your Pushover API token"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
         </div>
@@ -349,7 +336,7 @@ function renderConfigFields(
               value={(config.server_url as string) ?? 'https://ntfy.sh'}
               onChange={e => updateField('server_url', e.target.value)}
               placeholder="https://ntfy.sh"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
           <div>
@@ -359,7 +346,7 @@ function renderConfigFields(
               value={(config.topic as string) ?? ''}
               onChange={e => updateField('topic', e.target.value)}
               placeholder="my-streammon-alerts"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
           <div>
@@ -369,7 +356,7 @@ function renderConfigFields(
               value={(config.token as string) ?? ''}
               onChange={e => updateField('token', e.target.value)}
               placeholder="For authenticated topics"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
         </div>

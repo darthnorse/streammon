@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../lib/api'
+import { formInputClass } from '../lib/constants'
 
 export interface MaxMindSettings {
   license_key: string
@@ -11,12 +12,6 @@ interface MaxMindFormProps {
   settings: MaxMindSettings | null
   onSaved: () => void
 }
-
-const inputClass = `w-full px-3 py-2.5 rounded-lg text-sm font-mono
-  bg-surface dark:bg-surface-dark
-  border border-border dark:border-border-dark
-  focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-  transition-colors placeholder:text-muted/40 dark:placeholder:text-muted-dark/40`
 
 export function MaxMindForm({ settings, onSaved }: MaxMindFormProps) {
   const [key, setKey] = useState('')
@@ -88,7 +83,7 @@ export function MaxMindForm({ settings, onSaved }: MaxMindFormProps) {
             value={key}
             onChange={e => { setKey(e.target.value); setError('') }}
             placeholder="Enter MaxMind license key"
-            className={inputClass}
+            className={formInputClass}
           />
         </div>
 

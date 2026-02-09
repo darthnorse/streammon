@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState } from 'react'
 import type { OIDCSettings } from '../types'
 import { api } from '../lib/api'
+import { formInputClass } from '../lib/constants'
+import { useModal } from '../hooks/useModal'
 
 interface OIDCFormProps {
   settings?: OIDCSettings
@@ -20,15 +22,9 @@ interface TestResult {
   error?: string
 }
 
-const inputClass = `w-full px-3 py-2.5 rounded-lg text-sm font-mono
-  bg-surface dark:bg-surface-dark
-  border border-border dark:border-border-dark
-  focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-  transition-colors placeholder:text-muted/40 dark:placeholder:text-muted-dark/40`
-
 export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
   const isEdit = !!settings?.issuer
-  const modalRef = useRef<HTMLDivElement>(null)
+  const modalRef = useModal(onClose)
   const [form, setForm] = useState<FormData>({
     issuer: settings?.issuer ?? '',
     client_id: settings?.client_id ?? '',
@@ -40,43 +36,6 @@ export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
   const busy = saving || testing
-
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') onClose()
-  }, [onClose])
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleEscape)
-    const previouslyFocused = document.activeElement as HTMLElement | null
-    modalRef.current?.querySelector<HTMLElement>('input, button')?.focus()
-    return () => {
-      document.removeEventListener('keydown', handleEscape)
-      previouslyFocused?.focus()
-    }
-  }, [handleEscape])
-
-  useEffect(() => {
-    const modal = modalRef.current
-    if (!modal) return
-    function trapFocus(e: KeyboardEvent) {
-      if (e.key !== 'Tab') return
-      const focusable = modal!.querySelectorAll<HTMLElement>(
-        'input, select, button, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', trapFocus)
-    return () => document.removeEventListener('keydown', trapFocus)
-  }, [])
 
   function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -180,7 +139,7 @@ export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
               value={form.issuer}
               onChange={e => setField('issuer', e.target.value)}
               placeholder="https://accounts.google.com"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 
@@ -192,7 +151,7 @@ export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
               value={form.client_id}
               onChange={e => setField('client_id', e.target.value)}
               placeholder="your-client-id"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 
@@ -204,7 +163,7 @@ export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
               value={form.client_secret}
               onChange={e => setField('client_secret', e.target.value)}
               placeholder={isEdit ? '(unchanged)' : 'Enter client secret'}
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 
@@ -216,7 +175,7 @@ export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
               value={form.redirect_url}
               onChange={e => setField('redirect_url', e.target.value)}
               placeholder="https://streammon.example.com/auth/callback"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 

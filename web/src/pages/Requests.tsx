@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
+import { useHorizontalScroll } from '../hooks/useHorizontalScroll'
 import { useAuth } from '../context/AuthContext'
 import { EmptyState } from '../components/EmptyState'
 import { OverseerrDetailModal } from '../components/OverseerrDetailModal'
@@ -16,7 +17,17 @@ import type {
 
 type Tab = 'discover' | 'requests'
 
-function MediaCard({ item, onClick }: { item: OverseerrMediaResult; onClick: () => void }) {
+const searchGrid = 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8 gap-3'
+
+const DISCOVER_CATEGORIES = [
+  { path: 'trending', title: 'Trending' },
+  { path: 'movies', title: 'Popular Movies' },
+  { path: 'movies/upcoming', title: 'Upcoming Movies' },
+  { path: 'tv', title: 'Popular Series' },
+  { path: 'tv/upcoming', title: 'Upcoming Series' },
+] as const
+
+function MediaCard({ item, onClick, className }: { item: OverseerrMediaResult; onClick: () => void; className?: string }) {
   const title = item.title || item.name || 'Unknown'
   const year = item.releaseDate?.slice(0, 4) || item.firstAirDate?.slice(0, 4)
   const mediaStatus = item.mediaInfo?.status
@@ -24,43 +35,43 @@ function MediaCard({ item, onClick }: { item: OverseerrMediaResult; onClick: () 
   return (
     <button
       onClick={onClick}
-      className="text-left group relative rounded-lg overflow-hidden
+      className={`text-left group relative rounded-lg overflow-hidden
                  bg-surface dark:bg-surface-dark border border-border dark:border-border-dark
                  hover:border-accent/40 transition-all duration-200 focus:outline-none
-                 focus:ring-2 focus:ring-accent/50"
+                 focus:ring-2 focus:ring-accent/50 ${className ?? ''}`}
     >
       <div className="aspect-[2/3] bg-gray-200 dark:bg-gray-800 relative">
         {item.posterPath ? (
           <img
-            src={`${TMDB_IMG}/w300${item.posterPath}`}
+            src={`${TMDB_IMG}/w185${item.posterPath}`}
             alt={title}
             className="w-full h-full object-cover"
             loading="lazy"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-muted dark:text-muted-dark text-3xl">
+          <div className="w-full h-full flex items-center justify-center text-muted dark:text-muted-dark text-xl">
             {item.mediaType === 'movie' ? '🎬' : '📺'}
           </div>
         )}
         {mediaStatus && mediaStatus > 1 && (
-          <div className="absolute top-2 right-2">
+          <div className="absolute top-1 right-1">
             {mediaStatusBadge(mediaStatus)}
           </div>
         )}
-        <div className="absolute top-2 left-2">
-          <span className="text-xs font-medium px-1.5 py-0.5 rounded bg-black/60 text-white">
+        <div className="absolute top-1 left-1">
+          <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-black/60 text-white">
             {item.mediaType === 'movie' ? 'Movie' : 'TV'}
           </span>
         </div>
       </div>
-      <div className="p-2.5">
-        <h3 className="text-sm font-medium truncate group-hover:text-accent transition-colors">
+      <div className="p-1.5">
+        <h3 className="text-xs font-medium truncate group-hover:text-accent transition-colors">
           {title}
         </h3>
-        <div className="flex items-center gap-2 mt-0.5">
-          {year && <span className="text-xs text-muted dark:text-muted-dark">{year}</span>}
+        <div className="flex items-center gap-1.5 mt-0.5">
+          {year && <span className="text-[10px] text-muted dark:text-muted-dark">{year}</span>}
           {item.voteAverage != null && item.voteAverage > 0 && (
-            <span className="text-xs text-muted dark:text-muted-dark">
+            <span className="text-[10px] text-muted dark:text-muted-dark">
               ★ {item.voteAverage.toFixed(1)}
             </span>
           )}
@@ -138,26 +149,110 @@ function RequestCard({
   )
 }
 
+function DiscoverSection({
+  title,
+  data,
+  loading,
+  onSelect,
+}: {
+  title: string
+  data: OverseerrSearchResult | null
+  loading: boolean
+  onSelect: (item: OverseerrMediaResult) => void
+}) {
+  const { canScrollLeft, canScrollRight, scrollBy, ...scrollHandlers } = useHorizontalScroll()
+  const items = data?.results?.filter(r => r.mediaType === 'movie' || r.mediaType === 'tv')
+  if (!loading && (!items || items.length === 0)) return null
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wider">
+          {title}
+        </h2>
+        {!loading && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => scrollBy('left')}
+              disabled={!canScrollLeft}
+              aria-label="Scroll left"
+              className="p-1.5 rounded-md text-gray-500 dark:text-gray-300
+                         hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/10
+                         disabled:opacity-20 disabled:pointer-events-none transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+              </svg>
+            </button>
+            <button
+              onClick={() => scrollBy('right')}
+              disabled={!canScrollRight}
+              aria-label="Scroll right"
+              className="p-1.5 rounded-md text-gray-500 dark:text-gray-300
+                         hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/10
+                         disabled:opacity-20 disabled:pointer-events-none transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+      {loading ? (
+        <div className="flex gap-3 overflow-hidden">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div key={i} className="shrink-0 w-[120px] rounded-lg overflow-hidden bg-surface dark:bg-surface-dark border border-border dark:border-border-dark">
+              <div className="aspect-[2/3] bg-gray-200 dark:bg-gray-800 animate-pulse" />
+              <div className="p-1.5 space-y-1.5">
+                <div className="h-3 bg-gray-200 dark:bg-gray-800 rounded animate-pulse w-3/4" />
+                <div className="h-2.5 bg-gray-200 dark:bg-gray-800 rounded animate-pulse w-1/2" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div
+          {...scrollHandlers}
+          className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 select-none"
+        >
+          {items!.map(item => (
+            <MediaCard
+              key={`${item.mediaType}-${item.id}`}
+              item={item}
+              onClick={() => onSelect(item)}
+              className="shrink-0 w-[120px]"
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DiscoverFetchSection({ path, title, onSelect }: {
+  path: string
+  title: string
+  onSelect: (item: OverseerrMediaResult) => void
+}) {
+  const { data, loading } = useFetch<OverseerrSearchResult>(`/api/overseerr/discover/${path}`)
+  return <DiscoverSection title={title} data={data} loading={loading} onSelect={onSelect} />
+}
+
 export function Requests() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
 
   const [tab, setTab] = useState<Tab>('discover')
   const [searchResults, setSearchResults] = useState<OverseerrSearchResult | null>(null)
-  const [trending, setTrending] = useState<OverseerrSearchResult | null>(null)
   const [searching, setSearching] = useState(false)
-  const [trendingLoading, setTrendingLoading] = useState(false)
-  const [trendingError, setTrendingError] = useState('')
   const [error, setError] = useState('')
   const [selectedItem, setSelectedItem] = useState<OverseerrMediaResult | null>(null)
 
   const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
   const configured = !!configStatus?.configured
 
-  const resetPage = useCallback(() => {
-    setSearchResults(null)
-  }, [])
-  const { searchInput, setSearchInput, search } = useDebouncedSearch(resetPage)
+  const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setSearchResults(null))
 
   const [requestFilter, setRequestFilter] = useState('all')
   const [requestsTick, setRequestsTick] = useState(0)
@@ -167,21 +262,6 @@ export function Requests() {
     : null
   const { data: requests, loading: requestsLoading } = useFetch<OverseerrRequestList>(requestsUrl)
   const { data: counts } = useFetch<OverseerrRequestCount>(configured ? '/api/overseerr/requests/count' : null)
-
-  useEffect(() => {
-    if (!configured) return
-    const controller = new AbortController()
-    setTrendingLoading(true)
-    api.get<OverseerrSearchResult>('/api/overseerr/discover/trending', controller.signal)
-      .then(data => setTrending(data))
-      .catch(err => {
-        if ((err as Error).name !== 'AbortError') {
-          setTrendingError((err as Error).message)
-        }
-      })
-      .finally(() => setTrendingLoading(false))
-    return () => controller.abort()
-  }, [configured])
 
   useEffect(() => {
     if (!search || !configured) {
@@ -221,9 +301,7 @@ export function Requests() {
     )
   }
 
-  const displayResults = search ? searchResults?.results : trending?.results
-  const filteredResults = displayResults?.filter(r => r.mediaType === 'movie' || r.mediaType === 'tv')
-  const isLoading = search ? searching : trendingLoading
+  const searchFiltered = searchResults?.results?.filter(r => r.mediaType === 'movie' || r.mediaType === 'tv')
 
   return (
     <div>
@@ -283,38 +361,42 @@ export function Requests() {
             />
           </div>
 
-          {(error || trendingError) && (
+          {error && (
             <div className="card p-4 mb-4 text-center text-red-500 dark:text-red-400">
-              {error || trendingError}
+              {error}
             </div>
           )}
 
-          {!search && !trendingLoading && trending && (
-            <h2 className="text-sm font-medium text-muted dark:text-muted-dark mb-3 uppercase tracking-wider">
-              Trending
-            </h2>
-          )}
+          {search ? (
+            <>
+              {searching && <EmptyState icon="&#8635;" title="Loading..." />}
 
-          {search && searchResults && !searching && (
-            <p className="text-sm text-muted dark:text-muted-dark mb-3">
-              {searchResults.totalResults} result{searchResults.totalResults !== 1 ? 's' : ''} for &ldquo;{search}&rdquo;
-            </p>
-          )}
+              {!searching && searchResults && (
+                <p className="text-sm text-muted dark:text-muted-dark mb-3">
+                  {searchResults.totalResults} result{searchResults.totalResults !== 1 ? 's' : ''} for &ldquo;{search}&rdquo;
+                </p>
+              )}
 
-          {isLoading && <EmptyState icon="&#8635;" title="Loading..." />}
+              {!searching && searchFiltered && searchFiltered.length === 0 && (
+                <EmptyState icon="&#128270;" title="No results" description={`Nothing found for "${search}"`} />
+              )}
 
-          {!isLoading && filteredResults && filteredResults.length === 0 && search && (
-            <EmptyState icon="&#128270;" title="No results" description={`Nothing found for "${search}"`} />
-          )}
-
-          {!isLoading && filteredResults && filteredResults.length > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-              {filteredResults.map(item => (
-                <MediaCard
-                  key={`${item.mediaType}-${item.id}`}
-                  item={item}
-                  onClick={() => setSelectedItem(item)}
-                />
+              {!searching && searchFiltered && searchFiltered.length > 0 && (
+                <div className={searchGrid}>
+                  {searchFiltered.map(item => (
+                    <MediaCard
+                      key={`${item.mediaType}-${item.id}`}
+                      item={item}
+                      onClick={() => setSelectedItem(item)}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="space-y-8">
+              {DISCOVER_CATEGORIES.map(cat => (
+                <DiscoverFetchSection key={cat.path} path={cat.path} title={cat.title} onSelect={setSelectedItem} />
               ))}
             </div>
           )}

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
 import { inputClass } from '../lib/constants'
+import { errorMessage } from '../lib/utils'
 import { useAuth } from '../context/AuthContext'
 import { PlexSignInSetup } from '../components/PlexSignInSetup'
 import type { User } from '../types'
@@ -40,7 +41,7 @@ export function Setup() {
       clearSetupRequired()
       navigate('/', { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Setup failed')
+      setError(errorMessage(err))
     } finally {
       setSubmitting(false)
     }
@@ -56,6 +57,7 @@ export function Setup() {
     <div className="min-h-screen flex items-center justify-center bg-surface dark:bg-surface-dark p-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
+          <img src="/android-chrome-192x192.png" alt="StreamMon" className="w-16 h-16 mx-auto mb-4" />
           <h1 className="text-3xl font-bold mb-2">Welcome to StreamMon</h1>
           <p className="text-muted dark:text-muted-dark">
             Let's set up your admin account to get started.

@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback, MutableRefObject } from 'react'
+import { useState, useEffect, useCallback, MutableRefObject, useRef } from 'react'
 import type { TautulliSettings, TautulliImportResult, Server } from '../types'
 import { api } from '../lib/api'
+import { formInputClass } from '../lib/constants'
+import { useModal } from '../hooks/useModal'
 import { useFetch } from '../hooks/useFetch'
 
 interface TautulliFormProps {
@@ -28,12 +30,6 @@ interface ImportProgress {
   error?: string
 }
 
-const inputClass = `w-full px-3 py-2.5 rounded-lg text-sm font-mono
-  bg-surface dark:bg-surface-dark
-  border border-border dark:border-border-dark
-  focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-  transition-colors placeholder:text-muted/40 dark:placeholder:text-muted-dark/40`
-
 const selectClass = `w-full px-3 py-2.5 rounded-lg text-sm
   bg-surface dark:bg-surface-dark
   border border-border dark:border-border-dark
@@ -42,7 +38,6 @@ const selectClass = `w-full px-3 py-2.5 rounded-lg text-sm
 
 export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) {
   const isEdit = !!settings?.url
-  const modalRef = useRef<HTMLDivElement>(null)
   const { data: allServers } = useFetch<Server[]>('/api/servers')
   const servers = allServers?.filter(s => s.type === 'plex')
 
@@ -69,42 +64,7 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
     onClose()
   }, [justSaved, onSaved, onClose])
 
-  const handleEscape = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') handleClose()
-  }, [handleClose])
-
-  useEffect(() => {
-    document.addEventListener('keydown', handleEscape)
-    const previouslyFocused = document.activeElement as HTMLElement | null
-    modalRef.current?.querySelector<HTMLElement>('input, button')?.focus()
-    return () => {
-      document.removeEventListener('keydown', handleEscape)
-      previouslyFocused?.focus()
-    }
-  }, [handleEscape])
-
-  useEffect(() => {
-    const modal = modalRef.current
-    if (!modal) return
-    function trapFocus(e: KeyboardEvent) {
-      if (e.key !== 'Tab') return
-      const focusable = modal!.querySelectorAll<HTMLElement>(
-        'input, select, button, textarea, [tabindex]:not([tabindex="-1"])'
-      )
-      if (focusable.length === 0) return
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault()
-        last.focus()
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault()
-        first.focus()
-      }
-    }
-    document.addEventListener('keydown', trapFocus)
-    return () => document.removeEventListener('keydown', trapFocus)
-  }, [])
+  const modalRef = useModal(handleClose)
 
   useEffect(() => {
     if (servers && servers.length > 0) {
@@ -290,7 +250,7 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
               value={form.url}
               onChange={e => setField('url', e.target.value)}
               placeholder="http://localhost:8181"
-              className={inputClass}
+              className={formInputClass}
             />
           </div>
 
@@ -302,7 +262,7 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
               value={form.api_key}
               onChange={e => setField('api_key', e.target.value)}
               placeholder={isEdit ? '(unchanged)' : 'Enter API key'}
-              className={inputClass}
+              className={formInputClass}
             />
             <p className="text-xs text-muted dark:text-muted-dark mt-1">
               Found in Tautulli Settings &rarr; Web Interface &rarr; API Key

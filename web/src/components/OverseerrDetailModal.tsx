@@ -14,6 +14,10 @@ interface OverseerrDetailModalProps {
   onClose: () => void
 }
 
+function regularSeasonNumbers(seasons: { seasonNumber: number }[]): number[] {
+  return seasons.filter(s => s.seasonNumber > 0).map(s => s.seasonNumber)
+}
+
 function getInitials(name: string): string {
   if (!name) return '?'
   return name.split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -85,10 +89,7 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
           const tvData = data as OverseerrTVDetails
           setTv(tvData)
           if (tvData.seasons) {
-            const seasonNums = tvData.seasons
-              .filter(s => s.seasonNumber > 0)
-              .map(s => s.seasonNumber)
-            setSelectedSeasons(seasonNums)
+            setSelectedSeasons(regularSeasonNumbers(tvData.seasons))
           }
         }
       })
@@ -122,7 +123,11 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
   }
 
   function toggleSeason(num: number) {
-    setAllSeasons(false)
+    if (allSeasons) {
+      setAllSeasons(false)
+      setSelectedSeasons([num])
+      return
+    }
     setSelectedSeasons(prev =>
       prev.includes(num) ? prev.filter(n => n !== num) : [...prev, num]
     )
@@ -135,7 +140,7 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
     } else {
       setAllSeasons(true)
       if (tv?.seasons) {
-        setSelectedSeasons(tv.seasons.filter(s => s.seasonNumber > 0).map(s => s.seasonNumber))
+        setSelectedSeasons(regularSeasonNumbers(tv.seasons))
       }
     }
   }
@@ -167,7 +172,7 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
       aria-labelledby="overseerr-modal-title"
     >
       <div
-        className="relative w-full max-w-3xl max-h-[90vh] overflow-hidden rounded-xl
+        className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl
                    bg-panel dark:bg-panel-dark shadow-2xl animate-slide-up"
         onClick={e => e.stopPropagation()}
       >
@@ -193,8 +198,7 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
         )}
 
         {!loading && !error && details && (
-          <div className="overflow-y-auto max-h-[90vh]">
-            {/* Backdrop */}
+          <div>
             {backdrop && (
               <div className="relative h-48 sm:h-64 overflow-hidden">
                 <img
@@ -206,10 +210,8 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
               </div>
             )}
 
-            {/* Content */}
             <div className={`p-5 sm:p-6 space-y-4 ${backdrop ? '-mt-20 relative' : ''}`}>
               <div className="flex gap-4">
-                {/* Poster */}
                 {poster && (
                   <div className="shrink-0 hidden sm:block">
                     <img
@@ -220,7 +222,6 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
                   </div>
                 )}
 
-                {/* Title + Meta */}
                 <div className="flex-1 min-w-0">
                   <h2 id="overseerr-modal-title" className="text-2xl font-bold">
                     {title}
@@ -296,7 +297,6 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
                 </div>
               )}
 
-              {/* TV Season Selector */}
               {mediaType === 'tv' && tv?.seasons && tv.seasons.length > 0 && canRequest && (
                 <div className="space-y-2 border-t border-border dark:border-border-dark pt-4">
                   <div className="text-sm font-medium">Select Seasons to Request</div>
@@ -331,29 +331,27 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
                 </div>
               )}
 
-              <div className="border-t border-border dark:border-border-dark pt-4">
-                {requestSuccess ? (
-                  <div className="text-sm text-green-600 dark:text-green-400 font-medium">
-                    Request submitted successfully!
-                  </div>
-                ) : alreadyRequested ? (
-                  <div className="text-sm text-muted dark:text-muted-dark">
-                    This title has already been requested or is available.
-                  </div>
-                ) : (
-                  <button
-                    onClick={handleRequest}
-                    disabled={requesting || (mediaType === 'tv' && !allSeasons && selectedSeasons.length === 0)}
-                    className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-accent text-gray-900
-                               hover:bg-accent/90 disabled:opacity-50 transition-colors"
-                  >
-                    {requesting ? 'Requesting...' : `Request ${mediaType === 'movie' ? 'Movie' : 'TV Show'}`}
-                  </button>
-                )}
-                {requestError && (
-                  <div className="text-sm text-red-500 dark:text-red-400 mt-2">{requestError}</div>
-                )}
-              </div>
+              {!alreadyRequested && (
+                <div className="border-t border-border dark:border-border-dark pt-4">
+                  {requestSuccess ? (
+                    <div className="text-sm text-green-600 dark:text-green-400 font-medium">
+                      Request submitted successfully!
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleRequest}
+                      disabled={requesting || (mediaType === 'tv' && !allSeasons && selectedSeasons.length === 0)}
+                      className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-accent text-gray-900
+                                 hover:bg-accent/90 disabled:opacity-50 transition-colors"
+                    >
+                      {requesting ? 'Requesting...' : `Request ${mediaType === 'movie' ? 'Movie' : 'TV Show'}`}
+                    </button>
+                  )}
+                  {requestError && (
+                    <div className="text-sm text-red-500 dark:text-red-400 mt-2">{requestError}</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

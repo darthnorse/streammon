@@ -21,6 +21,7 @@ export interface User {
   email: string
   role: Role
   thumb_url: string
+  has_password: boolean
   created_at: string
   updated_at: string
 }
@@ -798,17 +799,3 @@ export interface OverseerrRequestCount {
   available: number
 }
 
-export const OVERSEERR_MEDIA_STATUS: Record<number, { label: string; color: string }> = {
-  1: { label: 'Unknown', color: 'badge-muted' },
-  2: { label: 'Pending', color: 'bg-yellow-500/20 text-yellow-500' },
-  3: { label: 'Processing', color: 'bg-blue-500/20 text-blue-400' },
-  4: { label: 'Partial', color: 'bg-orange-500/20 text-orange-400' },
-  5: { label: 'Available', color: 'bg-green-500/20 text-green-400' },
-  6: { label: 'Deleted', color: 'bg-red-500/20 text-red-400' },
-}
-
-export const OVERSEERR_REQUEST_STATUS: Record<number, { label: string; color: string }> = {
-  1: { label: 'Pending', color: 'bg-yellow-500/20 text-yellow-500' },
-  2: { label: 'Approved', color: 'bg-green-500/20 text-green-400' },
-  3: { label: 'Declined', color: 'bg-red-500/20 text-red-400' },
-}

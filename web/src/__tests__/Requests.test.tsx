@@ -46,11 +46,12 @@ describe('Requests', () => {
   describe('when Overseerr is not configured', () => {
     it('shows not-configured message for admin with settings hint', async () => {
       mockUseAuth.mockReturnValue({
-        user: { id: 1, name: 'admin', email: '', role: 'admin', thumb_url: '', created_at: '', updated_at: '' },
+        user: { id: 1, name: 'admin', email: '', role: 'admin', thumb_url: '', has_password: false, created_at: '', updated_at: '' },
         loading: false,
         setupRequired: false,
         setUser: vi.fn(),
         clearSetupRequired: vi.fn(),
+        refreshUser: vi.fn(),
         logout: vi.fn(),
       })
       mockApiGet({ '/api/overseerr/configured': { configured: false } })
@@ -65,11 +66,12 @@ describe('Requests', () => {
 
     it('shows not-configured message for viewer with ask-admin hint', async () => {
       mockUseAuth.mockReturnValue({
-        user: { id: 2, name: 'viewer', email: '', role: 'viewer', thumb_url: '', created_at: '', updated_at: '' },
+        user: { id: 2, name: 'viewer', email: '', role: 'viewer', thumb_url: '', has_password: false, created_at: '', updated_at: '' },
         loading: false,
         setupRequired: false,
         setUser: vi.fn(),
         clearSetupRequired: vi.fn(),
+        refreshUser: vi.fn(),
         logout: vi.fn(),
       })
       mockApiGet({ '/api/overseerr/configured': { configured: false } })
@@ -96,11 +98,12 @@ describe('Requests', () => {
 
     it('shows discover tab with search input for admin', async () => {
       mockUseAuth.mockReturnValue({
-        user: { id: 1, name: 'admin', email: '', role: 'admin', thumb_url: '', created_at: '', updated_at: '' },
+        user: { id: 1, name: 'admin', email: '', role: 'admin', thumb_url: '', has_password: false, created_at: '', updated_at: '' },
         loading: false,
         setupRequired: false,
         setUser: vi.fn(),
         clearSetupRequired: vi.fn(),
+        refreshUser: vi.fn(),
         logout: vi.fn(),
       })
       mockApiGet({
@@ -118,11 +121,12 @@ describe('Requests', () => {
 
     it('shows discover tab with search input for viewer', async () => {
       mockUseAuth.mockReturnValue({
-        user: { id: 2, name: 'viewer', email: '', role: 'viewer', thumb_url: '', created_at: '', updated_at: '' },
+        user: { id: 2, name: 'viewer', email: '', role: 'viewer', thumb_url: '', has_password: false, created_at: '', updated_at: '' },
         loading: false,
         setupRequired: false,
         setUser: vi.fn(),
         clearSetupRequired: vi.fn(),
+        refreshUser: vi.fn(),
         logout: vi.fn(),
       })
       mockApiGet({
@@ -140,11 +144,12 @@ describe('Requests', () => {
 
     it('shows trending results when configured', async () => {
       mockUseAuth.mockReturnValue({
-        user: { id: 1, name: 'admin', email: '', role: 'admin', thumb_url: '', created_at: '', updated_at: '' },
+        user: { id: 1, name: 'admin', email: '', role: 'admin', thumb_url: '', has_password: false, created_at: '', updated_at: '' },
         loading: false,
         setupRequired: false,
         setUser: vi.fn(),
         clearSetupRequired: vi.fn(),
+        refreshUser: vi.fn(),
         logout: vi.fn(),
       })
       mockApiGet({
@@ -156,19 +161,20 @@ describe('Requests', () => {
       renderWithRouter(<Requests />)
 
       await waitFor(() => {
-        expect(screen.getByText('Trending')).toBeDefined()
+        expect(screen.getByText('Test Movie')).toBeDefined()
       })
-      expect(screen.getByText('Test Movie')).toBeDefined()
+      expect(screen.getByText('Trending')).toBeDefined()
       expect(screen.getByText('Test TV Show')).toBeDefined()
     })
 
     it('shows pending badge for admin when pending requests exist', async () => {
       mockUseAuth.mockReturnValue({
-        user: { id: 1, name: 'admin', email: '', role: 'admin', thumb_url: '', created_at: '', updated_at: '' },
+        user: { id: 1, name: 'admin', email: '', role: 'admin', thumb_url: '', has_password: false, created_at: '', updated_at: '' },
         loading: false,
         setupRequired: false,
         setUser: vi.fn(),
         clearSetupRequired: vi.fn(),
+        refreshUser: vi.fn(),
         logout: vi.fn(),
       })
       mockApiGet({
@@ -185,11 +191,12 @@ describe('Requests', () => {
 
     it('does not show pending badge for viewer', async () => {
       mockUseAuth.mockReturnValue({
-        user: { id: 2, name: 'viewer', email: '', role: 'viewer', thumb_url: '', created_at: '', updated_at: '' },
+        user: { id: 2, name: 'viewer', email: '', role: 'viewer', thumb_url: '', has_password: false, created_at: '', updated_at: '' },
         loading: false,
         setupRequired: false,
         setUser: vi.fn(),
         clearSetupRequired: vi.fn(),
+        refreshUser: vi.fn(),
         logout: vi.fn(),
       })
       mockApiGet({

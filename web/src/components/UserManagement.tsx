@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useAuth } from '../context/AuthContext'
+import { errorMessage } from '../lib/utils'
 import { EmptyState } from './EmptyState'
 import type { AdminUser } from '../types'
 
@@ -12,10 +13,6 @@ const disabledStyle = ' opacity-50 cursor-not-allowed'
 
 function btnClass(base: string, disabled: boolean): string {
   return base + (disabled ? disabledStyle : '')
-}
-
-function getErrorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error ? err.message : fallback
 }
 
 export function UserManagement() {
@@ -42,7 +39,7 @@ export function UserManagement() {
       await api.put(`/api/admin/users/${user.id}/role`, { role: newRole })
       refetch()
     } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to update role'))
+      setActionError(errorMessage(err))
     } finally {
       setUpdatingId(null)
     }
@@ -60,7 +57,7 @@ export function UserManagement() {
       await api.del(`/api/admin/users/${user.id}`)
       refetch()
     } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to delete user'))
+      setActionError(errorMessage(err))
     } finally {
       setUpdatingId(null)
     }
@@ -78,7 +75,7 @@ export function UserManagement() {
       await api.post(`/api/admin/users/${user.id}/unlink`, {})
       refetch()
     } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to unlink user'))
+      setActionError(errorMessage(err))
     } finally {
       setUpdatingId(null)
     }
@@ -109,7 +106,7 @@ export function UserManagement() {
       setMergeDeleteId(null)
       refetch()
     } catch (err) {
-      setActionError(getErrorMessage(err, 'Failed to merge users'))
+      setActionError(errorMessage(err))
     } finally {
       setMerging(false)
     }

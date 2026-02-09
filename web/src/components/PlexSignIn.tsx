@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { getClientId, requestPin, checkPin, getAuthUrl, fetchResources, type PlexResource } from '../lib/plexOAuth'
 import { api } from '../lib/api'
 import { plexBtnClass } from '../lib/constants'
+import { errorMessage } from '../lib/utils'
 
 interface PlexSignInProps {
   onServersAdded: () => void
@@ -16,11 +17,6 @@ function pickConnection(resource: PlexResource): string {
   const httpNonRelay = conns.find(c => !c.relay)
   if (httpNonRelay) return httpNonRelay.uri
   return conns[0]?.uri ?? ''
-}
-
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message
-  return String(err)
 }
 
 export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
