@@ -12,6 +12,7 @@ import { Statistics } from './pages/Statistics'
 import { Libraries } from './pages/Libraries'
 import { Rules } from './pages/Rules'
 import { Requests } from './pages/Requests'
+import { DiscoverAll } from './pages/DiscoverAll'
 import { Setup } from './pages/Setup'
 import { Login } from './pages/Login'
 import { EmptyState } from './components/EmptyState'
@@ -32,6 +33,7 @@ export default function App() {
           {/* Protected routes */}
           <Route element={<AuthGuard><Layout /></AuthGuard>}>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/requests/discover/*" element={<DiscoverAll />} />
             <Route path="/requests" element={<Requests />} />
             <Route path="/users" element={<Users />} />
             <Route path="/users/:name" element={<UserDetail />} />

@@ -43,3 +43,13 @@ export const SEVERITY_COLORS: Record<Severity, string> = {
   warning: 'bg-amber-500/20 text-amber-400',
   critical: 'bg-red-500/20 text-red-400',
 }
+
+export const DISCOVER_CATEGORIES = [
+  { path: 'trending', title: 'Trending' },
+  { path: 'movies', title: 'Popular Movies' },
+  { path: 'movies/upcoming', title: 'Upcoming Movies' },
+  { path: 'tv', title: 'Popular Series' },
+  { path: 'tv/upcoming', title: 'Upcoming Series' },
+] as const
+
+export const MEDIA_GRID_CLASS = 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8 gap-3'

@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { useHorizontalScroll } from '../hooks/useHorizontalScroll'
 import { useAuth } from '../context/AuthContext'
+import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS } from '../lib/constants'
 import { EmptyState } from '../components/EmptyState'
+import { MediaCard } from '../components/MediaCard'
+import { ChevronIcon } from '../components/ChevronIcon'
 import { OverseerrDetailModal } from '../components/OverseerrDetailModal'
-import { TMDB_IMG, mediaStatusBadge, requestStatusBadge } from '../lib/overseerr'
+import { requestStatusBadge } from '../lib/overseerr'
 import type {
   OverseerrSearchResult,
   OverseerrMediaResult,
@@ -16,69 +20,18 @@ import type {
 } from '../types'
 
 type Tab = 'discover' | 'requests'
+type SelectedItem = OverseerrMediaResult & { mediaType: 'movie' | 'tv' }
 
-const searchGrid = 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8 gap-3'
+const scrollBtnClass = `p-1.5 rounded-md text-gray-500 dark:text-gray-300
+  hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/10
+  disabled:opacity-20 disabled:pointer-events-none transition-colors`
 
-const DISCOVER_CATEGORIES = [
-  { path: 'trending', title: 'Trending' },
-  { path: 'movies', title: 'Popular Movies' },
-  { path: 'movies/upcoming', title: 'Upcoming Movies' },
-  { path: 'tv', title: 'Popular Series' },
-  { path: 'tv/upcoming', title: 'Upcoming Series' },
-] as const
-
-function MediaCard({ item, onClick, className }: { item: OverseerrMediaResult; onClick: () => void; className?: string }) {
-  const title = item.title || item.name || 'Unknown'
-  const year = item.releaseDate?.slice(0, 4) || item.firstAirDate?.slice(0, 4)
-  const mediaStatus = item.mediaInfo?.status
-
-  return (
-    <button
-      onClick={onClick}
-      className={`text-left group relative rounded-lg overflow-hidden
-                 bg-surface dark:bg-surface-dark border border-border dark:border-border-dark
-                 hover:border-accent/40 transition-all duration-200 focus:outline-none
-                 focus:ring-2 focus:ring-accent/50 ${className ?? ''}`}
-    >
-      <div className="aspect-[2/3] bg-gray-200 dark:bg-gray-800 relative">
-        {item.posterPath ? (
-          <img
-            src={`${TMDB_IMG}/w185${item.posterPath}`}
-            alt={title}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-muted dark:text-muted-dark text-xl">
-            {item.mediaType === 'movie' ? '🎬' : '📺'}
-          </div>
-        )}
-        {mediaStatus && mediaStatus > 1 && (
-          <div className="absolute top-1 right-1">
-            {mediaStatusBadge(mediaStatus)}
-          </div>
-        )}
-        <div className="absolute top-1 left-1">
-          <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-black/60 text-white">
-            {item.mediaType === 'movie' ? 'Movie' : 'TV'}
-          </span>
-        </div>
-      </div>
-      <div className="p-1.5">
-        <h3 className="text-xs font-medium truncate group-hover:text-accent transition-colors">
-          {title}
-        </h3>
-        <div className="flex items-center gap-1.5 mt-0.5">
-          {year && <span className="text-[10px] text-muted dark:text-muted-dark">{year}</span>}
-          {item.voteAverage != null && item.voteAverage > 0 && (
-            <span className="text-[10px] text-muted dark:text-muted-dark">
-              ★ {item.voteAverage.toFixed(1)}
-            </span>
-          )}
-        </div>
-      </div>
-    </button>
-  )
+function tabClass(active: boolean) {
+  return `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+    active
+      ? 'border-accent text-accent'
+      : 'border-transparent text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
+  }`
 }
 
 function RequestCard({
@@ -150,18 +103,22 @@ function RequestCard({
 }
 
 function DiscoverSection({
+  path,
   title,
   data,
   loading,
   onSelect,
 }: {
+  path: string
   title: string
   data: OverseerrSearchResult | null
   loading: boolean
-  onSelect: (item: OverseerrMediaResult) => void
+  onSelect: (item: SelectedItem) => void
 }) {
   const { canScrollLeft, canScrollRight, scrollBy, ...scrollHandlers } = useHorizontalScroll()
-  const items = data?.results?.filter(r => r.mediaType === 'movie' || r.mediaType === 'tv')
+  const items = data?.results?.filter(
+    (r): r is SelectedItem => r.mediaType === 'movie' || r.mediaType === 'tv'
+  )
   if (!loading && (!items || items.length === 0)) return null
 
   return (
@@ -172,29 +129,17 @@ function DiscoverSection({
         </h2>
         {!loading && (
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => scrollBy('left')}
-              disabled={!canScrollLeft}
-              aria-label="Scroll left"
-              className="p-1.5 rounded-md text-gray-500 dark:text-gray-300
-                         hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/10
-                         disabled:opacity-20 disabled:pointer-events-none transition-colors"
+            <Link
+              to={`/requests/discover/${path}`}
+              className="text-xs text-muted dark:text-muted-dark hover:text-accent transition-colors mr-1"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
-              </svg>
+              See All &rsaquo;
+            </Link>
+            <button onClick={() => scrollBy('left')} disabled={!canScrollLeft} aria-label="Scroll left" className={scrollBtnClass}>
+              <ChevronIcon direction="left" />
             </button>
-            <button
-              onClick={() => scrollBy('right')}
-              disabled={!canScrollRight}
-              aria-label="Scroll right"
-              className="p-1.5 rounded-md text-gray-500 dark:text-gray-300
-                         hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-white/10
-                         disabled:opacity-20 disabled:pointer-events-none transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
-              </svg>
+            <button onClick={() => scrollBy('right')} disabled={!canScrollRight} aria-label="Scroll right" className={scrollBtnClass}>
+              <ChevronIcon direction="right" />
             </button>
           </div>
         )}
@@ -233,10 +178,10 @@ function DiscoverSection({
 function DiscoverFetchSection({ path, title, onSelect }: {
   path: string
   title: string
-  onSelect: (item: OverseerrMediaResult) => void
+  onSelect: (item: SelectedItem) => void
 }) {
   const { data, loading } = useFetch<OverseerrSearchResult>(`/api/overseerr/discover/${path}`)
-  return <DiscoverSection title={title} data={data} loading={loading} onSelect={onSelect} />
+  return <DiscoverSection path={path} title={title} data={data} loading={loading} onSelect={onSelect} />
 }
 
 export function Requests() {
@@ -247,7 +192,7 @@ export function Requests() {
   const [searchResults, setSearchResults] = useState<OverseerrSearchResult | null>(null)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
-  const [selectedItem, setSelectedItem] = useState<OverseerrMediaResult | null>(null)
+  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
 
   const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
   const configured = !!configStatus?.configured
@@ -301,7 +246,9 @@ export function Requests() {
     )
   }
 
-  const searchFiltered = searchResults?.results?.filter(r => r.mediaType === 'movie' || r.mediaType === 'tv')
+  const searchFiltered = searchResults?.results?.filter(
+    (r): r is SelectedItem => r.mediaType === 'movie' || r.mediaType === 'tv'
+  )
 
   return (
     <div>
@@ -320,24 +267,10 @@ export function Requests() {
       </div>
 
       <div className="flex gap-1 mb-6 border-b border-border dark:border-border-dark">
-        <button
-          onClick={() => setTab('discover')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            tab === 'discover'
-              ? 'border-accent text-accent'
-              : 'border-transparent text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
-          }`}
-        >
+        <button onClick={() => setTab('discover')} className={tabClass(tab === 'discover')}>
           Discover
         </button>
-        <button
-          onClick={() => setTab('requests')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-            tab === 'requests'
-              ? 'border-accent text-accent'
-              : 'border-transparent text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
-          }`}
-        >
+        <button onClick={() => setTab('requests')} className={tabClass(tab === 'requests')}>
           Requests
           {counts && counts.total > 0 && (
             <span className="ml-1.5 text-xs text-muted dark:text-muted-dark">({counts.total})</span>
@@ -382,7 +315,7 @@ export function Requests() {
               )}
 
               {!searching && searchFiltered && searchFiltered.length > 0 && (
-                <div className={searchGrid}>
+                <div className={MEDIA_GRID_CLASS}>
                   {searchFiltered.map(item => (
                     <MediaCard
                       key={`${item.mediaType}-${item.id}`}
@@ -444,7 +377,7 @@ export function Requests() {
 
       {selectedItem && (
         <OverseerrDetailModal
-          mediaType={selectedItem.mediaType as 'movie' | 'tv'}
+          mediaType={selectedItem.mediaType}
           mediaId={selectedItem.id}
           onClose={() => setSelectedItem(null)}
         />
