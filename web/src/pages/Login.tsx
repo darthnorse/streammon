@@ -6,6 +6,7 @@ import { errorMessage } from '../lib/utils'
 import { useAuth } from '../context/AuthContext'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { PlexSignInLogin } from '../components/PlexSignInLogin'
+import { MediaServerSignIn } from '../components/MediaServerSignIn'
 import type { User } from '../types'
 
 interface Provider {
@@ -53,7 +54,7 @@ export function Login() {
     }
   }
 
-  const handlePlexSuccess = (user: User) => {
+  const handleProviderSuccess = (user: User) => {
     setUser(user)
     navigate('/', { replace: true })
   }
@@ -65,6 +66,8 @@ export function Login() {
   const hasLocal = providers.some(p => p.name === 'local' && p.enabled)
   const hasPlex = providers.some(p => p.name === 'plex' && p.enabled)
   const hasOIDC = providers.some(p => p.name === 'oidc' && p.enabled)
+  const hasEmby = providers.some(p => p.name === 'emby' && p.enabled)
+  const hasJellyfin = providers.some(p => p.name === 'jellyfin' && p.enabled)
 
   if (loading) {
     return <LoadingScreen />
@@ -121,7 +124,7 @@ export function Login() {
             </form>
           )}
 
-          {(hasPlex || hasOIDC) && hasLocal && (
+          {(hasPlex || hasOIDC || hasEmby || hasJellyfin) && hasLocal && (
             <div className="relative">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-border dark:border-border-dark" />
@@ -136,7 +139,25 @@ export function Login() {
 
           <div className="space-y-3">
             {hasPlex && (
-              <PlexSignInLogin onSuccess={handlePlexSuccess} />
+              <PlexSignInLogin onSuccess={handleProviderSuccess} />
+            )}
+
+            {hasEmby && (
+              <MediaServerSignIn
+                serverType="emby"
+                loginEndpoint="/auth/emby/login"
+                serversEndpoint="/auth/emby/servers"
+                onSuccess={handleProviderSuccess}
+              />
+            )}
+
+            {hasJellyfin && (
+              <MediaServerSignIn
+                serverType="jellyfin"
+                loginEndpoint="/auth/jellyfin/login"
+                serversEndpoint="/auth/jellyfin/servers"
+                onSuccess={handleProviderSuccess}
+              />
             )}
 
             {hasOIDC && (

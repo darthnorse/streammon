@@ -5,9 +5,25 @@ import { inputClass } from '../lib/constants'
 import { errorMessage } from '../lib/utils'
 import { useAuth } from '../context/AuthContext'
 import { PlexSignInSetup } from '../components/PlexSignInSetup'
+import { MediaServerSignIn } from '../components/MediaServerSignIn'
 import type { User } from '../types'
 
-type SetupMethod = 'local' | 'plex' | null
+type SetupMethod = 'local' | 'plex' | 'emby' | 'jellyfin' | null
+
+const methodBtnClass =
+  'w-full py-3 px-4 rounded-lg border border-border dark:border-border-dark hover:bg-panel-hover dark:hover:bg-panel-hover-dark transition-colors text-left'
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-sm text-accent hover:underline"
+    >
+      &larr; Back
+    </button>
+  )
+}
 
 export function Setup() {
   const navigate = useNavigate()
@@ -19,6 +35,12 @@ export function Setup() {
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  const handleSuccess = (user: User) => {
+    setUser(user)
+    clearSetupRequired()
+    navigate('/', { replace: true })
+  }
 
   const handleLocalSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -37,9 +59,7 @@ export function Setup() {
     setSubmitting(true)
     try {
       const user = await api.post<User>('/api/setup/local', { username, password, email })
-      setUser(user)
-      clearSetupRequired()
-      navigate('/', { replace: true })
+      handleSuccess(user)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -47,11 +67,7 @@ export function Setup() {
     }
   }
 
-  const handlePlexSuccess = (user: User) => {
-    setUser(user)
-    clearSetupRequired()
-    navigate('/', { replace: true })
-  }
+  const goBack = () => setMethod(null)
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-surface dark:bg-surface-dark p-4">
@@ -71,24 +87,14 @@ export function Setup() {
                 Choose how to create your admin account
               </h2>
 
-              <button
-                onClick={() => setMethod('local')}
-                className="w-full py-3 px-4 rounded-lg border border-border dark:border-border-dark
-                         hover:bg-panel-hover dark:hover:bg-panel-hover-dark transition-colors
-                         text-left"
-              >
+              <button onClick={() => setMethod('local')} className={methodBtnClass}>
                 <div className="font-medium">Create Local Account</div>
                 <div className="text-sm text-muted dark:text-muted-dark">
                   Set up a username and password
                 </div>
               </button>
 
-              <button
-                onClick={() => setMethod('plex')}
-                className="w-full py-3 px-4 rounded-lg border border-border dark:border-border-dark
-                         hover:bg-panel-hover dark:hover:bg-panel-hover-dark transition-colors
-                         text-left"
-              >
+              <button onClick={() => setMethod('plex')} className={methodBtnClass}>
                 <div className="font-medium flex items-center gap-2">
                   <span className="text-[#E5A00D]">Plex</span> Sign In
                 </div>
@@ -96,18 +102,30 @@ export function Setup() {
                   Use your Plex.tv account
                 </div>
               </button>
+
+              <button onClick={() => setMethod('emby')} className={methodBtnClass}>
+                <div className="font-medium flex items-center gap-2">
+                  <span className="text-[#52B54B]">Emby</span> Sign In
+                </div>
+                <div className="text-sm text-muted dark:text-muted-dark">
+                  Use your Emby server credentials
+                </div>
+              </button>
+
+              <button onClick={() => setMethod('jellyfin')} className={methodBtnClass}>
+                <div className="font-medium flex items-center gap-2">
+                  <span className="text-[#00A4DC]">Jellyfin</span> Sign In
+                </div>
+                <div className="text-sm text-muted dark:text-muted-dark">
+                  Use your Jellyfin server credentials
+                </div>
+              </button>
             </div>
           )}
 
           {method === 'local' && (
             <form onSubmit={handleLocalSubmit} className="space-y-4">
-              <button
-                type="button"
-                onClick={() => setMethod(null)}
-                className="text-sm text-accent hover:underline"
-              >
-                &larr; Back
-              </button>
+              <BackButton onClick={goBack} />
 
               <div>
                 <label className="block text-sm font-medium mb-1">Username</label>
@@ -177,15 +195,38 @@ export function Setup() {
 
           {method === 'plex' && (
             <div className="space-y-4">
-              <button
-                type="button"
-                onClick={() => setMethod(null)}
-                className="text-sm text-accent hover:underline"
-              >
-                &larr; Back
-              </button>
+              <BackButton onClick={goBack} />
+              <PlexSignInSetup onSuccess={handleSuccess} />
+            </div>
+          )}
 
-              <PlexSignInSetup onSuccess={handlePlexSuccess} />
+          {method === 'emby' && (
+            <div className="space-y-4">
+              <BackButton onClick={goBack} />
+              <p className="text-sm text-muted dark:text-muted-dark">
+                Sign in with an Emby admin account to create the StreamMon admin.
+              </p>
+              <MediaServerSignIn
+                serverType="emby"
+                loginEndpoint="/api/setup/emby"
+                serversEndpoint="/auth/emby/servers"
+                onSuccess={handleSuccess}
+              />
+            </div>
+          )}
+
+          {method === 'jellyfin' && (
+            <div className="space-y-4">
+              <BackButton onClick={goBack} />
+              <p className="text-sm text-muted dark:text-muted-dark">
+                Sign in with a Jellyfin admin account to create the StreamMon admin.
+              </p>
+              <MediaServerSignIn
+                serverType="jellyfin"
+                loginEndpoint="/api/setup/jellyfin"
+                serversEndpoint="/auth/jellyfin/servers"
+                onSuccess={handleSuccess}
+              />
             </div>
           )}
         </div>

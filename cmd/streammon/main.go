@@ -64,6 +64,10 @@ func main() {
 	plexProvider := auth.NewPlexProvider(s, authMgr)
 	authMgr.RegisterProvider(plexProvider)
 
+	// Register Emby and Jellyfin providers
+	authMgr.RegisterProvider(auth.NewMediaServerProvider(s, authMgr, models.ServerTypeEmby))
+	authMgr.RegisterProvider(auth.NewMediaServerProvider(s, authMgr, models.ServerTypeJellyfin))
+
 	// Register OIDC provider
 	oidcCfg, err := s.GetOIDCConfig()
 	if err != nil {

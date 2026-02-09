@@ -21,7 +21,7 @@ export interface User {
   email: string
   role: Role
   thumb_url: string
-  has_password: boolean
+  has_password?: boolean
   created_at: string
   updated_at: string
 }

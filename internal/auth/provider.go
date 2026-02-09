@@ -8,9 +8,11 @@ import (
 type ProviderType string
 
 const (
-	ProviderLocal ProviderType = "local"
-	ProviderPlex  ProviderType = "plex"
-	ProviderOIDC  ProviderType = "oidc"
+	ProviderLocal    ProviderType = "local"
+	ProviderPlex     ProviderType = "plex"
+	ProviderOIDC     ProviderType = "oidc"
+	ProviderEmby     ProviderType = "emby"
+	ProviderJellyfin ProviderType = "jellyfin"
 )
 
 // Provider defines the interface for authentication providers

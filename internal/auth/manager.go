@@ -62,23 +62,6 @@ func (m *Manager) Reload() error {
 	return nil
 }
 
-func (m *Manager) HandleLogin(w http.ResponseWriter, r *http.Request, pt ProviderType) {
-	p, ok := m.GetProvider(pt)
-	if !ok || !p.Enabled() {
-		http.Error(w, `{"error":"provider not available"}`, http.StatusNotFound)
-		return
-	}
-	p.HandleLogin(w, r)
-}
-
-func (m *Manager) HandleCallback(w http.ResponseWriter, r *http.Request, pt ProviderType) {
-	p, ok := m.GetProvider(pt)
-	if !ok || !p.Enabled() {
-		http.Error(w, `{"error":"provider not available"}`, http.StatusNotFound)
-		return
-	}
-	p.HandleCallback(w, r)
-}
 
 func (m *Manager) CreateSession(w http.ResponseWriter, r *http.Request, userID int64) error {
 	token, err := m.store.CreateSession(userID, time.Now().UTC().Add(SessionDuration))
@@ -93,6 +76,11 @@ func (m *Manager) CreateSession(w http.ResponseWriter, r *http.Request, userID i
 // CreateSessionAndRespond creates session and writes user JSON.
 // statusCode: http.StatusOK for login, http.StatusCreated for setup.
 func (m *Manager) CreateSessionAndRespond(w http.ResponseWriter, r *http.Request, user *models.User, statusCode int) error {
+	data, err := json.Marshal(user)
+	if err != nil {
+		return err
+	}
+
 	if err := m.CreateSession(w, r, user.ID); err != nil {
 		return err
 	}
@@ -101,7 +89,8 @@ func (m *Manager) CreateSessionAndRespond(w http.ResponseWriter, r *http.Request
 	if statusCode != http.StatusOK {
 		w.WriteHeader(statusCode)
 	}
-	return json.NewEncoder(w).Encode(user)
+	_, err = w.Write(data)
+	return err
 }
 
 func (m *Manager) HandleGetProviders(w http.ResponseWriter, r *http.Request) {

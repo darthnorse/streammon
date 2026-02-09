@@ -6,110 +6,151 @@ import (
 	"streammon/internal/auth"
 )
 
+// providerHandler looks up a provider by type and returns it.
+// Returns nil, false if authManager is nil or the provider isn't registered.
+func (s *Server) providerHandler(pt auth.ProviderType) (auth.Provider, bool) {
+	if s.authManager == nil {
+		return nil, false
+	}
+	return s.authManager.GetProvider(pt)
+}
+
+// mediaServerHandler is a typed version of providerHandler for MediaServerProvider.
+func (s *Server) mediaServerHandler(pt auth.ProviderType) (*auth.MediaServerProvider, bool) {
+	p, ok := s.providerHandler(pt)
+	if !ok {
+		return nil, false
+	}
+	msp, ok := p.(*auth.MediaServerProvider)
+	return msp, ok
+}
+
 // handleSetupLocal handles first admin setup via local credentials
 func (s *Server) handleSetupLocal(w http.ResponseWriter, r *http.Request) {
-	if s.authManager == nil {
-		http.Error(w, `{"error":"auth not configured"}`, http.StatusInternalServerError)
-		return
-	}
-
-	local, ok := s.authManager.GetProvider(auth.ProviderLocal)
+	p, ok := s.providerHandler(auth.ProviderLocal)
 	if !ok {
-		http.Error(w, `{"error":"local auth not available"}`, http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "local auth not available")
 		return
 	}
-
-	localProvider, ok := local.(*auth.LocalProvider)
+	lp, ok := p.(*auth.LocalProvider)
 	if !ok {
-		http.Error(w, `{"error":"local auth not available"}`, http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "local auth not available")
 		return
 	}
-
-	localProvider.HandleSetup(w, r)
+	lp.HandleSetup(w, r)
 }
 
 // handleSetupPlex handles first admin setup via Plex.tv
 func (s *Server) handleSetupPlex(w http.ResponseWriter, r *http.Request) {
-	if s.authManager == nil {
-		http.Error(w, `{"error":"auth not configured"}`, http.StatusInternalServerError)
-		return
-	}
-
-	plex, ok := s.authManager.GetProvider(auth.ProviderPlex)
+	p, ok := s.providerHandler(auth.ProviderPlex)
 	if !ok {
-		http.Error(w, `{"error":"plex auth not available"}`, http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "plex auth not available")
 		return
 	}
-
-	plexProvider, ok := plex.(*auth.PlexProvider)
+	pp, ok := p.(*auth.PlexProvider)
 	if !ok {
-		http.Error(w, `{"error":"plex auth not available"}`, http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "plex auth not available")
 		return
 	}
+	pp.HandleSetup(w, r)
+}
 
-	plexProvider.HandleSetup(w, r)
+// handleSetupEmby handles first admin setup via Emby credentials
+func (s *Server) handleSetupEmby(w http.ResponseWriter, r *http.Request) {
+	msp, ok := s.mediaServerHandler(auth.ProviderEmby)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "emby auth not available")
+		return
+	}
+	msp.HandleSetup(w, r)
+}
+
+// handleSetupJellyfin handles first admin setup via Jellyfin credentials
+func (s *Server) handleSetupJellyfin(w http.ResponseWriter, r *http.Request) {
+	msp, ok := s.mediaServerHandler(auth.ProviderJellyfin)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "jellyfin auth not available")
+		return
+	}
+	msp.HandleSetup(w, r)
 }
 
 // handleLocalLogin handles local username/password login
 func (s *Server) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
-	if s.authManager == nil {
-		http.Error(w, `{"error":"auth not configured"}`, http.StatusInternalServerError)
+	p, ok := s.providerHandler(auth.ProviderLocal)
+	if !ok || !p.Enabled() {
+		writeError(w, http.StatusNotFound, "local auth not available")
 		return
 	}
-
-	local, ok := s.authManager.GetProvider(auth.ProviderLocal)
-	if !ok || !local.Enabled() {
-		http.Error(w, `{"error":"local auth not available"}`, http.StatusNotFound)
-		return
-	}
-
-	local.HandleLogin(w, r)
+	p.HandleLogin(w, r)
 }
 
 // handlePlexLogin handles Plex.tv token-based login
 func (s *Server) handlePlexLogin(w http.ResponseWriter, r *http.Request) {
-	if s.authManager == nil {
-		http.Error(w, `{"error":"auth not configured"}`, http.StatusInternalServerError)
+	p, ok := s.providerHandler(auth.ProviderPlex)
+	if !ok || !p.Enabled() {
+		writeError(w, http.StatusNotFound, "plex auth not available")
 		return
 	}
-
-	plex, ok := s.authManager.GetProvider(auth.ProviderPlex)
-	if !ok || !plex.Enabled() {
-		http.Error(w, `{"error":"plex auth not available"}`, http.StatusNotFound)
-		return
-	}
-
-	plex.HandleLogin(w, r)
+	p.HandleLogin(w, r)
 }
 
 // handleOIDCLogin initiates OIDC login flow
 func (s *Server) handleOIDCLogin(w http.ResponseWriter, r *http.Request) {
-	if s.authManager == nil {
-		http.Error(w, `{"error":"auth not configured"}`, http.StatusInternalServerError)
+	p, ok := s.providerHandler(auth.ProviderOIDC)
+	if !ok || !p.Enabled() {
+		writeError(w, http.StatusNotFound, "OIDC not configured")
 		return
 	}
-
-	oidc, ok := s.authManager.GetProvider(auth.ProviderOIDC)
-	if !ok || !oidc.Enabled() {
-		http.Error(w, `{"error":"OIDC not configured"}`, http.StatusNotFound)
-		return
-	}
-
-	oidc.HandleLogin(w, r)
+	p.HandleLogin(w, r)
 }
 
 // handleOIDCCallback processes OIDC callback
 func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
-	if s.authManager == nil {
-		http.Error(w, `{"error":"auth not configured"}`, http.StatusInternalServerError)
+	p, ok := s.providerHandler(auth.ProviderOIDC)
+	if !ok || !p.Enabled() {
+		writeError(w, http.StatusNotFound, "OIDC not configured")
 		return
 	}
+	p.HandleCallback(w, r)
+}
 
-	oidc, ok := s.authManager.GetProvider(auth.ProviderOIDC)
-	if !ok || !oidc.Enabled() {
-		http.Error(w, `{"error":"OIDC not configured"}`, http.StatusNotFound)
+// handleEmbyLogin handles Emby credential-based login
+func (s *Server) handleEmbyLogin(w http.ResponseWriter, r *http.Request) {
+	msp, ok := s.mediaServerHandler(auth.ProviderEmby)
+	if !ok || !msp.Enabled() {
+		writeError(w, http.StatusNotFound, "emby auth not available")
 		return
 	}
+	msp.HandleLogin(w, r)
+}
 
-	oidc.HandleCallback(w, r)
+// handleJellyfinLogin handles Jellyfin credential-based login
+func (s *Server) handleJellyfinLogin(w http.ResponseWriter, r *http.Request) {
+	msp, ok := s.mediaServerHandler(auth.ProviderJellyfin)
+	if !ok || !msp.Enabled() {
+		writeError(w, http.StatusNotFound, "jellyfin auth not available")
+		return
+	}
+	msp.HandleLogin(w, r)
+}
+
+// handleEmbyServers returns available Emby servers for login
+func (s *Server) handleEmbyServers(w http.ResponseWriter, r *http.Request) {
+	msp, ok := s.mediaServerHandler(auth.ProviderEmby)
+	if !ok {
+		writeError(w, http.StatusNotFound, "emby auth not available")
+		return
+	}
+	msp.HandleGetServers(w, r)
+}
+
+// handleJellyfinServers returns available Jellyfin servers for login
+func (s *Server) handleJellyfinServers(w http.ResponseWriter, r *http.Request) {
+	msp, ok := s.mediaServerHandler(auth.ProviderJellyfin)
+	if !ok {
+		writeError(w, http.StatusNotFound, "jellyfin auth not available")
+		return
+	}
+	msp.HandleGetServers(w, r)
 }

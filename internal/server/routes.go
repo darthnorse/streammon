@@ -19,6 +19,8 @@ func (s *Server) routes() {
 			r.Get("/status", s.authManager.HandleGetStatus)
 			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/local", s.handleSetupLocal)
 			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/plex", s.handleSetupPlex)
+			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/emby", s.handleSetupEmby)
+			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/jellyfin", s.handleSetupJellyfin)
 		})
 
 		// Auth endpoints
@@ -30,6 +32,10 @@ func (s *Server) routes() {
 			// Login endpoints require setup to be complete (prevents creating users before admin exists)
 			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/local/login", s.handleLocalLogin)
 			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/plex/login", s.handlePlexLogin)
+			r.With(RequireSetupComplete(s.authManager)).Get("/emby/servers", s.handleEmbyServers)
+			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/emby/login", s.handleEmbyLogin)
+			r.With(RequireSetupComplete(s.authManager)).Get("/jellyfin/servers", s.handleJellyfinServers)
+			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/jellyfin/login", s.handleJellyfinLogin)
 			r.With(RequireSetupComplete(s.authManager)).Get("/oidc/login", s.handleOIDCLogin)
 			r.With(RequireSetupComplete(s.authManager)).Get("/oidc/callback", s.handleOIDCCallback)
 		})
