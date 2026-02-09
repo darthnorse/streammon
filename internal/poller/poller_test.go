@@ -769,3 +769,295 @@ func TestIsDLNA(t *testing.T) {
 		}
 	}
 }
+
+func TestIdleTimeoutTerminatesSession(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	// Set idle timeout to 1 minute for faster testing
+	if err := s.SetIdleTimeoutMinutes(1); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Idle Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 7200000, ProgressMs: 50000,
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Session should be active
+	if len(p.CurrentSessions()) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(p.CurrentSessions()))
+	}
+
+	// Manually set LastProgressChange to 2 minutes ago to simulate idle
+	p.mu.Lock()
+	for key, sess := range p.sessions {
+		sess.LastProgressChange = time.Now().UTC().Add(-2 * time.Minute)
+		p.sessions[key] = sess
+	}
+	p.mu.Unlock()
+
+	// Next poll: same progress (50000) — should trigger idle timeout
+	triggerAndWaitPoll(t, p)
+
+	// Session should be gone (idle timeout)
+	sessions := p.CurrentSessions()
+	if len(sessions) != 0 {
+		t.Fatalf("expected 0 sessions after idle timeout, got %d", len(sessions))
+	}
+
+	p.Stop()
+
+	// History should have been created
+	result, err := s.ListHistory(1, 10, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 history entry from idle timeout, got %d", result.Total)
+	}
+	if result.Items[0].Title != "Idle Movie" {
+		t.Errorf("expected Idle Movie, got %s", result.Items[0].Title)
+	}
+}
+
+func TestIdleTimeoutResetsOnProgress(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	if err := s.SetIdleTimeoutMinutes(1); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Active Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 7200000, ProgressMs: 50000,
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Advance progress — this should reset the idle timer
+	ms.setSessions([]models.ActiveStream{
+		{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Active Movie",
+			MediaType: models.MediaTypeMovie, DurationMs: 7200000, ProgressMs: 60000,
+			UserName: "alice", StartedAt: time.Now().UTC()},
+	})
+	triggerAndWaitPoll(t, p)
+
+	// Session should still be active
+	sessions := p.CurrentSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session after progress advance, got %d", len(sessions))
+	}
+
+	p.Stop()
+
+	// No history should have been created
+	result, _ := s.ListHistory(1, 10, "", "", "")
+	if result.Total != 0 {
+		t.Errorf("expected 0 history entries, got %d", result.Total)
+	}
+}
+
+func TestIdleTimeoutDisabledWhenZero(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	if err := s.SetIdleTimeoutMinutes(0); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 7200000, ProgressMs: 50000,
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Manually set LastProgressChange to way in the past
+	p.mu.Lock()
+	for key, sess := range p.sessions {
+		sess.LastProgressChange = time.Now().UTC().Add(-1 * time.Hour)
+		p.sessions[key] = sess
+	}
+	p.mu.Unlock()
+
+	// Poll again — session should NOT be terminated since idle timeout is disabled
+	triggerAndWaitPoll(t, p)
+
+	sessions := p.CurrentSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session (idle timeout disabled), got %d", len(sessions))
+	}
+
+	p.Stop()
+}
+
+func TestIdleTimeoutNewSessionGetsFullWindow(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	if err := s.SetIdleTimeoutMinutes(1); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "New Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 7200000, ProgressMs: 50000,
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Immediately poll again with same progress — should NOT trigger idle
+	// because the session just appeared and got LastProgressChange = now
+	triggerAndWaitPoll(t, p)
+
+	sessions := p.CurrentSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session (new session has full window), got %d", len(sessions))
+	}
+
+	p.Stop()
+}
+
+func TestIdleTimeoutExemptsPausedSessions(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	if err := s.SetIdleTimeoutMinutes(1); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newTestPoller(t, s)
+
+	// Start with a playing session
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Paused Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 7200000, ProgressMs: 50000,
+				UserName: "alice", StartedAt: time.Now().UTC(),
+				State: models.SessionStatePlaying},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Transition to paused with same progress
+	ms.setSessions([]models.ActiveStream{
+		{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Paused Movie",
+			MediaType: models.MediaTypeMovie, DurationMs: 7200000, ProgressMs: 50000,
+			UserName: "alice", StartedAt: time.Now().UTC(),
+			State: models.SessionStatePaused},
+	})
+	triggerAndWaitPoll(t, p)
+
+	// Set LastProgressChange to well past the timeout
+	p.mu.Lock()
+	for key, sess := range p.sessions {
+		sess.LastProgressChange = time.Now().UTC().Add(-10 * time.Minute)
+		p.sessions[key] = sess
+	}
+	p.mu.Unlock()
+
+	// Poll again — paused session should NOT be idle-terminated
+	triggerAndWaitPoll(t, p)
+
+	sessions := p.CurrentSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session (paused exempt from idle), got %d", len(sessions))
+	}
+	if sessions[0].State != models.SessionStatePaused {
+		t.Errorf("expected paused state, got %s", sessions[0].State)
+	}
+
+	p.Stop()
+}
+
+func TestIdleTimeoutSetsAccurateStoppedAt(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	if err := s.SetIdleTimeoutMinutes(1); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Idle Movie",
+				MediaType: models.MediaTypeMovie, DurationMs: 7200000, ProgressMs: 50000,
+				UserName: "alice", StartedAt: time.Now().UTC().Add(-30 * time.Minute)},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Set LastProgressChange to 5 minutes ago
+	progressTime := time.Now().UTC().Add(-5 * time.Minute)
+	p.mu.Lock()
+	for key, sess := range p.sessions {
+		sess.LastProgressChange = progressTime
+		p.sessions[key] = sess
+	}
+	p.mu.Unlock()
+
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, err := s.ListHistory(1, 10, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 history entry, got %d", result.Total)
+	}
+
+	// StoppedAt should be close to progressTime, not now()
+	entry := result.Items[0]
+	diff := entry.StoppedAt.Sub(progressTime).Abs()
+	if diff > 2*time.Second {
+		t.Errorf("StoppedAt should be near LastProgressChange (%v), got %v (diff %v)",
+			progressTime, entry.StoppedAt, diff)
+	}
+}

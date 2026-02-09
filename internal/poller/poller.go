@@ -44,6 +44,9 @@ type Poller struct {
 
 	autoLearnHousehold   bool
 	autoLearnMinSessions int
+
+	idleTimeout   time.Duration
+	idleTimeoutMu sync.RWMutex
 }
 
 type retryEntry struct {
@@ -97,7 +100,33 @@ func New(s *store.Store, interval time.Duration, opts ...PollerOption) *Poller {
 	for _, opt := range opts {
 		opt(p)
 	}
+	p.RefreshIdleTimeout()
 	return p
+}
+
+// RefreshIdleTimeout re-reads the idle timeout setting from the store.
+// Call after updating the setting via the API.
+func (p *Poller) RefreshIdleTimeout() {
+	minutes := store.DefaultIdleTimeoutMinutes
+	m, err := p.store.GetIdleTimeoutMinutes()
+	if err != nil {
+		log.Printf("reading idle timeout setting: %v (using default %dm)", err, minutes)
+	} else {
+		minutes = m
+	}
+	p.idleTimeoutMu.Lock()
+	if minutes > 0 {
+		p.idleTimeout = time.Duration(minutes) * time.Minute
+	} else {
+		p.idleTimeout = 0
+	}
+	p.idleTimeoutMu.Unlock()
+}
+
+func (p *Poller) getIdleTimeout() time.Duration {
+	p.idleTimeoutMu.RLock()
+	defer p.idleTimeoutMu.RUnlock()
+	return p.idleTimeout
 }
 
 func (p *Poller) AddServer(id int64, ms media.MediaServer) {
@@ -253,6 +282,9 @@ func (p *Poller) applySessionChange(key string, session models.ActiveStream, u m
 		delete(p.sessions, key)
 		return &session
 	}
+	if u.ViewOffset != session.ProgressMs {
+		session.LastProgressChange = time.Now().UTC()
+	}
 	session.ProgressMs = u.ViewOffset
 	updatePauseState(&session, session.State, u.State)
 	p.sessions[key] = session
@@ -365,6 +397,12 @@ func (p *Poller) poll(ctx context.Context) {
 				s.PausedMs = prev.PausedMs
 				s.LastPausedAt = prev.LastPausedAt
 
+				if s.ProgressMs != prev.ProgressMs {
+					s.LastProgressChange = now
+				} else {
+					s.LastProgressChange = prev.LastProgressChange
+				}
+
 				updatePauseState(&s, prev.State, s.State)
 
 				// Log mid-stream quality switches (e.g. bandwidth adaptation)
@@ -373,6 +411,7 @@ func (p *Poller) poll(ctx context.Context) {
 				}
 			} else {
 				updatePauseState(&s, "", s.State)
+				s.LastProgressChange = now
 			}
 			s.LastPollSeen = now
 			newSessions[key] = s
@@ -387,6 +426,22 @@ func (p *Poller) poll(ctx context.Context) {
 
 	preserveFailedSessions(oldSessions, newSessions, failedServers, now.Add(-5*time.Minute))
 
+	var idleStopped []models.ActiveStream
+	if idleTimeout := p.getIdleTimeout(); idleTimeout > 0 {
+		for key, s := range newSessions {
+			if s.State == models.SessionStatePaused {
+				continue
+			}
+			if !s.LastProgressChange.IsZero() && now.Sub(s.LastProgressChange) > idleTimeout {
+				log.Printf("idle timeout: %s by %s (no progress for %v)", s.Title, s.UserName, now.Sub(s.LastProgressChange))
+				s.IdleStopped = true
+				idleStopped = append(idleStopped, s)
+				delete(newSessions, key)
+				delete(oldSessions, key) // prevent double-persist in disappeared loop
+			}
+		}
+	}
+
 	p.mu.Lock()
 	p.sessions = newSessions
 	p.pendingDLNA = pendingDLNA
@@ -396,6 +451,10 @@ func (p *Poller) poll(ctx context.Context) {
 		if _, still := newSessions[key]; !still {
 			p.persistHistory(prev)
 		}
+	}
+
+	for _, s := range idleStopped {
+		p.persistHistory(s)
 	}
 
 	p.processRetries()
@@ -467,6 +526,10 @@ func (p *Poller) buildHistoryEntry(s models.ActiveStream, progressMs int64, watc
 	if audioDecision == "" {
 		audioDecision = models.TranscodeDecisionDirectPlay
 	}
+	stoppedAt := time.Now().UTC()
+	if s.IdleStopped && !s.LastProgressChange.IsZero() {
+		stoppedAt = s.LastProgressChange
+	}
 	return &models.WatchHistoryEntry{
 		ServerID:          s.ServerID,
 		ItemID:            s.ItemID,
@@ -483,7 +546,7 @@ func (p *Poller) buildHistoryEntry(s models.ActiveStream, progressMs int64, watc
 		Platform:          s.Platform,
 		IPAddress:         s.IPAddress,
 		StartedAt:         s.StartedAt,
-		StoppedAt:         time.Now().UTC(),
+		StoppedAt:         stoppedAt,
 		SeasonNumber:      s.SeasonNumber,
 		EpisodeNumber:     s.EpisodeNumber,
 		ThumbURL:          s.ThumbURL,
@@ -557,7 +620,7 @@ func updatePauseState(s *models.ActiveStream, oldState, newState models.SessionS
 	}
 	s.State = newState
 
-	now := time.Now()
+	now := time.Now().UTC()
 	if newState == models.SessionStatePaused && oldState != models.SessionStatePaused {
 		s.LastPausedAt = now
 	} else if newState != models.SessionStatePaused && oldState == models.SessionStatePaused {

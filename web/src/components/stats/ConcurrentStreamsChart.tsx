@@ -15,6 +15,14 @@ interface ConcurrentStreamsChartProps {
   data: ConcurrentTimePoint[]
 }
 
+type StreamTypeKey = 'direct_play' | 'direct_stream' | 'transcode'
+
+const AREAS: { dataKey: StreamTypeKey; name: string; colorIndex: number }[] = [
+  { dataKey: 'direct_play', name: 'Direct Play', colorIndex: 2 },
+  { dataKey: 'direct_stream', name: 'Direct Stream', colorIndex: 6 },
+  { dataKey: 'transcode', name: 'Transcode', colorIndex: 4 },
+]
+
 function formatDateTime(dateStr: string): string {
   const dt = new Date(dateStr)
   return dt.toLocaleDateString(undefined, {
@@ -74,24 +82,18 @@ export function ConcurrentStreamsChart({ data }: ConcurrentStreamsChartProps) {
               iconSize={8}
               wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
             />
-            <Area
-              type="stepAfter"
-              dataKey="direct_play"
-              name="Direct Play"
-              stackId="1"
-              stroke={CHART_COLORS[2]}
-              fill={CHART_COLORS[2]}
-              fillOpacity={0.6}
-            />
-            <Area
-              type="stepAfter"
-              dataKey="transcode"
-              name="Transcode"
-              stackId="1"
-              stroke={CHART_COLORS[4]}
-              fill={CHART_COLORS[4]}
-              fillOpacity={0.6}
-            />
+            {AREAS.map(({ dataKey, name, colorIndex }) => (
+              <Area
+                key={dataKey}
+                type="stepAfter"
+                dataKey={dataKey}
+                name={name}
+                stackId="1"
+                stroke={CHART_COLORS[colorIndex]}
+                fill={CHART_COLORS[colorIndex]}
+                fillOpacity={0.6}
+              />
+            ))}
           </AreaChart>
         </ResponsiveContainer>
       )}

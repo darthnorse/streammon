@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"time"
 
 	"streammon/internal/models"
 	"streammon/internal/store"
@@ -16,20 +15,19 @@ const (
 )
 
 type StatsResponse struct {
-	TopMovies            []models.MediaStat          `json:"top_movies"`
-	TopTVShows           []models.MediaStat          `json:"top_tv_shows"`
-	TopUsers             []models.UserStat           `json:"top_users"`
-	Library              *models.LibraryStat         `json:"library"`
-	ConcurrentPeak       int                         `json:"concurrent_peak"`
-	ConcurrentPeakAt     string                      `json:"concurrent_peak_at,omitempty"`
-	Locations            []models.GeoResult          `json:"locations"`
-	PotentialSharers     []models.SharerAlert        `json:"potential_sharers"`
-	ActivityByDayOfWeek  []models.DayOfWeekStat      `json:"activity_by_day_of_week"`
-	ActivityByHour       []models.HourStat           `json:"activity_by_hour"`
-	PlatformDistribution []models.DistributionStat   `json:"platform_distribution"`
-	PlayerDistribution   []models.DistributionStat   `json:"player_distribution"`
-	QualityDistribution  []models.DistributionStat   `json:"quality_distribution"`
+	TopMovies            []models.MediaStat           `json:"top_movies"`
+	TopTVShows           []models.MediaStat           `json:"top_tv_shows"`
+	TopUsers             []models.UserStat            `json:"top_users"`
+	Library              *models.LibraryStat          `json:"library"`
+	Locations            []models.GeoResult           `json:"locations"`
+	PotentialSharers     []models.SharerAlert         `json:"potential_sharers"`
+	ActivityByDayOfWeek  []models.DayOfWeekStat       `json:"activity_by_day_of_week"`
+	ActivityByHour       []models.HourStat            `json:"activity_by_hour"`
+	PlatformDistribution []models.DistributionStat    `json:"platform_distribution"`
+	PlayerDistribution   []models.DistributionStat    `json:"player_distribution"`
+	QualityDistribution  []models.DistributionStat    `json:"quality_distribution"`
 	ConcurrentTimeSeries []models.ConcurrentTimePoint `json:"concurrent_time_series"`
+	ConcurrentPeaks      models.ConcurrentPeaks       `json:"concurrent_peaks"`
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
@@ -79,14 +77,6 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var peakAt time.Time
-	if resp.ConcurrentPeak, peakAt, err = s.store.ConcurrentStreamsPeak(days); logAndFail("ConcurrentStreamsPeak", err) {
-		return
-	}
-	if !peakAt.IsZero() {
-		resp.ConcurrentPeakAt = peakAt.Format(time.RFC3339)
-	}
-
 	if resp.Locations, err = s.store.AllWatchLocations(days); logAndFail("AllWatchLocations", err) {
 		return
 	}
@@ -110,6 +100,9 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if resp.ConcurrentTimeSeries, err = s.store.ConcurrentStreamsOverTime(ctx, days); logAndFail("ConcurrentStreamsOverTime", err) {
+		return
+	}
+	if resp.ConcurrentPeaks, err = s.store.ConcurrentStreamsPeakByType(ctx, days); logAndFail("ConcurrentStreamsPeakByType", err) {
 		return
 	}
 

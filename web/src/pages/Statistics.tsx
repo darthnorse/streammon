@@ -81,7 +81,7 @@ export function Statistics() {
         </div>
       </div>
 
-      <LibraryCards stats={data.library} concurrentPeak={data.concurrent_peak} />
+      <LibraryCards stats={data.library} concurrentPeak={data.concurrent_peaks.total} />
 
       <DailyChart days={days} />
 

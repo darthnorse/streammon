@@ -1,10 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../lib/api'
 
-interface PagedResponse<T> {
+interface OffsetResponse<T> {
   results: T[]
   pageInfo: { pages: number }
 }
+
+interface PageResponse<T> {
+  results: T[]
+  totalPages: number
+}
+
+type PagedResponse<T> = OffsetResponse<T> | PageResponse<T>
 
 interface UseInfiniteFetchReturn<T> {
   items: T[]
@@ -20,6 +27,7 @@ interface UseInfiniteFetchReturn<T> {
 export function useInfiniteFetch<T>(
   baseUrl: string | null,
   pageSize: number,
+  mode: 'offset' | 'page' = 'offset',
 ): UseInfiniteFetchReturn<T> {
   const [items, setItems] = useState<T[]>([])
   const [hasMore, setHasMore] = useState(true)
@@ -52,15 +60,21 @@ export function useInfiniteFetch<T>(
     }
 
     const sep = baseUrl.includes('?') ? '&' : '?'
+    const params = mode === 'page'
+      ? `page=${pageNum + 1}`
+      : `take=${pageSize}&skip=${pageNum * pageSize}`
     api.get<PagedResponse<T>>(
-      `${baseUrl}${sep}take=${pageSize}&skip=${pageNum * pageSize}`,
+      `${baseUrl}${sep}${params}`,
       controller.signal,
     )
       .then(data => {
         if (controller.signal.aborted) return
         if (isFirst) setItems(data.results)
         else setItems(prev => [...prev, ...data.results])
-        setHasMore((pageNum + 1) < data.pageInfo.pages)
+        const totalPages = mode === 'page'
+          ? (data as PageResponse<T>).totalPages
+          : (data as OffsetResponse<T>).pageInfo.pages
+        setHasMore((pageNum + 1) < totalPages)
         pageRef.current = pageNum
       })
       .catch(err => {
@@ -74,9 +88,8 @@ export function useInfiniteFetch<T>(
         if (isFirst) setLoading(false)
         else setLoadingMore(false)
       })
-  }, [baseUrl, pageSize])
+  }, [baseUrl, pageSize, mode])
 
-  // Reset and fetch page 0 when URL changes or refetch is called
   useEffect(() => {
     abortRef.current?.abort()
     fetchingRef.current = false

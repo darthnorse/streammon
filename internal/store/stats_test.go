@@ -194,42 +194,167 @@ func TestLibraryStatsEmpty(t *testing.T) {
 	}
 }
 
-func TestConcurrentStreamsPeak(t *testing.T) {
+func TestConcurrentStreamsPeakByType(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)
+	ctx := context.Background()
 
 	base := time.Now().UTC().Add(-24 * time.Hour)
+
+	// Session 1: direct play, 0:00 - 2:00
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
-		Title: "M1", StartedAt: base, StoppedAt: base.Add(2 * time.Hour),
+		Title: "M1", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: base, StoppedAt: base.Add(2 * time.Hour),
 	})
+	// Session 2: transcode, 0:30 - 1:30
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
-		Title: "M2", StartedAt: base.Add(30 * time.Minute), StoppedAt: base.Add(90 * time.Minute),
+		Title: "M2", TranscodeDecision: models.TranscodeDecisionTranscode,
+		StartedAt: base.Add(30 * time.Minute), StoppedAt: base.Add(90 * time.Minute),
 	})
+	// Session 3: direct play, 0:45 - 1:15
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "carol", MediaType: models.MediaTypeMovie,
-		Title: "M3", StartedAt: base.Add(45 * time.Minute), StoppedAt: base.Add(75 * time.Minute),
+		Title: "M3", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: base.Add(45 * time.Minute), StoppedAt: base.Add(75 * time.Minute),
+	})
+	// Session 4: copy (direct stream), 0:45 - 1:00
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "dave", MediaType: models.MediaTypeMovie,
+		Title: "M4", TranscodeDecision: models.TranscodeDecisionCopy,
+		StartedAt: base.Add(45 * time.Minute), StoppedAt: base.Add(60 * time.Minute),
 	})
 
-	peak, _, err := s.ConcurrentStreamsPeak(0)
+	peaks, err := s.ConcurrentStreamsPeakByType(ctx, 0)
 	if err != nil {
-		t.Fatalf("ConcurrentStreamsPeak: %v", err)
+		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
 	}
-	if peak != 3 {
-		t.Fatalf("expected peak of 3, got %d", peak)
+
+	// Peak total: all 4 overlap at 0:45
+	if peaks.Total != 4 {
+		t.Errorf("total peak = %d, want 4", peaks.Total)
+	}
+	// Peak direct play: alice + carol overlap = 2
+	if peaks.DirectPlay != 2 {
+		t.Errorf("direct_play peak = %d, want 2", peaks.DirectPlay)
+	}
+	// Peak direct stream (copy): only dave = 1
+	if peaks.DirectStream != 1 {
+		t.Errorf("direct_stream peak = %d, want 1", peaks.DirectStream)
+	}
+	// Peak transcode: only bob = 1
+	if peaks.Transcode != 1 {
+		t.Errorf("transcode peak = %d, want 1", peaks.Transcode)
+	}
+	// Peak time should be set
+	if peaks.PeakAt == "" {
+		t.Error("expected non-empty peak_at")
 	}
 }
 
-func TestConcurrentStreamsPeakEmpty(t *testing.T) {
+func TestConcurrentStreamsPeakByTypeEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
 
-	peak, _, err := s.ConcurrentStreamsPeak(0)
+	peaks, err := s.ConcurrentStreamsPeakByType(ctx, 0)
 	if err != nil {
-		t.Fatalf("ConcurrentStreamsPeak: %v", err)
+		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
 	}
-	if peak != 0 {
-		t.Fatalf("expected peak of 0, got %d", peak)
+	if peaks.Total != 0 || peaks.DirectPlay != 0 || peaks.DirectStream != 0 || peaks.Transcode != 0 {
+		t.Errorf("expected all zeros, got %+v", peaks)
+	}
+	if peaks.PeakAt != "" {
+		t.Errorf("expected empty peak_at, got %q", peaks.PeakAt)
+	}
+}
+
+func TestConcurrentStreamsPeakByTypeIndependentPeaks(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	ctx := context.Background()
+
+	base := time.Now().UTC().Add(-24 * time.Hour)
+
+	// Phase 1 (0:00 - 1:00): 2 direct plays
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: base, StoppedAt: base.Add(time.Hour),
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "M2", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: base, StoppedAt: base.Add(time.Hour),
+	})
+
+	// Phase 2 (2:00 - 3:00): 3 transcodes
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "carol", MediaType: models.MediaTypeMovie,
+		Title: "M3", TranscodeDecision: models.TranscodeDecisionTranscode,
+		StartedAt: base.Add(2 * time.Hour), StoppedAt: base.Add(3 * time.Hour),
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "dave", MediaType: models.MediaTypeMovie,
+		Title: "M4", TranscodeDecision: models.TranscodeDecisionTranscode,
+		StartedAt: base.Add(2 * time.Hour), StoppedAt: base.Add(3 * time.Hour),
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "eve", MediaType: models.MediaTypeMovie,
+		Title: "M5", TranscodeDecision: models.TranscodeDecisionTranscode,
+		StartedAt: base.Add(2 * time.Hour), StoppedAt: base.Add(3 * time.Hour),
+	})
+
+	peaks, err := s.ConcurrentStreamsPeakByType(ctx, 0)
+	if err != nil {
+		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
+	}
+
+	// Peak total: 3 (the transcode phase)
+	if peaks.Total != 3 {
+		t.Errorf("total peak = %d, want 3", peaks.Total)
+	}
+	// Peak direct play: 2 (from phase 1, independent of total peak)
+	if peaks.DirectPlay != 2 {
+		t.Errorf("direct_play peak = %d, want 2", peaks.DirectPlay)
+	}
+	// Peak transcode: 3 (from phase 2)
+	if peaks.Transcode != 3 {
+		t.Errorf("transcode peak = %d, want 3", peaks.Transcode)
+	}
+}
+
+func TestConcurrentStreamsPeakByTypeEmptyDecision(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	ctx := context.Background()
+
+	base := time.Now().UTC().Add(-24 * time.Hour)
+
+	// Session with empty transcode_decision (e.g. music, old imported data)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMusic,
+		Title: "Song1",
+		StartedAt: base, StoppedAt: base.Add(5 * time.Minute),
+	})
+	// Session with explicit direct play
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "M1", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: base, StoppedAt: base.Add(time.Hour),
+	})
+
+	peaks, err := s.ConcurrentStreamsPeakByType(ctx, 0)
+	if err != nil {
+		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
+	}
+
+	// Empty decision should count as direct play, so peak direct play = 2
+	if peaks.DirectPlay != 2 {
+		t.Errorf("direct_play peak = %d, want 2 (empty decision counts as direct play)", peaks.DirectPlay)
+	}
+	if peaks.Total != 2 {
+		t.Errorf("total peak = %d, want 2", peaks.Total)
 	}
 }
 

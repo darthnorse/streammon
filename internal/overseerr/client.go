@@ -53,7 +53,7 @@ func ValidateURL(rawURL string) error {
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader) (json.RawMessage, error) {
 	u := c.baseURL + "/api/v1" + path
 	if len(query) > 0 {
-		u += "?" + query.Encode()
+		u += "?" + strings.ReplaceAll(query.Encode(), "+", "%20")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, u, body)

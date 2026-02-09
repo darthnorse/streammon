@@ -187,10 +187,10 @@ type LibraryMaintenance struct {
 	Rules        []MaintenanceRuleWithCount `json:"rules"`
 }
 
-// MaintenanceRuleWithCount includes the candidate count
 type MaintenanceRuleWithCount struct {
 	MaintenanceRule
 	CandidateCount int `json:"candidate_count"`
+	ExclusionCount int `json:"exclusion_count"`
 }
 
 // UnwatchedMovieParams for unwatched_movie criterion

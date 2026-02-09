@@ -268,63 +268,102 @@ func (s *Store) LibraryStats(days int) (*models.LibraryStat, error) {
 	return &stats, nil
 }
 
-func (s *Store) ConcurrentStreamsPeak(days int) (int, time.Time, error) {
+// concurrentEvent represents a session start (+1) or stop (-1) at a point in time.
+type concurrentEvent struct {
+	t        time.Time
+	delta    int
+	decision string
+}
+
+// loadConcurrentEvents queries watch_history and returns sorted start/stop events.
+// Events are sorted by time with stops before starts at equal timestamps (half-open intervals).
+func (s *Store) loadConcurrentEvents(ctx context.Context, cutoff time.Time) ([]concurrentEvent, error) {
 	var rows *sql.Rows
 	var err error
-	cutoff := cutoffTime(days)
 	if cutoff.IsZero() {
-		rows, err = s.db.Query(`SELECT started_at, stopped_at FROM watch_history`)
+		rows, err = s.db.QueryContext(ctx, `SELECT started_at, stopped_at, transcode_decision FROM watch_history`)
 	} else {
-		rows, err = s.db.Query(
-			`SELECT started_at, stopped_at FROM watch_history WHERE started_at >= ?`,
+		rows, err = s.db.QueryContext(ctx,
+			`SELECT started_at, stopped_at, transcode_decision FROM watch_history WHERE started_at >= ?`,
 			cutoff,
 		)
 	}
 	if err != nil {
-		return 0, time.Time{}, fmt.Errorf("concurrent streams: %w", err)
+		return nil, fmt.Errorf("loading concurrent events: %w", err)
 	}
 	defer rows.Close()
 
-	type event struct {
-		t     time.Time
-		delta int
-	}
-	var events []event
-
+	var events []concurrentEvent
 	for rows.Next() {
 		var start, stop time.Time
-		if err := rows.Scan(&start, &stop); err != nil {
-			return 0, time.Time{}, fmt.Errorf("scanning concurrent streams: %w", err)
+		var decision string
+		if err := rows.Scan(&start, &stop, &decision); err != nil {
+			return nil, fmt.Errorf("scanning concurrent event: %w", err)
 		}
-		events = append(events, event{t: start, delta: 1})
-		events = append(events, event{t: stop, delta: -1})
+		if stop.IsZero() || stop.Before(start) {
+			continue
+		}
+		events = append(events, concurrentEvent{t: start, delta: 1, decision: decision})
+		events = append(events, concurrentEvent{t: stop, delta: -1, decision: decision})
 	}
 	if err := rows.Err(); err != nil {
-		return 0, time.Time{}, fmt.Errorf("iterating concurrent streams: %w", err)
-	}
-
-	if len(events) == 0 {
-		return 0, time.Time{}, nil
+		return nil, fmt.Errorf("iterating concurrent events: %w", err)
 	}
 
 	sort.Slice(events, func(i, j int) bool {
 		if events[i].t.Equal(events[j].t) {
-			return events[i].delta > events[j].delta
+			return events[i].delta < events[j].delta
 		}
 		return events[i].t.Before(events[j].t)
 	})
 
-	var peak, current int
+	return events, nil
+}
+
+func (s *Store) ConcurrentStreamsPeakByType(ctx context.Context, days int) (models.ConcurrentPeaks, error) {
+	events, err := s.loadConcurrentEvents(ctx, cutoffTime(days))
+	if err != nil {
+		return models.ConcurrentPeaks{}, err
+	}
+	if len(events) == 0 {
+		return models.ConcurrentPeaks{}, nil
+	}
+
+	var peaks models.ConcurrentPeaks
 	var peakTime time.Time
+	var curTotal, curDirectPlay, curDirectStream, curTranscode int
 	for _, ev := range events {
-		current += ev.delta
-		if current > peak {
-			peak = current
+		curTotal += ev.delta
+		switch models.TranscodeDecision(ev.decision) {
+		case models.TranscodeDecisionDirectPlay:
+			curDirectPlay += ev.delta
+		case models.TranscodeDecisionCopy:
+			curDirectStream += ev.delta
+		case models.TranscodeDecisionTranscode:
+			curTranscode += ev.delta
+		default:
+			curDirectPlay += ev.delta
+		}
+		if curTotal > peaks.Total {
+			peaks.Total = curTotal
 			peakTime = ev.t
+		}
+		if curDirectPlay > peaks.DirectPlay {
+			peaks.DirectPlay = curDirectPlay
+		}
+		if curDirectStream > peaks.DirectStream {
+			peaks.DirectStream = curDirectStream
+		}
+		if curTranscode > peaks.Transcode {
+			peaks.Transcode = curTranscode
 		}
 	}
 
-	return peak, peakTime, nil
+	if !peakTime.IsZero() {
+		peaks.PeakAt = peakTime.Format(time.RFC3339)
+	}
+
+	return peaks, nil
 }
 
 func (s *Store) AllWatchLocations(days int) ([]models.GeoResult, error) {
@@ -772,75 +811,42 @@ func (s *Store) ConcurrentStreamsOverTime(ctx context.Context, days int) ([]mode
 		cutoff = time.Now().UTC().AddDate(0, 0, -DefaultConcurrentPeakDays)
 	}
 
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT started_at, stopped_at, transcode_decision FROM watch_history WHERE started_at >= ?`,
-		cutoff,
-	)
+	events, err := s.loadConcurrentEvents(ctx, cutoff)
 	if err != nil {
-		return nil, fmt.Errorf("concurrent streams over time: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-
-	type event struct {
-		t         time.Time
-		delta     int
-		transcode bool
-	}
-	var events []event
-
-	for rows.Next() {
-		var start, stop time.Time
-		var decision string
-		if err := rows.Scan(&start, &stop, &decision); err != nil {
-			return nil, fmt.Errorf("scanning concurrent stream: %w", err)
-		}
-		isTranscode := decision == string(models.TranscodeDecisionTranscode)
-		events = append(events, event{t: start, delta: 1, transcode: isTranscode})
-		events = append(events, event{t: stop, delta: -1, transcode: isTranscode})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating concurrent streams: %w", err)
-	}
-
 	if len(events) == 0 {
 		return []models.ConcurrentTimePoint{}, nil
 	}
 
-	sort.Slice(events, func(i, j int) bool {
-		if events[i].t.Equal(events[j].t) {
-			return events[i].delta > events[j].delta
-		}
-		return events[i].t.Before(events[j].t)
-	})
-
 	// Aggregate into hourly buckets to prevent large datasets
 	hourlyMax := make(map[time.Time]models.ConcurrentTimePoint)
-	var directPlay, transcode int
+	var directPlay, directStream, transcode int
 
 	for _, ev := range events {
-		if ev.transcode {
+		switch models.TranscodeDecision(ev.decision) {
+		case models.TranscodeDecisionCopy:
+			directStream += ev.delta
+		case models.TranscodeDecisionTranscode:
 			transcode += ev.delta
-		} else {
+		default:
 			directPlay += ev.delta
 		}
-		total := directPlay + transcode
+		total := directPlay + directStream + transcode
 
-		// Bucket to the hour
 		hourBucket := ev.t.Truncate(time.Hour)
-
-		// Keep the maximum concurrent count for each hour
 		existing, ok := hourlyMax[hourBucket]
 		if !ok || total > existing.Total {
 			hourlyMax[hourBucket] = models.ConcurrentTimePoint{
-				Time:       hourBucket,
-				DirectPlay: directPlay,
-				Transcode:  transcode,
-				Total:      total,
+				Time:         hourBucket,
+				DirectPlay:   directPlay,
+				DirectStream: directStream,
+				Transcode:    transcode,
+				Total:        total,
 			}
 		}
 	}
 
-	// Convert map to sorted slice
 	points := make([]models.ConcurrentTimePoint, 0, len(hourlyMax))
 	for _, p := range hourlyMax {
 		points = append(points, p)

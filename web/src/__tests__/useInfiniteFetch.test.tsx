@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
+import { setupIntersectionObserver } from './helpers/mockIntersectionObserver'
 
 vi.mock('../lib/api', () => ({
   api: { get: vi.fn() },
@@ -13,30 +14,30 @@ const mockGet = vi.mocked(api.get)
 type Item = { id: number }
 
 let triggerIntersection: () => void
-const mockDisconnect = vi.fn()
+let mockDisconnect: ReturnType<typeof vi.fn>
 
-function makePage(ids: number[], totalPages: number) {
-  return {
-    results: ids.map(id => ({ id })),
-    pageInfo: { pages: totalPages },
-  }
+function makeResponse(ids: number[], totalPages: number, mode: 'offset' | 'page' = 'offset') {
+  const results = ids.map(id => ({ id }))
+  return mode === 'page'
+    ? { results, totalPages }
+    : { results, pageInfo: { pages: totalPages } }
 }
 
-function mockNextPage(ids: number[], totalPages: number) {
-  mockGet.mockResolvedValueOnce(makePage(ids, totalPages) as never)
+function mockNextResponse(ids: number[], totalPages: number, mode: 'offset' | 'page' = 'offset') {
+  mockGet.mockResolvedValueOnce(makeResponse(ids, totalPages, mode) as never)
 }
 
-function mockNextPageDeferred() {
+function mockNextResponseDeferred(mode: 'offset' | 'page' = 'offset') {
   let resolve!: (value: unknown) => void
   mockGet.mockImplementationOnce(
     () => new Promise(r => { resolve = r }) as never,
   )
-  return (ids: number[], totalPages: number) => resolve(makePage(ids, totalPages))
+  return (ids: number[], totalPages: number) => resolve(makeResponse(ids, totalPages, mode))
 }
 
-function TestHarness({ url, pageSize }: { url: string | null; pageSize: number }) {
+function TestHarness({ url, pageSize, mode }: { url: string | null; pageSize: number; mode?: 'offset' | 'page' }) {
   const { items, loading, loadingMore, hasMore, error, sentinelRef, retry, refetch } =
-    useInfiniteFetch<Item>(url, pageSize)
+    useInfiniteFetch<Item>(url, pageSize, mode)
   return (
     <div>
       {loading && <div data-testid="loading">Loading</div>}
@@ -64,19 +65,9 @@ function TestHarness({ url, pageSize }: { url: string | null; pageSize: number }
 describe('useInfiniteFetch', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-
-    vi.stubGlobal(
-      'IntersectionObserver',
-      vi.fn((cb: IntersectionObserverCallback) => {
-        triggerIntersection = () => {
-          cb(
-            [{ isIntersecting: true } as IntersectionObserverEntry],
-            {} as IntersectionObserver,
-          )
-        }
-        return { observe: vi.fn(), disconnect: mockDisconnect, unobserve: vi.fn() }
-      }),
-    )
+    const observer = setupIntersectionObserver()
+    triggerIntersection = observer.triggerIntersection
+    mockDisconnect = observer.disconnect
   })
 
   afterEach(() => {
@@ -84,7 +75,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('fetches page 0 on mount and displays items', async () => {
-    mockNextPage([1, 2, 3], 2)
+    mockNextResponse([1, 2, 3], 2)
 
     render(<TestHarness url="/api/test" pageSize={3} />)
 
@@ -113,7 +104,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('appends query param with & when baseUrl has ?', async () => {
-    mockNextPage([1], 1)
+    mockNextResponse([1], 1)
 
     render(<TestHarness url="/api/test?filter=all" pageSize={5} />)
 
@@ -128,7 +119,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('loads next page on intersection', async () => {
-    mockNextPage([1, 2], 3)
+    mockNextResponse([1, 2], 3)
 
     render(<TestHarness url="/api/test" pageSize={2} />)
 
@@ -137,7 +128,7 @@ describe('useInfiniteFetch', () => {
     })
     expect(screen.getAllByTestId('item')).toHaveLength(2)
 
-    mockNextPage([3, 4], 3)
+    mockNextResponse([3, 4], 3)
     act(() => triggerIntersection())
 
     await waitFor(() => {
@@ -151,7 +142,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('sets hasMore to false when last page is reached', async () => {
-    mockNextPage([1, 2], 1)
+    mockNextResponse([1, 2], 1)
 
     render(<TestHarness url="/api/test" pageSize={2} />)
 
@@ -161,7 +152,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('resets items on URL change', async () => {
-    mockNextPage([1, 2], 2)
+    mockNextResponse([1, 2], 2)
 
     const { rerender } = render(
       <TestHarness url="/api/test?filter=all" pageSize={2} />,
@@ -171,7 +162,7 @@ describe('useInfiniteFetch', () => {
       expect(screen.getAllByTestId('item')).toHaveLength(2)
     })
 
-    mockNextPage([5, 6], 1)
+    mockNextResponse([5, 6], 1)
     rerender(<TestHarness url="/api/test?filter=pending" pageSize={2} />)
 
     await waitFor(() => {
@@ -203,7 +194,7 @@ describe('useInfiniteFetch', () => {
       expect(screen.getByTestId('error')).toBeDefined()
     })
 
-    mockNextPage([1, 2], 1)
+    mockNextResponse([1, 2], 1)
     act(() => {
       screen.getByTestId('retry').click()
     })
@@ -215,13 +206,13 @@ describe('useInfiniteFetch', () => {
   })
 
   it('aborts in-flight request on URL change', async () => {
-    const resolveFirst = mockNextPageDeferred()
+    const resolveFirst = mockNextResponseDeferred()
 
     const { rerender } = render(
       <TestHarness url="/api/test?v=1" pageSize={2} />,
     )
 
-    mockNextPage([3, 4], 1)
+    mockNextResponse([3, 4], 1)
     rerender(<TestHarness url="/api/test?v=2" pageSize={2} />)
 
     // Resolve the old request — should be ignored (aborted controller)
@@ -237,7 +228,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('prevents duplicate fetches on rapid intersection triggers', async () => {
-    mockNextPage([1, 2], 3)
+    mockNextResponse([1, 2], 3)
 
     render(<TestHarness url="/api/test" pageSize={2} />)
 
@@ -245,7 +236,7 @@ describe('useInfiniteFetch', () => {
       expect(screen.queryByTestId('loading')).toBeNull()
     })
 
-    const resolvePage2 = mockNextPageDeferred()
+    const resolvePage2 = mockNextResponseDeferred()
 
     act(() => {
       triggerIntersection()
@@ -264,7 +255,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('shows error after later page failure with retry', async () => {
-    mockNextPage([1, 2], 3)
+    mockNextResponse([1, 2], 3)
 
     render(<TestHarness url="/api/test" pageSize={2} />)
 
@@ -279,10 +270,9 @@ describe('useInfiniteFetch', () => {
       expect(screen.getByTestId('error').textContent).toBe('Timeout')
     })
 
-    // Items from page 0 still visible
     expect(screen.getAllByTestId('item')).toHaveLength(2)
 
-    mockNextPage([3, 4], 3)
+    mockNextResponse([3, 4], 3)
     act(() => {
       screen.getByTestId('retry').click()
     })
@@ -294,7 +284,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('cleans up observer on unmount', async () => {
-    mockNextPage([1], 2)
+    mockNextResponse([1], 2)
 
     const { unmount } = render(<TestHarness url="/api/test" pageSize={2} />)
 
@@ -308,7 +298,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('refetch reloads from page 0 with same URL', async () => {
-    mockNextPage([1, 2], 2)
+    mockNextResponse([1, 2], 2)
 
     render(<TestHarness url="/api/test" pageSize={2} />)
 
@@ -316,14 +306,14 @@ describe('useInfiniteFetch', () => {
       expect(screen.getAllByTestId('item')).toHaveLength(2)
     })
 
-    mockNextPage([3, 4], 2)
+    mockNextResponse([3, 4], 2)
     act(() => triggerIntersection())
 
     await waitFor(() => {
       expect(screen.getAllByTestId('item')).toHaveLength(4)
     })
 
-    mockNextPage([10, 20], 1)
+    mockNextResponse([10, 20], 1)
     act(() => {
       screen.getByTestId('refetch').click()
     })
@@ -336,7 +326,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('aborts in-flight request on unmount', async () => {
-    const resolveFirst = mockNextPageDeferred()
+    const resolveFirst = mockNextResponseDeferred()
 
     const { unmount } = render(<TestHarness url="/api/test" pageSize={2} />)
 
@@ -347,7 +337,7 @@ describe('useInfiniteFetch', () => {
   })
 
   it('resets on pageSize change', async () => {
-    mockNextPage([1, 2], 2)
+    mockNextResponse([1, 2], 2)
 
     const { rerender } = render(
       <TestHarness url="/api/test" pageSize={2} />,
@@ -357,7 +347,7 @@ describe('useInfiniteFetch', () => {
       expect(screen.getAllByTestId('item')).toHaveLength(2)
     })
 
-    mockNextPage([1, 2, 3], 1)
+    mockNextResponse([1, 2, 3], 1)
     rerender(<TestHarness url="/api/test" pageSize={3} />)
 
     await waitFor(() => {
@@ -366,6 +356,112 @@ describe('useInfiniteFetch', () => {
 
     expect(mockGet).toHaveBeenLastCalledWith(
       '/api/test?take=3&skip=0',
+      expect.any(AbortSignal),
+    )
+  })
+
+  describe('page mode', () => {
+    it('uses page=1 on mount (1-indexed)', async () => {
+      mockNextResponse([1, 2, 3], 3, 'page')
+
+      render(<TestHarness url="/api/test" pageSize={20} mode="page" />)
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('loading')).toBeNull()
+      })
+
+      expect(screen.getAllByTestId('item')).toHaveLength(3)
+      expect(mockGet).toHaveBeenCalledWith(
+        '/api/test?page=1',
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('accumulates items across pages', async () => {
+      mockNextResponse([1, 2], 3, 'page')
+
+      render(<TestHarness url="/api/test" pageSize={20} mode="page" />)
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('item')).toHaveLength(2)
+      })
+
+      mockNextResponse([3, 4], 3, 'page')
+      act(() => triggerIntersection())
+
+      await waitFor(() => {
+        expect(screen.getAllByTestId('item')).toHaveLength(4)
+      })
+
+      expect(mockGet).toHaveBeenLastCalledWith(
+        '/api/test?page=2',
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('sets hasMore to false on last page', async () => {
+      mockNextResponse([1, 2], 1, 'page')
+
+      render(<TestHarness url="/api/test" pageSize={20} mode="page" />)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('no-more')).toBeDefined()
+      })
+
+      expect(screen.getAllByTestId('item')).toHaveLength(2)
+    })
+
+    it('appends page param with & when baseUrl has ?', async () => {
+      mockNextResponse([1], 1, 'page')
+
+      render(<TestHarness url="/api/test?language=en" pageSize={20} mode="page" />)
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('loading')).toBeNull()
+      })
+
+      expect(mockGet).toHaveBeenCalledWith(
+        '/api/test?language=en&page=1',
+        expect.any(AbortSignal),
+      )
+    })
+
+    it('sets hasMore to false when totalPages is 0', async () => {
+      mockNextResponse([], 0, 'page')
+
+      render(<TestHarness url="/api/test" pageSize={20} mode="page" />)
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('loading')).toBeNull()
+      })
+
+      expect(screen.queryAllByTestId('item')).toHaveLength(0)
+      expect(screen.getByTestId('no-more')).toBeDefined()
+    })
+  })
+
+  it('resets on mode change', async () => {
+    mockNextResponse([1, 2], 2)
+
+    const { rerender } = render(
+      <TestHarness url="/api/test" pageSize={2} />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('item')).toHaveLength(2)
+    })
+
+    mockNextResponse([5, 6], 1, 'page')
+    rerender(<TestHarness url="/api/test" pageSize={2} mode="page" />)
+
+    await waitFor(() => {
+      const items = screen.getAllByTestId('item')
+      expect(items).toHaveLength(2)
+      expect(items[0].textContent).toBe('5')
+    })
+
+    expect(mockGet).toHaveBeenLastCalledWith(
+      '/api/test?page=1',
       expect.any(AbortSignal),
     )
   })

@@ -1,6 +1,11 @@
 package store
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"streammon/internal/models"
+)
 
 func TestSetAndGetSetting(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
@@ -437,5 +442,140 @@ func TestWatchedThresholdInvalidValues(t *testing.T) {
 	}
 	if err := s.SetWatchedThreshold(-1); err == nil {
 		t.Fatal("expected error for -1")
+	}
+}
+
+func TestIdleTimeoutDefault(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	val, err := s.GetIdleTimeoutMinutes()
+	if err != nil {
+		t.Fatalf("GetIdleTimeoutMinutes: %v", err)
+	}
+	if val != 5 {
+		t.Fatalf("expected default 5, got %d", val)
+	}
+}
+
+func TestIdleTimeoutRoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	if err := s.SetIdleTimeoutMinutes(10); err != nil {
+		t.Fatalf("SetIdleTimeoutMinutes: %v", err)
+	}
+
+	val, err := s.GetIdleTimeoutMinutes()
+	if err != nil {
+		t.Fatalf("GetIdleTimeoutMinutes: %v", err)
+	}
+	if val != 10 {
+		t.Fatalf("expected 10, got %d", val)
+	}
+}
+
+func TestIdleTimeoutDisabled(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	if err := s.SetIdleTimeoutMinutes(0); err != nil {
+		t.Fatalf("SetIdleTimeoutMinutes(0): %v", err)
+	}
+
+	val, err := s.GetIdleTimeoutMinutes()
+	if err != nil {
+		t.Fatalf("GetIdleTimeoutMinutes: %v", err)
+	}
+	if val != 0 {
+		t.Fatalf("expected 0 (disabled), got %d", val)
+	}
+}
+
+func TestIdleTimeoutInvalidValues(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	if err := s.SetIdleTimeoutMinutes(-1); err == nil {
+		t.Fatal("expected error for -1")
+	}
+	if err := s.SetIdleTimeoutMinutes(1441); err == nil {
+		t.Fatal("expected error for 1441 (exceeds max 1440)")
+	}
+	// Boundary: 1440 should be valid
+	if err := s.SetIdleTimeoutMinutes(1440); err != nil {
+		t.Fatalf("expected 1440 to be valid, got error: %v", err)
+	}
+}
+
+func TestCleanupZombieSessions(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	// Create a server for the foreign key
+	srv := &models.Server{Name: "srv", Type: models.ServerTypePlex, URL: "http://x", APIKey: "k", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert a zombie session: started 2 days ago, stopped now, but only watched 30 min
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID:  srv.ID,
+		UserName:  "alice",
+		Title:     "Zombie Movie",
+		MediaType: models.MediaTypeMovie,
+		StartedAt: time.Now().UTC().Add(-48 * time.Hour),
+		StoppedAt: time.Now().UTC(),
+		WatchedMs: 1800000, // 30 min
+	})
+
+	// Insert a normal session
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID:  srv.ID,
+		UserName:  "bob",
+		Title:     "Normal Movie",
+		MediaType: models.MediaTypeMovie,
+		StartedAt: time.Now().UTC().Add(-2 * time.Hour),
+		StoppedAt: time.Now().UTC().Add(-30 * time.Minute),
+		WatchedMs: 5400000, // 90 min
+	})
+
+	// Insert a zero-progress zombie: started 3 days ago, stopped now, watched nothing
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID:  srv.ID,
+		UserName:  "charlie",
+		Title:     "Zero Progress Zombie",
+		MediaType: models.MediaTypeMovie,
+		StartedAt: time.Now().UTC().Add(-72 * time.Hour),
+		StoppedAt: time.Now().UTC(),
+		WatchedMs: 0,
+	})
+
+	if err := s.CleanupZombieSessions(); err != nil {
+		t.Fatalf("CleanupZombieSessions: %v", err)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 3 {
+		t.Fatalf("expected 3 history entries, got %d", result.Total)
+	}
+
+	for _, item := range result.Items {
+		wallTime := item.StoppedAt.Sub(item.StartedAt)
+		switch item.Title {
+		case "Zombie Movie":
+			// Should be capped: started_at + watched_ms/1000 + 300 seconds = 30 min + 5 min = 35 min
+			if wallTime > 36*time.Minute {
+				t.Errorf("zombie wall time should be capped, got %v", wallTime)
+			}
+		case "Zero Progress Zombie":
+			// Should be capped: stopped_at = started_at for zero-progress
+			if wallTime > time.Second {
+				t.Errorf("zero-progress zombie wall time should be ~0, got %v", wallTime)
+			}
+		}
+	}
+
+	// Second call should be a no-op (flag set)
+	if err := s.CleanupZombieSessions(); err != nil {
+		t.Fatalf("second CleanupZombieSessions: %v", err)
 	}
 }

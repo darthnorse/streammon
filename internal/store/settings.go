@@ -222,3 +222,30 @@ func (s *Store) SetWatchedThreshold(pct int) error {
 	}
 	return s.SetSetting(watchedThresholdKey, strconv.Itoa(pct))
 }
+
+const idleTimeoutKey = "session.idle_timeout_minutes"
+const DefaultIdleTimeoutMinutes = 5
+
+func (s *Store) GetIdleTimeoutMinutes() (int, error) {
+	val, err := s.GetSetting(idleTimeoutKey)
+	if err != nil {
+		return 0, err
+	}
+	if val == "" {
+		return DefaultIdleTimeoutMinutes, nil
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		return DefaultIdleTimeoutMinutes, nil
+	}
+	return n, nil
+}
+
+const MaxIdleTimeoutMinutes = 1440 // 24 hours
+
+func (s *Store) SetIdleTimeoutMinutes(min int) error {
+	if min < 0 || min > MaxIdleTimeoutMinutes {
+		return fmt.Errorf("idle timeout must be between 0 and %d, got %d", MaxIdleTimeoutMinutes, min)
+	}
+	return s.SetSetting(idleTimeoutKey, strconv.Itoa(min))
+}

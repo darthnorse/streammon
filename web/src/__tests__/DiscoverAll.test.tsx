@@ -1,28 +1,31 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import { DiscoverAll } from '../pages/DiscoverAll'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
+import { setupIntersectionObserver } from './helpers/mockIntersectionObserver'
 
 vi.mock('../lib/api', () => ({
-  api: {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    del: vi.fn(),
-  },
+  api: { get: vi.fn() },
 }))
 
 import { api } from '../lib/api'
 const mockApi = vi.mocked(api)
 
-const trendingResponse = {
-  page: 1,
-  totalPages: 3,
-  totalResults: 60,
+let triggerIntersection: () => void
+
+const page1Response = {
   results: [
     { id: 1, mediaType: 'movie', title: 'Trending Movie', posterPath: '/p1.jpg', voteAverage: 7.5, releaseDate: '2024-01-01' },
     { id: 2, mediaType: 'tv', name: 'Trending Show', posterPath: '/p2.jpg', voteAverage: 8.0, firstAirDate: '2024-06-01' },
   ],
+  totalPages: 3,
+}
+
+const page2Response = {
+  results: [
+    { id: 3, mediaType: 'movie', title: 'Another Movie', posterPath: '/p3.jpg', voteAverage: 6.5, releaseDate: '2024-03-01' },
+  ],
+  totalPages: 3,
 }
 
 function renderAtRoute(path: string) {
@@ -35,7 +38,7 @@ function renderAtRoute(path: string) {
   )
 }
 
-function mockGet(handler: (url: string) => unknown) {
+function mockGetHandler(handler: (url: string) => unknown) {
   mockApi.get.mockImplementation(((url: string) => {
     const result = handler(url)
     return result instanceof Error ? Promise.reject(result) : Promise.resolve(result)
@@ -45,7 +48,8 @@ function mockGet(handler: (url: string) => unknown) {
 describe('DiscoverAll', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    window.scrollTo = vi.fn()
+    const observer = setupIntersectionObserver()
+    triggerIntersection = observer.triggerIntersection
   })
 
   afterEach(() => {
@@ -53,8 +57,8 @@ describe('DiscoverAll', () => {
   })
 
   it('renders category title and results', async () => {
-    mockGet(url =>
-      url.startsWith('/api/overseerr/discover/trending') ? trendingResponse : null
+    mockGetHandler(url =>
+      url.startsWith('/api/overseerr/discover/trending') ? page1Response : null
     )
 
     renderAtRoute('/requests/discover/trending')
@@ -64,7 +68,6 @@ describe('DiscoverAll', () => {
     })
     expect(screen.getByText('Trending')).toBeDefined()
     expect(screen.getByText('Trending Show')).toBeDefined()
-    expect(screen.getByText('60 titles')).toBeDefined()
   })
 
   it('shows loading state', () => {
@@ -76,9 +79,9 @@ describe('DiscoverAll', () => {
   })
 
   it('shows empty state when no results', async () => {
-    mockGet(url =>
+    mockGetHandler(url =>
       url.startsWith('/api/overseerr/discover/trending')
-        ? { page: 1, totalPages: 0, totalResults: 0, results: [] }
+        ? { results: [], totalPages: 0 }
         : null
     )
 
@@ -90,7 +93,7 @@ describe('DiscoverAll', () => {
   })
 
   it('shows error state on API failure', async () => {
-    mockGet(url =>
+    mockGetHandler(url =>
       url.startsWith('/api/overseerr/discover/trending')
         ? new Error('Server error')
         : null
@@ -110,18 +113,45 @@ describe('DiscoverAll', () => {
     expect(mockApi.get).not.toHaveBeenCalled()
   })
 
-  it('shows pagination when totalPages > 1', async () => {
-    mockGet(url =>
-      url.startsWith('/api/overseerr/discover/trending') ? trendingResponse : null
+  it('accumulates items across pages on scroll', async () => {
+    let callCount = 0
+    mockApi.get.mockImplementation((() => {
+      callCount++
+      return Promise.resolve(callCount === 1 ? page1Response : page2Response)
+    }) as typeof api.get)
+
+    renderAtRoute('/requests/discover/trending')
+
+    await waitFor(() => {
+      expect(screen.getByText('Trending Movie')).toBeDefined()
+    })
+    expect(screen.getByText('Trending Show')).toBeDefined()
+
+    act(() => triggerIntersection())
+
+    await waitFor(() => {
+      expect(screen.getByText('Another Movie')).toBeDefined()
+    })
+
+    expect(screen.getByText('Trending Movie')).toBeDefined()
+    expect(screen.getByText('Trending Show')).toBeDefined()
+  })
+
+  it('uses page=1 for initial fetch', async () => {
+    mockGetHandler(url =>
+      url.startsWith('/api/overseerr/discover/trending') ? page1Response : null
     )
 
     renderAtRoute('/requests/discover/trending')
 
     await waitFor(() => {
-      expect(screen.getByText('1 / 3')).toBeDefined()
+      expect(screen.getByText('Trending Movie')).toBeDefined()
     })
-    expect(screen.getByText('Previous')).toBeDefined()
-    expect(screen.getByText('Next')).toBeDefined()
+
+    expect(mockApi.get).toHaveBeenCalledWith(
+      '/api/overseerr/discover/trending?page=1',
+      expect.any(AbortSignal),
+    )
   })
 
   it('has back link to /requests', async () => {
@@ -134,9 +164,9 @@ describe('DiscoverAll', () => {
   })
 
   it('renders correct title for nested category paths', async () => {
-    mockGet(url =>
+    mockGetHandler(url =>
       url.startsWith('/api/overseerr/discover/movies/upcoming')
-        ? { ...trendingResponse, results: [trendingResponse.results[0]] }
+        ? { ...page1Response, results: [page1Response.results[0]] }
         : null
     )
 
@@ -148,12 +178,12 @@ describe('DiscoverAll', () => {
   })
 
   it('filters out person results', async () => {
-    mockGet(url =>
+    mockGetHandler(url =>
       url.startsWith('/api/overseerr/discover/trending')
         ? {
-            ...trendingResponse,
+            ...page1Response,
             results: [
-              ...trendingResponse.results,
+              ...page1Response.results,
               { id: 99, mediaType: 'person', name: 'Famous Person' },
             ],
           }

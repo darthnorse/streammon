@@ -269,8 +269,17 @@ export interface DistributionStat {
 export interface ConcurrentTimePoint {
   time: string
   direct_play: number
+  direct_stream: number
   transcode: number
   total: number
+}
+
+export interface ConcurrentPeaks {
+  total: number
+  direct_play: number
+  direct_stream: number
+  transcode: number
+  peak_at?: string
 }
 
 export interface StatsResponse {
@@ -278,8 +287,6 @@ export interface StatsResponse {
   top_tv_shows: MediaStat[]
   top_users: UserStat[]
   library: LibraryStat
-  concurrent_peak: number
-  concurrent_peak_at?: string
   locations: GeoResult[]
   potential_sharers: SharerAlert[]
   activity_by_day_of_week: DayOfWeekStat[]
@@ -288,6 +295,7 @@ export interface StatsResponse {
   player_distribution: DistributionStat[]
   quality_distribution: DistributionStat[]
   concurrent_time_series: ConcurrentTimePoint[]
+  concurrent_peaks: ConcurrentPeaks
 }
 
 export type LibraryType = 'movie' | 'show' | 'music' | 'other'
@@ -572,6 +580,7 @@ export interface MaintenanceRule {
 
 export interface MaintenanceRuleWithCount extends MaintenanceRule {
   candidate_count: number
+  exclusion_count: number
 }
 
 export interface MaintenanceCandidate {

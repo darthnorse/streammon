@@ -196,7 +196,9 @@ type ActiveStream struct {
 	Platform         string    `json:"platform"`
 	IPAddress        string    `json:"ip_address"`
 	StartedAt        time.Time `json:"started_at"`
-	LastPollSeen     time.Time `json:"-"`
+	LastPollSeen       time.Time `json:"-"`
+	LastProgressChange time.Time `json:"-"`
+	IdleStopped        bool      `json:"-"`
 
 	VideoCodec        string            `json:"video_codec,omitempty"`
 	AudioCodec        string            `json:"audio_codec,omitempty"`
@@ -441,8 +443,17 @@ type DistributionStat struct {
 }
 
 type ConcurrentTimePoint struct {
-	Time       time.Time `json:"time"`
-	DirectPlay int       `json:"direct_play"`
-	Transcode  int       `json:"transcode"`
-	Total      int       `json:"total"`
+	Time         time.Time `json:"time"`
+	DirectPlay   int       `json:"direct_play"`
+	DirectStream int       `json:"direct_stream"`
+	Transcode    int       `json:"transcode"`
+	Total        int       `json:"total"`
+}
+
+type ConcurrentPeaks struct {
+	Total        int    `json:"total"`
+	DirectPlay   int    `json:"direct_play"`
+	DirectStream int    `json:"direct_stream"`
+	Transcode    int    `json:"transcode"`
+	PeakAt       string `json:"peak_at,omitempty"`
 }

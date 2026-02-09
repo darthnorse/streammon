@@ -52,4 +52,4 @@ export const DISCOVER_CATEGORIES = [
   { path: 'tv/upcoming', title: 'Upcoming Series' },
 ] as const
 
-export const MEDIA_GRID_CLASS = 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-8 gap-3'
+export const MEDIA_GRID_CLASS = 'grid grid-cols-3 sm:[grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] gap-3'

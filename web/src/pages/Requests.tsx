@@ -81,7 +81,7 @@ function DiscoverSection({
       {loading ? (
         <div className="flex gap-3 overflow-hidden">
           {Array.from({ length: 10 }).map((_, i) => (
-            <div key={i} className="shrink-0 w-[120px] rounded-lg overflow-hidden bg-surface dark:bg-surface-dark border border-border dark:border-border-dark">
+            <div key={i} className="shrink-0 w-24 sm:w-[150px] rounded-lg overflow-hidden bg-surface dark:bg-surface-dark border border-border dark:border-border-dark">
               <div className="aspect-[2/3] bg-gray-200 dark:bg-gray-800 animate-pulse" />
               <div className="p-1.5 space-y-1.5">
                 <div className="h-3 bg-gray-200 dark:bg-gray-800 rounded animate-pulse w-3/4" />
@@ -100,7 +100,7 @@ function DiscoverSection({
               key={`${item.mediaType}-${item.id}`}
               item={item}
               onClick={() => onSelect(item)}
-              className="shrink-0 w-[120px]"
+              className="shrink-0 w-24 sm:w-[150px]"
             />
           ))}
         </div>

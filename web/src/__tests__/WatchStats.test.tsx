@@ -18,7 +18,6 @@ function createMockStats(overrides: Partial<StatsResponse> = {}): StatsResponse 
     top_tv_shows: [],
     top_users: [],
     library: { total_plays: 0, total_hours: 0, unique_users: 0, unique_movies: 0, unique_tv_shows: 0 },
-    concurrent_peak: 0,
     locations: [],
     potential_sharers: [],
     activity_by_day_of_week: [],
@@ -27,6 +26,7 @@ function createMockStats(overrides: Partial<StatsResponse> = {}): StatsResponse 
     player_distribution: [],
     quality_distribution: [],
     concurrent_time_series: [],
+    concurrent_peaks: { total: 0, direct_play: 0, direct_stream: 0, transcode: 0 },
     ...overrides,
   }
 }
@@ -63,12 +63,17 @@ describe('WatchStats', () => {
       top_movies: [{ title: 'Test Movie', year: 2024, play_count: 10, total_hours: 5 }],
       top_tv_shows: [{ title: 'Test Show', play_count: 8, total_hours: 4 }],
       top_users: [{ user_name: 'alice', play_count: 15, total_hours: 10 }],
+      concurrent_peaks: { total: 5, direct_play: 3, direct_stream: 1, transcode: 1 },
     }))
     renderWithRouter(<WatchStats />)
     expect(screen.getByText('Most Watched Movies')).toBeInTheDocument()
     expect(screen.getByText('Most Watched TV Shows')).toBeInTheDocument()
     expect(screen.getByText('Test Movie')).toBeInTheDocument()
     expect(screen.getByText('Test Show')).toBeInTheDocument()
+    expect(screen.getByText('Peak Concurrent Streams')).toBeInTheDocument()
+    expect(screen.getByText('Direct Play')).toBeInTheDocument()
+    expect(screen.getByText('Direct Stream')).toBeInTheDocument()
+    expect(screen.getByText('Transcode')).toBeInTheDocument()
   })
 
   it('has time period dropdown with correct options and aria-label', () => {

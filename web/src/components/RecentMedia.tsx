@@ -57,7 +57,7 @@ export function RecentMedia() {
         {data.slice(0, 25).map(item => (
           <div
             key={`${item.server_id}-${item.item_id || item.title}`}
-            className={`relative group shrink-0 w-24 ${item.item_id ? 'cursor-pointer' : ''}`}
+            className={`relative group shrink-0 w-24 sm:w-[150px] ${item.item_id ? 'cursor-pointer' : ''}`}
             onClick={() => handleItemClick(item)}
           >
             <div className="aspect-[2/3] rounded overflow-hidden bg-panel dark:bg-panel-dark border border-border dark:border-border-dark transition-transform duration-200 group-hover:scale-105 group-hover:shadow-lg">

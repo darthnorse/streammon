@@ -41,8 +41,8 @@ func TestGetStatsAPI_Empty(t *testing.T) {
 	if resp.Library.TotalPlays != 0 {
 		t.Fatalf("expected 0 total plays, got %d", resp.Library.TotalPlays)
 	}
-	if resp.ConcurrentPeak != 0 {
-		t.Fatalf("expected 0 concurrent peak, got %d", resp.ConcurrentPeak)
+	if resp.ConcurrentPeaks.Total != 0 {
+		t.Fatalf("expected 0 concurrent peak, got %d", resp.ConcurrentPeaks.Total)
 	}
 	if len(resp.Locations) != 0 {
 		t.Fatalf("expected 0 locations, got %d", len(resp.Locations))
@@ -116,8 +116,8 @@ func TestGetStatsAPI_WithData(t *testing.T) {
 		t.Fatalf("expected 2 unique users, got %d", resp.Library.UniqueUsers)
 	}
 
-	if resp.ConcurrentPeak < 2 {
-		t.Fatalf("expected concurrent peak >= 2, got %d", resp.ConcurrentPeak)
+	if resp.ConcurrentPeaks.Total < 2 {
+		t.Fatalf("expected concurrent peak >= 2, got %d", resp.ConcurrentPeaks.Total)
 	}
 }
 

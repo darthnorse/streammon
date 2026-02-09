@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
+	"time"
 
 	"streammon/internal/models"
 )
@@ -161,7 +163,7 @@ func TestListMaintenanceRulesWithCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// List with counts (should be 0 candidates)
+	// List with counts (should be 0 candidates, 0 exclusions)
 	rules, err := s.ListMaintenanceRulesWithCounts(ctx, srv.ID, "lib1")
 	if err != nil {
 		t.Fatalf("ListMaintenanceRulesWithCounts: %v", err)
@@ -174,6 +176,105 @@ func TestListMaintenanceRulesWithCounts(t *testing.T) {
 	}
 	if rules[0].CandidateCount != 0 {
 		t.Errorf("candidate count = %d, want 0", rules[0].CandidateCount)
+	}
+	if rules[0].ExclusionCount != 0 {
+		t.Errorf("exclusion count = %d, want 0", rules[0].ExclusionCount)
+	}
+}
+
+func TestListMaintenanceRulesWithCountsExclusions(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	// Seed server
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create rule
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		Name:          "Test Rule",
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{}`),
+		Enabled:       true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create 3 library items
+	now := time.Now().UTC()
+	items := make([]models.LibraryItemCache, 3)
+	for i := range items {
+		items[i] = models.LibraryItemCache{
+			ServerID:  srv.ID,
+			LibraryID: "lib1",
+			ItemID:    fmt.Sprintf("item%d", i+1),
+			MediaType: models.MediaTypeMovie,
+			Title:     fmt.Sprintf("Movie %d", i+1),
+			Year:      2024,
+			AddedAt:   now.AddDate(0, 0, -30),
+			SyncedAt:  now,
+		}
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Look up the inserted library item IDs
+	libItems, err := s.ListLibraryItems(ctx, srv.ID, "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(libItems) != 3 {
+		t.Fatalf("got %d library items, want 3", len(libItems))
+	}
+
+	// Create 3 candidates
+	for _, item := range libItems {
+		if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, item.ID, "test reason"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Exclude 1 item
+	if _, err := s.CreateExclusions(ctx, rule.ID, []int64{libItems[0].ID}, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify: 2 candidates (3 minus 1 excluded), 1 exclusion
+	rules, err := s.ListMaintenanceRulesWithCounts(ctx, srv.ID, "lib1")
+	if err != nil {
+		t.Fatalf("ListMaintenanceRulesWithCounts: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("got %d rules, want 1", len(rules))
+	}
+	if rules[0].CandidateCount != 2 {
+		t.Errorf("candidate count = %d, want 2", rules[0].CandidateCount)
+	}
+	if rules[0].ExclusionCount != 1 {
+		t.Errorf("exclusion count = %d, want 1", rules[0].ExclusionCount)
+	}
+
+	// Exclude another item
+	if _, err := s.CreateExclusions(ctx, rule.ID, []int64{libItems[1].ID}, "test"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify: 1 candidate, 2 exclusions
+	rules, err = s.ListMaintenanceRulesWithCounts(ctx, srv.ID, "lib1")
+	if err != nil {
+		t.Fatalf("ListMaintenanceRulesWithCounts after second exclusion: %v", err)
+	}
+	if rules[0].CandidateCount != 1 {
+		t.Errorf("candidate count = %d, want 1", rules[0].CandidateCount)
+	}
+	if rules[0].ExclusionCount != 2 {
+		t.Errorf("exclusion count = %d, want 2", rules[0].ExclusionCount)
 	}
 }
 

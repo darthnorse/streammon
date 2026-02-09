@@ -212,6 +212,7 @@ function RulesView({
   onEditRule,
   onCreateRule,
   onViewCandidates,
+  onViewExclusions,
   onRefresh,
 }: {
   library: Library
@@ -220,6 +221,7 @@ function RulesView({
   onEditRule: (rule: MaintenanceRuleWithCount) => void
   onCreateRule: () => void
   onViewCandidates: (rule: MaintenanceRuleWithCount) => void
+  onViewExclusions: (rule: MaintenanceRuleWithCount) => void
   onRefresh: () => void
 }) {
   const rules = maintenance?.rules || []
@@ -330,9 +332,31 @@ function RulesView({
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-amber-500 font-medium text-sm">
-                    {formatCount(rule.candidate_count)} violations
-                  </span>
+                  {rule.candidate_count > 0 ? (
+                    <button
+                      onClick={() => onViewCandidates(rule)}
+                      className="text-amber-500 font-medium text-sm hover:underline"
+                      aria-label={`View ${rule.candidate_count} violations for rule ${rule.name}`}
+                    >
+                      {formatCount(rule.candidate_count)} violations
+                    </button>
+                  ) : (
+                    <span className="text-amber-500 font-medium text-sm">
+                      0 violations
+                    </span>
+                  )}
+                  {rule.exclusion_count > 0 && (
+                    <>
+                      <span className="text-muted dark:text-muted-dark text-sm" aria-hidden="true">·</span>
+                      <button
+                        onClick={() => onViewExclusions(rule)}
+                        className="text-muted dark:text-muted-dark font-medium text-sm hover:underline"
+                        aria-label={`View ${rule.exclusion_count} exclusions for rule ${rule.name}`}
+                      >
+                        {formatCount(rule.exclusion_count)} excluded
+                      </button>
+                    </>
+                  )}
                   <button
                     onClick={() => handleToggleRule(rule)}
                     className={`px-3 py-1 text-xs font-medium rounded-full transition-colors
@@ -1410,6 +1434,7 @@ export function Libraries() {
         onEditRule={(rule) => setView({ type: 'rule-form', library: view.library, maintenance: freshMaintenance, rule })}
         onCreateRule={() => setView({ type: 'rule-form', library: view.library, maintenance: freshMaintenance })}
         onViewCandidates={(rule) => setView({ type: 'candidates', library: view.library, rule })}
+        onViewExclusions={(rule) => setView({ type: 'exclusions', library: view.library, rule })}
         onRefresh={handleRefresh}
       />
     )

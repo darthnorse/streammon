@@ -43,7 +43,7 @@ export function MediaStatCard({ title, items }: MediaStatCardProps) {
       ) : (
         <div className="flex gap-4">
           <div
-            className={`w-20 h-28 rounded bg-gray-100 dark:bg-white/5 overflow-hidden shrink-0 ${
+            className={`w-20 sm:w-[100px] h-28 sm:h-[150px] rounded bg-gray-100 dark:bg-white/5 overflow-hidden shrink-0 ${
               displayedItem?.item_id && displayedItem?.server_id ? 'cursor-pointer' : ''
             }`}
             onClick={() => displayedItem && handleItemClick(displayedItem)}

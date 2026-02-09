@@ -159,7 +159,8 @@ func (s *Store) ListMaintenanceRules(ctx context.Context, serverID int64, librar
 // ListMaintenanceRulesWithCounts returns rules with candidate counts (excluding excluded items)
 func (s *Store) ListMaintenanceRulesWithCounts(ctx context.Context, serverID int64, libraryID string) ([]models.MaintenanceRuleWithCount, error) {
 	query := `SELECT r.id, r.server_id, r.library_id, r.name, r.criterion_type, r.parameters,
-		r.enabled, r.created_at, r.updated_at, COUNT(c.id) as candidate_count
+		r.enabled, r.created_at, r.updated_at, COUNT(c.id) as candidate_count,
+		(SELECT COUNT(*) FROM maintenance_exclusions e2 WHERE e2.rule_id = r.id) as exclusion_count
 		FROM maintenance_rules r
 		LEFT JOIN maintenance_candidates c ON r.id = c.rule_id
 			AND NOT EXISTS (
@@ -192,7 +193,7 @@ func (s *Store) ListMaintenanceRulesWithCounts(ctx context.Context, serverID int
 		var enabled int
 		err := rows.Scan(&rule.ID, &rule.ServerID, &rule.LibraryID, &rule.Name,
 			&rule.CriterionType, &params, &enabled, &rule.CreatedAt, &rule.UpdatedAt,
-			&rule.CandidateCount)
+			&rule.CandidateCount, &rule.ExclusionCount)
 		if err != nil {
 			return nil, err
 		}
