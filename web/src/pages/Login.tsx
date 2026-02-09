@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { inputClass } from '../lib/constants'
+import { errorMessage } from '../lib/utils'
 import { useAuth } from '../context/AuthContext'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { PlexSignInLogin } from '../components/PlexSignInLogin'
@@ -14,20 +15,28 @@ interface Provider {
 
 export function Login() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { setUser } = useAuth()
   const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(() => {
+    const urlError = searchParams.get('error')
+    if (urlError === 'guest_access_disabled') return 'Guest access is disabled. Only admins can sign in.'
+    return ''
+  })
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
+    if (searchParams.has('error')) {
+      setSearchParams({}, { replace: true })
+    }
     api.get<Provider[]>('/auth/providers')
       .then(setProviders)
       .catch(() => setProviders([]))
       .finally(() => setLoading(false))
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLocalSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -37,8 +46,8 @@ export function Login() {
       const user = await api.post<User>('/auth/local/login', { username, password })
       setUser(user)
       navigate('/', { replace: true })
-    } catch {
-      setError('Invalid credentials')
+    } catch (err) {
+      setError(errorMessage(err))
     } finally {
       setSubmitting(false)
     }
@@ -71,6 +80,10 @@ export function Login() {
         </div>
 
         <div className="card p-6 space-y-6">
+          {error && (
+            <p className="text-sm text-red-500 dark:text-red-400 text-center">{error}</p>
+          )}
+
           {hasLocal && (
             <form onSubmit={handleLocalSubmit} className="space-y-4">
               <div>
@@ -96,10 +109,6 @@ export function Login() {
                   className={inputClass}
                 />
               </div>
-
-              {error && (
-                <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
-              )}
 
               <button
                 type="submit"

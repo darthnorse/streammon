@@ -166,7 +166,7 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		}
 		if !isAdmin {
 			http.SetCookie(w, clearCookie(stateCookieName, "/", r))
-			http.Redirect(w, r, "/?error=guest_access_disabled", http.StatusFound)
+			http.Redirect(w, r, "/login?error=guest_access_disabled", http.StatusFound)
 			return
 		}
 	}
