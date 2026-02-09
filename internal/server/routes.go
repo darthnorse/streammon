@@ -132,6 +132,12 @@ func (s *Server) routes() {
 			sr.Put("/", s.handleUpdateIdleTimeout)
 		})
 
+		r.Route("/settings/plex-guest-access", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleGetPlexGuestAccess)
+			sr.Put("/", s.handleUpdatePlexGuestAccess)
+		})
+
 		r.Route("/rules", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleListRules)

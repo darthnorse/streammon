@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
@@ -6,6 +6,61 @@ import { useAuth } from '../context/AuthContext'
 import { errorMessage } from '../lib/utils'
 import { EmptyState } from './EmptyState'
 import type { AdminUser } from '../types'
+
+interface PlexGuestAccess {
+  enabled: boolean
+}
+
+function PlexGuestAccessToggle() {
+  const { data, loading, refetch } = useFetch<PlexGuestAccess>('/api/settings/plex-guest-access')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const toggle = useCallback(async () => {
+    if (!data) return
+    setSaving(true)
+    setError('')
+    try {
+      await api.put('/api/settings/plex-guest-access', { enabled: !data.enabled })
+      refetch()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setSaving(false)
+    }
+  }, [data, refetch])
+
+  if (loading) return null
+
+  return (
+    <div className="card p-4 mb-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold">Plex Guest Access</h3>
+          <p className="text-sm text-muted dark:text-muted-dark mt-0.5">
+            Allow Plex users who share your server to sign in. When disabled, only admins can log in via Plex.
+          </p>
+          {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
+        </div>
+        <button
+          onClick={toggle}
+          disabled={saving}
+          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
+            data?.enabled ? 'bg-accent' : 'bg-gray-300 dark:bg-white/20'
+          } ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
+          role="switch"
+          aria-checked={data?.enabled ?? false}
+        >
+          <span
+            className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${
+              data?.enabled ? 'translate-x-5' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+    </div>
+  )
+}
 
 const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
 const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
@@ -132,6 +187,8 @@ export function UserManagement() {
 
   return (
     <div>
+      <PlexGuestAccessToggle />
+
       {actionError && (
         <div className="card p-4 mb-4 text-center text-red-500 dark:text-red-400">
           {actionError}
