@@ -52,6 +52,10 @@ func ValidateURL(rawURL string) error {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader) (json.RawMessage, error) {
+	return c.doWithOpts(ctx, method, path, query, body, true)
+}
+
+func (c *Client) doWithOpts(ctx context.Context, method, path string, query url.Values, body io.Reader, includeAPIKey bool) (json.RawMessage, error) {
 	u := c.baseURL + "/api/v1" + path
 	if len(query) > 0 {
 		u += "?" + strings.ReplaceAll(query.Encode(), "+", "%20")
@@ -61,7 +65,9 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	req.Header.Set("X-Api-Key", c.apiKey)
+	if includeAPIKey {
+		req.Header.Set("X-Api-Key", c.apiKey)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -231,7 +237,9 @@ func (c *Client) AuthenticateWithPlex(ctx context.Context, plexToken string) (in
 		return 0, fmt.Errorf("marshalling auth payload: %w", err)
 	}
 
-	raw, err := c.doPost(ctx, "/auth/plex", payload)
+	// Call auth/plex WITHOUT the admin API key so Overseerr processes this
+	// as a normal user login, fully initializing the user's service defaults.
+	raw, err := c.doWithOpts(ctx, http.MethodPost, "/auth/plex", nil, strings.NewReader(string(payload)), false)
 	if err != nil {
 		return 0, fmt.Errorf("plex auth: %w", err)
 	}

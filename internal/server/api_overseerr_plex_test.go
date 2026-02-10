@@ -18,12 +18,8 @@ import (
 func mockOverseerrWithPlexAuth(t *testing.T, plexAuthID int, captured *map[string]any) *httptest.Server {
 	t.Helper()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Api-Key") != "test-api-key" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/plex":
+		// auth/plex is called without API key (like a normal user login)
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/plex" {
 			var body struct {
 				AuthToken string `json:"authToken"`
 			}
@@ -33,6 +29,14 @@ func mockOverseerrWithPlexAuth(t *testing.T, plexAuthID int, captured *map[strin
 				return
 			}
 			json.NewEncoder(w).Encode(map[string]any{"id": plexAuthID, "email": "user@plex.tv"})
+			return
+		}
+		// All other endpoints require API key
+		if r.Header.Get("X-Api-Key") != "test-api-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
 			json.NewEncoder(w).Encode(map[string]any{
 				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 0},
@@ -214,14 +218,16 @@ func TestOverseerrCreateRequest_PlexTokenCached(t *testing.T) {
 	plexAuthCalls := 0
 	var receivedBody map[string]any
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/plex" {
+			plexAuthCalls++
+			json.NewEncoder(w).Encode(map[string]any{"id": 77, "email": "user@plex.tv"})
+			return
+		}
 		if r.Header.Get("X-Api-Key") != "test-api-key" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/plex":
-			plexAuthCalls++
-			json.NewEncoder(w).Encode(map[string]any{"id": 77, "email": "user@plex.tv"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
 			json.NewEncoder(w).Encode(map[string]any{
 				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 0},
