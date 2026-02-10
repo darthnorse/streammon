@@ -134,7 +134,7 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
             !form.url.startsWith('http://localhost') &&
             !form.url.startsWith('http://127.0.0.1') && (
             <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
-              Plex token attribution requires HTTPS (or localhost). With a plain HTTP URL, Overseerr requests will fall back to email matching to avoid sending tokens over an unencrypted connection.
+              Plex token attribution requires HTTPS (or localhost). With a plain HTTP URL, Overseerr requests will fall back to email matching to avoid sending tokens over an unencrypted connection. If email match is not possible, requests will fall back to the Overseerr admin account.
             </p>
           )}
 
