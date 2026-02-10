@@ -229,6 +229,25 @@ func TestUnlinkUserProvider_DeletesToken(t *testing.T) {
 	}
 }
 
+func TestUnlinkUserProvider_FailsOnTokenDeletionError(t *testing.T) {
+	s := testStoreWithEncryptor(t)
+
+	user, err := s.CreateLocalUser("unlink-fail", "unlink-fail@test.local", "password", models.RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.LinkProviderAccount(user.ID, "plex", "99999")
+	s.StoreProviderToken(user.ID, "plex", "my-plex-token")
+
+	// Close the DB to force DeleteProviderToken to fail
+	s.Close()
+
+	err = s.UnlinkUserProvider(user.ID)
+	if err == nil {
+		t.Fatal("expected error when DB is closed, got nil")
+	}
+}
+
 func TestGetProviderToken_NoEncryptor(t *testing.T) {
 	s := testStoreNoEncryptor(t)
 

@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,5 +172,38 @@ func TestRequireSetupComplete_AllowsWhenUsersExist(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 when users exist, got %d", w.Code)
+	}
+}
+
+func TestBodyLimitEnforced_AuthRoutes(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	// 2MB body exceeds the 1MB limit
+	oversized := strings.Repeat("x", 2<<20)
+
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/auth/local/login"},
+		{http.MethodPost, "/api/setup/local"},
+	}
+
+	for _, rt := range routes {
+		t.Run(rt.method+" "+rt.path, func(t *testing.T) {
+			req := httptest.NewRequest(rt.method, rt.path, strings.NewReader(oversized))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			// Read the body to trigger MaxBytesReader error
+			resp := w.Result()
+			body, _ := io.ReadAll(resp.Body)
+
+			// Should get an error status (400 or 413), not 200
+			if resp.StatusCode == http.StatusOK {
+				t.Errorf("expected error for oversized body on %s, got 200: %s", rt.path, body)
+			}
+		})
 	}
 }
