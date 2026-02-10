@@ -38,7 +38,7 @@ Open `http://localhost:7935` in your browser. On first launch you will be prompt
 - Geographic stream map with IP geolocation
 
 **Watch History and Analytics**
-- Full watch history with search, filtering, and pagination
+- Full watch history with search and filtering
 - Daily, weekly, and hourly activity charts
 - Per-user statistics: total watch time, stream count, devices, ISPs, locations
 - Top movies, TV shows, and users
