@@ -1,4 +1,4 @@
-import React from 'react'
+import { type ReactNode } from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
@@ -13,12 +13,12 @@ vi.mock('../hooks/useFetch', () => ({
 }))
 
 vi.mock('../context/AuthContext', () => ({
-  AuthProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  AuthProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
   useAuth: () => ({ user: { name: 'test', role: 'admin' }, loading: false }),
 }))
 
 vi.mock('../components/AuthGuard', () => ({
-  AuthGuard: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  AuthGuard: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
 describe('App routes', () => {
@@ -38,6 +38,16 @@ describe('App routes', () => {
       </MemoryRouter>
     )
     expect(screen.getByRole('heading', { name: 'History' })).toBeInTheDocument()
+  })
+
+  it('renders my-stats route with current user name', () => {
+    render(
+      <MemoryRouter initialEntries={['/my-stats']}>
+        <App />
+      </MemoryRouter>
+    )
+    // MyStats renders UserDetail with user.name from auth context ('test')
+    expect(screen.getByRole('heading', { name: 'test' })).toBeInTheDocument()
   })
 
   it('renders 404 for unknown routes', () => {

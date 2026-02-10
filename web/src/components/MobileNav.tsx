@@ -1,30 +1,8 @@
 import { useState, useMemo } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
-import { navLinks } from '../lib/constants'
+import { MoreHorizontal, X } from 'lucide-react'
+import { navLinks, navIconMap } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
-import {
-  LayoutDashboard,
-  History,
-  BarChart3,
-  Library,
-  Users,
-  ShieldAlert,
-  Settings,
-  Film,
-  MoreHorizontal,
-  X,
-} from 'lucide-react'
-
-const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
-  LayoutDashboard,
-  History,
-  BarChart3,
-  Library,
-  Users,
-  ShieldAlert,
-  Settings,
-  Film,
-}
 
 const navPanelBase = `lg:hidden fixed bottom-0 left-0 right-0 z-50
   bg-panel dark:bg-panel-dark border-t border-border dark:border-border-dark
@@ -69,7 +47,7 @@ export function MobileNav() {
       <div className={`${navPanelBase} ${showMore ? 'translate-y-full' : 'translate-y-0'}`}>
         <nav className="flex items-center justify-around h-16">
           {primaryLinks.map(link => {
-            const Icon = iconMap[link.icon]
+            const Icon = navIconMap[link.icon]
             return (
               <NavLink
                 key={link.to}
@@ -109,7 +87,7 @@ export function MobileNav() {
         </div>
         <nav className="flex items-center justify-around h-16">
           {moreLinks.map(link => {
-            const Icon = iconMap[link.icon]
+            const Icon = navIconMap[link.icon]
             const isActive = location.pathname.startsWith(link.to)
             return (
               <a

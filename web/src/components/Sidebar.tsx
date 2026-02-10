@@ -1,29 +1,8 @@
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import { UserAvatar } from './UserAvatar'
-import { navLinks } from '../lib/constants'
+import { navLinks, navIconMap } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
-import {
-  LayoutDashboard,
-  History,
-  BarChart3,
-  Library,
-  Users,
-  ShieldAlert,
-  Settings,
-  Film,
-} from 'lucide-react'
-
-const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
-  LayoutDashboard,
-  History,
-  BarChart3,
-  Library,
-  Users,
-  ShieldAlert,
-  Settings,
-  Film,
-}
 
 interface SidebarProps {
   onOpenProfile: () => void
@@ -57,7 +36,7 @@ export function Sidebar({ onOpenProfile }: SidebarProps) {
         {navLinks
           .filter(link => !link.adminOnly || user?.role === 'admin')
           .map(link => {
-            const Icon = iconMap[link.icon]
+            const Icon = navIconMap[link.icon]
             return (
               <NavLink
                 key={link.to}

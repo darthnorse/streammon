@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { UserDetail } from '../pages/UserDetail'
 import { ApiError } from '../lib/api'
@@ -17,14 +16,41 @@ vi.mock('../components/LocationMap', () => ({
   ),
 }))
 
+vi.mock('../context/AuthContext', () => ({
+  useAuth: vi.fn(),
+}))
+
 import { useFetch } from '../hooks/useFetch'
+import { useAuth } from '../context/AuthContext'
 
 const mockUseFetch = vi.mocked(useFetch)
+const mockUseAuth = vi.mocked(useAuth)
 
-const noData = () => ({ data: null, loading: false, error: null, refetch: vi.fn() })
+function fetchResult<T>(data: T | null, error: Error | null = null) {
+  return { data, loading: false, error, refetch: vi.fn() }
+}
+
+const noData = () => fetchResult(null)
+
+const adminAuth = {
+  user: { id: 1, name: 'admin', email: '', role: 'admin' as const, thumb_url: '', has_password: true, created_at: '', updated_at: '' },
+  loading: false,
+  setupRequired: false,
+  setUser: vi.fn(),
+  clearSetupRequired: vi.fn(),
+  refreshUser: vi.fn(),
+  logout: vi.fn(),
+}
+
+const viewerAuth = {
+  ...adminAuth,
+  user: { ...adminAuth.user, id: 2, name: 'viewer', role: 'viewer' as const },
+}
 
 beforeEach(() => {
   localStorage.clear()
+  // Default: admin user viewing the page
+  mockUseAuth.mockReturnValue(adminAuth)
   // Default fallback for any useFetch call (child components like UserTrustScoreCard, UserHouseholdCard)
   mockUseFetch.mockReturnValue(noData())
 })
@@ -67,12 +93,20 @@ function renderAtRoute(path: string) {
   )
 }
 
-// Helper: set specific values for the first N useFetch calls, fallback handles the rest
 function mockFetchSequence(...values: ReturnType<typeof noData>[]) {
   let chain = mockUseFetch
   for (const v of values) {
     chain = chain.mockReturnValueOnce(v) as typeof mockUseFetch
   }
+}
+
+function mockStandardPage(userOverride?: Partial<typeof baseUser>) {
+  const user = userOverride ? { ...baseUser, ...userOverride } : baseUser
+  mockFetchSequence(
+    fetchResult(user),
+    fetchResult(testStats),
+    fetchResult(testHistory),
+  )
 }
 
 describe('UserDetail', () => {
@@ -83,52 +117,36 @@ describe('UserDetail', () => {
   })
 
   it('shows page with username when user record not found (404)', () => {
-    const err = new ApiError(404, 'not found')
     mockFetchSequence(
-      { data: null, loading: false, error: err, refetch: vi.fn() },
-      { data: testStats, loading: false, error: null, refetch: vi.fn() },
-      { data: testHistory, loading: false, error: null, refetch: vi.fn() },
+      fetchResult(null, new ApiError(404, 'not found')),
+      fetchResult(testStats),
+      fetchResult(testHistory),
     )
     renderAtRoute('/users/nobody')
     expect(screen.getByRole('heading', { name: 'nobody' })).toBeDefined()
   })
 
   it('shows generic error for non-404', () => {
-    const err = new ApiError(500, 'server error')
-    mockFetchSequence(
-      { data: null, loading: false, error: err, refetch: vi.fn() },
-    )
+    mockFetchSequence(fetchResult(null, new ApiError(500, 'server error')))
     renderAtRoute('/users/alice')
     expect(screen.getByText(/failed to load user/i)).toBeDefined()
   })
 
   it('renders user header with role badge', () => {
-    mockFetchSequence(
-      { data: baseUser, loading: false, error: null, refetch: vi.fn() },
-      { data: testStats, loading: false, error: null, refetch: vi.fn() },
-      { data: testHistory, loading: false, error: null, refetch: vi.fn() },
-    )
+    mockStandardPage()
     renderAtRoute('/users/alice')
     expect(screen.getByText('alice')).toBeDefined()
     expect(screen.getByText('admin')).toBeDefined()
   })
 
   it('renders watch history tab by default', () => {
-    mockFetchSequence(
-      { data: baseUser, loading: false, error: null, refetch: vi.fn() },
-      { data: testStats, loading: false, error: null, refetch: vi.fn() },
-      { data: testHistory, loading: false, error: null, refetch: vi.fn() },
-    )
+    mockStandardPage()
     renderAtRoute('/users/alice')
     expect(screen.getAllByText('Inception').length).toBeGreaterThan(0)
   })
 
   it('hides user column in history table (hideUser prop)', () => {
-    mockFetchSequence(
-      { data: baseUser, loading: false, error: null, refetch: vi.fn() },
-      { data: testStats, loading: false, error: null, refetch: vi.fn() },
-      { data: testHistory, loading: false, error: null, refetch: vi.fn() },
-    )
+    mockStandardPage()
     renderAtRoute('/users/alice')
     const table = document.querySelector('table')
     const userLinks = table?.querySelectorAll('a[href="/users/alice"]')
@@ -136,11 +154,7 @@ describe('UserDetail', () => {
   })
 
   it('excludes user column from column settings', () => {
-    mockFetchSequence(
-      { data: baseUser, loading: false, error: null, refetch: vi.fn() },
-      { data: testStats, loading: false, error: null, refetch: vi.fn() },
-      { data: testHistory, loading: false, error: null, refetch: vi.fn() },
-    )
+    mockStandardPage()
     renderAtRoute('/users/alice')
     const headers = document.querySelectorAll('table th')
     const headerTexts = Array.from(headers).map(h => h.textContent?.toLowerCase())
@@ -148,22 +162,14 @@ describe('UserDetail', () => {
   })
 
   it('renders stats cards with session count and watch time', () => {
-    mockFetchSequence(
-      { data: baseUser, loading: false, error: null, refetch: vi.fn() },
-      { data: testStats, loading: false, error: null, refetch: vi.fn() },
-      { data: testHistory, loading: false, error: null, refetch: vi.fn() },
-    )
+    mockStandardPage()
     renderAtRoute('/users/alice')
     expect(screen.getByText('42')).toBeDefined()
     expect(screen.getByText('12.5h')).toBeDefined()
   })
 
   it('renders locations card with percentage bars', () => {
-    mockFetchSequence(
-      { data: baseUser, loading: false, error: null, refetch: vi.fn() },
-      { data: testStats, loading: false, error: null, refetch: vi.fn() },
-      { data: testHistory, loading: false, error: null, refetch: vi.fn() },
-    )
+    mockStandardPage()
     renderAtRoute('/users/alice')
     expect(screen.getByText('New York, US')).toBeDefined()
     expect(screen.getByText('London, UK')).toBeDefined()
@@ -171,11 +177,7 @@ describe('UserDetail', () => {
   })
 
   it('renders devices card with percentage bars', () => {
-    mockFetchSequence(
-      { data: baseUser, loading: false, error: null, refetch: vi.fn() },
-      { data: testStats, loading: false, error: null, refetch: vi.fn() },
-      { data: testHistory, loading: false, error: null, refetch: vi.fn() },
-    )
+    mockStandardPage()
     renderAtRoute('/users/alice')
     expect(screen.getByText('Chrome (Windows)')).toBeDefined()
     expect(screen.getByText('Plex TV (Android)')).toBeDefined()
@@ -183,13 +185,50 @@ describe('UserDetail', () => {
   })
 
   it('shows error message when stats fetch fails', () => {
-    const statsErr = new ApiError(500, 'server error')
     mockFetchSequence(
-      { data: baseUser, loading: false, error: null, refetch: vi.fn() },
-      { data: null, loading: false, error: statsErr, refetch: vi.fn() },
-      { data: testHistory, loading: false, error: null, refetch: vi.fn() },
+      fetchResult(baseUser),
+      fetchResult(null, new ApiError(500, 'server error')),
+      fetchResult(testHistory),
     )
     renderAtRoute('/users/alice')
     expect(screen.getByText(/failed to load user statistics/i)).toBeDefined()
+  })
+
+  it('shows violations tab for admin users', () => {
+    mockStandardPage()
+    renderAtRoute('/users/alice')
+    expect(screen.getByText('Violations')).toBeDefined()
+  })
+
+  it('hides violations tab for non-admin users', () => {
+    mockUseAuth.mockReturnValue(viewerAuth)
+    mockStandardPage()
+    renderAtRoute('/users/alice')
+    expect(screen.queryByText('Violations')).toBeNull()
+  })
+
+  it('hides household card for non-admin users', () => {
+    mockUseAuth.mockReturnValue(viewerAuth)
+    mockStandardPage()
+    renderAtRoute('/users/alice')
+    const grid = document.querySelector('.lg\\:grid-cols-3')
+    expect(grid).not.toBeNull()
+  })
+
+  it('uses 4-column grid for admin users', () => {
+    mockStandardPage()
+    renderAtRoute('/users/alice')
+    const grid = document.querySelector('.lg\\:grid-cols-4')
+    expect(grid).not.toBeNull()
+  })
+
+  it('accepts userName prop and uses it instead of URL param', () => {
+    mockStandardPage({ name: 'bob' })
+    render(
+      <MemoryRouter>
+        <UserDetail userName="bob" />
+      </MemoryRouter>
+    )
+    expect(screen.getByRole('heading', { name: 'bob' })).toBeDefined()
   })
 })

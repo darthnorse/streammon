@@ -103,4 +103,25 @@ describe('ProfileModal', () => {
     const img = screen.getByAltText('testuser') as HTMLImageElement
     expect(img.src).toBe('https://example.com/avatar.jpg')
   })
+
+  it('renders View My Stats link', () => {
+    mockUseAuth.mockReturnValue(mockUser())
+
+    renderWithRouter(<ProfileModal onClose={vi.fn()} />)
+
+    const link = screen.getByText('View My Stats')
+    expect(link).toBeInTheDocument()
+    expect(link.closest('a')).toHaveAttribute('href', '/my-stats')
+  })
+
+  it('calls onClose when View My Stats link is clicked', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event')
+    const onClose = vi.fn()
+    mockUseAuth.mockReturnValue(mockUser())
+
+    renderWithRouter(<ProfileModal onClose={onClose} />)
+
+    await userEvent.click(screen.getByText('View My Stats'))
+    expect(onClose).toHaveBeenCalled()
+  })
 })

@@ -1,3 +1,14 @@
+import {
+  LayoutDashboard,
+  History,
+  BarChart3,
+  Library,
+  Users,
+  User,
+  ShieldAlert,
+  Settings,
+  Film,
+} from 'lucide-react'
 import type { MediaType, Severity } from '../types'
 
 export const mediaTypeLabels: Record<MediaType, string> = {
@@ -27,12 +38,25 @@ export const formInputClass = `w-full px-3 py-2.5 rounded-lg text-sm font-mono
   focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
   transition-colors placeholder:text-muted/40 dark:placeholder:text-muted-dark/40`
 
+export const navIconMap = {
+  LayoutDashboard,
+  History,
+  BarChart3,
+  Library,
+  Users,
+  User,
+  ShieldAlert,
+  Settings,
+  Film,
+} satisfies Record<string, React.ComponentType<{ className?: string }>>
+
 export const navLinks = [
   { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', adminOnly: false },
   { to: '/requests', label: 'Requests', icon: 'Film', adminOnly: false },
   { to: '/history', label: 'History', icon: 'History', adminOnly: false },
+  { to: '/my-stats', label: 'My Stats', icon: 'User', adminOnly: false },
   { to: '/statistics', label: 'Statistics', icon: 'BarChart3', adminOnly: true },
-  { to: '/library', label: 'Library', icon: 'Library', adminOnly: false },
+  { to: '/library', label: 'Library', icon: 'Library', adminOnly: true },
   { to: '/users', label: 'Users', icon: 'Users', adminOnly: true },
   { to: '/rules', label: 'Rules', icon: 'ShieldAlert', adminOnly: true },
   { to: '/settings', label: 'Settings', icon: 'Settings', adminOnly: true },

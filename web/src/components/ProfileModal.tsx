@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../lib/api'
 import { formInputClass } from '../lib/constants'
@@ -114,32 +115,48 @@ export function ProfileModal({ onClose }: ProfileModalProps) {
             <div>
               <div className="text-lg font-semibold">{user.name}</div>
               <div className="text-sm text-muted dark:text-muted-dark capitalize">{user.role}</div>
+              <Link
+                to="/my-stats"
+                onClick={onClose}
+                className="text-sm text-accent-dim dark:text-accent hover:underline"
+              >
+                View My Stats
+              </Link>
             </div>
           </div>
 
-          <form onSubmit={handleEmailSave} className="space-y-3">
-            <label htmlFor="profile-email" className="block text-sm font-medium">Email</label>
-            <div className="flex gap-2">
-              <input
-                id="profile-email"
-                type="email"
-                value={email}
-                onChange={e => { setEmail(e.target.value); setEmailMsg(null) }}
-                placeholder="your@email.com"
-                className={formInputClass}
-              />
-              <button
-                type="submit"
-                disabled={emailSaving || email === (user.email ?? '')}
-                className="px-4 py-2.5 text-sm font-semibold rounded-lg shrink-0
-                           bg-accent text-gray-900 hover:bg-accent/90
-                           disabled:opacity-50 transition-colors"
-              >
-                {emailSaving ? 'Saving...' : 'Save'}
-              </button>
+          {user.has_password && (
+            <form onSubmit={handleEmailSave} className="space-y-3">
+              <label htmlFor="profile-email" className="block text-sm font-medium">Email</label>
+              <div className="flex gap-2">
+                <input
+                  id="profile-email"
+                  type="email"
+                  value={email}
+                  onChange={e => { setEmail(e.target.value); setEmailMsg(null) }}
+                  placeholder="your@email.com"
+                  className={formInputClass}
+                />
+                <button
+                  type="submit"
+                  disabled={emailSaving || email === (user.email ?? '')}
+                  className="px-4 py-2.5 text-sm font-semibold rounded-lg shrink-0
+                             bg-accent text-gray-900 hover:bg-accent/90
+                             disabled:opacity-50 transition-colors"
+                >
+                  {emailSaving ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+              <FormFeedback msg={emailMsg} />
+            </form>
+          )}
+
+          {!user.has_password && user.email && (
+            <div className="space-y-1">
+              <div className="text-sm font-medium">Email</div>
+              <div className="text-sm text-muted dark:text-muted-dark">{user.email}</div>
             </div>
-            <FormFeedback msg={emailMsg} />
-          </form>
+          )}
 
           {user.has_password && (
             <form onSubmit={handlePasswordChange} className="space-y-3">

@@ -14,24 +14,33 @@ import { UserTrustScoreCard } from '../components/UserTrustScoreCard'
 import { UserHouseholdCard } from '../components/UserHouseholdCard'
 import { ViolationsTable } from '../components/ViolationsTable'
 import { getHistoryColumns } from '../lib/historyColumns'
+import { useAuth } from '../context/AuthContext'
 import type { User, WatchHistoryEntry, PaginatedResult, Role, UserDetailStats, RuleViolation } from '../types'
 
 type Tab = 'history' | 'locations' | 'violations'
 
-const tabs: { key: Tab; label: string }[] = [
+const allTabs: { key: Tab; label: string }[] = [
   { key: 'history', label: 'Watch History' },
   { key: 'locations', label: 'Locations Map' },
   { key: 'violations', label: 'Violations' },
 ]
+
+interface UserDetailProps {
+  userName?: string
+}
 
 const roleBadgeClass: Record<Role, string> = {
   admin: 'badge-warn',
   viewer: 'badge-muted',
 }
 
-export function UserDetail() {
+export function UserDetail({ userName }: UserDetailProps) {
   const { name } = useParams<{ name: string }>()
-  const decodedName = name ? decodeURIComponent(name) : ''
+  const { user: currentUser } = useAuth()
+  const isAdmin = currentUser?.role === 'admin'
+  const decodedName = userName ?? (name ? decodeURIComponent(name) : '')
+  const encodedName = encodeURIComponent(decodedName)
+  const tabs = isAdmin ? allTabs : allTabs.filter(t => t.key !== 'violations')
 
   const [tab, setTab] = useState<Tab>('history')
   const [page, setPage] = useState(1)
@@ -67,26 +76,25 @@ export function UserDetail() {
     handleTabChange('violations')
   }, [handleTabChange])
 
-  const { data: user, loading: userLoading, error: userError } = useFetch<User>(
-    decodedName ? `/api/users/${encodeURIComponent(decodedName)}` : null
-  )
+  const userBaseUrl = decodedName ? `/api/users/${encodedName}` : null
+
+  const { data: user, loading: userLoading, error: userError } = useFetch<User>(userBaseUrl)
 
   const { data: stats, loading: statsLoading, error: statsError } = useFetch<UserDetailStats>(
-    decodedName ? `/api/users/${encodeURIComponent(decodedName)}/stats` : null
+    userBaseUrl ? `${userBaseUrl}/stats` : null
   )
 
   const historyUrl = decodedName
-    ? `/api/history?user=${encodeURIComponent(decodedName)}&page=${page}&per_page=${PER_PAGE}${sortParams}`
+    ? `/api/history?user=${encodedName}&page=${page}&per_page=${PER_PAGE}${sortParams}`
     : null
   const { data: history, loading: historyLoading } = useFetch<PaginatedResult<WatchHistoryEntry>>(
     tab === 'history' ? historyUrl : null
   )
 
-  const violationsUrl = decodedName
-    ? `/api/violations?user=${encodeURIComponent(decodedName)}&page=${violationsPage}&per_page=${PER_PAGE}`
-    : null
   const { data: violations, loading: violationsLoading } = useFetch<PaginatedResult<RuleViolation>>(
-    tab === 'violations' ? violationsUrl : null
+    isAdmin && tab === 'violations' && decodedName
+      ? `/api/violations?user=${encodedName}&page=${violationsPage}&per_page=${PER_PAGE}`
+      : null
   )
 
   if (userLoading || statsLoading) {
@@ -150,10 +158,10 @@ export function UserDetail() {
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <UserStatsCards stats={stats} />
-            <UserTrustScoreCard userName={decodedName} onViolationsClick={handleViolationsClick} />
+            <UserTrustScoreCard userName={decodedName} onViolationsClick={isAdmin ? handleViolationsClick : undefined} />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <UserHouseholdCard userName={decodedName} />
+          <div className={`grid grid-cols-1 md:grid-cols-2 ${isAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
+            {isAdmin && <UserHouseholdCard userName={decodedName} />}
             <UserLocationsCard locations={stats.locations} />
             <UserISPCard isps={stats.isps} />
             <UserDevicesCard devices={stats.devices} />
@@ -202,7 +210,7 @@ export function UserDetail() {
         <LocationMap userName={decodedName} />
       )}
 
-      {tab === 'violations' && (
+      {isAdmin && tab === 'violations' && (
         <div>
           {!violations && violationsLoading ? (
             <div className="py-12 text-center text-muted dark:text-muted-dark text-sm">
