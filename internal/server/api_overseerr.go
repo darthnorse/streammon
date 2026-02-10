@@ -57,8 +57,18 @@ type overseerrUserCache struct {
 	expiresAt time.Time
 }
 
-const overseerrUserCacheTTL = 15 * time.Minute
-const overseerrUserResolveTimeout = 15 * time.Second
+type overseerrPlexTokenCache struct {
+	mu          sync.RWMutex
+	userIDMap   map[int64]int       // StreamMon user ID → Overseerr user ID
+	entryExpiry map[int64]time.Time // per-user cache expiry
+}
+
+const (
+	overseerrUserCacheTTL      = 15 * time.Minute
+	overseerrPlexTokenCacheTTL = 15 * time.Minute
+	overseerrUserResolveTimeout = 15 * time.Second
+	overseerrPlexClaimTTL      = 30 * time.Second
+)
 
 func (s *Server) handleGetOverseerrSettings(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.store.GetOverseerrConfig()
@@ -436,11 +446,114 @@ func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int,
 	return id, ok
 }
 
+// invalidateOverseerrUserCache clears both the email-based and Plex-token-based
+// user ID caches. Both are cleared together because changing the Overseerr
+// instance (URL/key) invalidates all previously resolved user IDs.
 func (s *Server) invalidateOverseerrUserCache() {
 	s.overseerrUsers.mu.Lock()
 	s.overseerrUsers.emailToID = nil
 	s.overseerrUsers.expiresAt = time.Time{}
 	s.overseerrUsers.mu.Unlock()
+
+	s.invalidatePlexTokenCache()
+}
+
+func (s *Server) invalidatePlexTokenCache() {
+	s.overseerrPlexCache.mu.Lock()
+	s.overseerrPlexCache.userIDMap = make(map[int64]int)
+	s.overseerrPlexCache.entryExpiry = make(map[int64]time.Time)
+	s.overseerrPlexCache.mu.Unlock()
+}
+
+// resolveOverseerrUserWithPlex attempts to resolve a StreamMon user's Overseerr
+// user ID by authenticating with their stored Plex token. This auto-creates
+// the user in Overseerr if they don't exist yet.
+func (s *Server) resolveOverseerrUserWithPlex(ctx context.Context, userID int64) (int, bool) {
+	s.overseerrPlexCache.mu.RLock()
+	if expiry, ok := s.overseerrPlexCache.entryExpiry[userID]; ok && time.Now().UTC().Before(expiry) {
+		id := s.overseerrPlexCache.userIDMap[userID]
+		s.overseerrPlexCache.mu.RUnlock()
+		return id, true
+	}
+	s.overseerrPlexCache.mu.RUnlock()
+
+	// Write lock, re-check, claim with short expiry to prevent thundering herd
+	s.overseerrPlexCache.mu.Lock()
+	if expiry, ok := s.overseerrPlexCache.entryExpiry[userID]; ok && time.Now().UTC().Before(expiry) {
+		id := s.overseerrPlexCache.userIDMap[userID]
+		s.overseerrPlexCache.mu.Unlock()
+		return id, true
+	}
+	claimedExpiry := time.Now().UTC().Add(overseerrPlexClaimTTL)
+	s.overseerrPlexCache.entryExpiry[userID] = claimedExpiry
+	s.overseerrPlexCache.mu.Unlock()
+
+	// clearClaim removes the short-lived claim so a future call can retry,
+	// but only if the expiry still matches ours (avoids clobbering a later claim).
+	clearClaim := func() {
+		s.overseerrPlexCache.mu.Lock()
+		if exp, ok := s.overseerrPlexCache.entryExpiry[userID]; ok && exp.Equal(claimedExpiry) {
+			delete(s.overseerrPlexCache.userIDMap, userID)
+			delete(s.overseerrPlexCache.entryExpiry, userID)
+		}
+		s.overseerrPlexCache.mu.Unlock()
+	}
+
+	enabled, _ := s.store.GetStorePlexTokens()
+	if !enabled {
+		clearClaim()
+		return 0, false
+	}
+
+	plexToken, err := s.store.GetProviderToken(userID, store.ProviderPlex)
+	if err != nil || plexToken == "" {
+		clearClaim()
+		return 0, false
+	}
+
+	cfg, err := s.store.GetOverseerrConfig()
+	if err != nil || cfg.URL == "" || cfg.APIKey == "" {
+		clearClaim()
+		return 0, false
+	}
+
+	s.warnHTTPOnce.Do(func() {
+		if strings.HasPrefix(cfg.URL, "http://") {
+			log.Printf("WARNING: Overseerr URL uses plain HTTP (%s). Plex tokens will be sent unencrypted. Use HTTPS for secure token transmission.", cfg.URL)
+		}
+	})
+
+	client, err := s.newOverseerrClient()
+	if err != nil {
+		log.Printf("overseerr plex auth: client error: %v", err)
+		clearClaim()
+		return 0, false
+	}
+
+	resolveCtx, cancel := context.WithTimeout(ctx, overseerrUserResolveTimeout)
+	defer cancel()
+
+	overseerrID, err := client.AuthenticateWithPlex(resolveCtx, plexToken)
+	if err != nil {
+		log.Printf("overseerr plex auth for user %d: %v", userID, err)
+		clearClaim()
+		return 0, false
+	}
+
+	// Cache the result with full TTL and sweep expired entries
+	now := time.Now().UTC()
+	s.overseerrPlexCache.mu.Lock()
+	s.overseerrPlexCache.userIDMap[userID] = overseerrID
+	s.overseerrPlexCache.entryExpiry[userID] = now.Add(overseerrPlexTokenCacheTTL)
+	for uid, exp := range s.overseerrPlexCache.entryExpiry {
+		if now.After(exp) {
+			delete(s.overseerrPlexCache.userIDMap, uid)
+			delete(s.overseerrPlexCache.entryExpiry, uid)
+		}
+	}
+	s.overseerrPlexCache.mu.Unlock()
+
+	return overseerrID, true
 }
 
 func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Request) {
@@ -464,9 +577,15 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 		overseerrCreateRequestBody: req,
 	}
 
-	if user := UserFromContext(r.Context()); user != nil && user.Email != "" {
-		if overseerrID, ok := s.resolveOverseerrUserID(r.Context(), user.Email); ok {
+	if user := UserFromContext(r.Context()); user != nil {
+		// Try Plex token auth first (auto-creates user in Overseerr)
+		if overseerrID, ok := s.resolveOverseerrUserWithPlex(r.Context(), user.ID); ok {
 			payload.UserID = &overseerrID
+		} else if user.Email != "" {
+			// Fall back to email matching
+			if overseerrID, ok := s.resolveOverseerrUserID(r.Context(), user.Email); ok {
+				payload.UserID = &overseerrID
+			}
 		}
 	}
 

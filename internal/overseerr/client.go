@@ -222,6 +222,32 @@ func (c *Client) DeleteRequest(ctx context.Context, requestID int) error {
 	return c.doDelete(ctx, fmt.Sprintf("/request/%d", requestID))
 }
 
+// AuthenticateWithPlex authenticates to Overseerr using a Plex auth token.
+// Overseerr auto-creates the user if they don't exist.
+// Returns the Overseerr user ID.
+func (c *Client) AuthenticateWithPlex(ctx context.Context, plexToken string) (int, error) {
+	payload, err := json.Marshal(map[string]string{"authToken": plexToken})
+	if err != nil {
+		return 0, fmt.Errorf("marshalling auth payload: %w", err)
+	}
+
+	raw, err := c.doPost(ctx, "/auth/plex", payload)
+	if err != nil {
+		return 0, fmt.Errorf("plex auth: %w", err)
+	}
+
+	var resp struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return 0, fmt.Errorf("parsing auth response: %w", err)
+	}
+	if resp.ID == 0 {
+		return 0, fmt.Errorf("plex auth returned no user ID")
+	}
+	return resp.ID, nil
+}
+
 func truncate(b []byte, max int) string {
 	r := []rune(string(b))
 	if len(r) > max {

@@ -16,9 +16,9 @@ import (
 // testSessionToken is the session token for the test admin user
 var testSessionToken string
 
-func newTestServer(t *testing.T) (*Server, *store.Store) {
+func newTestServer(t *testing.T, storeOpts ...store.Option) (*Server, *store.Store) {
 	t.Helper()
-	s, err := store.New(":memory:")
+	s, err := store.New(":memory:", storeOpts...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,8 +69,8 @@ func (ts *testServer) Unwrap() *Server {
 	return ts.Server
 }
 
-func newTestServerWrapped(t *testing.T) (*testServer, *store.Store) {
-	srv, s := newTestServer(t)
+func newTestServerWrapped(t *testing.T, storeOpts ...store.Option) (*testServer, *store.Store) {
+	srv, s := newTestServer(t, storeOpts...)
 	return &testServer{srv}, s
 }
 

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"streammon/internal/auth"
+	"streammon/internal/crypto"
 	"streammon/internal/geoip"
 	"streammon/internal/media"
 	"streammon/internal/models"
@@ -34,7 +35,17 @@ func main() {
 		log.Fatal(err)
 	}
 
-	s, err := store.New(dbPath)
+	var storeOpts []store.Option
+	if encKey := os.Getenv("TOKEN_ENCRYPTION_KEY"); encKey != "" {
+		enc, err := crypto.NewEncryptor(encKey)
+		if err != nil {
+			log.Fatalf("invalid TOKEN_ENCRYPTION_KEY: %v", err)
+		}
+		storeOpts = append(storeOpts, store.WithEncryptor(enc))
+		log.Println("Token encryption enabled")
+	}
+
+	s, err := store.New(dbPath, storeOpts...)
 	if err != nil {
 		log.Fatalf("opening database: %v", err)
 	}

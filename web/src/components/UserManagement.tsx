@@ -11,10 +11,11 @@ interface SettingsToggleProps {
   endpoint: string
   title: string
   description: string
+  hideWhenUnavailable?: boolean
 }
 
-function SettingsToggle({ endpoint, title, description }: SettingsToggleProps) {
-  const { data, loading, refetch } = useFetch<{ enabled: boolean }>(endpoint)
+function SettingsToggle({ endpoint, title, description, hideWhenUnavailable }: SettingsToggleProps) {
+  const { data, loading, refetch } = useFetch<{ enabled: boolean; available?: boolean }>(endpoint)
   const [optimistic, setOptimistic] = useState<boolean | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -40,6 +41,7 @@ function SettingsToggle({ endpoint, title, description }: SettingsToggleProps) {
   }, [data, enabled, endpoint, refetch])
 
   if (loading) return null
+  if (hideWhenUnavailable && data?.available === false) return null
 
   return (
     <div className="card p-4 mb-4">
@@ -205,6 +207,12 @@ export function UserManagement() {
         endpoint="/api/settings/trust-visibility"
         title="Trust Score Visibility"
         description="Allow non-admin users to see their own trust score and rule violations."
+      />
+      <SettingsToggle
+        endpoint="/api/settings/plex-tokens"
+        title="Store Plex Tokens for Overseerr"
+        description="Store encrypted Plex tokens to attribute Overseerr requests to the correct user. Requires TOKEN_ENCRYPTION_KEY."
+        hideWhenUnavailable
       />
 
       {actionError && (

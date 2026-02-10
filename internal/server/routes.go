@@ -144,6 +144,12 @@ func (s *Server) routes() {
 			sr.Put("/", s.handleUpdateGuestAccess)
 		})
 
+		r.Route("/settings/plex-tokens", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleGetPlexTokensSetting)
+			sr.Put("/", s.handleUpdatePlexTokensSetting)
+		})
+
 		// GET is open to all authenticated users so the frontend can decide
 		// whether to render trust-score UI; only PUT requires admin.
 		r.Route("/settings/trust-visibility", func(sr chi.Router) {

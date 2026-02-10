@@ -143,6 +143,16 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	enabled, err := p.store.GetStorePlexTokens()
+	if err != nil {
+		log.Printf("checking plex token setting: %v", err)
+	}
+	if enabled {
+		if err := p.store.StoreProviderToken(user.ID, string(ProviderPlex), req.AuthToken); err != nil {
+			log.Printf("storing plex token for %s: %v", user.Name, err)
+		}
+	}
+
 	if err := p.manager.CreateSessionAndRespond(w, r, user, http.StatusOK); err != nil {
 		log.Printf("session creation error: %v", err)
 		writeJSONError(w, "internal error", http.StatusInternalServerError)

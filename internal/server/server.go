@@ -3,6 +3,8 @@ package server
 import (
 	"net"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -33,7 +35,9 @@ type Server struct {
 	geoUpdater     *geoip.Updater
 	libCache       *libraryCache
 	rulesEngine    RulesEngine
-	overseerrUsers *overseerrUserCache
+	overseerrUsers     *overseerrUserCache
+	overseerrPlexCache *overseerrPlexTokenCache
+	warnHTTPOnce       sync.Once
 }
 
 func NewServer(s *store.Store, opts ...Option) *Server {
@@ -42,6 +46,10 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 		store:          s,
 		libCache:       &libraryCache{},
 		overseerrUsers: &overseerrUserCache{},
+		overseerrPlexCache: &overseerrPlexTokenCache{
+			userIDMap:   make(map[int64]int),
+			entryExpiry: make(map[int64]time.Time),
+		},
 	}
 	for _, o := range opts {
 		o(srv)
