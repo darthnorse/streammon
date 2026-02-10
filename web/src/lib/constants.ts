@@ -51,9 +51,9 @@ export const navIconMap = {
 } satisfies Record<string, React.ComponentType<{ className?: string }>>
 
 export const navLinks = [
-  { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', adminOnly: false },
+  { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', adminOnly: true },
   { to: '/requests', label: 'Requests', icon: 'Film', adminOnly: false },
-  { to: '/history', label: 'History', icon: 'History', adminOnly: false },
+  { to: '/history', label: 'History', icon: 'History', adminOnly: true },
   { to: '/my-stats', label: 'My Stats', icon: 'User', adminOnly: false },
   { to: '/statistics', label: 'Statistics', icon: 'BarChart3', adminOnly: true },
   { to: '/library', label: 'Library', icon: 'Library', adminOnly: true },

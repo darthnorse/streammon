@@ -5,12 +5,9 @@ import { EmptyState } from '../components/EmptyState'
 import { RecentMedia } from '../components/RecentMedia'
 import { WatchStats } from '../components/WatchStats'
 import { formatBitrate } from '../lib/format'
-import { useAuth } from '../context/AuthContext'
 
 export function Dashboard() {
   const { sessions, connected } = useSSE('/api/dashboard/sse')
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
 
   const totalBandwidth = sessions.reduce((sum, s) => sum + (s.bandwidth ?? 0), 0)
 
@@ -50,11 +47,9 @@ export function Dashboard() {
       <div className="mt-8">
         <RecentMedia />
       </div>
-      {isAdmin && (
-        <div className="mt-8">
-          <WatchStats />
-        </div>
-      )}
+      <div className="mt-8">
+        <WatchStats />
+      </div>
     </div>
   )
 }

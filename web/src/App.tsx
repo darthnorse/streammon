@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import { AuthGuard } from './components/AuthGuard'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -28,6 +28,12 @@ function MyStats() {
   return <UserDetail userName={user.name} />
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth()
+  if (user?.role !== 'admin') return <Navigate to="/requests" replace />
+  return <>{children}</>
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -39,17 +45,17 @@ export default function App() {
 
           {/* Protected routes */}
           <Route element={<AuthGuard><Layout /></AuthGuard>}>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
             <Route path="/requests/discover/*" element={<DiscoverAll />} />
             <Route path="/requests" element={<Requests />} />
-            <Route path="/users" element={<Users />} />
+            <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
             <Route path="/users/:name" element={<UserDetail />} />
             <Route path="/my-stats" element={<MyStats />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/statistics" element={<Statistics />} />
-            <Route path="/library" element={<Libraries />} />
-            <Route path="/rules" element={<Rules />} />
-            <Route path="/settings" element={<Settings />} />
+            <Route path="/history" element={<AdminRoute><History /></AdminRoute>} />
+            <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
+            <Route path="/library" element={<AdminRoute><Libraries /></AdminRoute>} />
+            <Route path="/rules" element={<AdminRoute><Rules /></AdminRoute>} />
+            <Route path="/settings" element={<AdminRoute><Settings /></AdminRoute>} />
             <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
