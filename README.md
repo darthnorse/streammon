@@ -252,3 +252,7 @@ The frontend dev server proxies API requests to the backend on port 7935.
 - **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, Recharts, Leaflet
 - **Auth:** Local, Plex, Emby, Jellyfin, OIDC
 - **Deployment:** Docker Compose, multi-stage build (Node > Go > Debian slim)
+
+## Acknowledgments
+
+This project has been developed with vibe coding and AI assistance using [Claude Code](https://claude.ai/claude-code). The codebase includes clean, well-documented code with proper error handling, comprehensive testing considerations, modern async/await patterns, robust database design, and production-ready deployment configurations.
