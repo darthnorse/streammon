@@ -49,7 +49,18 @@ export function MaxMindForm({ settings, onSaved }: MaxMindFormProps) {
 
   return (
     <div className="card p-5">
-      <h3 className="font-semibold text-base mb-4">MaxMind GeoIP</h3>
+      <h3 className="font-semibold text-base mb-2">MaxMind GeoIP</h3>
+      <p className="text-sm text-muted dark:text-muted-dark mb-4">
+        Enables IP geolocation for stream monitoring.{' '}
+        <a
+          href="https://www.maxmind.com/en/geolite2/signup"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-accent hover:underline"
+        >
+          Sign up for a free GeoLite2 license key
+        </a>
+      </p>
 
       {settings?.license_key && (
         <div className="space-y-2 text-sm mb-4">
