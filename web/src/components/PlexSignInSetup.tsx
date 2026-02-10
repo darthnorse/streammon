@@ -13,6 +13,7 @@ export function PlexSignInSetup({ onSuccess }: PlexSignInSetupProps) {
       endpoint="/api/setup/plex"
       buttonClassName={plexBtnClass}
       loadingMessage="Creating admin account..."
+      autoStart
     />
   )
 }

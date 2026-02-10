@@ -11,6 +11,7 @@ interface PlexAuthFlowProps {
   buttonClassName?: string
   loadingMessage?: string
   centered?: boolean
+  autoStart?: boolean
 }
 
 type Phase = 'idle' | 'polling' | 'submitting'
@@ -21,6 +22,7 @@ export function PlexAuthFlow({
   buttonClassName = plexBtnClass,
   loadingMessage = 'Signing in...',
   centered = false,
+  autoStart = false,
 }: PlexAuthFlowProps) {
   const [phase, setPhase] = useState<Phase>('idle')
   const [error, setError] = useState('')
@@ -39,6 +41,14 @@ export function PlexAuthFlow({
   }, [])
 
   useEffect(() => cleanup, [cleanup])
+
+  const autoStarted = useRef(false)
+  useEffect(() => {
+    if (autoStart && !autoStarted.current) {
+      autoStarted.current = true
+      startAuth()
+    }
+  }) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function startAuth() {
     setError('')

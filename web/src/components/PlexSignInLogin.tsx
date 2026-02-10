@@ -13,6 +13,7 @@ export function PlexSignInLogin({ onSuccess }: PlexSignInLoginProps) {
       endpoint="/auth/plex/login"
       buttonClassName={plexBtnClass + ' w-full'}
       centered
+      autoStart
     />
   )
 }
