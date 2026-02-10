@@ -8,6 +8,7 @@ services:
     environment:
       - DB_PATH=/app/data/streammon.db
       - GEOIP_DB=/app/geoip/GeoLite2-City.mmdb
+      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
     restart: unless-stopped
 
 volumes:
