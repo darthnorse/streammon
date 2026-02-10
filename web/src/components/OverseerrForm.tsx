@@ -153,6 +153,12 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
             </p>
           </div>
 
+          <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
+            If you use per-user tagging in Radarr/Sonarr, disable &ldquo;Tag Requests&rdquo; in Overseerr Settings &rarr; Services &rarr; Radarr/Sonarr.
+            A <a href="https://github.com/sct/overseerr/issues/4306" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-800 dark:hover:text-amber-300">known Overseerr bug</a> causes
+            tag creation to fail with newer Radarr/Sonarr versions.
+          </p>
+
           {error && (
             <div className="text-sm text-red-500 dark:text-red-400 font-mono px-1">
               {error}
