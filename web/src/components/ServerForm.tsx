@@ -131,8 +131,9 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
       }
       setTestResult(result)
       // Auto-populate machine_id from successful Plex test
+      // Update form directly to avoid setField clearing testResult
       if (result.success && result.machine_id && form.type === 'plex') {
-        setField('machine_id', result.machine_id)
+        setForm(prev => ({ ...prev, machine_id: result.machine_id! }))
       }
     } catch (err) {
       setTestResult({ success: false, error: (err as Error).message })

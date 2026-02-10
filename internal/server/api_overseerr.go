@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -32,6 +34,11 @@ type overseerrCreateRequestBody struct {
 	Is4K      bool            `json:"is4k,omitempty"`
 }
 
+type overseerrCreateRequestPayload struct {
+	overseerrCreateRequestBody
+	UserID *int `json:"userId,omitempty"`
+}
+
 var allowedRequestFilters = map[string]bool{
 	"all": true, "pending": true, "approved": true,
 	"processing": true, "available": true, "declined": true,
@@ -43,6 +50,15 @@ var allowedRequestSorts = map[string]bool{
 
 const maxRequestTake = 100
 const defaultRequestTake = 20
+
+type overseerrUserCache struct {
+	mu        sync.RWMutex
+	emailToID map[string]int // lowercase email → Overseerr user ID
+	expiresAt time.Time
+}
+
+const overseerrUserCacheTTL = 15 * time.Minute
+const overseerrUserResolveTimeout = 15 * time.Second
 
 func (s *Server) handleGetOverseerrSettings(w http.ResponseWriter, r *http.Request) {
 	cfg, err := s.store.GetOverseerrConfig()
@@ -91,6 +107,7 @@ func (s *Server) handleUpdateOverseerrSettings(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	s.invalidateOverseerrUserCache()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -99,6 +116,7 @@ func (s *Server) handleDeleteOverseerrSettings(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
+	s.invalidateOverseerrUserCache()
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -363,6 +381,68 @@ func (s *Server) handleOverseerrRequestCount(w http.ResponseWriter, r *http.Requ
 	writeRawJSON(w, http.StatusOK, data)
 }
 
+func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int, bool) {
+	email = strings.ToLower(email)
+
+	s.overseerrUsers.mu.RLock()
+	if time.Now().UTC().Before(s.overseerrUsers.expiresAt) {
+		id, ok := s.overseerrUsers.emailToID[email]
+		s.overseerrUsers.mu.RUnlock()
+		return id, ok
+	}
+	s.overseerrUsers.mu.RUnlock()
+
+	// Acquire write lock, re-check, and claim the refresh with a short expiry
+	// so concurrent goroutines use stale data instead of all fetching simultaneously
+	s.overseerrUsers.mu.Lock()
+	if time.Now().UTC().Before(s.overseerrUsers.expiresAt) {
+		id, ok := s.overseerrUsers.emailToID[email]
+		s.overseerrUsers.mu.Unlock()
+		return id, ok
+	}
+	s.overseerrUsers.expiresAt = time.Now().UTC().Add(30 * time.Second)
+	s.overseerrUsers.mu.Unlock()
+
+	client, err := s.newOverseerrClient()
+	if err != nil {
+		log.Printf("overseerr user resolve: %v", err)
+		s.invalidateOverseerrUserCache()
+		return 0, false
+	}
+
+	resolveCtx, cancel := context.WithTimeout(ctx, overseerrUserResolveTimeout)
+	defer cancel()
+
+	users, err := client.ListUsers(resolveCtx)
+	if err != nil {
+		log.Printf("overseerr list users: %v", err)
+		s.invalidateOverseerrUserCache()
+		return 0, false
+	}
+
+	emailToID := make(map[string]int, len(users))
+	for _, u := range users {
+		if u.Email != "" {
+			emailToID[strings.ToLower(u.Email)] = u.ID
+		}
+	}
+
+	s.overseerrUsers.mu.Lock()
+	s.overseerrUsers.emailToID = emailToID
+	s.overseerrUsers.expiresAt = time.Now().UTC().Add(overseerrUserCacheTTL)
+	s.overseerrUsers.mu.Unlock()
+
+	id, ok := emailToID[email]
+	return id, ok
+}
+
+func (s *Server) invalidateOverseerrUserCache() {
+	s.overseerrUsers.mu.Lock()
+	s.overseerrUsers.emailToID = nil
+	s.overseerrUsers.expiresAt = time.Time{}
+	s.overseerrUsers.mu.Unlock()
+}
+
 func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	var req overseerrCreateRequestBody
@@ -380,7 +460,17 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	sanitized, err := json.Marshal(req)
+	payload := overseerrCreateRequestPayload{
+		overseerrCreateRequestBody: req,
+	}
+
+	if user := UserFromContext(r.Context()); user != nil && user.Email != "" {
+		if overseerrID, ok := s.resolveOverseerrUserID(r.Context(), user.Email); ok {
+			payload.UserID = &overseerrID
+		}
+	}
+
+	sanitized, err := json.Marshal(payload)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return

@@ -14,12 +14,30 @@ interface Provider {
   enabled: boolean
 }
 
+type LoginMethod = 'local' | 'plex' | 'emby' | 'jellyfin' | null
+
+const methodBtnClass =
+  'w-full py-3 px-4 rounded-lg border border-border dark:border-border-dark hover:bg-panel-hover dark:hover:bg-panel-hover-dark transition-colors text-left'
+
+function BackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-sm text-accent hover:underline"
+    >
+      &larr; Back
+    </button>
+  )
+}
+
 export function Login() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { setUser } = useAuth()
   const [providers, setProviders] = useState<Provider[]>([])
   const [loading, setLoading] = useState(true)
+  const [method, setMethod] = useState<LoginMethod>(null)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState(() => {
@@ -63,6 +81,11 @@ export function Login() {
     window.location.href = '/auth/oidc/login'
   }
 
+  const goBack = () => {
+    setMethod(null)
+    setError('')
+  }
+
   const hasLocal = providers.some(p => p.name === 'local' && p.enabled)
   const hasPlex = providers.some(p => p.name === 'plex' && p.enabled)
   const hasOIDC = providers.some(p => p.name === 'oidc' && p.enabled)
@@ -82,13 +105,64 @@ export function Login() {
           <p className="text-muted dark:text-muted-dark">Sign in to continue</p>
         </div>
 
-        <div className="card p-6 space-y-6">
-          {error && (
-            <p className="text-sm text-red-500 dark:text-red-400 text-center">{error}</p>
+        <div className="card p-6">
+          {error && !method && (
+            <p className="text-sm text-red-500 dark:text-red-400 text-center mb-4">{error}</p>
           )}
 
-          {hasLocal && (
+          {!method && (
+            <div className="space-y-3">
+              {hasLocal && (
+                <button onClick={() => setMethod('local')} className={methodBtnClass}>
+                  <div className="font-medium">Local Account</div>
+                  <div className="text-sm text-muted dark:text-muted-dark">
+                    Sign in with username and password
+                  </div>
+                </button>
+              )}
+
+              {hasPlex && (
+                <button
+                  onClick={() => setMethod('plex')}
+                  className="w-full py-3 px-4 rounded-lg bg-[#E5A00D] hover:bg-[#cc8e0b] text-gray-900 font-semibold text-center transition-colors"
+                >
+                  Sign in with Plex
+                </button>
+              )}
+
+              {hasEmby && (
+                <button
+                  onClick={() => setMethod('emby')}
+                  className="w-full py-3 px-4 rounded-lg bg-[#52B54B] hover:bg-[#47a040] text-white font-semibold text-center transition-colors"
+                >
+                  Sign in with Emby
+                </button>
+              )}
+
+              {hasJellyfin && (
+                <button
+                  onClick={() => setMethod('jellyfin')}
+                  className="w-full py-3 px-4 rounded-lg bg-[#00A4DC] hover:bg-[#0090c4] text-white font-semibold text-center transition-colors"
+                >
+                  Sign in with Jellyfin
+                </button>
+              )}
+
+              {hasOIDC && (
+                <button
+                  onClick={handleOIDCLogin}
+                  className="w-full py-3 px-4 rounded-lg border border-border dark:border-border-dark hover:bg-panel-hover dark:hover:bg-panel-hover-dark font-semibold text-center transition-colors"
+                >
+                  Sign in with SSO
+                </button>
+              )}
+            </div>
+          )}
+
+          {method === 'local' && (
             <form onSubmit={handleLocalSubmit} className="space-y-4">
+              <BackButton onClick={goBack} />
+
               <div>
                 <label className="block text-sm font-medium mb-1">Username</label>
                 <input
@@ -113,6 +187,10 @@ export function Login() {
                 />
               </div>
 
+              {error && (
+                <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
+              )}
+
               <button
                 type="submit"
                 disabled={submitting}
@@ -124,53 +202,36 @@ export function Login() {
             </form>
           )}
 
-          {(hasPlex || hasOIDC || hasEmby || hasJellyfin) && hasLocal && (
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-border dark:border-border-dark" />
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-panel dark:bg-panel-dark text-muted dark:text-muted-dark">
-                  or continue with
-                </span>
-              </div>
+          {method === 'plex' && (
+            <div className="space-y-4">
+              <BackButton onClick={goBack} />
+              <PlexSignInLogin onSuccess={handleProviderSuccess} />
             </div>
           )}
 
-          <div className="space-y-3">
-            {hasPlex && (
-              <PlexSignInLogin onSuccess={handleProviderSuccess} />
-            )}
-
-            {hasEmby && (
+          {method === 'emby' && (
+            <div className="space-y-4">
+              <BackButton onClick={goBack} />
               <MediaServerSignIn
                 serverType="emby"
                 loginEndpoint="/auth/emby/login"
                 serversEndpoint="/auth/emby/servers"
                 onSuccess={handleProviderSuccess}
               />
-            )}
+            </div>
+          )}
 
-            {hasJellyfin && (
+          {method === 'jellyfin' && (
+            <div className="space-y-4">
+              <BackButton onClick={goBack} />
               <MediaServerSignIn
                 serverType="jellyfin"
                 loginEndpoint="/auth/jellyfin/login"
                 serversEndpoint="/auth/jellyfin/servers"
                 onSuccess={handleProviderSuccess}
               />
-            )}
-
-            {hasOIDC && (
-              <button
-                onClick={handleOIDCLogin}
-                className="w-full py-2 px-4 rounded-lg border border-border dark:border-border-dark
-                         hover:bg-panel-hover dark:hover:bg-panel-hover-dark transition-colors
-                         font-medium"
-              >
-                Sign in with SSO
-              </button>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -94,31 +94,25 @@ export function Setup() {
                 </div>
               </button>
 
-              <button onClick={() => setMethod('plex')} className={methodBtnClass}>
-                <div className="font-medium flex items-center gap-2">
-                  <span className="text-[#E5A00D]">Plex</span> Sign In
-                </div>
-                <div className="text-sm text-muted dark:text-muted-dark">
-                  Use your Plex.tv account
-                </div>
+              <button
+                onClick={() => setMethod('plex')}
+                className="w-full py-3 px-4 rounded-lg bg-[#E5A00D] hover:bg-[#cc8e0b] text-gray-900 font-semibold text-center transition-colors"
+              >
+                Sign in with Plex
               </button>
 
-              <button onClick={() => setMethod('emby')} className={methodBtnClass}>
-                <div className="font-medium flex items-center gap-2">
-                  <span className="text-[#52B54B]">Emby</span> Sign In
-                </div>
-                <div className="text-sm text-muted dark:text-muted-dark">
-                  Use your Emby server credentials
-                </div>
+              <button
+                onClick={() => setMethod('emby')}
+                className="w-full py-3 px-4 rounded-lg bg-[#52B54B] hover:bg-[#47a040] text-white font-semibold text-center transition-colors"
+              >
+                Sign in with Emby
               </button>
 
-              <button onClick={() => setMethod('jellyfin')} className={methodBtnClass}>
-                <div className="font-medium flex items-center gap-2">
-                  <span className="text-[#00A4DC]">Jellyfin</span> Sign In
-                </div>
-                <div className="text-sm text-muted dark:text-muted-dark">
-                  Use your Jellyfin server credentials
-                </div>
+              <button
+                onClick={() => setMethod('jellyfin')}
+                className="w-full py-3 px-4 rounded-lg bg-[#00A4DC] hover:bg-[#0090c4] text-white font-semibold text-center transition-colors"
+              >
+                Sign in with Jellyfin
               </button>
             </div>
           )}

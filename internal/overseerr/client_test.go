@@ -3,6 +3,7 @@ package overseerr
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -242,6 +243,98 @@ func TestDeleteRequest(t *testing.T) {
 	c, _ := NewClient(ts.URL, "test-key")
 	if err := c.DeleteRequest(context.Background(), 1); err != nil {
 		t.Fatalf("DeleteRequest: %v", err)
+	}
+}
+
+func TestListUsers_SinglePage(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/user" {
+			t.Errorf("expected path /api/v1/user, got %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 2},
+			"results": []map[string]any{
+				{"id": 1, "email": "alice@example.com"},
+				{"id": 2, "email": "bob@example.com"},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	users, err := c.ListUsers(context.Background())
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected 2 users, got %d", len(users))
+	}
+	if users[0].Email != "alice@example.com" || users[0].ID != 1 {
+		t.Fatalf("unexpected user[0]: %+v", users[0])
+	}
+	if users[1].Email != "bob@example.com" || users[1].ID != 2 {
+		t.Fatalf("unexpected user[1]: %+v", users[1])
+	}
+}
+
+func TestListUsers_Paginated(t *testing.T) {
+	callCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		skip := r.URL.Query().Get("skip")
+		switch skip {
+		case "", "0":
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"pages": 2, "page": 1, "results": 50},
+				"results": func() []map[string]any {
+					users := make([]map[string]any, 50)
+					for i := range users {
+						users[i] = map[string]any{"id": i + 1, "email": fmt.Sprintf("user%d@example.com", i+1)}
+					}
+					return users
+				}(),
+			})
+		case "50":
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"pages": 2, "page": 2, "results": 10},
+				"results": func() []map[string]any {
+					users := make([]map[string]any, 10)
+					for i := range users {
+						users[i] = map[string]any{"id": 51 + i, "email": fmt.Sprintf("user%d@example.com", 51+i)}
+					}
+					return users
+				}(),
+			})
+		default:
+			t.Errorf("unexpected skip value: %s", skip)
+		}
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	users, err := c.ListUsers(context.Background())
+	if err != nil {
+		t.Fatalf("ListUsers: %v", err)
+	}
+	if len(users) != 60 {
+		t.Fatalf("expected 60 users, got %d", len(users))
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 API calls, got %d", callCount)
+	}
+}
+
+func TestListUsers_APIError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"message":"server error"}`))
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	_, err := c.ListUsers(context.Background())
+	if err == nil {
+		t.Fatal("expected error for 500 response")
 	}
 }
 

@@ -119,10 +119,32 @@ func TestHandleMe_HasPassword_False(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateProfile_ExternalAccountBlocked(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	user, err := st.CreateLocalUser("extuser", "ext@test.local", "", models.RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"email":"new@test.local"}`
+	req := httptest.NewRequest("PUT", "/api/me", strings.NewReader(body))
+	ctx := contextWithUser(req.Context(), user)
+	req = req.WithContext(ctx)
+
+	w := httptest.NewRecorder()
+	srv.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleUpdateProfile_UpdatesEmail(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
-	user, err := st.CreateLocalUser("emailuser", "old@test.local", "", models.RoleViewer)
+	hash, _ := auth.HashPassword("testpass1")
+	user, err := st.CreateLocalUser("emailuser", "old@test.local", hash, models.RoleViewer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +180,8 @@ func TestHandleUpdateProfile_UpdatesEmail(t *testing.T) {
 func TestHandleUpdateProfile_InvalidEmail(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
-	user, err := st.CreateLocalUser("badmail", "old@test.local", "", models.RoleViewer)
+	hash, _ := auth.HashPassword("testpass1")
+	user, err := st.CreateLocalUser("badmail", "old@test.local", hash, models.RoleViewer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,12 +202,12 @@ func TestHandleUpdateProfile_InvalidEmail(t *testing.T) {
 func TestHandleUpdateProfile_EmailConflict(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
-	// Create two users
-	user1, err := st.CreateLocalUser("user1", "user1@test.local", "", models.RoleViewer)
+	hash, _ := auth.HashPassword("testpass1")
+	user1, err := st.CreateLocalUser("user1", "user1@test.local", hash, models.RoleViewer)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateLocalUser("user2", "user2@test.local", "", models.RoleViewer); err != nil {
+	if _, err := st.CreateLocalUser("user2", "user2@test.local", hash, models.RoleViewer); err != nil {
 		t.Fatal(err)
 	}
 
@@ -211,7 +234,8 @@ func TestHandleUpdateProfile_EmailConflict(t *testing.T) {
 func TestHandleUpdateProfile_EmptyBody(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
-	user, err := st.CreateLocalUser("emptybody", "eb@test.local", "", models.RoleViewer)
+	hash, _ := auth.HashPassword("testpass1")
+	user, err := st.CreateLocalUser("emptybody", "eb@test.local", hash, models.RoleViewer)
 	if err != nil {
 		t.Fatal(err)
 	}

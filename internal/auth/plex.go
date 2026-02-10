@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"streammon/internal/models"
@@ -159,6 +160,9 @@ func (p *PlexProvider) doPlexRequest(ctx context.Context, token, path string, re
 		return err
 	}
 	req.Header.Set("X-Plex-Token", token)
+	req.Header.Set("X-Plex-Client-Identifier", "streammon-server")
+	req.Header.Set("X-Plex-Product", "StreamMon")
+	req.Header.Set("X-Plex-Version", "1.0")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := p.client.Do(req)
@@ -219,10 +223,9 @@ func (p *PlexProvider) verifyServerAccess(ctx context.Context, token string) (bo
 	}
 
 	for _, r := range resources {
-		if r.Provides != "server" {
+		if !strings.Contains(r.Provides, "server") {
 			continue
 		}
-		// Only match on machine_id (secure, non-spoofable)
 		if configuredMachineIDs[r.ClientIdentifier] {
 			log.Printf("Plex user has access to configured server: %s (machine_id: %s)", r.Name, r.ClientIdentifier)
 			return true, nil

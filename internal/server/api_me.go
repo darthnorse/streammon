@@ -44,6 +44,17 @@ func (s *Server) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hash, err := s.store.GetPasswordHashByUserID(user.ID)
+	if err != nil {
+		log.Printf("getting password hash for user %d: %v", user.ID, err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	if hash == "" {
+		writeError(w, http.StatusForbidden, "profile changes not allowed for external accounts")
+		return
+	}
+
 	var req struct {
 		Email string `json:"email"`
 	}

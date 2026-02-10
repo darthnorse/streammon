@@ -24,22 +24,24 @@ type RulesEngine interface {
 }
 
 type Server struct {
-	router      chi.Router
-	store       *store.Store
-	poller      *poller.Poller
-	authManager *auth.Manager
-	corsOrigin  string
-	geoResolver GeoLookup
-	geoUpdater  *geoip.Updater
-	libCache    *libraryCache
-	rulesEngine RulesEngine
+	router         chi.Router
+	store          *store.Store
+	poller         *poller.Poller
+	authManager    *auth.Manager
+	corsOrigin     string
+	geoResolver    GeoLookup
+	geoUpdater     *geoip.Updater
+	libCache       *libraryCache
+	rulesEngine    RulesEngine
+	overseerrUsers *overseerrUserCache
 }
 
 func NewServer(s *store.Store, opts ...Option) *Server {
 	srv := &Server{
-		router:   chi.NewRouter(),
-		store:    s,
-		libCache: &libraryCache{},
+		router:         chi.NewRouter(),
+		store:          s,
+		libCache:       &libraryCache{},
+		overseerrUsers: &overseerrUserCache{},
 	}
 	for _, o := range opts {
 		o(srv)

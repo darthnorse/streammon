@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -100,6 +101,57 @@ func (c *Client) doDelete(ctx context.Context, path string) error {
 	return err
 }
 
+type OverseerrUser struct {
+	ID    int    `json:"id"`
+	Email string `json:"email"`
+}
+
+type listUsersResponse struct {
+	PageInfo struct {
+		Pages   int `json:"pages"`
+		Page    int `json:"page"`
+		Results int `json:"results"`
+	} `json:"pageInfo"`
+	Results []OverseerrUser `json:"results"`
+}
+
+const maxListUsersPages = 100 // safety valve: 5,000 users max
+
+func (c *Client) ListUsers(ctx context.Context) ([]OverseerrUser, error) {
+	const pageSize = 50
+	var all []OverseerrUser
+
+	for page := 0; page < maxListUsersPages; page++ {
+		skip := page * pageSize
+		params := url.Values{}
+		params.Set("take", strconv.Itoa(pageSize))
+		if skip > 0 {
+			params.Set("skip", strconv.Itoa(skip))
+		}
+
+		raw, err := c.doGet(ctx, "/user", params)
+		if err != nil {
+			return nil, fmt.Errorf("listing users: %w", err)
+		}
+
+		var resp listUsersResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return nil, fmt.Errorf("parsing user list: %w", err)
+		}
+
+		if all == nil {
+			all = make([]OverseerrUser, 0, resp.PageInfo.Pages*pageSize)
+		}
+		all = append(all, resp.Results...)
+
+		if resp.PageInfo.Page >= resp.PageInfo.Pages || len(resp.Results) < pageSize {
+			break
+		}
+	}
+
+	return all, nil
+}
+
 func (c *Client) TestConnection(ctx context.Context) error {
 	_, err := c.doGet(ctx, "/status", nil)
 	return err
@@ -109,7 +161,7 @@ func (c *Client) Search(ctx context.Context, query string, page int) (json.RawMe
 	params := url.Values{}
 	params.Set("query", query)
 	if page > 0 {
-		params.Set("page", fmt.Sprintf("%d", page))
+		params.Set("page", strconv.Itoa(page))
 	}
 	return c.doGet(ctx, "/search", params)
 }
@@ -117,7 +169,7 @@ func (c *Client) Search(ctx context.Context, query string, page int) (json.RawMe
 func (c *Client) Discover(ctx context.Context, category string, page int) (json.RawMessage, error) {
 	params := url.Values{}
 	if page > 0 {
-		params.Set("page", fmt.Sprintf("%d", page))
+		params.Set("page", strconv.Itoa(page))
 	}
 	return c.doGet(ctx, "/discover/"+category, params)
 }
@@ -137,10 +189,10 @@ func (c *Client) GetTVSeason(ctx context.Context, tvID, seasonNumber int) (json.
 func (c *Client) ListRequests(ctx context.Context, take, skip int, filter, sort string) (json.RawMessage, error) {
 	params := url.Values{}
 	if take > 0 {
-		params.Set("take", fmt.Sprintf("%d", take))
+		params.Set("take", strconv.Itoa(take))
 	}
 	if skip > 0 {
-		params.Set("skip", fmt.Sprintf("%d", skip))
+		params.Set("skip", strconv.Itoa(skip))
 	}
 	if filter != "" {
 		params.Set("filter", filter)
