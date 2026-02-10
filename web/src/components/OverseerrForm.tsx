@@ -130,6 +130,14 @@ export function OverseerrForm({ settings, onClose, onSaved }: OverseerrFormProps
             />
           </div>
 
+          {form.url.startsWith('http://') &&
+            !form.url.startsWith('http://localhost') &&
+            !form.url.startsWith('http://127.0.0.1') && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
+              Plex token attribution requires HTTPS (or localhost). With a plain HTTP URL, Overseerr requests will fall back to email matching to avoid sending tokens over an unencrypted connection.
+            </p>
+          )}
+
           <div>
             <label htmlFor="overseerr-api-key" className="block text-sm font-medium mb-1.5">API Key</label>
             <input
