@@ -70,15 +70,16 @@ export function Sidebar({ onOpenProfile }: SidebarProps) {
 
       <div className="px-3 py-4 border-t border-border dark:border-border-dark">
         {user && (
-          <div className="relative mb-3" ref={menuRef}>
+          <div className="relative flex items-center" ref={menuRef}>
             <button
               onClick={() => setShowMenu(prev => !prev)}
-              className="flex items-center gap-2.5 w-full rounded-lg px-2 py-1.5
+              className="flex items-center gap-2.5 flex-1 min-w-0 rounded-lg px-2 py-1.5
                          hover:bg-surface dark:hover:bg-surface-dark transition-colors text-left"
             >
               <UserAvatar name={user.name} thumbUrl={user.thumb_url} />
               <span className="text-sm truncate">{user.name}</span>
             </button>
+            <ThemeToggle />
             {showMenu && (
               <div className="absolute bottom-full left-0 right-0 mb-1 rounded-lg border
                               border-border dark:border-border-dark bg-panel dark:bg-panel-dark
@@ -102,7 +103,6 @@ export function Sidebar({ onOpenProfile }: SidebarProps) {
             )}
           </div>
         )}
-        <ThemeToggle />
       </div>
     </aside>
   )
