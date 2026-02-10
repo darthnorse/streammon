@@ -7,12 +7,14 @@ import { errorMessage } from '../lib/utils'
 import { EmptyState } from './EmptyState'
 import type { AdminUser } from '../types'
 
-interface GuestAccess {
-  enabled: boolean
+interface SettingsToggleProps {
+  endpoint: string
+  title: string
+  description: string
 }
 
-function GuestAccessToggle() {
-  const { data, loading, refetch } = useFetch<GuestAccess>('/api/settings/guest-access')
+function SettingsToggle({ endpoint, title, description }: SettingsToggleProps) {
+  const { data, loading, refetch } = useFetch<{ enabled: boolean }>(endpoint)
   const [optimistic, setOptimistic] = useState<boolean | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -26,7 +28,8 @@ function GuestAccessToggle() {
     setSaving(true)
     setError('')
     try {
-      await api.put('/api/settings/guest-access', { enabled: newValue })
+      await api.put(endpoint, { enabled: newValue })
+      setOptimistic(null)
       refetch()
     } catch (err) {
       setOptimistic(null)
@@ -34,7 +37,7 @@ function GuestAccessToggle() {
     } finally {
       setSaving(false)
     }
-  }, [data, enabled, refetch])
+  }, [data, enabled, endpoint, refetch])
 
   if (loading) return null
 
@@ -42,9 +45,9 @@ function GuestAccessToggle() {
     <div className="card p-4 mb-4">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="font-semibold">Guest Access</h3>
+          <h3 className="font-semibold">{title}</h3>
           <p className="text-sm text-muted dark:text-muted-dark mt-0.5">
-            Allow non-admin users to sign in. When disabled, only admins can log in.
+            {description}
           </p>
           {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
         </div>
@@ -193,7 +196,16 @@ export function UserManagement() {
 
   return (
     <div>
-      <GuestAccessToggle />
+      <SettingsToggle
+        endpoint="/api/settings/guest-access"
+        title="Guest Access"
+        description="Allow non-admin users to sign in. When disabled, only admins can log in."
+      />
+      <SettingsToggle
+        endpoint="/api/settings/trust-visibility"
+        title="Trust Score Visibility"
+        description="Allow non-admin users to see their own trust score and rule violations."
+      />
 
       {actionError && (
         <div className="card p-4 mb-4 text-center text-red-500 dark:text-red-400">

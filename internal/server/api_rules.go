@@ -119,14 +119,7 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListViolations(w http.ResponseWriter, r *http.Request) {
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 1 {
-		page = 1
-	}
-	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
-	if perPage < 1 || perPage > 100 {
-		perPage = 50
-	}
+	page, perPage := parsePagination(r, 50, 100)
 
 	var filters store.ViolationFilters
 	filters.UserName = r.URL.Query().Get("user")
@@ -293,17 +286,42 @@ func (s *Server) handleTestNotificationChannel(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// requireTrustScoreAccess checks that the current user is allowed to view
+// trust-score-related data for userName. Admins always pass. Non-admins must
+// be viewing their own data and the trust-score-visibility setting must be on.
+// Returns true if the request should continue; false means an error was written.
+func (s *Server) requireTrustScoreAccess(w http.ResponseWriter, r *http.Request, userName string) bool {
+	user := UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return false
+	}
+	if user.Role == models.RoleAdmin {
+		return true
+	}
+	if user.Name != userName {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	visible, err := s.store.GetTrustScoreVisibility()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return false
+	}
+	if !visible {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	return true
+}
+
 func (s *Server) handleGetUserTrustScore(w http.ResponseWriter, r *http.Request) {
 	userName := chi.URLParam(r, "name")
 	if userName == "" {
 		writeError(w, http.StatusBadRequest, "user name required")
 		return
 	}
-
-	// Viewers can only access their own trust score
-	user := UserFromContext(r.Context())
-	if user != nil && user.Role == models.RoleViewer && user.Name != userName {
-		writeError(w, http.StatusForbidden, "forbidden")
+	if !s.requireTrustScoreAccess(w, r, userName) {
 		return
 	}
 
@@ -313,6 +331,32 @@ func (s *Server) handleGetUserTrustScore(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, ts)
+}
+
+func (s *Server) handleGetUserViolations(w http.ResponseWriter, r *http.Request) {
+	userName := chi.URLParam(r, "name")
+	if userName == "" {
+		writeError(w, http.StatusBadRequest, "user name required")
+		return
+	}
+	if !s.requireTrustScoreAccess(w, r, userName) {
+		return
+	}
+
+	page, perPage := parsePagination(r, 50, 100)
+
+	var filters store.ViolationFilters
+	filters.UserName = userName
+
+	result, err := s.store.ListViolations(page, perPage, filters)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list violations")
+		return
+	}
+	if result.Items == nil {
+		result.Items = []models.RuleViolation{}
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleListHouseholdLocations(w http.ResponseWriter, r *http.Request) {

@@ -223,6 +223,24 @@ func (s *Store) SetWatchedThreshold(pct int) error {
 	return s.SetSetting(watchedThresholdKey, strconv.Itoa(pct))
 }
 
+const userTrustScoreVisibleKey = "users.trust_score_visible"
+
+func (s *Store) GetTrustScoreVisibility() (bool, error) {
+	val, err := s.GetSetting(userTrustScoreVisibleKey)
+	if err != nil {
+		return false, err
+	}
+	return val == "true", nil
+}
+
+func (s *Store) SetTrustScoreVisibility(enabled bool) error {
+	val := "false"
+	if enabled {
+		val = "true"
+	}
+	return s.SetSetting(userTrustScoreVisibleKey, val)
+}
+
 const idleTimeoutKey = "session.idle_timeout_minutes"
 const DefaultIdleTimeoutMinutes = 5
 

@@ -144,6 +144,13 @@ func (s *Server) routes() {
 			sr.Put("/", s.handleUpdateGuestAccess)
 		})
 
+		// GET is open to all authenticated users so the frontend can decide
+		// whether to render trust-score UI; only PUT requires admin.
+		r.Route("/settings/trust-visibility", func(sr chi.Router) {
+			sr.Get("/", s.handleGetTrustScoreVisibility)
+			sr.With(RequireRole(models.RoleAdmin)).Put("/", s.handleUpdateTrustScoreVisibility)
+		})
+
 		r.Route("/rules", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleListRules)
@@ -195,6 +202,7 @@ func (s *Server) routes() {
 		})
 
 		r.Get("/users/{name}/trust", s.handleGetUserTrustScore)
+		r.Get("/users/{name}/violations", s.handleGetUserViolations)
 		r.Route("/users/{name}/household", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleListHouseholdLocations)

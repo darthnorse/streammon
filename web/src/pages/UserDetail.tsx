@@ -40,7 +40,14 @@ export function UserDetail({ userName }: UserDetailProps) {
   const isAdmin = currentUser?.role === 'admin'
   const decodedName = userName ?? (name ? decodeURIComponent(name) : '')
   const encodedName = encodeURIComponent(decodedName)
-  const tabs = isAdmin ? allTabs : allTabs.filter(t => t.key !== 'violations')
+  const isOwnPage = currentUser?.name === decodedName
+
+  const { data: trustVisibility } = useFetch<{ enabled: boolean }>(
+    !isAdmin && isOwnPage ? '/api/settings/trust-visibility' : null
+  )
+  const showTrustScore = isAdmin || (isOwnPage && trustVisibility?.enabled === true)
+
+  const tabs = showTrustScore ? allTabs : allTabs.filter(t => t.key !== 'violations')
 
   const [tab, setTab] = useState<Tab>('history')
   const [page, setPage] = useState(1)
@@ -92,8 +99,8 @@ export function UserDetail({ userName }: UserDetailProps) {
   )
 
   const { data: violations, loading: violationsLoading } = useFetch<PaginatedResult<RuleViolation>>(
-    isAdmin && tab === 'violations' && decodedName
-      ? `/api/violations?user=${encodedName}&page=${violationsPage}&per_page=${PER_PAGE}`
+    showTrustScore && tab === 'violations' && decodedName
+      ? `/api/users/${encodedName}/violations?page=${violationsPage}&per_page=${PER_PAGE}`
       : null
   )
 
@@ -158,7 +165,9 @@ export function UserDetail({ userName }: UserDetailProps) {
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <UserStatsCards stats={stats} />
-            <UserTrustScoreCard userName={decodedName} onViolationsClick={isAdmin ? handleViolationsClick : undefined} />
+            {showTrustScore && (
+              <UserTrustScoreCard userName={decodedName} onViolationsClick={handleViolationsClick} />
+            )}
           </div>
           <div className={`grid grid-cols-1 md:grid-cols-2 ${isAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
             {isAdmin && <UserHouseholdCard userName={decodedName} />}
@@ -210,7 +219,7 @@ export function UserDetail({ userName }: UserDetailProps) {
         <LocationMap userName={decodedName} />
       )}
 
-      {isAdmin && tab === 'violations' && (
+      {showTrustScore && tab === 'violations' && (
         <div>
           {!violations && violationsLoading ? (
             <div className="py-12 text-center text-muted dark:text-muted-dark text-sm">

@@ -129,9 +129,11 @@ export function MediaServerSignIn({
       <button
         type="submit"
         disabled={submitting || !selectedServer}
-        className="w-full py-2 px-4 rounded-lg border border-border dark:border-border-dark
-                 hover:bg-panel-hover dark:hover:bg-panel-hover-dark disabled:opacity-50
-                 transition-colors font-medium"
+        className={`w-full py-2 px-4 rounded-lg disabled:opacity-50 transition-colors font-medium text-white ${
+          serverType === 'emby'
+            ? 'bg-emby hover:bg-emby-dim'
+            : 'bg-jellyfin hover:bg-jellyfin-dim'
+        }`}
       >
         {submitting ? 'Signing in...' : `Sign in with ${label}`}
       </button>

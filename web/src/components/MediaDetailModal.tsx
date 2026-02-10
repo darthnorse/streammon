@@ -76,7 +76,7 @@ function ErrorState() {
 
 function MediaFlagIcon({ src, alt }: { src: string | null; alt: string }) {
   if (!src) return null
-  return <img src={src} alt={alt} className="h-4 object-contain" loading="lazy" />
+  return <img src={src} alt={alt} className="h-4 object-contain invert dark:invert-0" loading="lazy" />
 }
 
 function TechInfo({ item }: { item: ItemDetails }) {

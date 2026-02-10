@@ -100,9 +100,18 @@ function mockFetchSequence(...values: ReturnType<typeof noData>[]) {
   }
 }
 
+// useFetch calls in UserDetail, in hook order:
+//   1. trust-visibility (null URL for admin or non-own-page viewer → falls through to default noData mock)
+//   2. user
+//   3. stats
+//   4. history (only when tab === 'history')
+//   5. violations (null URL unless showTrustScore && tab === 'violations')
+// Admin and non-own-page viewer tests don't need a trust-visibility mock;
+// the default noData() handles the null-URL call.
 function mockStandardPage(userOverride?: Partial<typeof baseUser>) {
   const user = userOverride ? { ...baseUser, ...userOverride } : baseUser
   mockFetchSequence(
+    noData(),           // trust-visibility (null URL for admin)
     fetchResult(user),
     fetchResult(testStats),
     fetchResult(testHistory),
@@ -118,6 +127,7 @@ describe('UserDetail', () => {
 
   it('shows page with username when user record not found (404)', () => {
     mockFetchSequence(
+      noData(),           // trust-visibility (null URL for admin)
       fetchResult(null, new ApiError(404, 'not found')),
       fetchResult(testStats),
       fetchResult(testHistory),
@@ -127,7 +137,10 @@ describe('UserDetail', () => {
   })
 
   it('shows generic error for non-404', () => {
-    mockFetchSequence(fetchResult(null, new ApiError(500, 'server error')))
+    mockFetchSequence(
+      noData(),           // trust-visibility (null URL for admin)
+      fetchResult(null, new ApiError(500, 'server error')),
+    )
     renderAtRoute('/users/alice')
     expect(screen.getByText(/failed to load user/i)).toBeDefined()
   })
@@ -186,6 +199,7 @@ describe('UserDetail', () => {
 
   it('shows error message when stats fetch fails', () => {
     mockFetchSequence(
+      noData(),           // trust-visibility (null URL for admin)
       fetchResult(baseUser),
       fetchResult(null, new ApiError(500, 'server error')),
       fetchResult(testHistory),
@@ -200,7 +214,7 @@ describe('UserDetail', () => {
     expect(screen.getByText('Violations')).toBeDefined()
   })
 
-  it('hides violations tab for non-admin users', () => {
+  it('hides violations tab for non-admin users viewing other profiles', () => {
     mockUseAuth.mockReturnValue(viewerAuth)
     mockStandardPage()
     renderAtRoute('/users/alice')
