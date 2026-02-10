@@ -256,3 +256,5 @@ The frontend dev server proxies API requests to the backend on port 7935.
 ## Acknowledgments
 
 This project has been developed with vibe coding and AI assistance using [Claude Code](https://claude.ai/claude-code). The codebase includes clean, well-documented code with proper error handling, comprehensive testing considerations, modern async/await patterns, robust database design, and production-ready deployment configurations.
+
+Thanks to [Tautulli](https://github.com/Tautulli/Tautulli), [Overseerr](https://github.com/sct/overseerr), and [Tracearr](https://github.com/tracearr/tracearr) for their amazing work and inspiration.
