@@ -40,6 +40,7 @@ function isValidServerType(value: string): value is ServerType {
 export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
   const isEdit = !!server
   const modalRef = useModal(onClose)
+  const [manualMode, setManualMode] = useState(false)
   const [form, setForm] = useState<FormData>({
     name: server?.name ?? '',
     type: server?.type ?? 'plex',
@@ -171,6 +172,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
         </div>
 
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+          {(isEdit || form.type !== 'plex' || manualMode) && (
           <div>
             <label htmlFor="srv-name" className="block text-sm font-medium mb-1.5">Name</label>
             <input
@@ -182,6 +184,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
               className={formInputClass}
             />
           </div>
+          )}
 
           <div>
             <label htmlFor="srv-type" className="block text-sm font-medium mb-1.5">Type</label>
@@ -197,15 +200,32 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
             </select>
           </div>
 
-          {!isEdit && form.type === 'plex' && (
-            <div className="border border-border dark:border-border-dark rounded-lg p-4">
+          {!isEdit && form.type === 'plex' && !manualMode && (
+            <div>
               <PlexSignIn onServersAdded={onSaved} />
-              <p className="text-xs text-muted dark:text-muted-dark mt-2">
-                Or fill in the fields below manually.
-              </p>
+              <div className="flex items-center gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setManualMode(true)}
+                  className="text-xs text-muted dark:text-muted-dark hover:text-accent transition-colors"
+                >
+                  Add manually instead
+                </button>
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 text-sm font-medium rounded-lg
+                             border border-border dark:border-border-dark
+                             hover:border-accent/30 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
 
+          {(isEdit || form.type !== 'plex' || manualMode) && <>
           <div>
             <label htmlFor="srv-url" className="block text-sm font-medium mb-1.5">URL</label>
             <input
@@ -329,6 +349,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
+          </>}
         </form>
       </div>
     </div>

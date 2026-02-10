@@ -29,11 +29,28 @@ describe('ServerForm', () => {
   const onClose = vi.fn()
   const onSaved = vi.fn()
 
-  it('renders empty form for new server', () => {
+  it('renders Plex sign-in for new server (default type is plex)', () => {
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
     expect(screen.getByText(/new server/i)).toBeDefined()
-    expect(screen.getByLabelText(/name/i)).toBeDefined()
     expect(screen.getByLabelText(/type/i)).toBeDefined()
+    expect(screen.getByText(/sign in to plex/i)).toBeDefined()
+    expect(screen.getByText(/add manually instead/i)).toBeDefined()
+    expect(screen.queryByLabelText(/url/i)).toBeNull()
+    expect(screen.queryByLabelText(/api key/i)).toBeNull()
+  })
+
+  it('renders manual form fields for non-plex server type', () => {
+    renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
+    fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'jellyfin' } })
+    expect(screen.getByLabelText(/name/i)).toBeDefined()
+    expect(screen.getByLabelText(/url/i)).toBeDefined()
+    expect(screen.getByLabelText(/api key/i)).toBeDefined()
+  })
+
+  it('shows manual form fields when "Add manually" is clicked for plex', () => {
+    renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
+    fireEvent.click(screen.getByText(/add manually instead/i))
+    expect(screen.getByLabelText(/name/i)).toBeDefined()
     expect(screen.getByLabelText(/url/i)).toBeDefined()
     expect(screen.getByLabelText(/api key/i)).toBeDefined()
   })
@@ -49,8 +66,8 @@ describe('ServerForm', () => {
     mockApi.post.mockResolvedValue({ ...baseServer, type: 'jellyfin' })
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
 
-    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'My Jellyfin' } })
     fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'jellyfin' } })
+    fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'My Jellyfin' } })
     fireEvent.change(screen.getByLabelText(/url/i), { target: { value: 'http://localhost:8096' } })
     fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'abc123' } })
     fireEvent.click(screen.getByRole('button', { name: /save/i }))
@@ -84,6 +101,7 @@ describe('ServerForm', () => {
 
   it('shows validation error when name is empty', async () => {
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
+    fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'jellyfin' } })
     fireEvent.click(screen.getByRole('button', { name: /save/i }))
     await waitFor(() => {
       expect(screen.getByText(/name is required/i)).toBeDefined()
@@ -95,6 +113,7 @@ describe('ServerForm', () => {
     mockApi.post.mockRejectedValue(new Error('url is required'))
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
 
+    fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'jellyfin' } })
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'Test' } })
     fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'key' } })
     fireEvent.click(screen.getByRole('button', { name: /save/i }))
@@ -143,6 +162,7 @@ describe('ServerForm', () => {
     mockApi.post.mockResolvedValue({ success: true })
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
 
+    fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'jellyfin' } })
     fireEvent.change(screen.getByLabelText(/name/i), { target: { value: 'New Server' } })
     fireEvent.change(screen.getByLabelText(/url/i), { target: { value: 'http://plex:32400' } })
     fireEvent.change(screen.getByLabelText(/api key/i), { target: { value: 'testkey' } })
@@ -160,6 +180,7 @@ describe('ServerForm', () => {
 
   it('shows error when testing new server with empty fields', async () => {
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
+    fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'jellyfin' } })
     fireEvent.click(screen.getByRole('button', { name: /test connection/i }))
 
     await waitFor(() => {
@@ -170,6 +191,7 @@ describe('ServerForm', () => {
 
   it('has enabled toggle defaulting to true for new servers', () => {
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
+    fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'jellyfin' } })
     const checkboxes = screen.getAllByRole('checkbox') as HTMLInputElement[]
     const enabledToggle = checkboxes.find(cb => cb.nextElementSibling?.textContent === 'Enabled')
     expect(enabledToggle?.checked).toBe(true)
