@@ -149,7 +149,9 @@ func (s *Store) UnlinkUserProvider(userID int64) error {
 	}
 
 	if provider != "" {
-		s.DeleteProviderToken(userID, provider)
+		if err := s.DeleteProviderToken(userID, provider); err != nil {
+			return fmt.Errorf("deleting provider token: %w", err)
+		}
 	}
 	return nil
 }
