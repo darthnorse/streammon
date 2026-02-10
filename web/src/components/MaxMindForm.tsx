@@ -59,6 +59,7 @@ export function MaxMindForm({ settings, onSaved }: MaxMindFormProps) {
           className="text-accent hover:underline"
         >
           Sign up for a free GeoLite2 license key
+          <span className="sr-only"> (opens in new tab)</span>
         </a>
       </p>
 

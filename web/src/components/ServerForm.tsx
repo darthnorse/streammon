@@ -65,6 +65,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
   function handleTypeChange(value: string) {
     if (isValidServerType(value)) {
       setField('type', value)
+      setManualMode(false)
     }
   }
 
@@ -82,6 +83,8 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    // In Plex auto-mode, PlexSignIn handles server creation directly
+    if (!isEdit && form.type === 'plex' && !manualMode) return
     if (!form.name.trim()) {
       setError('Name is required')
       return
@@ -202,7 +205,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
 
           {!isEdit && form.type === 'plex' && !manualMode && (
             <div>
-              <PlexSignIn onServersAdded={onSaved} />
+              <PlexSignIn onServersAdded={() => { onSaved(); onClose() }} />
               <div className="flex items-center gap-3 mt-4">
                 <button
                   type="button"
@@ -215,6 +218,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
                 <button
                   type="button"
                   onClick={onClose}
+                  aria-label="Cancel"
                   className="px-4 py-2 text-sm font-medium rounded-lg
                              border border-border dark:border-border-dark
                              hover:border-accent/30 transition-colors"

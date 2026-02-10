@@ -197,6 +197,21 @@ describe('ServerForm', () => {
     expect(enabledToggle?.checked).toBe(true)
   })
 
+  it('reverts to PlexSignIn when switching back to plex from another type', () => {
+    renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
+    fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'jellyfin' } })
+    expect(screen.getByLabelText(/url/i)).toBeDefined()
+    fireEvent.change(screen.getByLabelText(/type/i), { target: { value: 'plex' } })
+    expect(screen.queryByLabelText(/url/i)).toBeNull()
+    expect(screen.getByText(/sign in to plex/i)).toBeDefined()
+  })
+
+  it('does not show PlexSignIn when editing a plex server', () => {
+    renderWithRouter(<ServerForm server={baseServer} onClose={onClose} onSaved={onSaved} />)
+    expect(screen.queryByText(/sign in to plex/i)).toBeNull()
+    expect(screen.getByLabelText(/url/i)).toBeDefined()
+  })
+
   it('has dialog role with aria-modal', () => {
     renderWithRouter(<ServerForm onClose={onClose} onSaved={onSaved} />)
     expect(screen.getByRole('dialog')).toBeDefined()
