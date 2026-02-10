@@ -583,11 +583,9 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 	}
 
 	if user := UserFromContext(r.Context()); user != nil {
-		// Try Plex token auth first (auto-creates user in Overseerr)
 		if overseerrID, ok := s.resolveOverseerrUserWithPlex(r.Context(), user.ID); ok {
 			payload.UserID = &overseerrID
 		} else if user.Email != "" {
-			// Fall back to email matching
 			if overseerrID, ok := s.resolveOverseerrUserID(r.Context(), user.Email); ok {
 				payload.UserID = &overseerrID
 			}
