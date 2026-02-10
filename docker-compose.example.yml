@@ -15,5 +15,5 @@ services:
     environment:
       # Optional: Encrypt Plex tokens for Overseerr user attribution
       # Generate with: openssl rand -base64 32
-      # - TOKEN_ENCRYPTION_KEY=your_key_here
+      # - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
     restart: unless-stopped
