@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"streammon/internal/crypto"
+	"streammon/internal/models"
 )
 
 func testEncryptor(t *testing.T) *crypto.Encryptor {
@@ -66,6 +67,25 @@ func TestStoreProviderToken_Upsert(t *testing.T) {
 	token, _ := s.GetProviderToken(user.ID, "plex")
 	if token != "new-token" {
 		t.Fatalf("expected %q, got %q", "new-token", token)
+	}
+}
+
+func TestStoreProviderToken_StoredAsCiphertext(t *testing.T) {
+	s := testStoreWithEncryptor(t)
+	user := createTestUser(t, s, "cipher-pt", "cipher-pt@test.local")
+
+	plaintext := "my-secret-plex-token"
+	if err := s.StoreProviderToken(user.ID, "plex", plaintext); err != nil {
+		t.Fatal(err)
+	}
+
+	var raw string
+	s.db.QueryRow(`SELECT token FROM provider_tokens WHERE user_id = ? AND provider = ?`, user.ID, "plex").Scan(&raw)
+	if raw == "" {
+		t.Fatal("expected non-empty stored token")
+	}
+	if raw == plaintext {
+		t.Fatal("token stored as plaintext, expected ciphertext")
 	}
 }
 
@@ -186,6 +206,26 @@ func TestSetStorePlexTokens_DisableDeletesTokens(t *testing.T) {
 	token, _ := s.GetProviderToken(user.ID, "plex")
 	if token != "" {
 		t.Fatal("expected tokens deleted when feature disabled")
+	}
+}
+
+func TestUnlinkUserProvider_DeletesToken(t *testing.T) {
+	s := testStoreWithEncryptor(t)
+
+	user, err := s.CreateLocalUser("unlink-pt", "unlink-pt@test.local", "password", models.RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.LinkProviderAccount(user.ID, "plex", "12345")
+	s.StoreProviderToken(user.ID, "plex", "my-plex-token")
+
+	if err := s.UnlinkUserProvider(user.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	token, _ := s.GetProviderToken(user.ID, "plex")
+	if token != "" {
+		t.Fatal("expected token deleted after unlink")
 	}
 }
 

@@ -517,11 +517,16 @@ func (s *Server) resolveOverseerrUserWithPlex(ctx context.Context, userID int64)
 		return 0, false
 	}
 
-	s.warnHTTPOnce.Do(func() {
-		if strings.HasPrefix(cfg.URL, "http://") {
-			log.Printf("WARNING: Overseerr URL uses plain HTTP (%s). Plex tokens will be sent unencrypted. Use HTTPS for secure token transmission.", cfg.URL)
-		}
-	})
+	if strings.HasPrefix(cfg.URL, "http://") &&
+		!strings.HasPrefix(cfg.URL, "http://127.0.0.1") &&
+		!strings.HasPrefix(cfg.URL, "http://localhost") &&
+		!strings.HasPrefix(cfg.URL, "http://[::1]") {
+		s.warnHTTPOnce.Do(func() {
+			log.Printf("WARNING: Overseerr URL uses plain HTTP (%s); skipping Plex token auth to protect credentials. Use HTTPS or localhost to enable Plex token attribution.", cfg.URL)
+		})
+		clearClaim()
+		return 0, false
+	}
 
 	client, err := s.newOverseerrClient()
 	if err != nil {
