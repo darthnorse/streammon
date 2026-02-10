@@ -15,6 +15,7 @@ func (s *Server) routes() {
 	if s.authManager != nil {
 		// Setup endpoints (only work when no users exist)
 		s.router.Route("/api/setup", func(r chi.Router) {
+			r.Use(limitBody)
 			r.Use(corsMiddleware(s.corsOrigin))
 			r.Get("/status", s.authManager.HandleGetStatus)
 			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/local", s.handleSetupLocal)
@@ -25,6 +26,7 @@ func (s *Server) routes() {
 
 		// Auth endpoints
 		s.router.Route("/auth", func(r chi.Router) {
+			r.Use(limitBody)
 			r.Use(corsMiddleware(s.corsOrigin))
 			r.Get("/providers", s.authManager.HandleGetProviders)
 			r.Post("/logout", s.authManager.HandleLogout)

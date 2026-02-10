@@ -220,8 +220,8 @@ func (s *Store) GetOrLinkUser(email string, namesToTry []string, displayName, pr
 		if err == nil {
 			// Only link if user has no provider or same provider (don't overwrite different provider)
 			if existingProvider == "" || existingProvider == provider {
-				log.Printf("info: linking provider %s (id=%s) to existing user %s (id=%d) via email %s",
-					provider, providerID, existingUser.Name, existingUser.ID, email)
+				log.Printf("info: linking provider %s to existing user id=%d via email match",
+					provider, existingUser.ID)
 
 				if providerID != "" {
 					if err := s.LinkProviderAccount(existingUser.ID, provider, providerID); err != nil {
@@ -233,8 +233,8 @@ func (s *Store) GetOrLinkUser(email string, namesToTry []string, displayName, pr
 			}
 			// User exists with different provider - fall through to create new account
 			// Clear email since it belongs to the existing user
-			log.Printf("info: user %s already linked to %s, creating new account for %s login",
-				existingUser.Name, existingProvider, provider)
+			log.Printf("info: user id=%d already linked to %s, creating new account for %s login",
+				existingUser.ID, existingProvider, provider)
 			email = ""
 		}
 	}
@@ -253,12 +253,12 @@ func (s *Store) GetOrLinkUser(email string, namesToTry []string, displayName, pr
 				// Only auto-link if the existing user has no email set
 				// (they're a pure streaming user with no prior OAuth identity)
 				if existingUser.Email != "" {
-					log.Printf("info: skipping username link for %q - existing user has email set", name)
+					log.Printf("info: skipping username link for user id=%d - existing user has email set", existingUser.ID)
 					continue
 				}
 
-				log.Printf("info: auto-linking provider %s (id=%s) to existing user %s (id=%d) via username match on %q",
-					provider, providerID, existingUser.Name, existingUser.ID, name)
+				log.Printf("info: auto-linking provider %s to existing user id=%d via username match",
+					provider, existingUser.ID)
 
 				if providerID != "" {
 					if err := s.LinkProviderAccount(existingUser.ID, provider, providerID); err != nil {

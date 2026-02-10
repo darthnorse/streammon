@@ -166,6 +166,7 @@ func main() {
 		Addr:              listenAddr,
 		Handler:           srv,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
