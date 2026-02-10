@@ -22,6 +22,9 @@ var (
 	validItemIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]{1,64}$`)
 	// Plex rating keys: numeric IDs
 	validPlexIDPattern = regexp.MustCompile(`^[0-9]+$`)
+	// Plex thumbnail paths: library/metadata/{id}/thumb or library/metadata/actors/{id}/thumb
+	// with optional trailing segments (e.g., /thumb/1234567890)
+	validPlexThumbPath = regexp.MustCompile(`^library/metadata/(?:actors/)?[0-9]+/thumb(?:/[0-9]+)?$`)
 )
 
 var thumbProxyClient = httputil.NewClient()
@@ -64,6 +67,10 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 	switch srv.Type {
 	case models.ServerTypePlex:
 		if strings.Contains(thumbPath, "/") {
+			if !validPlexThumbPath.MatchString(thumbPath) {
+				writeError(w, http.StatusBadRequest, "invalid plex thumb path")
+				return
+			}
 			imgURL = fmt.Sprintf("%s/%s?X-Plex-Token=%s", baseURL, escapePathSegments(thumbPath), srv.APIKey)
 		} else {
 			if !validPlexIDPattern.MatchString(thumbPath) {

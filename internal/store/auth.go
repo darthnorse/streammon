@@ -136,7 +136,13 @@ func (s *Store) UnlinkUserProvider(userID int64) error {
 		return ErrNoPassword
 	}
 
-	result, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(
 		`UPDATE users SET provider = '', provider_id = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		userID,
 	)
@@ -149,11 +155,12 @@ func (s *Store) UnlinkUserProvider(userID int64) error {
 	}
 
 	if provider != "" {
-		if err := s.DeleteProviderToken(userID, provider); err != nil {
+		if _, err := tx.Exec(`DELETE FROM provider_tokens WHERE user_id = ? AND provider = ?`, userID, provider); err != nil {
 			return fmt.Errorf("deleting provider token: %w", err)
 		}
 	}
-	return nil
+
+	return tx.Commit()
 }
 
 // GetUnlinkedUserByName finds a user by name (case-insensitive) that has no provider linked.

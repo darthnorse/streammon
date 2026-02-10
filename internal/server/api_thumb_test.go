@@ -109,6 +109,67 @@ func TestThumbProxy_PathTraversal(t *testing.T) {
 	}
 }
 
+func TestThumbProxy_PlexPathRestriction(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	st.CreateServer(&models.Server{
+		Name: "Plex", Type: models.ServerTypePlex,
+		URL: "http://localhost:32400", APIKey: "k", Enabled: true,
+	})
+
+	tests := []struct {
+		name     string
+		path     string
+		wantCode int
+	}{
+		{"valid thumb path", "/api/servers/1/thumb/library/metadata/12345/thumb", http.StatusBadGateway},
+		{"valid thumb with timestamp", "/api/servers/1/thumb/library/metadata/12345/thumb/1700000000", http.StatusBadGateway},
+		{"valid actor thumb", "/api/servers/1/thumb/library/metadata/actors/999/thumb", http.StatusBadGateway},
+		{"arbitrary api path", "/api/servers/1/thumb/library/sections", http.StatusBadRequest},
+		{"status endpoint", "/api/servers/1/thumb/status/sessions", http.StatusBadRequest},
+		{"identity endpoint", "/api/servers/1/thumb/identity", http.StatusBadRequest},
+		{"accounts endpoint", "/api/servers/1/thumb/accounts", http.StatusBadRequest},
+		{"non-numeric id", "/api/servers/1/thumb/library/metadata/abc/thumb", http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != tt.wantCode {
+				t.Errorf("path %q: got status %d, want %d", tt.path, w.Code, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestValidPlexThumbPath(t *testing.T) {
+	tests := []struct {
+		path  string
+		valid bool
+	}{
+		{"library/metadata/12345/thumb", true},
+		{"library/metadata/12345/thumb/1700000000", true},
+		{"library/metadata/actors/999/thumb", true},
+		{"library/metadata/actors/999/thumb/123", true},
+		{"library/sections", false},
+		{"status/sessions", false},
+		{"identity", false},
+		{"library/metadata/abc/thumb", false},
+		{"library/metadata/../../../etc/passwd", false},
+		{"accounts", false},
+	}
+
+	for _, tt := range tests {
+		got := validPlexThumbPath.MatchString(tt.path)
+		if got != tt.valid {
+			t.Errorf("validPlexThumbPath.MatchString(%q) = %v, want %v", tt.path, got, tt.valid)
+		}
+	}
+}
+
 func TestValidUserIDPattern(t *testing.T) {
 	tests := []struct {
 		id    string
