@@ -10,19 +10,10 @@ services:
     ports:
       - "7935:7935"
     volumes:
-      - streammon-data:/data
-      # Optional: Mount GeoIP database for IP geolocation
-      # Download from https://dev.maxmind.com/geoip/geolite2-free-geolocation-data
-      # - ./geoip:/geoip:ro
+      - ./data:/app/data
+      - ./geoip:/app/geoip
     environment:
-      - DB_PATH=/data/streammon.db
-      # Optional: GeoIP database for IP geolocation on dashboard
-      # - GEOIP_DB=/geoip/GeoLite2-City.mmdb
-      # - MAXMIND_LICENSE_KEY=your_license_key  # Auto-downloads GeoIP DB
       # Optional: Encrypt Plex tokens for Overseerr user attribution
       # Generate with: openssl rand -base64 32
       # - TOKEN_ENCRYPTION_KEY=your_key_here
     restart: unless-stopped
-
-volumes:
-  streammon-data:

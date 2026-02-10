@@ -81,20 +81,17 @@ Open `http://localhost:7935` in your browser. On first launch you will be prompt
 
 ## Configuration
 
-All configuration is done via environment variables in your `docker-compose.yml`.
+StreamMon stores all data under two directories inside the container: `/app/data` (database) and `/app/geoip` (geolocation database). These are mapped to your host filesystem via bind mounts in `docker-compose.yml` so you can easily back up and inspect the data.
+
+Most settings (media servers, auth providers, GeoIP license key, integrations) are configured through the web UI. The following environment variables are available for deployment-level configuration:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DB_PATH` | `./data/streammon.db` | SQLite database file path |
 | `LISTEN_ADDR` | `:7935` | HTTP listen address |
 | `POLL_INTERVAL` | `5s` | Media server polling interval (minimum `2s`) |
-| `GEOIP_DB` | `./geoip/GeoLite2-City.mmdb` | Path to MaxMind GeoLite2-City database |
-| `MAXMIND_LICENSE_KEY` | | MaxMind license key for automatic GeoIP database download |
-| `TOKEN_ENCRYPTION_KEY` | | Base64-encoded 32-byte key for encrypting stored Plex tokens |
-| `CORS_ORIGIN` | | Allowed CORS origin for reverse proxy setups |
-| `MIGRATIONS_DIR` | `./migrations` | Path to SQL migration files |
+| `TOKEN_ENCRYPTION_KEY` | | Base64-encoded 32-byte key for encrypting stored Plex tokens (see [Overseerr Integration](#overseerr-integration)) |
+| `CORS_ORIGIN` | | Allowed CORS origin for reverse proxy setups (see [Reverse Proxy](#reverse-proxy)) |
 | `HOUSEHOLD_AUTOLEARN_MIN_SESSIONS` | `10` | Minimum sessions from an IP before auto-detecting it as a household location (set to `0` to disable) |
-| `SCHEDULER_SYNC_TIMEOUT` | | Timeout for daily library sync (e.g. `30m`; minimum `1m`) |
 
 ## Media Server Setup
 
@@ -166,15 +163,9 @@ For more reliable user attribution, StreamMon can store each user's Plex authent
 
 IP geolocation powers the dashboard stream map, user location tracking, and geographic sharing detection rules.
 
-**Automatic download:** Set `MAXMIND_LICENSE_KEY` in your environment. StreamMon will download and update the GeoLite2-City database automatically. Create a free account at [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) to get a license key.
+**Automatic download:** Add your MaxMind license key in **Settings > GeoIP**. StreamMon will download and update the GeoLite2-City database automatically. Create a free account at [MaxMind](https://dev.maxmind.com/geoip/geolite2-free-geolocation-data) to get a license key. The database is stored in the `./geoip` bind mount so it persists across container restarts.
 
-**Manual setup:** Download the GeoLite2-City.mmdb file from MaxMind and mount it into the container at the `GEOIP_DB` path:
-```yaml
-volumes:
-  - ./geoip:/app/geoip:ro
-environment:
-  - GEOIP_DB=/app/geoip/GeoLite2-City.mmdb
-```
+**Manual setup:** Download the GeoLite2-City.mmdb file from MaxMind and place it in your `./geoip` directory on the host.
 
 Lookups are cached in SQLite with a 30-day TTL. Historical watch data can be backfilled from Settings > GeoIP.
 
