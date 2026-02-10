@@ -26,6 +26,7 @@ Thumbs.db
 
 # Env
 .env
+docker-compose.yml
 
 # Claude
 .claude/

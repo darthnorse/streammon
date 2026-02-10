@@ -1,6 +1,6 @@
 # StreamMon
 
-StreamMon is a self-hosted media server monitoring tool for Plex, Emby, and Jellyfin. It provides real-time stream monitoring, watch history analytics, account sharing detection, library maintenance automation, and Overseerr integration -- all packaged as a single Go binary with an embedded React frontend, deployed via Docker Compose.
+StreamMon is a self-hosted media server management and monitoring platform for Plex, Emby, and Jellyfin. It provides real-time stream monitoring, watch history analytics, account sharing detection, library maintenance automation, and Overseerr integration -- all packaged as a single Go binary with an embedded React frontend, deployed via Docker Compose.
 
 Typical memory footprint is around 15 MB. No runtime dependencies, no separate database process -- just a compiled Go binary with embedded SQLite and static frontend assets.
 
