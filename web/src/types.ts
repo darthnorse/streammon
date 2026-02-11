@@ -242,13 +242,6 @@ export interface LibraryStat {
   unique_tv_shows: number
 }
 
-export interface SharerAlert {
-  user_name: string
-  unique_ips: number
-  locations: string[]
-  last_seen: string
-}
-
 export interface DayOfWeekStat {
   day_of_week: number
   day_name: string
@@ -288,7 +281,6 @@ export interface StatsResponse {
   top_users: UserStat[]
   library: LibraryStat
   locations: GeoResult[]
-  potential_sharers: SharerAlert[]
   activity_by_day_of_week: DayOfWeekStat[]
   activity_by_hour: HourStat[]
   platform_distribution: DistributionStat[]

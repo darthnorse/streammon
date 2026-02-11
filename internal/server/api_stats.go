@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"streammon/internal/models"
-	"streammon/internal/store"
 )
 
 const (
@@ -20,7 +19,6 @@ type StatsResponse struct {
 	TopUsers             []models.UserStat            `json:"top_users"`
 	Library              *models.LibraryStat          `json:"library"`
 	Locations            []models.GeoResult           `json:"locations"`
-	PotentialSharers     []models.SharerAlert         `json:"potential_sharers"`
 	ActivityByDayOfWeek  []models.DayOfWeekStat       `json:"activity_by_day_of_week"`
 	ActivityByHour       []models.HourStat            `json:"activity_by_hour"`
 	PlatformDistribution []models.DistributionStat    `json:"platform_distribution"`
@@ -78,9 +76,6 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if resp.Locations, err = s.store.AllWatchLocations(days); logAndFail("AllWatchLocations", err) {
-		return
-	}
-	if resp.PotentialSharers, err = s.store.PotentialSharers(store.DefaultSharerMinIPs, store.DefaultSharerWindowDays); logAndFail("PotentialSharers", err) {
 		return
 	}
 	ctx := r.Context()

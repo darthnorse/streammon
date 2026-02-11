@@ -19,7 +19,6 @@ function createMockStats(overrides: Partial<StatsResponse> = {}): StatsResponse 
     top_users: [],
     library: { total_plays: 0, total_hours: 0, unique_users: 0, unique_movies: 0, unique_tv_shows: 0 },
     locations: [],
-    potential_sharers: [],
     activity_by_day_of_week: [],
     activity_by_hour: [],
     platform_distribution: [],

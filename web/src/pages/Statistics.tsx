@@ -5,7 +5,6 @@ import { LibraryCards } from '../components/stats/LibraryCards'
 import { TopMediaCard } from '../components/stats/TopMediaCard'
 import { TopUsersCard } from '../components/stats/TopUsersCard'
 import { LocationsCard } from '../components/stats/LocationsCard'
-import { SharerAlertsCard } from '../components/stats/SharerAlertsCard'
 import { ActivityByDayChart } from '../components/stats/ActivityByDayChart'
 import { ActivityByHourChart } from '../components/stats/ActivityByHourChart'
 import { DistributionDonut } from '../components/stats/DistributionDonut'
@@ -106,10 +105,6 @@ export function Statistics() {
       <TopUsersCard users={data.top_users} />
 
       <LocationsCard locations={data.locations} />
-
-      {data.potential_sharers.length > 0 && (
-        <SharerAlertsCard alerts={data.potential_sharers} />
-      )}
     </div>
   )
 }

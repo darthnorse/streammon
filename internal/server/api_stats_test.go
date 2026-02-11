@@ -47,9 +47,6 @@ func TestGetStatsAPI_Empty(t *testing.T) {
 	if len(resp.Locations) != 0 {
 		t.Fatalf("expected 0 locations, got %d", len(resp.Locations))
 	}
-	if len(resp.PotentialSharers) != 0 {
-		t.Fatalf("expected 0 potential sharers, got %d", len(resp.PotentialSharers))
-	}
 }
 
 func TestGetStatsAPI_WithData(t *testing.T) {
@@ -156,58 +153,6 @@ func TestGetStatsAPI_WithLocations(t *testing.T) {
 	}
 	if resp.Locations[0].City != "Mountain View" {
 		t.Fatalf("expected Mountain View, got %s", resp.Locations[0].City)
-	}
-}
-
-func TestGetStatsAPI_WithPotentialSharers(t *testing.T) {
-	srv, st := newTestServerWrapped(t)
-
-	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
-	st.CreateServer(s)
-
-	now := time.Now().UTC()
-	ips := []string{"1.1.1.1", "2.2.2.2", "3.3.3.3"}
-	for i, ip := range ips {
-		st.InsertHistory(&models.WatchHistoryEntry{
-			ServerID: s.ID, UserName: "sharer", MediaType: models.MediaTypeMovie,
-			Title: "Movie", IPAddress: ip,
-			StartedAt: now.Add(-time.Duration(i+1) * 24 * time.Hour), StoppedAt: now,
-		})
-		st.SetCachedGeo(&models.GeoResult{
-			IP: ip, City: "City" + ip, Country: "US", Lat: float64(i), Lng: float64(i),
-		})
-	}
-
-	st.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: s.ID, UserName: "normal", MediaType: models.MediaTypeMovie,
-		Title: "Movie", IPAddress: "4.4.4.4",
-		StartedAt: now.Add(-time.Hour), StoppedAt: now,
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/stats", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp StatsResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-
-	if len(resp.PotentialSharers) != 1 {
-		t.Fatalf("expected 1 potential sharer, got %d", len(resp.PotentialSharers))
-	}
-	if resp.PotentialSharers[0].UserName != "sharer" {
-		t.Fatalf("expected sharer, got %s", resp.PotentialSharers[0].UserName)
-	}
-	if resp.PotentialSharers[0].UniqueIPs != 3 {
-		t.Fatalf("expected 3 unique IPs, got %d", resp.PotentialSharers[0].UniqueIPs)
-	}
-	if len(resp.PotentialSharers[0].Locations) != 3 {
-		t.Fatalf("expected 3 locations, got %d", len(resp.PotentialSharers[0].Locations))
 	}
 }
 
