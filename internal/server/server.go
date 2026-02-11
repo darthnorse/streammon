@@ -14,6 +14,7 @@ import (
 	"streammon/internal/models"
 	"streammon/internal/poller"
 	"streammon/internal/store"
+	"streammon/internal/version"
 )
 
 type GeoLookup interface {
@@ -35,6 +36,7 @@ type Server struct {
 	geoUpdater     *geoip.Updater
 	libCache       *libraryCache
 	rulesEngine    RulesEngine
+	version        *version.Checker
 	overseerrUsers     *overseerrUserCache
 	overseerrPlexCache *overseerrPlexTokenCache
 	warnHTTPOnce       sync.Once
@@ -85,6 +87,10 @@ func WithGeoUpdater(u *geoip.Updater) Option {
 
 func WithRulesEngine(r RulesEngine) Option {
 	return func(s *Server) { s.rulesEngine = r }
+}
+
+func WithVersion(v *version.Checker) Option {
+	return func(s *Server) { s.version = v }
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

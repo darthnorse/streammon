@@ -1,3 +1,5 @@
+ARG VERSION=dev
+
 FROM node:20-slim AS frontend
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json* ./
@@ -14,7 +16,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/internal/server/web/dist ./internal/server/web/dist
-RUN CGO_ENABLED=1 go build -o streammon ./cmd/streammon
+ARG VERSION=dev
+RUN CGO_ENABLED=1 go build -ldflags "-X main.Version=${VERSION}" -o streammon ./cmd/streammon
 
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates libsqlite3-0 && rm -rf /var/lib/apt/lists/*

@@ -8,7 +8,7 @@ dev-frontend:
 
 build:
 	cd web && npm ci --legacy-peer-deps && npm run build
-	CGO_ENABLED=1 go build -o streammon ./cmd/streammon
+	CGO_ENABLED=1 go build -ldflags "-X main.Version=$$(git describe --tags --always 2>/dev/null || echo dev)" -o streammon ./cmd/streammon
 
 docker:
 	docker compose build

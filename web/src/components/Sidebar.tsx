@@ -4,6 +4,8 @@ import { ThemeToggle } from './ThemeToggle'
 import { UserAvatar } from './UserAvatar'
 import { navLinks, navIconMap } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
+import { useFetch } from '../hooks/useFetch'
+import type { VersionInfo } from '../types'
 
 interface SidebarProps {
   onOpenProfile: () => void
@@ -15,6 +17,7 @@ export function Sidebar({ onOpenProfile }: SidebarProps) {
   const location = useLocation()
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const { data: versionInfo } = useFetch<VersionInfo>('/api/version')
 
   useEffect(() => {
     if (!showMenu) return
@@ -68,6 +71,29 @@ export function Sidebar({ onOpenProfile }: SidebarProps) {
           })}
       </nav>
 
+      {versionInfo?.update_available && user?.role === 'admin' && versionInfo.release_url && (
+        <div className="px-3 pb-2">
+          <a
+            href={versionInfo.release_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5
+                       bg-gradient-to-r from-accent/15 to-accent/5
+                       dark:from-accent/20 dark:to-accent/5
+                       border border-accent/25 hover:border-accent/40
+                       transition-colors group"
+          >
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
+            </span>
+            <span className="text-xs font-mono text-accent-dim dark:text-accent group-hover:underline">
+              v{versionInfo.latest_version} available
+            </span>
+          </a>
+        </div>
+      )}
+
       <div className="px-3 py-4 border-t border-border dark:border-border-dark">
         {user && (
           <div className="relative flex items-center" ref={menuRef}>
@@ -101,6 +127,13 @@ export function Sidebar({ onOpenProfile }: SidebarProps) {
                 </button>
               </div>
             )}
+          </div>
+        )}
+        {versionInfo && (
+          <div className="mt-2 text-center">
+            <span className="text-xs font-mono text-muted dark:text-muted-dark">
+              {versionInfo.version === 'dev' ? 'dev' : `v${versionInfo.version}`}
+            </span>
           </div>
         )}
       </div>

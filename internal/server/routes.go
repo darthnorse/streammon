@@ -10,6 +10,8 @@ import (
 
 func (s *Server) routes() {
 	s.router.Get("/api/health", s.handleHealth)
+	// Public (no auth) so the frontend can show version before login
+	s.router.Get("/api/version", s.handleVersion)
 
 	// Multi-provider auth routes (new)
 	if s.authManager != nil {

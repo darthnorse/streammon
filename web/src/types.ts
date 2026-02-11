@@ -800,6 +800,13 @@ export interface OverseerrRequestList {
   results: OverseerrRequest[]
 }
 
+export interface VersionInfo {
+  version: string
+  latest_version?: string
+  update_available?: boolean
+  release_url?: string
+}
+
 export interface OverseerrRequestCount {
   total: number
   movie: number

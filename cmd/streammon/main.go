@@ -23,7 +23,10 @@ import (
 	"streammon/internal/scheduler"
 	"streammon/internal/server"
 	"streammon/internal/store"
+	"streammon/internal/version"
 )
+
+var Version = "dev"
 
 func main() {
 	dbPath := envOr("DB_PATH", "./data/streammon.db")
@@ -150,12 +153,15 @@ func main() {
 	}
 	sch := scheduler.New(s, p, schOpts...)
 
+	vc := version.NewChecker(Version)
+
 	opts := []server.Option{
 		server.WithPoller(p),
 		server.WithGeoResolver(geoResolver),
 		server.WithAuthManager(authMgr),
 		server.WithGeoUpdater(geoUpdater),
 		server.WithRulesEngine(rulesEngine),
+		server.WithVersion(vc),
 	}
 	if corsOrigin != "" {
 		opts = append(opts, server.WithCORSOrigin(corsOrigin))
@@ -172,12 +178,13 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	go vc.Start(ctx)
 	go geoUpdater.Start(ctx)
 	sch.Start(ctx)
 	defer sch.Stop()
 
 	go func() {
-		log.Printf("StreamMon listening on %s", listenAddr)
+		log.Printf("StreamMon %s listening on %s", Version, listenAddr)
 		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
