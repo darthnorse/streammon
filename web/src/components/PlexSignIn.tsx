@@ -136,6 +136,7 @@ export function PlexSignIn({ onServersAdded }: PlexSignInProps) {
           api_key: token || r.accessToken,
           machine_id: r.clientIdentifier,
           enabled: true,
+          show_recent_media: true,
         })
       }
       onServersAdded()
