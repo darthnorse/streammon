@@ -4,15 +4,23 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { UserDetail } from '../pages/UserDetail'
 import { ApiError } from '../lib/api'
 import { baseUser, baseHistoryEntry } from './fixtures'
-import type { WatchHistoryEntry, PaginatedResult, UserDetailStats } from '../types'
+import type { WatchHistoryEntry, PaginatedResult, UserDetailStats, GeoResult } from '../types'
 
 vi.mock('../hooks/useFetch', () => ({
   useFetch: vi.fn(),
 }))
 
-vi.mock('../components/LocationMap', () => ({
-  LocationMap: ({ userName }: { userName: string }) => (
-    <div data-testid="location-map">{userName}</div>
+vi.mock('../components/shared/LeafletMap', () => ({
+  LeafletMap: () => <div data-testid="leaflet-map" />,
+}))
+
+vi.mock('../components/shared/ViewModeToggle', () => ({
+  ViewModeToggle: ({ viewMode, onChange }: { viewMode: string; onChange: (m: string) => void }) => (
+    <div data-testid="view-mode-toggle">
+      <button onClick={() => onChange('heatmap')}>Heatmap</button>
+      <button onClick={() => onChange('markers')}>Markers</button>
+      <span data-testid="current-mode">{viewMode}</span>
+    </div>
   ),
 }))
 
@@ -104,8 +112,9 @@ function mockFetchSequence(...values: ReturnType<typeof noData>[]) {
 //   1. trust-visibility (null URL for admin or non-own-page viewer → falls through to default noData mock)
 //   2. user
 //   3. stats
-//   4. history (only when tab === 'history')
-//   5. violations (null URL unless showTrustScore && tab === 'violations')
+//   4. locations (always fetched)
+//   5. history (only when tab === 'history')
+//   6. violations (null URL unless showTrustScore && tab === 'violations')
 // Admin and non-own-page viewer tests don't need a trust-visibility mock;
 // the default noData() handles the null-URL call.
 function mockStandardPage(userOverride?: Partial<typeof baseUser>) {
@@ -114,6 +123,7 @@ function mockStandardPage(userOverride?: Partial<typeof baseUser>) {
     noData(),           // trust-visibility (null URL for admin)
     fetchResult(user),
     fetchResult(testStats),
+    noData(),           // locations
     fetchResult(testHistory),
   )
 }
@@ -130,6 +140,7 @@ describe('UserDetail', () => {
       noData(),           // trust-visibility (null URL for admin)
       fetchResult(null, new ApiError(404, 'not found')),
       fetchResult(testStats),
+      noData(),           // locations
       fetchResult(testHistory),
     )
     renderAtRoute('/users/nobody')
@@ -202,6 +213,7 @@ describe('UserDetail', () => {
       noData(),           // trust-visibility (null URL for admin)
       fetchResult(baseUser),
       fetchResult(null, new ApiError(500, 'server error')),
+      noData(),           // locations
       fetchResult(testHistory),
     )
     renderAtRoute('/users/alice')
@@ -244,5 +256,44 @@ describe('UserDetail', () => {
       </MemoryRouter>
     )
     expect(screen.getByRole('heading', { name: 'bob' })).toBeDefined()
+  })
+
+  describe('inline location map', () => {
+    const testLocations: GeoResult[] = [
+      { lat: 40.7, lng: -74.0, city: 'New York', country: 'US', last_seen: '2024-01-15T12:00:00Z' },
+    ]
+
+    it('renders map and toggle when locations are available', () => {
+      mockFetchSequence(
+        noData(),
+        fetchResult(baseUser),
+        fetchResult(testStats),
+        fetchResult(testLocations),
+        fetchResult(testHistory),
+      )
+      renderAtRoute('/users/alice')
+      expect(screen.getByTestId('leaflet-map')).toBeDefined()
+      expect(screen.getByTestId('view-mode-toggle')).toBeDefined()
+    })
+
+    it('hides map when no locations available', () => {
+      mockStandardPage()
+      renderAtRoute('/users/alice')
+      expect(screen.queryByTestId('leaflet-map')).toBeNull()
+      expect(screen.queryByTestId('view-mode-toggle')).toBeNull()
+    })
+
+    it('shows error when locations fetch fails', () => {
+      mockFetchSequence(
+        noData(),
+        fetchResult(baseUser),
+        fetchResult(testStats),
+        fetchResult(null, new ApiError(500, 'server error')),
+        fetchResult(testHistory),
+      )
+      renderAtRoute('/users/alice')
+      expect(screen.getByText(/failed to load location map/i)).toBeDefined()
+      expect(screen.queryByTestId('leaflet-map')).toBeNull()
+    })
   })
 })

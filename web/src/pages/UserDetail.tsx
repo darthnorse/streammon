@@ -5,7 +5,9 @@ import { ApiError } from '../lib/api'
 import { PER_PAGE } from '../lib/constants'
 import { HistoryTable, SortState } from '../components/HistoryTable'
 import { Pagination } from '../components/Pagination'
-import { LocationMap } from '../components/LocationMap'
+import { LeafletMap } from '../components/shared/LeafletMap'
+import { ViewModeToggle } from '../components/shared/ViewModeToggle'
+import { getLocationColor } from '../lib/mapUtils'
 import { UserStatsCards } from '../components/UserStatsCards'
 import { UserLocationsCard } from '../components/UserLocationsCard'
 import { UserDevicesCard } from '../components/UserDevicesCard'
@@ -13,15 +15,14 @@ import { UserISPCard } from '../components/UserISPCard'
 import { UserTrustScoreCard } from '../components/UserTrustScoreCard'
 import { UserHouseholdCard } from '../components/UserHouseholdCard'
 import { ViolationsTable } from '../components/ViolationsTable'
-import { getHistoryColumns } from '../lib/historyColumns'
+import { HISTORY_COLUMNS } from '../lib/historyColumns'
 import { useAuth } from '../context/AuthContext'
-import type { User, WatchHistoryEntry, PaginatedResult, Role, UserDetailStats, RuleViolation } from '../types'
+import type { User, WatchHistoryEntry, PaginatedResult, Role, UserDetailStats, RuleViolation, GeoResult, ViewMode } from '../types'
 
-type Tab = 'history' | 'locations' | 'violations'
+type Tab = 'history' | 'violations'
 
 const allTabs: { key: Tab; label: string }[] = [
   { key: 'history', label: 'Watch History' },
-  { key: 'locations', label: 'Locations Map' },
   { key: 'violations', label: 'Violations' },
 ]
 
@@ -53,15 +54,14 @@ export function UserDetail({ userName }: UserDetailProps) {
   const [page, setPage] = useState(1)
   const [violationsPage, setViolationsPage] = useState(1)
   const [sort, setSort] = useState<SortState | null>(null)
-
-  const columns = useMemo(() => getHistoryColumns(), [])
+  const [mapViewMode, setMapViewMode] = useState<ViewMode>('heatmap')
 
   const sortParams = useMemo(() => {
     if (!sort) return ''
-    const column = columns.find(c => c.id === sort.columnId)
+    const column = HISTORY_COLUMNS.find(c => c.id === sort.columnId)
     if (!column?.sortKey) return ''
     return `&sort_by=${column.sortKey}&sort_order=${sort.direction}`
-  }, [sort, columns])
+  }, [sort])
 
   const handleSort = useCallback((newSort: SortState | null) => {
     setSort(newSort)
@@ -89,6 +89,10 @@ export function UserDetail({ userName }: UserDetailProps) {
 
   const { data: stats, loading: statsLoading, error: statsError } = useFetch<UserDetailStats>(
     userBaseUrl ? `${userBaseUrl}/stats` : null
+  )
+
+  const { data: locations, loading: locationsLoading, error: locationsError } = useFetch<GeoResult[]>(
+    userBaseUrl ? `${userBaseUrl}/locations` : null
   )
 
   const historyUrl = decodedName
@@ -178,6 +182,28 @@ export function UserDetail({ userName }: UserDetailProps) {
         </>
       )}
 
+      {locationsError && !locationsLoading && (
+        <div className="text-sm text-red-500 dark:text-red-400">
+          Failed to load location map
+        </div>
+      )}
+
+      {locations && locations.length > 0 && (
+        <div>
+          <div className="flex justify-end mb-2">
+            <ViewModeToggle viewMode={mapViewMode} onChange={setMapViewMode} />
+          </div>
+          <div className="rounded-lg overflow-hidden border border-border dark:border-border-dark relative z-0">
+            <LeafletMap
+              locations={locations}
+              viewMode={mapViewMode}
+              height="250px"
+              markerColor={getLocationColor}
+            />
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-1 border-b border-border dark:border-border-dark">
         {tabs.map(t => (
           <button
@@ -213,10 +239,6 @@ export function UserDetail({ userName }: UserDetailProps) {
             </>
           ) : null}
         </div>
-      )}
-
-      {tab === 'locations' && (
-        <LocationMap userName={decodedName} />
       )}
 
       {showTrustScore && tab === 'violations' && (

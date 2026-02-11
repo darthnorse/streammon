@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { HistoryTable, SortState } from '../components/HistoryTable'
 import { Pagination } from '../components/Pagination'
-import { getHistoryColumns } from '../lib/historyColumns'
+import { HISTORY_COLUMNS } from '../lib/historyColumns'
 import type { WatchHistoryEntry, PaginatedResult } from '../types'
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
@@ -12,19 +12,16 @@ export function History() {
   const [perPage, setPerPage] = useState(20)
   const [sort, setSort] = useState<SortState | null>(null)
 
-  const columns = useMemo(() => getHistoryColumns(), [])
-
-  // Map column ID to API sort key
   const sortParams = useMemo(() => {
     if (!sort) return ''
-    const column = columns.find(c => c.id === sort.columnId)
+    const column = HISTORY_COLUMNS.find(c => c.id === sort.columnId)
     if (!column?.sortKey) return ''
     return `&sort_by=${column.sortKey}&sort_order=${sort.direction}`
-  }, [sort, columns])
+  }, [sort])
 
   const handleSort = useCallback((newSort: SortState | null) => {
     setSort(newSort)
-    setPage(1) // Reset to first page when sorting changes
+    setPage(1)
   }, [])
 
   const { data, loading, error } = useFetch<PaginatedResult<WatchHistoryEntry>>(

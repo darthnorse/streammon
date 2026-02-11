@@ -2,6 +2,7 @@ export type MediaType = 'movie' | 'episode' | 'livetv' | 'track' | 'audiobook' |
 export type ServerType = 'plex' | 'emby' | 'jellyfin'
 export type Role = 'admin' | 'viewer'
 export type TranscodeDecision = 'direct play' | 'copy' | 'transcode'
+export type ViewMode = 'heatmap' | 'markers'
 
 export interface Server {
   id: number

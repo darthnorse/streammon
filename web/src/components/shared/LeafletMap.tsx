@@ -4,7 +4,8 @@ import { HeatmapLayer } from 'react-leaflet-heatmap-layer-v3'
 import type { LatLngBoundsExpression } from 'leaflet'
 import { useIsDark } from '../../hooks/useIsDark'
 import { formatLocation } from '../../lib/format'
-import type { GeoResult } from '../../types'
+import { COLOR_DEFAULT } from '../../lib/mapUtils'
+import type { GeoResult, ViewMode } from '../../types'
 
 const TILE_URLS = {
   dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
@@ -26,8 +27,6 @@ const MIN_ZOOM = 2
 const MAX_ZOOM = 18
 
 const MAX_POPUP_USERS = 5
-
-export type ViewMode = 'heatmap' | 'markers'
 
 interface LeafletMapProps {
   locations: GeoResult[]
@@ -140,7 +139,7 @@ function LeafletMapInner({
   locations,
   viewMode = 'heatmap',
   height = '300px',
-  markerColor = '#3b82f6',
+  markerColor = COLOR_DEFAULT,
 }: LeafletMapProps) {
   const isDark = useIsDark()
   const tileUrl = isDark ? TILE_URLS.dark : TILE_URLS.light

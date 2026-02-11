@@ -1,40 +1,12 @@
 import { useState } from 'react'
-import type { GeoResult } from '../../types'
-import { LeafletMap, type ViewMode } from '../shared/LeafletMap'
+import type { GeoResult, ViewMode } from '../../types'
+import { LeafletMap } from '../shared/LeafletMap'
+import { ViewModeToggle } from '../shared/ViewModeToggle'
 import { LocationTable, type LocationColumn } from '../shared/LocationTable'
 import { formatLocation } from '../../lib/format'
 
 interface LocationsCardProps {
   locations: GeoResult[]
-}
-
-function ViewModeToggle({ viewMode, onChange }: { viewMode: ViewMode; onChange: (mode: ViewMode) => void }) {
-  return (
-    <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-md p-0.5" role="group" aria-label="Map view mode">
-      <button
-        onClick={() => onChange('heatmap')}
-        aria-pressed={viewMode === 'heatmap'}
-        className={`px-2 py-1 text-xs rounded transition-colors ${
-          viewMode === 'heatmap'
-            ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-        }`}
-      >
-        Heatmap
-      </button>
-      <button
-        onClick={() => onChange('markers')}
-        aria-pressed={viewMode === 'markers'}
-        className={`px-2 py-1 text-xs rounded transition-colors ${
-          viewMode === 'markers'
-            ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
-            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
-        }`}
-      >
-        Markers
-      </button>
-    </div>
-  )
 }
 
 const columns: LocationColumn[] = [
