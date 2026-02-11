@@ -11,16 +11,15 @@ RUN npm run build
 
 FROM golang:1.24-bookworm AS backend
 WORKDIR /app
-RUN apt-get update && apt-get install -y gcc libsqlite3-dev
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/internal/server/web/dist ./internal/server/web/dist
 ARG VERSION=dev
-RUN CGO_ENABLED=1 go build -ldflags "-X main.Version=${VERSION}" -o streammon ./cmd/streammon
+RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=${VERSION}" -o streammon ./cmd/streammon
 
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates libsqlite3-0 && rm -rf /var/lib/apt/lists/*
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=backend /app/streammon .
 COPY --from=backend /app/migrations ./migrations

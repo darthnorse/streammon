@@ -3,7 +3,6 @@ package store
 import (
 	"database/sql"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 
@@ -110,7 +109,7 @@ func (s *Store) DistinctIPsForUser(userName string) ([]IPWithLastSeen, error) {
 			return nil, fmt.Errorf("scanning ip result: %w", err)
 		}
 		if lastSeenStr.Valid && lastSeenStr.String != "" {
-			r.LastSeen = parseSQLiteTimestamp(lastSeenStr.String)
+			r.LastSeen, _ = parseSQLiteTime(lastSeenStr.String)
 		}
 		results = append(results, r)
 	}
@@ -145,20 +144,3 @@ func (s *Store) GetUncachedIPs(limit int) ([]string, error) {
 	return ips, rows.Err()
 }
 
-var sqliteTimeFormats = []string{
-	time.RFC3339,
-	time.RFC3339Nano,
-	"2006-01-02 15:04:05.999999999-07:00",
-	"2006-01-02 15:04:05-07:00",
-	"2006-01-02 15:04:05",
-}
-
-func parseSQLiteTimestamp(s string) time.Time {
-	for _, format := range sqliteTimeFormats {
-		if t, err := time.Parse(format, s); err == nil {
-			return t
-		}
-	}
-	log.Printf("failed to parse timestamp: %q", s)
-	return time.Time{}
-}

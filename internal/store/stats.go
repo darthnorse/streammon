@@ -442,7 +442,7 @@ func (s *Store) PotentialSharers(minIPs int, windowDays int) ([]models.SharerAle
 			return nil, fmt.Errorf("scanning sharer alert: %w", err)
 		}
 		if lastSeenStr.Valid {
-			if t := parseSQLiteTimestamp(lastSeenStr.String); !t.IsZero() {
+			if t, _ := parseSQLiteTime(lastSeenStr.String); !t.IsZero() {
 				alert.LastSeen = t.Format(time.RFC3339)
 			}
 		}
@@ -559,7 +559,7 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 			return nil, fmt.Errorf("scanning location stat: %w", err)
 		}
 		if lastSeenStr.Valid {
-			if t := parseSQLiteTimestamp(lastSeenStr.String); !t.IsZero() {
+			if t, _ := parseSQLiteTime(lastSeenStr.String); !t.IsZero() {
 				loc.LastSeen = t.Format(time.RFC3339)
 			}
 		}
@@ -599,7 +599,7 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 			return nil, fmt.Errorf("scanning device stat: %w", err)
 		}
 		if lastSeenStr.Valid {
-			if t := parseSQLiteTimestamp(lastSeenStr.String); !t.IsZero() {
+			if t, _ := parseSQLiteTime(lastSeenStr.String); !t.IsZero() {
 				dev.LastSeen = t.Format(time.RFC3339)
 			}
 		}
@@ -640,7 +640,7 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 			return nil, fmt.Errorf("scanning isp stat: %w", err)
 		}
 		if lastSeenStr.Valid {
-			if t := parseSQLiteTimestamp(lastSeenStr.String); !t.IsZero() {
+			if t, _ := parseSQLiteTime(lastSeenStr.String); !t.IsZero() {
 				isp.LastSeen = t.Format(time.RFC3339)
 			}
 		}

@@ -711,6 +711,78 @@ func TestAutoLearnHouseholdLocation(t *testing.T) {
 	}
 }
 
+func TestAutoLearnHouseholdLocationDifferentCities(t *testing.T) {
+	s := setupTestStore(t)
+
+	now := time.Now().UTC()
+	serverID := seedTestServer(t, s)
+
+	// Seed two geo entries for the same IP but different cities (e.g., VPN or re-geo'd IP)
+	_, err := s.db.Exec(`INSERT INTO ip_geo_cache (ip, lat, lng, city, country, isp, cached_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"2.2.2.2", 40.71, -74.00, "New York", "US", "ISP", now)
+	if err != nil {
+		t.Fatalf("seed geo cache: %v", err)
+	}
+
+	// Seed 12 sessions from this IP
+	for i := 0; i < 12; i++ {
+		entry := &models.WatchHistoryEntry{
+			ServerID:  serverID,
+			UserName:  "bob",
+			Title:     "Movie",
+			StartedAt: now.Add(-time.Duration(i) * time.Hour),
+			IPAddress: "2.2.2.2",
+			Player:    "Plex Web",
+			Platform:  "Chrome",
+			MediaType: models.MediaTypeMovie,
+		}
+		if err := s.InsertHistory(entry); err != nil {
+			t.Fatalf("InsertHistory: %v", err)
+		}
+	}
+
+	// Auto-learn should create a household in "New York"
+	created, err := s.AutoLearnHouseholdLocation("bob", "2.2.2.2", 10)
+	if err != nil {
+		t.Fatalf("AutoLearnHouseholdLocation: %v", err)
+	}
+	if !created {
+		t.Error("expected created=true for first city")
+	}
+
+	// Now update the geo cache to a different city for the same IP
+	_, err = s.db.Exec(`UPDATE ip_geo_cache SET city = ?, lat = ?, lng = ? WHERE ip = ?`,
+		"Boston", 42.36, -71.06, "2.2.2.2")
+	if err != nil {
+		t.Fatalf("update geo cache: %v", err)
+	}
+
+	// Auto-learn should create a NEW household in "Boston" (different unique key)
+	created, err = s.AutoLearnHouseholdLocation("bob", "2.2.2.2", 10)
+	if err != nil {
+		t.Fatalf("AutoLearnHouseholdLocation (new city): %v", err)
+	}
+	if !created {
+		t.Error("expected created=true for second city")
+	}
+
+	locations, err := s.ListHouseholdLocations("bob")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations: %v", err)
+	}
+	if len(locations) != 2 {
+		t.Fatalf("expected 2 household locations (one per city), got %d", len(locations))
+	}
+
+	cities := map[string]bool{}
+	for _, loc := range locations {
+		cities[loc.City] = true
+	}
+	if !cities["New York"] || !cities["Boston"] {
+		t.Errorf("expected New York and Boston, got %v", cities)
+	}
+}
+
 func seedTestServer(t *testing.T, s *Store) int64 {
 	t.Helper()
 	srv := &models.Server{

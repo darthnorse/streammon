@@ -3,7 +3,7 @@ package store
 import (
 	"database/sql"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	"streammon/internal/crypto"
 )
@@ -20,7 +20,7 @@ func WithEncryptor(e *crypto.Encryptor) Option {
 }
 
 func New(dbPath string, opts ...Option) (*Store, error) {
-	db, err := sql.Open("sqlite3", "file:"+dbPath+"?_journal_mode=WAL&_foreign_keys=on&_busy_timeout=5000")
+	db, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=journal_mode(wal)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_time_format=sqlite")
 	if err != nil {
 		return nil, err
 	}

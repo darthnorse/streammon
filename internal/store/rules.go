@@ -15,7 +15,6 @@ import (
 
 const ruleColumns = `id, name, type, enabled, config, created_at, updated_at`
 
-// boolToInt converts a boolean to an int for SQLite storage.
 func boolToInt(b bool) int {
 	if b {
 		return 1
@@ -23,36 +22,10 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-// intToBool converts an int from SQLite storage to a boolean.
 func intToBool(i int) bool {
 	return i != 0
 }
 
-// parseSQLiteTime parses a timestamp string returned by SQLite aggregate functions.
-// SQLite returns timestamps in various formats depending on how they were stored.
-func parseSQLiteTime(s string) (time.Time, error) {
-	if s == "" {
-		return time.Time{}, nil
-	}
-	// Try common formats in order of likelihood
-	formats := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02 15:04:05.999999999-07:00",
-		"2006-01-02 15:04:05.999999999+00:00",
-		"2006-01-02 15:04:05-07:00",
-		"2006-01-02 15:04:05+00:00",
-		"2006-01-02 15:04:05Z",
-		"2006-01-02 15:04:05",
-		"2006-01-02T15:04:05",
-	}
-	for _, format := range formats {
-		if t, err := time.Parse(format, s); err == nil {
-			return t, nil
-		}
-	}
-	return time.Time{}, fmt.Errorf("unable to parse time: %q", s)
-}
 
 func scanRule(scanner interface{ Scan(...any) error }) (models.Rule, error) {
 	var r models.Rule
@@ -389,15 +362,22 @@ func (s *Store) DeleteHouseholdLocation(id int64) error {
 
 // AutoLearnHouseholdLocation checks if an IP has been used enough times by a user
 // to be automatically added as a household location. Returns true if a new location was created.
-// This method is safe to call concurrently - it uses atomic operations to prevent race conditions.
 func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessions int) (bool, error) {
 	if ipAddress == "" {
 		return false, nil
 	}
 
-	// First, try to update an existing household location (atomic operation)
-	result, err := s.db.Exec(`UPDATE household_locations SET session_count = session_count + 1, last_seen = CURRENT_TIMESTAMP WHERE user_name = ? AND ip_address = ?`,
-		userName, ipAddress)
+	var city, country string
+	var lat, lng sql.NullFloat64
+	err := s.db.QueryRow(`SELECT city, country, lat, lng FROM ip_geo_cache WHERE ip = ?`, ipAddress).Scan(&city, &country, &lat, &lng)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("getting geo data: %w", err)
+	}
+
+	// Try to update an existing household location matching the full unique key
+	result, err := s.db.Exec(`UPDATE household_locations SET session_count = session_count + 1, last_seen = CURRENT_TIMESTAMP
+		WHERE user_name = ? AND ip_address = ? AND city = ? AND country = ?`,
+		userName, ipAddress, city, country)
 	if err != nil {
 		return false, fmt.Errorf("updating household location: %w", err)
 	}
@@ -417,14 +397,6 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 		return false, nil
 	}
 
-	var city, country string
-	var lat, lng sql.NullFloat64
-	err = s.db.QueryRow(`SELECT city, country, lat, lng FROM ip_geo_cache WHERE ip = ?`, ipAddress).Scan(&city, &country, &lat, &lng)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return false, fmt.Errorf("getting geo data: %w", err)
-	}
-
-	// Get first and last seen times (scan as strings due to SQLite returning strings for aggregates)
 	var firstSeenStr, lastSeenStr string
 	err = s.db.QueryRow(`SELECT MIN(started_at), MAX(COALESCE(stopped_at, started_at)) FROM watch_history WHERE user_name = ? AND ip_address = ?`,
 		userName, ipAddress).Scan(&firstSeenStr, &lastSeenStr)
@@ -446,8 +418,6 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 		lastSeen = firstSeen
 	}
 
-	// Create auto-learned household location with INSERT OR IGNORE to handle race conditions
-	// If another goroutine already inserted this row, this will be a no-op
 	result, err = s.db.Exec(`INSERT OR IGNORE INTO household_locations
 		(user_name, ip_address, city, country, latitude, longitude, auto_learned, trusted, session_count, first_seen, last_seen)
 		VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)`,
@@ -462,7 +432,6 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 		return true, nil
 	}
 
-	// Another goroutine beat us to it - that's fine, the location exists now
 	return false, nil
 }
 

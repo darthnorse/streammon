@@ -116,43 +116,11 @@ func (s *Store) GetLastSyncTime(ctx context.Context, serverID int64, libraryID s
 	if !syncedAtStr.Valid || syncedAtStr.String == "" {
 		return nil, nil
 	}
-	syncedAt, err := parseTimeString(syncedAtStr.String)
+	syncedAt, err := parseSQLiteTime(syncedAtStr.String)
 	if err != nil {
 		return nil, fmt.Errorf("parse sync time: %w", err)
 	}
 	return &syncedAt, nil
-}
-
-// parseTimeString parses time strings from SQLite which may use space or T as separator.
-// Times without timezone are assumed to be UTC (per CLAUDE.md: "UTC everywhere").
-func parseTimeString(s string) (time.Time, error) {
-	// Formats with explicit timezone - parse normally
-	formatsWithTZ := []string{
-		time.RFC3339Nano,
-		time.RFC3339,
-		"2006-01-02 15:04:05.999999999-07:00",
-		"2006-01-02 15:04:05.999999999+00:00",
-		"2006-01-02 15:04:05-07:00",
-		"2006-01-02 15:04:05+00:00",
-	}
-	for _, f := range formatsWithTZ {
-		if t, err := time.Parse(f, s); err == nil {
-			return t.UTC(), nil
-		}
-	}
-
-	// Formats without timezone - parse in UTC location explicitly
-	formatsNoTZ := []string{
-		"2006-01-02 15:04:05.999999999",
-		"2006-01-02 15:04:05",
-	}
-	for _, f := range formatsNoTZ {
-		if t, err := time.ParseInLocation(f, s, time.UTC); err == nil {
-			return t, nil // Already UTC
-		}
-	}
-
-	return time.Time{}, fmt.Errorf("unrecognized time format: %s", s)
 }
 
 // DeleteStaleLibraryItems removes items not seen since the given time
