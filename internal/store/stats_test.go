@@ -433,66 +433,6 @@ func TestAllWatchLocationsEmpty(t *testing.T) {
 	}
 }
 
-func TestPotentialSharers(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-	serverID := seedServer(t, s)
-	now := time.Now().UTC()
-
-	s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
-		Title: "M1", IPAddress: "1.1.1.1", StartedAt: now.Add(-1 * 24 * time.Hour), StoppedAt: now,
-	})
-	s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
-		Title: "M2", IPAddress: "2.2.2.2", StartedAt: now.Add(-2 * 24 * time.Hour), StoppedAt: now,
-	})
-	s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
-		Title: "M3", IPAddress: "3.3.3.3", StartedAt: now.Add(-3 * 24 * time.Hour), StoppedAt: now,
-	})
-	s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
-		Title: "M1", IPAddress: "4.4.4.4", StartedAt: now, StoppedAt: now,
-	})
-
-	s.SetCachedGeo(&models.GeoResult{IP: "1.1.1.1", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0, ISP: "Verizon"})
-	s.SetCachedGeo(&models.GeoResult{IP: "2.2.2.2", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2, ISP: "AT&T"})
-	s.SetCachedGeo(&models.GeoResult{IP: "3.3.3.3", City: "Chicago", Country: "US", Lat: 41.9, Lng: -87.6, ISP: "Comcast"})
-
-	sharers, err := s.PotentialSharers(3, 30)
-	if err != nil {
-		t.Fatalf("PotentialSharers: %v", err)
-	}
-	if len(sharers) != 1 {
-		t.Fatalf("expected 1 potential sharer, got %d", len(sharers))
-	}
-	if sharers[0].UserName != "alice" {
-		t.Fatalf("expected alice, got %s", sharers[0].UserName)
-	}
-	if sharers[0].UniqueIPs != 3 {
-		t.Fatalf("expected 3 unique IPs, got %d", sharers[0].UniqueIPs)
-	}
-}
-
-func TestPotentialSharersNone(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-	serverID := seedServer(t, s)
-	now := time.Now().UTC()
-
-	s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
-		Title: "M1", IPAddress: "1.1.1.1", StartedAt: now, StoppedAt: now,
-	})
-
-	sharers, err := s.PotentialSharers(3, 30)
-	if err != nil {
-		t.Fatalf("PotentialSharers: %v", err)
-	}
-	if len(sharers) != 0 {
-		t.Fatalf("expected 0 potential sharers, got %d", len(sharers))
-	}
-}
-
 func TestTopMoviesWithTimeFilter(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)

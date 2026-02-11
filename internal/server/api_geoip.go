@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"net"
 	"net/http"
 
@@ -23,7 +24,8 @@ func (s *Server) handleGeoIPLookup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no geo data")
 		return
 	}
-	// Cache the result so history/stats queries can join against it
-	_ = s.store.SetCachedGeo(result)
+	if err := s.store.SetCachedGeo(result); err != nil {
+		log.Printf("caching geo for %s: %v", ipStr, err)
+	}
 	writeJSON(w, http.StatusOK, result)
 }

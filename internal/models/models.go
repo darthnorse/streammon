@@ -367,13 +367,6 @@ type LibraryStat struct {
 	UniqueTVShows int     `json:"unique_tv_shows"`
 }
 
-type SharerAlert struct {
-	UserName  string   `json:"user_name"`
-	UniqueIPs int      `json:"unique_ips"`
-	Locations []string `json:"locations"`
-	LastSeen  string   `json:"last_seen"`
-}
-
 type LibraryType string
 
 const (

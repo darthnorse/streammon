@@ -194,8 +194,8 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("Shutting down...")
-	p.Stop()
 	p.PersistActiveSessions()
+	p.Stop()
 	srv.WaitEnrichment()
 	srv.WaitAutoSync()
 	rulesEngine.WaitForNotifications()

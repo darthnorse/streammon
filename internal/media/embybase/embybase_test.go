@@ -124,6 +124,9 @@ func TestTestConnection(t *testing.T) {
 		if r.URL.Path != "/System/Info" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
+		if got := r.Header.Get("X-Emby-Token"); got != "tok" {
+			t.Errorf("expected X-Emby-Token=tok, got %q", got)
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer ts.Close()
@@ -131,6 +134,22 @@ func TestTestConnection(t *testing.T) {
 	c := New(models.Server{URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
 	if err := c.TestConnection(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestTestConnectionAuthFailure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "bad"}, models.ServerTypeEmby)
+	err := c.TestConnection(context.Background())
+	if err == nil {
+		t.Fatal("expected error for 401")
+	}
+	if !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("expected auth failure message, got: %s", err.Error())
 	}
 }
 

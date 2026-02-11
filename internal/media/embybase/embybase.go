@@ -49,10 +49,14 @@ func (c *Client) TestConnection(ctx context.Context) error {
 		return err
 	}
 	defer httputil.DrainBody(resp)
-	if resp.StatusCode != http.StatusOK {
+	switch resp.StatusCode {
+	case http.StatusOK:
+		return nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return fmt.Errorf("%s authentication failed (status %d) — check your API key", c.serverType, resp.StatusCode)
+	default:
 		return fmt.Errorf("%s returned status %d", c.serverType, resp.StatusCode)
 	}
-	return nil
 }
 
 func (c *Client) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {

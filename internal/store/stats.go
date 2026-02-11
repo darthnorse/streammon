@@ -20,8 +20,6 @@ var allowedDistributionColumns = map[string]bool{
 
 const (
 	DefaultConcurrentPeakDays = 90
-	DefaultSharerWindowDays   = 30
-	DefaultSharerMinIPs       = 3
 )
 
 func cutoffTime(days int) time.Time {
@@ -413,104 +411,6 @@ func (s *Store) AllWatchLocations(days int) ([]models.GeoResult, error) {
 		return nil, fmt.Errorf("iterating watch locations: %w", err)
 	}
 	return results, nil
-}
-
-func (s *Store) PotentialSharers(minIPs int, windowDays int) ([]models.SharerAlert, error) {
-	cutoff := time.Now().UTC().AddDate(0, 0, -windowDays)
-	rows, err := s.db.Query(
-		`SELECT user_name, COUNT(DISTINCT ip_address) as unique_ips,
-			MAX(COALESCE(stopped_at, started_at)) as last_seen
-		FROM watch_history
-		WHERE started_at >= ?
-		AND ip_address != ''
-		GROUP BY user_name
-		HAVING unique_ips >= ?
-		ORDER BY unique_ips DESC`,
-		cutoff, minIPs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("potential sharers: %w", err)
-	}
-	defer rows.Close()
-
-	alerts := []models.SharerAlert{}
-	userNames := []string{}
-	for rows.Next() {
-		var alert models.SharerAlert
-		var lastSeenStr sql.NullString
-		if err := rows.Scan(&alert.UserName, &alert.UniqueIPs, &lastSeenStr); err != nil {
-			return nil, fmt.Errorf("scanning sharer alert: %w", err)
-		}
-		if lastSeenStr.Valid {
-			if t, _ := parseSQLiteTime(lastSeenStr.String); !t.IsZero() {
-				alert.LastSeen = t.Format(time.RFC3339)
-			}
-		}
-		alert.Locations = []string{}
-		alerts = append(alerts, alert)
-		userNames = append(userNames, alert.UserName)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating sharer alerts: %w", err)
-	}
-
-	if len(alerts) == 0 {
-		return []models.SharerAlert{}, nil
-	}
-
-	locationMap, err := s.getLocationsForUsers(userNames, cutoff)
-	if err != nil {
-		return nil, err
-	}
-	for i := range alerts {
-		if locs, ok := locationMap[alerts[i].UserName]; ok {
-			alerts[i].Locations = locs
-		}
-	}
-
-	return alerts, nil
-}
-
-func (s *Store) getLocationsForUsers(userNames []string, cutoff time.Time) (map[string][]string, error) {
-	if len(userNames) == 0 {
-		return map[string][]string{}, nil
-	}
-
-	placeholders := make([]string, len(userNames))
-	args := make([]any, 0, len(userNames)+1)
-	args = append(args, cutoff)
-	for i, name := range userNames {
-		placeholders[i] = "?"
-		args = append(args, name)
-	}
-
-	query := `SELECT h.user_name, g.city || ', ' || g.country as location
-		FROM watch_history h
-		JOIN ip_geo_cache g ON h.ip_address = g.ip
-		WHERE h.started_at >= ?
-		AND h.user_name IN (` + strings.Join(placeholders, ",") + `)
-		AND g.city != ''
-		GROUP BY h.user_name, location`
-
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("batch user locations: %w", err)
-	}
-	defer rows.Close()
-
-	result := make(map[string][]string)
-	for rows.Next() {
-		var userName, location string
-		if err := rows.Scan(&userName, &location); err != nil {
-			return nil, fmt.Errorf("scanning user location: %w", err)
-		}
-		result[userName] = append(result[userName], location)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating user locations: %w", err)
-	}
-
-	return result, nil
 }
 
 func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error) {
