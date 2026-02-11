@@ -17,6 +17,8 @@ export function MaxMindForm({ settings, onSaved }: MaxMindFormProps) {
   const [key, setKey] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillResult, setBackfillResult] = useState<{ resolved: number; skipped: number; total: number } | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -47,7 +49,21 @@ export function MaxMindForm({ settings, onSaved }: MaxMindFormProps) {
     }
   }
 
+  async function handleBackfill() {
+    setBackfilling(true)
+    setBackfillResult(null)
+    try {
+      const res = await api.post<{ resolved: number; skipped: number; total: number }>('/api/settings/maxmind/backfill')
+      setBackfillResult(res)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBackfilling(false)
+    }
+  }
+
   return (
+    <>
     <div className="card p-5">
       <h3 className="font-semibold text-base mb-2">MaxMind GeoIP</h3>
       <p className="text-sm text-muted dark:text-muted-dark mb-4">
@@ -125,5 +141,31 @@ export function MaxMindForm({ settings, onSaved }: MaxMindFormProps) {
         </div>
       </form>
     </div>
+
+    {settings?.db_available && (
+      <div className="card p-5 mt-4">
+        <h3 className="font-semibold text-base mb-2">Backfill GeoIP Data</h3>
+        <p className="text-sm text-muted dark:text-muted-dark mb-4">
+          Resolve uncached IPs from watch history using the MaxMind database (up to 5,000 at a time).
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleBackfill}
+            disabled={backfilling}
+            className="px-4 py-2.5 text-sm font-semibold rounded-lg border border-border dark:border-border-dark hover:bg-surface-hover dark:hover:bg-surface-hover-dark disabled:opacity-50 transition-colors"
+          >
+            {backfilling ? 'Backfilling...' : 'Backfill Uncached IPs'}
+          </button>
+          {backfillResult && (
+            <span className="text-sm text-green-500">
+              {backfillResult.total === 0
+                ? 'No uncached IPs found'
+                : `Resolved ${backfillResult.resolved} of ${backfillResult.total} IPs`}
+            </span>
+          )}
+        </div>
+      </div>
+    )}
+    </>
   )
 }
