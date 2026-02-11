@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { MoreHorizontal, X } from 'lucide-react'
-import { navLinks, navIconMap } from '../lib/constants'
+import { visibleNavLinks, navIconMap } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
 
 const navPanelBase = `lg:hidden fixed bottom-0 left-0 right-0 z-50
@@ -20,10 +20,7 @@ export function MobileNav() {
   const location = useLocation()
   const { user } = useAuth()
 
-  const filteredLinks = useMemo(() =>
-    navLinks.filter(link => !link.adminOnly || user?.role === 'admin'),
-    [user?.role]
-  )
+  const filteredLinks = visibleNavLinks(user?.role)
   const primaryLinks = filteredLinks.slice(0, 4)
   const moreLinks = filteredLinks.slice(4)
 

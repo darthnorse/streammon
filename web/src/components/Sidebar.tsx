@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import { UserAvatar } from './UserAvatar'
-import { navLinks, navIconMap } from '../lib/constants'
+import { visibleNavLinks, navIconMap } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
 import { useFetch } from '../hooks/useFetch'
 import type { VersionInfo } from '../types'
@@ -50,9 +50,7 @@ export function Sidebar({ onOpenProfile }: SidebarProps) {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {navLinks
-          .filter(link => !link.adminOnly || user?.role === 'admin')
-          .map(link => {
+        {visibleNavLinks(user?.role).map(link => {
             const Icon = navIconMap[link.icon]
             return (
               <NavLink

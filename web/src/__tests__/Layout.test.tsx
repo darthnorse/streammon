@@ -4,27 +4,36 @@ import { renderWithRouter } from '../test-utils'
 import { Layout } from '../components/Layout'
 
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({
-    user: {
-      id: 1,
-      name: 'admin',
-      email: 'admin@test.local',
-      role: 'admin',
-      thumb_url: '',
-      has_password: true,
-      created_at: '',
-      updated_at: '',
-    },
-    loading: false,
-    setupRequired: false,
-    setUser: vi.fn(),
-    clearSetupRequired: vi.fn(),
-    refreshUser: vi.fn(),
-    logout: vi.fn(),
-  }),
+  useAuth: vi.fn(),
 }))
 
+import { useAuth } from '../context/AuthContext'
+
+const mockUseAuth = vi.mocked(useAuth)
+
+const baseAuth = {
+  loading: false,
+  setupRequired: false,
+  setUser: vi.fn(),
+  clearSetupRequired: vi.fn(),
+  refreshUser: vi.fn(),
+  logout: vi.fn(),
+}
+
+const adminUser = {
+  id: 1, name: 'admin', email: 'admin@test.local', role: 'admin' as const,
+  thumb_url: '', has_password: true, created_at: '', updated_at: '',
+}
+
+const viewerUser = {
+  ...adminUser, id: 2, name: 'viewer', role: 'viewer' as const,
+}
+
 describe('Layout', () => {
+  beforeEach(() => {
+    mockUseAuth.mockReturnValue({ ...baseAuth, user: adminUser })
+  })
+
   it('renders sidebar nav links', () => {
     renderWithRouter(<Layout />)
     expect(screen.getAllByText('Dashboard').length).toBeGreaterThanOrEqual(1)
@@ -41,5 +50,16 @@ describe('Layout', () => {
     renderWithRouter(<Layout />)
     const dashLinks = screen.getAllByText('Dashboard')
     expect(dashLinks.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('hides My Stats for admin users', () => {
+    renderWithRouter(<Layout />)
+    expect(screen.queryByText('My Stats')).toBeNull()
+  })
+
+  it('shows My Stats for viewer users', () => {
+    mockUseAuth.mockReturnValue({ ...baseAuth, user: viewerUser })
+    renderWithRouter(<Layout />)
+    expect(screen.getAllByText('My Stats').length).toBeGreaterThanOrEqual(1)
   })
 })

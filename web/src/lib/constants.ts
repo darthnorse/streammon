@@ -9,7 +9,7 @@ import {
   Settings,
   Film,
 } from 'lucide-react'
-import type { MediaType, Severity } from '../types'
+import type { MediaType, Role, Severity } from '../types'
 
 export const mediaTypeLabels: Record<MediaType, string> = {
   movie: 'Movie',
@@ -50,17 +50,28 @@ export const navIconMap = {
   Film,
 } satisfies Record<string, React.ComponentType<{ className?: string }>>
 
-export const navLinks = [
-  { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', adminOnly: true },
-  { to: '/requests', label: 'Requests', icon: 'Film', adminOnly: false },
-  { to: '/history', label: 'History', icon: 'History', adminOnly: true },
-  { to: '/my-stats', label: 'My Stats', icon: 'User', adminOnly: false },
-  { to: '/statistics', label: 'Statistics', icon: 'BarChart3', adminOnly: true },
-  { to: '/library', label: 'Library', icon: 'Library', adminOnly: true },
-  { to: '/users', label: 'Users', icon: 'Users', adminOnly: true },
-  { to: '/rules', label: 'Rules', icon: 'ShieldAlert', adminOnly: true },
-  { to: '/settings', label: 'Settings', icon: 'Settings', adminOnly: true },
-] as const
+export interface NavLink {
+  to: string
+  label: string
+  icon: keyof typeof navIconMap
+  visibility: 'all' | Role
+}
+
+export const navLinks: NavLink[] = [
+  { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', visibility: 'admin' },
+  { to: '/requests', label: 'Requests', icon: 'Film', visibility: 'all' },
+  { to: '/history', label: 'History', icon: 'History', visibility: 'admin' },
+  { to: '/my-stats', label: 'My Stats', icon: 'User', visibility: 'viewer' },
+  { to: '/statistics', label: 'Statistics', icon: 'BarChart3', visibility: 'admin' },
+  { to: '/library', label: 'Library', icon: 'Library', visibility: 'admin' },
+  { to: '/users', label: 'Users', icon: 'Users', visibility: 'admin' },
+  { to: '/rules', label: 'Rules', icon: 'ShieldAlert', visibility: 'admin' },
+  { to: '/settings', label: 'Settings', icon: 'Settings', visibility: 'admin' },
+]
+
+export function visibleNavLinks(role: Role | undefined): NavLink[] {
+  return navLinks.filter(link => link.visibility === 'all' || link.visibility === role)
+}
 
 export const SEVERITY_COLORS: Record<Severity, string> = {
   info: 'bg-blue-500/20 text-blue-400',
