@@ -332,7 +332,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
             >
               {testing ? 'Testing...' : 'Test Connection'}
             </button>
-            <div className="flex-1" />
+            <div className="hidden sm:block flex-1" />
             <button
               type="button"
               onClick={onClose}
