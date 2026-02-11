@@ -1,6 +1,8 @@
 package server
 
 import (
+	"log"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -58,6 +60,30 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
+
+	// Auto-resolve uncached GeoIP for IPs on this page
+	if s.geoResolver != nil {
+		for i := range result.Items {
+			e := &result.Items[i]
+			if e.IPAddress != "" && e.City == "" && e.Country == "" {
+				ip := net.ParseIP(e.IPAddress)
+				if ip == nil {
+					continue
+				}
+				geo := s.geoResolver.Lookup(ip)
+				if geo == nil {
+					continue
+				}
+				e.City = geo.City
+				e.Country = geo.Country
+				e.ISP = geo.ISP
+				if err := s.store.SetCachedGeo(geo); err != nil {
+					log.Printf("auto-cache geo for %s: %v", e.IPAddress, err)
+				}
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, result)
 }
 
