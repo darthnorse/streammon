@@ -293,6 +293,7 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
+	s.InvalidateLibraryCache()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"synced":  count,
 		"deleted": deleted,
