@@ -322,7 +322,7 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
       onClick={e => { if (e.target === e.currentTarget) handleClose() }}
       role="dialog"
       aria-modal="true"
@@ -405,7 +405,7 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
             >
               {testing ? 'Testing...' : 'Test Connection'}
             </button>
-            <div className="flex-1" />
+            <div className="hidden sm:block flex-1" />
             <button
               type="button"
               onClick={handleClose}
