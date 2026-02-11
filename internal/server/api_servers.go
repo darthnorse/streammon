@@ -108,6 +108,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	srv := input.ToServer()
+	srv.ShowRecentMedia = true
 	if err := srv.ValidateForCreate(); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
