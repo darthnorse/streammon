@@ -125,6 +125,7 @@ func main() {
 	p := poller.New(s, pollInterval,
 		poller.WithRulesEngine(rulesEngine),
 		poller.WithHouseholdAutoLearn(autoLearnMinSessions),
+		poller.WithGeoResolver(geoResolver),
 	)
 
 	servers, err := s.ListServers()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +14,11 @@ import (
 	"streammon/internal/rules"
 	"streammon/internal/store"
 )
+
+// GeoResolver resolves IP addresses to geographic locations.
+type GeoResolver interface {
+	Lookup(ip net.IP) *models.GeoResult
+}
 
 type Poller struct {
 	store    *store.Store
@@ -42,6 +48,7 @@ type Poller struct {
 	// DLNA sessions must be seen on two consecutive polls before being tracked
 	pendingDLNA map[string]models.ActiveStream
 
+	geoResolver          GeoResolver
 	autoLearnHousehold   bool
 	autoLearnMinSessions int
 
@@ -84,6 +91,12 @@ func WithHouseholdAutoLearn(minSessions int) PollerOption {
 			p.autoLearnHousehold = true
 			p.autoLearnMinSessions = minSessions
 		}
+	}
+}
+
+func WithGeoResolver(r GeoResolver) PollerOption {
+	return func(p *Poller) {
+		p.geoResolver = r
 	}
 }
 
@@ -508,6 +521,16 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 		log.Printf("persisting history for %s: %v (will retry)", s.Title, err)
 		p.enqueueRetry(entry, s.Title)
 		return
+	}
+
+	if p.geoResolver != nil && s.IPAddress != "" {
+		if ip := net.ParseIP(s.IPAddress); ip != nil {
+			if geo := p.geoResolver.Lookup(ip); geo != nil {
+				if err := p.store.SetCachedGeo(geo); err != nil {
+					log.Printf("caching geo for %s: %v", s.IPAddress, err)
+				}
+			}
+		}
 	}
 
 	if p.autoLearnHousehold && s.IPAddress != "" {
