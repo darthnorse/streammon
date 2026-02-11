@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"streammon/internal/mediautil"
@@ -325,7 +326,7 @@ func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.W
 		StoppedAt:         stoppedAt,
 		SeasonNumber:      int(rec.ParentMediaIndex),
 		EpisodeNumber:     int(rec.MediaIndex),
-		ThumbURL:          rec.Thumb,
+		ThumbURL:          strings.TrimPrefix(rec.Thumb, "/"),
 		VideoResolution:   rec.VideoFullResolution,
 		TranscodeDecision: convertTranscodeDecision(rec.TranscodeDecision),
 	}
