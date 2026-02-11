@@ -48,7 +48,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
     api_key: '',
     machine_id: server?.machine_id ?? '',
     enabled: server?.enabled ?? true,
-    show_recent_media: server?.show_recent_media ?? false,
+    show_recent_media: server?.show_recent_media ?? true,
   })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
