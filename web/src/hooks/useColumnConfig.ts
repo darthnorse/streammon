@@ -83,7 +83,7 @@ export function useColumnConfig(
   // When saving, preserve excluded columns at their original positions
   // This prevents losing column preferences when viewing contexts that exclude certain columns
   useEffect(() => {
-    const stored = loadStoredColumns() ?? []
+    const stored = loadStoredColumns() ?? allColumns.filter(c => c.defaultVisible).map(c => c.id)
 
     // Build result by keeping excluded columns at their stored positions
     // and filling non-excluded slots with visibleColumns in order
@@ -106,7 +106,7 @@ export function useColumnConfig(
     }
 
     safeSetItem(STORAGE_KEY, JSON.stringify(result))
-  }, [visibleColumns, excludeSet])
+  }, [visibleColumns, excludeSet, allColumns])
 
   const toggleColumn = useCallback((id: string) => {
     if (excludeSet.has(id)) return

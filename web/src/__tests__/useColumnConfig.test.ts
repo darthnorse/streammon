@@ -186,6 +186,21 @@ describe('useColumnConfig', () => {
     expect(result.current.visibleColumns).toEqual(['b', 'd'])
   })
 
+  it('preserves excluded default columns in localStorage on first save', () => {
+    // Simulate visiting UserDetail first (excludes 'a'), then History (no exclusions)
+    const { unmount } = renderHook(() =>
+      useColumnConfig(mockColumns, ['a'])
+    )
+    unmount()
+
+    // Now load without exclusions — 'a' should be present from stored config
+    const { result } = renderHook(() =>
+      useColumnConfig(mockColumns)
+    )
+    expect(result.current.visibleColumns).toContain('a')
+    expect(result.current.visibleColumns[0]).toBe('a')
+  })
+
   it('resets to defaults when all visible columns become excluded', () => {
     localStorage.setItem('history-columns', JSON.stringify(['a']))
     let excludeColumns: string[] = []
