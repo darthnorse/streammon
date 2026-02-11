@@ -121,7 +121,7 @@ func TestGetSessions(t *testing.T) {
 
 func TestTestConnection(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/System/Info/Public" {
+		if r.URL.Path != "/System/Info" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)
@@ -659,9 +659,18 @@ func TestGetLibrariesCountError(t *testing.T) {
 	defer ts.Close()
 
 	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
-	_, err := c.GetLibraries(context.Background())
-	if err == nil {
-		t.Error("expected error when count request fails")
+	libs, err := c.GetLibraries(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(libs) != 1 {
+		t.Fatalf("expected 1 library, got %d", len(libs))
+	}
+	if libs[0].Name != "Movies" {
+		t.Errorf("expected name Movies, got %s", libs[0].Name)
+	}
+	if libs[0].ItemCount != 0 {
+		t.Errorf("expected 0 item count on count failure, got %d", libs[0].ItemCount)
 	}
 }
 

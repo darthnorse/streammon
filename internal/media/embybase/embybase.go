@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -39,7 +40,7 @@ func (c *Client) Type() models.ServerType { return c.serverType }
 func (c *Client) ServerID() int64         { return c.serverID }
 
 func (c *Client) TestConnection(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/System/Info/Public", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/System/Info", nil)
 	if err != nil {
 		return err
 	}
@@ -489,11 +490,12 @@ func (c *Client) GetLibraries(ctx context.Context) ([]models.Library, error) {
 
 		counts, err := c.getLibraryCounts(ctx, folder.ItemID, folder.CollectionType)
 		if err != nil {
-			return nil, fmt.Errorf("getting counts for library %s: %w", folder.Name, err)
+			log.Printf("%s: failed to get counts for library %s: %v", c.serverType, folder.Name, err)
+		} else {
+			lib.ItemCount = counts.items
+			lib.ChildCount = counts.children
+			lib.GrandchildCount = counts.grandchildren
 		}
-		lib.ItemCount = counts.items
-		lib.ChildCount = counts.children
-		lib.GrandchildCount = counts.grandchildren
 
 		libraries = append(libraries, lib)
 	}
