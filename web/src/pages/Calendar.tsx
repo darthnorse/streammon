@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useFetch } from '../hooks/useFetch'
+import { useAuth } from '../context/AuthContext'
 import { EmptyState } from '../components/EmptyState'
 import type { SonarrEpisode } from '../types'
 
@@ -43,6 +44,8 @@ function getDatesInRange(start: Date, end: Date): string[] {
 }
 
 export function Calendar() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [view, setView] = useState<CalendarView>(getStoredView)
   const [offset, setOffset] = useState(0)
   const { data: configured } = useFetch<{ configured: boolean }>('/api/sonarr/configured')
@@ -102,7 +105,9 @@ export function Calendar() {
       <EmptyState
         icon="&#128197;"
         title="Sonarr Not Configured"
-        description="To enable the TV calendar, configure the Sonarr integration in Settings \u2192 Integrations. Non-admin users won\u2019t see this page until Sonarr is connected."
+        description={isAdmin
+          ? 'To enable the TV calendar, configure Sonarr in Settings \u2192 Integrations.'
+          : 'The TV calendar is not available yet. Ask an admin to configure the Sonarr integration.'}
       />
     )
   }
