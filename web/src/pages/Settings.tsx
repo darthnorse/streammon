@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { Server, OIDCSettings, TautulliSettings, OverseerrSettings } from '../types'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import type { Server, OIDCSettings, TautulliSettings, OverseerrSettings, EnrichmentStatus } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
@@ -496,6 +496,10 @@ export function Settings() {
             </div>
           )}
 
+          {!tautulliLoading && !tautulliFetchError && tautulliConfigured && (
+            <TautulliEnrichment />
+          )}
+
           {showTautulliForm && (
             <TautulliForm
               settings={tautulli ?? undefined}
@@ -508,6 +512,219 @@ export function Settings() {
 
       {tab === 'display' && (
         <DisplaySettings />
+      )}
+    </div>
+  )
+}
+
+interface EnrichStartResponse {
+  total: number
+  status: 'none' | 'started'
+}
+
+function TautulliEnrichment() {
+  const { data: servers } = useFetch<Server[]>('/api/servers')
+  const plexServers = servers?.filter(s => s.type === 'plex')
+
+  const [selectedServer, setSelectedServer] = useState<number>(0)
+  const [enrichStatus, setEnrichStatus] = useState<EnrichmentStatus | null>(null)
+  const [enriching, setEnriching] = useState(false)
+  const [enrichDone, setEnrichDone] = useState(false)
+  const [error, setError] = useState('')
+  const enrichPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    if (plexServers && plexServers.length > 0) {
+      setSelectedServer(prev => prev === 0 ? plexServers[0].id : prev)
+    }
+  }, [plexServers])
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false
+      if (enrichPollRef.current) clearInterval(enrichPollRef.current)
+    }
+  }, [])
+
+  const startEnrichPoll = useCallback(() => {
+    if (enrichPollRef.current) clearInterval(enrichPollRef.current)
+    enrichPollRef.current = setInterval(async () => {
+      try {
+        const status = await api.get<EnrichmentStatus>('/api/settings/tautulli/enrich/status')
+        if (!mountedRef.current) return
+        setEnrichStatus(status)
+        if (!status.running) {
+          setEnriching(false)
+          setEnrichDone(true)
+          if (enrichPollRef.current) {
+            clearInterval(enrichPollRef.current)
+            enrichPollRef.current = null
+          }
+        }
+      } catch {
+        // ignore poll errors
+      }
+    }, 2000)
+  }, [])
+
+  useEffect(() => {
+    if (!selectedServer) return
+    api.get<EnrichmentStatus>(`/api/settings/tautulli/enrich/status?server_id=${selectedServer}`)
+      .then(status => {
+        if (!mountedRef.current) return
+        setEnrichStatus(status)
+        if (status.running) {
+          setEnriching(true)
+          startEnrichPoll()
+        }
+      })
+      .catch(() => {})
+  }, [selectedServer, startEnrichPoll])
+
+  async function handleStopEnrich() {
+    try {
+      await api.post('/api/settings/tautulli/enrich/stop', {})
+      if (!mountedRef.current) return
+      setEnriching(false)
+      setEnrichDone(true)
+      if (enrichPollRef.current) {
+        clearInterval(enrichPollRef.current)
+        enrichPollRef.current = null
+      }
+      const url = selectedServer
+        ? `/api/settings/tautulli/enrich/status?server_id=${selectedServer}`
+        : '/api/settings/tautulli/enrich/status'
+      api.get<EnrichmentStatus>(url)
+        .then(status => { if (mountedRef.current) setEnrichStatus(status) })
+        .catch(() => {})
+    } catch {
+      // poll will pick up the stopped state
+    }
+  }
+
+  async function handleEnrich() {
+    if (!selectedServer) {
+      setError('Please select a server')
+      return
+    }
+
+    setEnrichDone(false)
+    setError('')
+
+    try {
+      const resp = await api.post<EnrichStartResponse>('/api/settings/tautulli/enrich', {
+        server_id: selectedServer,
+      })
+      if (!mountedRef.current) return
+
+      if (resp.status === 'none') return
+
+      setEnriching(true)
+      setEnrichStatus({ running: true, processed: 0, total: resp.total, server_id: selectedServer })
+      startEnrichPoll()
+    } catch (err) {
+      if (mountedRef.current) setError((err as Error).message)
+    }
+  }
+
+  const enrichPending = enrichStatus && !enrichStatus.running && enrichStatus.total > 0 && !enrichDone
+  const enrichRunning = enriching && enrichStatus?.running
+  const enrichPct = enrichStatus && enrichStatus.total > 0
+    ? Math.round((enrichStatus.processed / enrichStatus.total) * 100)
+    : 0
+
+  if (!plexServers?.length) return null
+
+  const selectClass = `w-full px-3 py-2.5 rounded-lg text-sm
+    bg-surface dark:bg-surface-dark
+    border border-border dark:border-border-dark
+    focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
+    transition-colors`
+
+  return (
+    <div className="card p-5 mt-4">
+      <h3 className="font-semibold text-base mb-2">Stream Detail Enrichment</h3>
+      <p className="text-sm text-muted dark:text-muted-dark mb-4">
+        Imported Tautulli records only contain basic metadata. Enrichment fetches full stream
+        details (resolution, bitrate, codec, player, transcoding info) from Tautulli for each
+        record, filling in data needed for detailed statistics and charts.
+      </p>
+
+      <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+        <div className="flex-1">
+          <label htmlFor="enrich-server" className="block text-sm font-medium mb-1.5">
+            Server
+          </label>
+          <select
+            id="enrich-server"
+            value={selectedServer}
+            onChange={e => setSelectedServer(Number(e.target.value))}
+            className={selectClass}
+          >
+            {plexServers.map(srv => (
+              <option key={srv.id} value={srv.id}>
+                {srv.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {!enrichRunning && (
+          <button
+            type="button"
+            onClick={handleEnrich}
+            disabled={enriching || !selectedServer}
+            className="px-4 py-2.5 text-sm font-medium rounded-lg
+                       bg-accent text-gray-900 hover:bg-accent/90
+                       disabled:opacity-50 transition-colors"
+          >
+            Enrich Now
+          </button>
+        )}
+      </div>
+
+      {enrichPending && !enrichRunning && (
+        <p className="text-sm text-muted dark:text-muted-dark mt-3">
+          {enrichStatus.total.toLocaleString()} records awaiting enrichment
+        </p>
+      )}
+
+      {enrichRunning && enrichStatus && (
+        <div className="mt-3 space-y-2">
+          <div className="flex justify-between text-xs text-muted dark:text-muted-dark">
+            <span>Enriching stream details...</span>
+            <span>{enrichStatus.processed.toLocaleString()} / {enrichStatus.total.toLocaleString()} ({enrichPct}%)</span>
+          </div>
+          <div className="flex gap-3 items-center">
+            <div className="flex-1 bg-surface dark:bg-surface-dark rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-accent h-2 rounded-full transition-all duration-300"
+                style={{ width: `${enrichPct}%` }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleStopEnrich}
+              className="px-3 py-1 text-xs font-medium rounded-lg
+                         border border-red-400/50 text-red-500 dark:text-red-400
+                         hover:bg-red-500/10 transition-colors"
+            >
+              Stop
+            </button>
+          </div>
+        </div>
+      )}
+
+      {enrichDone && enrichStatus && !enrichStatus.running && (
+        <div className="mt-3 text-sm font-mono px-3 py-2 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
+          Enriched {enrichStatus.processed.toLocaleString()} records
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-3 text-sm text-red-500 dark:text-red-400 font-mono">
+          {error}
+        </div>
       )}
     </div>
   )

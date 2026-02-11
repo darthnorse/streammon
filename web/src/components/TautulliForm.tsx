@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { TautulliSettings, TautulliImportResult, Server, EnrichmentStatus } from '../types'
+import type { TautulliSettings, TautulliImportResult, Server } from '../types'
 import { api } from '../lib/api'
 import { formInputClass } from '../lib/constants'
 import { useModal } from '../hooks/useModal'
@@ -30,11 +30,6 @@ interface ImportProgress {
   error?: string
 }
 
-interface EnrichStartResponse {
-  total: number
-  status: 'none' | 'started'
-}
-
 const selectClass = `w-full px-3 py-2.5 rounded-lg text-sm
   bg-surface dark:bg-surface-dark
   border border-border dark:border-border-dark
@@ -62,11 +57,6 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
   const importAbortRef = useRef<AbortController | null>(null)
   const mountedRef = useRef(true)
 
-  const [enrichStatus, setEnrichStatus] = useState<EnrichmentStatus | null>(null)
-  const [enriching, setEnriching] = useState(false)
-  const [enrichDone, setEnrichDone] = useState(false)
-  const enrichPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
   const busy = saving || testing || importing
   const showImport = isEdit || justSaved
 
@@ -87,44 +77,8 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
     return () => {
       mountedRef.current = false
       importAbortRef.current?.abort()
-      if (enrichPollRef.current) clearInterval(enrichPollRef.current)
     }
   }, [])
-
-  const startEnrichPoll = useCallback(() => {
-    if (enrichPollRef.current) clearInterval(enrichPollRef.current)
-    enrichPollRef.current = setInterval(async () => {
-      try {
-        const status = await api.get<EnrichmentStatus>('/api/settings/tautulli/enrich/status')
-        if (!mountedRef.current) return
-        setEnrichStatus(status)
-        if (!status.running) {
-          setEnriching(false)
-          setEnrichDone(true)
-          if (enrichPollRef.current) {
-            clearInterval(enrichPollRef.current)
-            enrichPollRef.current = null
-          }
-        }
-      } catch {
-        // ignore poll errors
-      }
-    }, 2000)
-  }, [])
-
-  useEffect(() => {
-    if (!isEdit || !selectedServer) return
-    api.get<EnrichmentStatus>(`/api/settings/tautulli/enrich/status?server_id=${selectedServer}`)
-      .then(status => {
-        if (!mountedRef.current) return
-        setEnrichStatus(status)
-        if (status.running) {
-          setEnriching(true)
-          startEnrichPoll()
-        }
-      })
-      .catch(() => {})
-  }, [isEdit, selectedServer, startEnrichPoll])
 
   function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
@@ -236,7 +190,6 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
                   skipped: data.skipped,
                   total: data.total,
                 })
-                refreshEnrichStatus()
               } else if (data.type === 'error') {
                 setError(data.error || 'Import failed')
                 setImportResult({
@@ -261,64 +214,6 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
       importAbortRef.current = null
     }
   }
-
-  function refreshEnrichStatus() {
-    const url = selectedServer
-      ? `/api/settings/tautulli/enrich/status?server_id=${selectedServer}`
-      : '/api/settings/tautulli/enrich/status'
-    api.get<EnrichmentStatus>(url)
-      .then(status => {
-        if (mountedRef.current) setEnrichStatus(status)
-      })
-      .catch(() => {})
-  }
-
-  async function handleStopEnrich() {
-    try {
-      await api.post('/api/settings/tautulli/enrich/stop', {})
-      if (!mountedRef.current) return
-      setEnriching(false)
-      setEnrichDone(true)
-      if (enrichPollRef.current) {
-        clearInterval(enrichPollRef.current)
-        enrichPollRef.current = null
-      }
-      refreshEnrichStatus()
-    } catch {
-      // poll will pick up the stopped state
-    }
-  }
-
-  async function handleEnrich() {
-    if (!selectedServer) {
-      setError('Please select a server')
-      return
-    }
-
-    setEnrichDone(false)
-    setError('')
-
-    try {
-      const resp = await api.post<EnrichStartResponse>('/api/settings/tautulli/enrich', {
-        server_id: selectedServer,
-      })
-      if (!mountedRef.current) return
-
-      if (resp.status === 'none') return
-
-      setEnriching(true)
-      setEnrichStatus({ running: true, processed: 0, total: resp.total, server_id: selectedServer })
-      startEnrichPoll()
-    } catch (err) {
-      if (mountedRef.current) setError((err as Error).message)
-    }
-  }
-
-  const enrichPending = enrichStatus && !enrichStatus.running && enrichStatus.total > 0 && !enrichDone
-  const enrichRunning = enriching && enrichStatus?.running
-  const enrichPct = enrichStatus && enrichStatus.total > 0
-    ? Math.round((enrichStatus.processed / enrichStatus.total) * 100)
-    : 0
 
   return (
     <div
@@ -487,62 +382,6 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
                 <div className="text-sm font-mono px-3 py-2 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
                   Imported {importResult.imported.toLocaleString()} records
                   {importResult.skipped > 0 && ` (skipped ${importResult.skipped.toLocaleString()} duplicates)`}
-                </div>
-              )}
-
-              {(enrichPending || enrichRunning || enrichDone) && (
-                <div className="border-t border-border dark:border-border-dark pt-4 mt-4">
-                  <h3 className="text-sm font-semibold mb-3">Stream Detail Enrichment</h3>
-
-                  {enrichPending && !enrichRunning && (
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-muted dark:text-muted-dark flex-1">
-                        {enrichStatus.total.toLocaleString()} records awaiting enrichment
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleEnrich}
-                        disabled={busy || enriching || !selectedServer}
-                        className="px-4 py-2.5 text-sm font-medium rounded-lg
-                                   bg-accent text-gray-900 hover:bg-accent/90
-                                   disabled:opacity-50 transition-colors"
-                      >
-                        Enrich Now
-                      </button>
-                    </div>
-                  )}
-
-                  {enrichRunning && enrichStatus && (
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-xs text-muted dark:text-muted-dark">
-                        <span>Enriching stream details...</span>
-                        <span>{enrichStatus.processed.toLocaleString()} / {enrichStatus.total.toLocaleString()} ({enrichPct}%)</span>
-                      </div>
-                      <div className="flex gap-3 items-center">
-                        <div className="flex-1 bg-surface dark:bg-surface-dark rounded-full h-2 overflow-hidden">
-                          <div
-                            className="bg-accent h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${enrichPct}%` }}
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={handleStopEnrich}
-                          className="px-3 py-1 text-xs font-medium rounded-lg
-                                     border border-red-400/50 text-red-500 dark:text-red-400
-                                     hover:bg-red-500/10 transition-colors"
-                        >
-                          Stop
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {enrichDone && enrichStatus && !enrichStatus.running && (
-                    <div className="text-sm font-mono px-3 py-2 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
-                      Enriched {enrichStatus.processed.toLocaleString()} records
-                    </div>
-                  )}
                 </div>
               )}
             </>
