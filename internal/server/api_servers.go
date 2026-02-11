@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -85,6 +86,7 @@ func (s *Server) handleCreateServer(w http.ResponseWriter, r *http.Request) {
 	}
 	s.syncServerToPoller(srv)
 	s.InvalidateLibraryCache()
+	s.triggerServerSync(srv)
 	writeJSON(w, http.StatusCreated, srv)
 }
 
@@ -164,6 +166,7 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	// Add new adapter after DB update succeeds
 	s.syncServerToPoller(srv)
 	s.InvalidateLibraryCache()
+	s.triggerServerSync(srv)
 	writeJSON(w, http.StatusOK, srv)
 }
 
@@ -240,6 +243,60 @@ func testConnection(w http.ResponseWriter, r *http.Request, srv models.Server) {
 	}
 
 	writeJSON(w, http.StatusOK, testConnectionResult{Success: true, MachineID: machineID})
+}
+
+func (s *Server) triggerServerSync(srv *models.Server) {
+	if s.poller == nil {
+		return
+	}
+	if srv.Type == models.ServerTypePlex {
+		return
+	}
+	go func() {
+		ms, ok := s.poller.GetServer(srv.ID)
+		if !ok {
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(s.appCtx, 5*time.Minute)
+		defer cancel()
+
+		libs, err := ms.GetLibraries(ctx)
+		if err != nil {
+			log.Printf("auto-sync: get libraries for server %d: %v", srv.ID, err)
+			return
+		}
+
+		var synced int
+		for _, lib := range libs {
+			if ctx.Err() != nil {
+				return
+			}
+			if lib.Type != models.LibraryTypeMovie && lib.Type != models.LibraryTypeShow {
+				continue
+			}
+
+			items, err := ms.GetLibraryItems(ctx, lib.ID)
+			if err != nil {
+				log.Printf("auto-sync: fetch items for %s/%s: %v", ms.Name(), lib.Name, err)
+				continue
+			}
+
+			count, _, err := s.store.SyncLibraryItems(ctx, srv.ID, lib.ID, items)
+			if err != nil {
+				log.Printf("auto-sync: save items for %s/%s: %v", ms.Name(), lib.Name, err)
+				continue
+			}
+
+			synced += count
+		}
+
+		if synced > 0 {
+			s.InvalidateLibraryCache()
+			log.Printf("auto-sync: server %d (%s) — synced %d items across %d libraries",
+				srv.ID, ms.Name(), synced, len(libs))
+		}
+	}()
 }
 
 func (s *Server) handleTestServerAdHoc(w http.ResponseWriter, r *http.Request) {
