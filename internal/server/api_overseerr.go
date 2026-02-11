@@ -107,6 +107,18 @@ func (s *Server) handleUpdateOverseerrSettings(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	if req.APIKey == "" {
+		existing, err := s.store.GetOverseerrConfig()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal")
+			return
+		}
+		if req.URL != existing.URL {
+			writeError(w, http.StatusBadRequest, "api_key is required when changing the URL")
+			return
+		}
+	}
+
 	storeCfg := store.OverseerrConfig{
 		URL:    req.URL,
 		APIKey: req.APIKey,
@@ -195,10 +207,10 @@ func (s *Server) handleOverseerrConfigured(w http.ResponseWriter, r *http.Reques
 func (s *Server) newOverseerrClient() (*overseerr.Client, error) {
 	cfg, err := s.store.GetOverseerrConfig()
 	if err != nil {
-		return nil, fmt.Errorf("reading config: %w", err)
+		return nil, fmt.Errorf("overseerr not available")
 	}
 	if cfg.URL == "" || cfg.APIKey == "" {
-		return nil, fmt.Errorf("Overseerr not configured")
+		return nil, fmt.Errorf("overseerr not configured")
 	}
 	return overseerr.NewClient(cfg.URL, cfg.APIKey)
 }
@@ -230,7 +242,7 @@ func (s *Server) handleOverseerrSearch(w http.ResponseWriter, r *http.Request) {
 
 	data, err := client.Search(ctx, query, page)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
@@ -262,7 +274,7 @@ func (s *Server) handleOverseerrDiscover(w http.ResponseWriter, r *http.Request)
 
 	data, err := client.Discover(ctx, category, page)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
@@ -284,7 +296,7 @@ func (s *Server) handleOverseerrMovie(w http.ResponseWriter, r *http.Request) {
 
 	data, err := client.GetMovie(ctx, id)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
@@ -306,7 +318,7 @@ func (s *Server) handleOverseerrTV(w http.ResponseWriter, r *http.Request) {
 
 	data, err := client.GetTV(ctx, id)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
@@ -333,7 +345,7 @@ func (s *Server) handleOverseerrTVSeason(w http.ResponseWriter, r *http.Request)
 
 	data, err := client.GetTVSeason(ctx, tvID, seasonNum)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
@@ -368,7 +380,7 @@ func (s *Server) handleOverseerrListRequests(w http.ResponseWriter, r *http.Requ
 
 	data, err := client.ListRequests(ctx, take, skip, filter, sort)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
@@ -384,7 +396,7 @@ func (s *Server) handleOverseerrRequestCount(w http.ResponseWriter, r *http.Requ
 
 	data, err := client.RequestCount(ctx)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
@@ -606,7 +618,7 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 
 	data, err := client.CreateRequest(ctx, sanitized)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
@@ -634,7 +646,7 @@ func (s *Server) handleOverseerrRequestAction(w http.ResponseWriter, r *http.Req
 
 	data, err := client.UpdateRequestStatus(ctx, id, action)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
@@ -655,7 +667,7 @@ func (s *Server) handleOverseerrDeleteRequest(w http.ResponseWriter, r *http.Req
 	defer cancel()
 
 	if err := client.DeleteRequest(ctx, id); err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 

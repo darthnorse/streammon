@@ -648,10 +648,12 @@ export interface BulkDeleteResult {
 
 // Overseerr types
 
-export interface OverseerrSettings {
+export interface IntegrationSettings {
   url: string
   api_key: string
 }
+
+export type OverseerrSettings = IntegrationSettings
 
 export interface OverseerrMediaInfo {
   id?: number
@@ -816,5 +818,27 @@ export interface OverseerrRequestCount {
   declined: number
   processing: number
   available: number
+}
+
+export type SonarrSettings = IntegrationSettings
+
+export interface SonarrEpisode {
+  id: number
+  seriesId: number
+  seasonNumber: number
+  episodeNumber: number
+  title: string
+  overview?: string
+  airDateUtc: string
+  airDate: string
+  hasFile: boolean
+  monitored: boolean
+  series: {
+    id: number
+    title: string
+    year?: number
+    network?: string
+    images?: Array<{ coverType: string; remoteUrl: string }>
+  }
 }
 

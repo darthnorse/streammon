@@ -120,6 +120,19 @@ func (s *Server) routes() {
 			sr.Post("/test", s.handleTestOverseerrConnection)
 		})
 
+		r.Route("/settings/sonarr", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleGetSonarrSettings)
+			sr.Put("/", s.handleUpdateSonarrSettings)
+			sr.Delete("/", s.handleDeleteSonarrSettings)
+			sr.Post("/test", s.handleTestSonarrConnection)
+		})
+
+		r.Route("/sonarr", func(sr chi.Router) {
+			sr.Get("/configured", s.handleSonarrConfigured)
+			sr.Get("/calendar", s.handleSonarrCalendar)
+		})
+
 		r.Route("/overseerr", func(sr chi.Router) {
 			sr.Get("/configured", s.handleOverseerrConfigured)
 			sr.Get("/search", s.handleOverseerrSearch)
@@ -245,6 +258,7 @@ func (s *Server) routes() {
 		}
 		r.Get("/api/servers/{id}/thumb/*", s.handleThumbProxy)
 		r.Get("/api/servers/{id}/items/*", s.handleGetItemDetails)
+		r.Get("/api/sonarr/poster/{seriesId}", s.handleSonarrPoster)
 		r.Get("/api/dashboard/sse", s.handleDashboardSSE)
 	})
 

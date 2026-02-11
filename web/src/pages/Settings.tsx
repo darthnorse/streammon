@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { Server, OIDCSettings, TautulliSettings, OverseerrSettings, EnrichmentStatus } from '../types'
+import type { Server, OIDCSettings, TautulliSettings, OverseerrSettings, SonarrSettings, EnrichmentStatus } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
@@ -8,6 +8,7 @@ import { OIDCForm } from '../components/OIDCForm'
 import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
 import { TautulliForm } from '../components/TautulliForm'
 import { OverseerrForm } from '../components/OverseerrForm'
+import { SonarrForm } from '../components/SonarrForm'
 import { EmptyState } from '../components/EmptyState'
 import { UserManagement } from '../components/UserManagement'
 
@@ -39,12 +40,14 @@ export function Settings() {
   const { data: maxmind, loading: maxmindLoading, refetch: refetchMaxmind } = useFetch<MaxMindSettings>(tab === 'geoip' ? '/api/settings/maxmind' : null)
   const { data: tautulli, loading: tautulliLoading, error: tautulliFetchError, refetch: refetchTautulli } = useFetch<TautulliSettings>(tab === 'import' ? '/api/settings/tautulli' : null)
   const { data: overseerr, loading: overseerrLoading, error: overseerrFetchError, refetch: refetchOverseerr } = useFetch<OverseerrSettings>(tab === 'integrations' ? '/api/settings/overseerr' : null)
+  const { data: sonarr, loading: sonarrLoading, error: sonarrFetchError, refetch: refetchSonarr } = useFetch<SonarrSettings>(tab === 'integrations' ? '/api/settings/sonarr' : null)
 
   const [editingServer, setEditingServer] = useState<Server | undefined>()
   const [showForm, setShowForm] = useState(false)
   const [showOidcForm, setShowOidcForm] = useState(false)
   const [showTautulliForm, setShowTautulliForm] = useState(false)
   const [showOverseerrForm, setShowOverseerrForm] = useState(false)
+  const [showSonarrForm, setShowSonarrForm] = useState(false)
   const [actionError, setActionError] = useState('')
   const [calculatingHouseholds, setCalculatingHouseholds] = useState(false)
   const [householdResult, setHouseholdResult] = useState<{ created: number } | null>(null)
@@ -55,6 +58,7 @@ export function Settings() {
   const oidcConfigured = !!oidc?.issuer
   const tautulliConfigured = !!tautulli?.url
   const overseerrConfigured = !!overseerr?.url
+  const sonarrConfigured = !!sonarr?.url
 
   function openAdd() {
     setEditingServer(undefined)
@@ -132,6 +136,22 @@ export function Settings() {
       refetchOverseerr()
     } catch {
       setActionError('Failed to delete Overseerr configuration')
+    }
+  }
+
+  function handleSonarrSaved() {
+    setShowSonarrForm(false)
+    refetchSonarr()
+  }
+
+  async function handleDeleteSonarr() {
+    if (!window.confirm('Remove Sonarr configuration?')) return
+    try {
+      await api.del('/api/settings/sonarr')
+      setActionError('')
+      refetchSonarr()
+    } catch {
+      setActionError('Failed to delete Sonarr configuration')
     }
   }
 
@@ -437,6 +457,57 @@ export function Settings() {
               settings={overseerr ?? undefined}
               onClose={() => setShowOverseerrForm(false)}
               onSaved={handleOverseerrSaved}
+            />
+          )}
+
+          {sonarrLoading && <EmptyState icon="&#8635;" title="Loading..." />}
+
+          {sonarrFetchError && !sonarrLoading && (
+            <EmptyState icon="!" title="Failed to load Sonarr settings">
+              <button onClick={refetchSonarr} className="text-sm text-accent hover:underline">Retry</button>
+            </EmptyState>
+          )}
+
+          {!sonarrLoading && !sonarrFetchError && !sonarrConfigured && (
+            <EmptyState icon="&#128250;" title="Sonarr Not Configured" description="Connect to Sonarr to view your TV calendar with upcoming episodes.">
+              <button
+                onClick={() => setShowSonarrForm(true)}
+                className="px-4 py-2.5 text-sm font-semibold rounded-lg
+                           bg-accent text-gray-900 hover:bg-accent/90 transition-colors"
+              >
+                Configure Sonarr
+              </button>
+            </EmptyState>
+          )}
+
+          {!sonarrLoading && !sonarrFetchError && sonarrConfigured && sonarr && (
+            <div className="card p-5 mt-4">
+              <div className="flex items-start justify-between mb-4">
+                <h3 className="font-semibold text-base">Sonarr</h3>
+                <span className="badge badge-accent">Connected</span>
+              </div>
+              <div className="space-y-2 text-sm mb-4">
+                <div>
+                  <span className="text-muted dark:text-muted-dark">URL: </span>
+                  <span className="font-mono">{sonarr.url}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
+                <button onClick={() => setShowSonarrForm(true)} className={btnOutline}>
+                  Edit
+                </button>
+                <button onClick={handleDeleteSonarr} className={btnDanger}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showSonarrForm && (
+            <SonarrForm
+              settings={sonarr ?? undefined}
+              onClose={() => setShowSonarrForm(false)}
+              onSaved={handleSonarrSaved}
             />
           )}
         </>

@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"streammon/internal/httputil"
 	"streammon/internal/models"
 )
 
@@ -27,7 +26,6 @@ var (
 	validPlexThumbPath = regexp.MustCompile(`^library/metadata/(?:actors/)?[0-9]+/thumb(?:/[0-9]+)?$`)
 )
 
-var thumbProxyClient = httputil.NewClient()
 
 func escapePathSegments(path string) string {
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
@@ -110,7 +108,7 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set("X-Emby-Token", srv.APIKey)
 	}
 
-	resp, err := thumbProxyClient.Do(req)
+	resp, err := s.thumbProxyHTTP.Do(req)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "upstream error")
 		return
@@ -119,7 +117,7 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		writeError(w, resp.StatusCode, "upstream error")
+		writeError(w, http.StatusBadGateway, "upstream error")
 		return
 	}
 

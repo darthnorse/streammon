@@ -27,6 +27,8 @@ func mockOverseerrWithUsers(t *testing.T, users []map[string]any) *httptest.Serv
 			return
 		}
 		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/status":
+			json.NewEncoder(w).Encode(map[string]string{"version": "1.33.2"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
 			if users == nil {
 				users = []map[string]any{}
@@ -249,6 +251,111 @@ func TestUpdateOverseerrSettings_InvalidURL(t *testing.T) {
 
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateOverseerrSettings_RequiresKeyOnURLChange(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	st.SetOverseerrConfig(store.OverseerrConfig{URL: "http://old:5055", APIKey: "oldkey"})
+
+	body := `{"url":"http://new:5055","api_key":"` + maskedSecret + `"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/overseerr", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 when URL changes without new key, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateOverseerrSettings_MaskedKeyPreserved(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	st.SetOverseerrConfig(store.OverseerrConfig{URL: "http://overseerr:5055", APIKey: "original"})
+
+	body := `{"url":"http://overseerr:5055","api_key":"` + maskedSecret + `"}`
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/overseerr", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	cfg, _ := st.GetOverseerrConfig()
+	if cfg.APIKey != "original" {
+		t.Fatalf("expected preserved key %q, got %q", "original", cfg.APIKey)
+	}
+}
+
+func TestUpdateOverseerrSettings_MalformedJSON(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/overseerr", strings.NewReader("not json"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateOverseerrSettings_EmptyBody(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/overseerr", strings.NewReader(""))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOverseerrTestConnection_MissingURL(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	body := `{"api_key":"key"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/overseerr/test", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOverseerrTestConnection_MalformedJSON(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/overseerr/test", strings.NewReader("{bad"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOverseerrTestConnection_FallsBackToStoredKey(t *testing.T) {
+	mock := mockOverseerr(t)
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+
+	body := `{"url":"` + mock.URL + `","api_key":"` + maskedSecret + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/overseerr/test", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp overseerrTestResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if !resp.Success {
+		t.Fatalf("expected success with stored key, got error: %s", resp.Error)
 	}
 }
 
@@ -843,6 +950,81 @@ func TestOverseerrUserCache_InvalidatedOnSettingsDelete(t *testing.T) {
 	}
 	if !mapCleared {
 		t.Fatal("expected emailToID map to be cleared after settings delete")
+	}
+}
+
+func TestOverseerrTestConnection_Success(t *testing.T) {
+	mock := mockOverseerr(t)
+	srv, _ := newTestServerWrapped(t)
+
+	body := `{"url":"` + mock.URL + `","api_key":"test-api-key"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/overseerr/test", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp overseerrTestResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if !resp.Success {
+		t.Fatalf("expected success, got error: %s", resp.Error)
+	}
+}
+
+func TestOverseerrTestConnection_Failure(t *testing.T) {
+	mock := mockOverseerr(t)
+	srv, _ := newTestServerWrapped(t)
+
+	body := `{"url":"` + mock.URL + `","api_key":"wrong-key"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/overseerr/test", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp overseerrTestResponse
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Success {
+		t.Fatal("expected failure for wrong key")
+	}
+}
+
+func TestOverseerrSettings_ViewerForbidden(t *testing.T) {
+	srv, st := newTestServer(t)
+	viewerToken := createViewerSession(t, st, "viewer-overseerr-settings")
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{"get settings", http.MethodGet, "/api/settings/overseerr", ""},
+		{"update settings", http.MethodPut, "/api/settings/overseerr", `{"url":"http://x","api_key":"k"}`},
+		{"delete settings", http.MethodDelete, "/api/settings/overseerr", ""},
+		{"test connection", http.MethodPost, "/api/settings/overseerr/test", `{"url":"http://x","api_key":"k"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var req *http.Request
+			if tt.body != "" {
+				req = httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			} else {
+				req = httptest.NewRequest(tt.method, tt.path, nil)
+			}
+			req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403 for viewer on %s, got %d: %s", tt.name, w.Code, w.Body.String())
+			}
+		})
 	}
 }
 

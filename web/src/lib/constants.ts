@@ -8,6 +8,7 @@ import {
   ShieldAlert,
   Settings,
   Film,
+  CalendarDays,
 } from 'lucide-react'
 import type { MediaType, Role, Severity } from '../types'
 
@@ -48,6 +49,7 @@ export const navIconMap = {
   ShieldAlert,
   Settings,
   Film,
+  CalendarDays,
 } satisfies Record<string, React.ComponentType<{ className?: string }>>
 
 export interface NavLink {
@@ -60,6 +62,7 @@ export interface NavLink {
 export const navLinks: NavLink[] = [
   { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', visibility: 'admin' },
   { to: '/requests', label: 'Requests', icon: 'Film', visibility: 'all' },
+  { to: '/calendar', label: 'Calendar', icon: 'CalendarDays', visibility: 'all' },
   { to: '/history', label: 'History', icon: 'History', visibility: 'admin' },
   { to: '/my-stats', label: 'My Stats', icon: 'User', visibility: 'viewer' },
   { to: '/statistics', label: 'Statistics', icon: 'BarChart3', visibility: 'admin' },

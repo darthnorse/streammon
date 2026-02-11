@@ -12,6 +12,7 @@ import (
 
 	"streammon/internal/auth"
 	"streammon/internal/geoip"
+	"streammon/internal/httputil"
 	"streammon/internal/models"
 	"streammon/internal/poller"
 	"streammon/internal/store"
@@ -43,6 +44,8 @@ type Server struct {
 	appCtx         context.Context
 	overseerrUsers     *overseerrUserCache
 	overseerrPlexCache *overseerrPlexTokenCache
+	thumbProxyHTTP     *http.Client
+	sonarrPosterHTTP   *http.Client
 	warnHTTPOnce       sync.Once
 }
 
@@ -58,6 +61,8 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 			userIDMap:   make(map[int64]int),
 			entryExpiry: make(map[int64]time.Time),
 		},
+		thumbProxyHTTP:   httputil.NewClient(),
+		sonarrPosterHTTP: httputil.NewClient(),
 	}
 	for _, o := range opts {
 		o(srv)

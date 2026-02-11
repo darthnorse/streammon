@@ -12,6 +12,7 @@ import { Statistics } from './pages/Statistics'
 import { Libraries } from './pages/Libraries'
 import { Rules } from './pages/Rules'
 import { Requests } from './pages/Requests'
+import { Calendar } from './pages/Calendar'
 import { DiscoverAll } from './pages/DiscoverAll'
 import { Setup } from './pages/Setup'
 import { Login } from './pages/Login'
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
             <Route path="/requests/discover/*" element={<DiscoverAll />} />
             <Route path="/requests" element={<Requests />} />
+            <Route path="/calendar" element={<Calendar />} />
             <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
             <Route path="/users/:name" element={<UserDetail />} />
             <Route path="/my-stats" element={<MyStats />} />

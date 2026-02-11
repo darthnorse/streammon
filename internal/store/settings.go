@@ -178,6 +178,50 @@ func (s *Store) DeleteOverseerrConfig() error {
 	return nil
 }
 
+type SonarrConfig struct {
+	URL    string
+	APIKey string
+}
+
+func (s *Store) GetSonarrConfig() (SonarrConfig, error) {
+	var cfg SonarrConfig
+	var err error
+	if cfg.URL, err = s.GetSetting("sonarr.url"); err != nil {
+		return cfg, err
+	}
+	if cfg.APIKey, err = s.GetSetting("sonarr.api_key"); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func (s *Store) SetSonarrConfig(cfg SonarrConfig) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(settingUpsert, "sonarr.url", cfg.URL); err != nil {
+		return fmt.Errorf("setting %q: %w", "sonarr.url", err)
+	}
+	if cfg.APIKey != "" {
+		if _, err := tx.Exec(settingUpsert, "sonarr.api_key", cfg.APIKey); err != nil {
+			return fmt.Errorf("setting %q: %w", "sonarr.api_key", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) DeleteSonarrConfig() error {
+	_, err := s.db.Exec(`DELETE FROM settings WHERE key IN ('sonarr.url', 'sonarr.api_key')`)
+	if err != nil {
+		return fmt.Errorf("deleting Sonarr config: %w", err)
+	}
+	return nil
+}
+
 const unitSystemKey = "display.units"
 
 func (s *Store) GetUnitSystem() (string, error) {
