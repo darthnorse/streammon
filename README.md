@@ -23,8 +23,42 @@ Typical memory footprint is around 15 MB. No runtime dependencies, no separate d
 
 ## Quick Start
 
+### 1. Create a `docker-compose.yml`
+
+```yaml
+services:
+  streammon:
+    image: ghcr.io/darthnorse/streammon:latest
+    container_name: streammon
+    ports:
+      - "7935:7935"
+    volumes:
+      - ./data:/app/data
+      - ./geoip:/app/geoip
+    environment:
+      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
+    restart: unless-stopped
+```
+
+### 2. Generate an encryption key
+
+This key is used to encrypt stored Plex tokens for [Overseerr user attribution](#overseerr-integration). Run this command and copy the output:
+
 ```bash
-cp docker-compose.example.yml docker-compose.yml
+openssl rand -base64 32
+```
+
+### 3. Create a `.env` file
+
+Create a `.env` file in the same directory as your `docker-compose.yml` and paste the key from step 2:
+
+```
+TOKEN_ENCRYPTION_KEY=your-generated-key-here
+```
+
+### 4. Start the container
+
+```bash
 docker compose up -d
 ```
 
@@ -251,7 +285,7 @@ The frontend dev server proxies API requests to the backend on port 7935.
 - **Backend:** Go, Chi router, SQLite (WAL mode), SSE
 - **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, Recharts, Leaflet
 - **Auth:** Local, Plex, Emby, Jellyfin, OIDC
-- **Deployment:** Docker Compose, multi-stage build (Node > Go > Debian slim)
+- **Deployment:** Docker Compose, multi-stage build (Node > Go > Alpine)
 
 ## Acknowledgments
 

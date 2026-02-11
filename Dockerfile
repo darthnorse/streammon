@@ -9,14 +9,15 @@ RUN npm ci --legacy-peer-deps
 COPY web/ ./
 RUN npm run build
 
-FROM golang:1.24-bookworm AS backend
+FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS backend
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend /app/internal/server/web/dist ./internal/server/web/dist
 ARG VERSION=dev
-RUN CGO_ENABLED=0 go build -ldflags "-X main.Version=${VERSION}" -o streammon ./cmd/streammon
+ARG TARGETOS TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-X main.Version=${VERSION}" -o streammon ./cmd/streammon
 
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates
