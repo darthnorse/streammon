@@ -237,7 +237,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
               type="text"
               value={form.url}
               onChange={e => setField('url', e.target.value)}
-              placeholder="http://192.168.1.100:32400"
+              placeholder={form.type === 'plex' ? 'http://192.168.1.100:32400' : 'http://192.168.1.100:8096'}
               className={formInputClass}
             />
           </div>

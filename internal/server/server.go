@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"sync"
@@ -37,6 +38,8 @@ type Server struct {
 	libCache       *libraryCache
 	rulesEngine    RulesEngine
 	version        *version.Checker
+	enrichment     *enrichmentState
+	appCtx         context.Context
 	overseerrUsers     *overseerrUserCache
 	overseerrPlexCache *overseerrPlexTokenCache
 	warnHTTPOnce       sync.Once
@@ -44,9 +47,11 @@ type Server struct {
 
 func NewServer(s *store.Store, opts ...Option) *Server {
 	srv := &Server{
-		router:         chi.NewRouter(),
-		store:          s,
-		libCache:       &libraryCache{},
+		router:     chi.NewRouter(),
+		store:      s,
+		libCache:   &libraryCache{},
+		enrichment: &enrichmentState{},
+		appCtx:     context.Background(),
 		overseerrUsers: &overseerrUserCache{},
 		overseerrPlexCache: &overseerrPlexTokenCache{
 			userIDMap:   make(map[int64]int),
@@ -93,6 +98,15 @@ func WithVersion(v *version.Checker) Option {
 	return func(s *Server) { s.version = v }
 }
 
+func WithAppContext(ctx context.Context) Option {
+	return func(s *Server) { s.appCtx = ctx }
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
+}
+
+// WaitEnrichment blocks until any running background enrichment finishes.
+func (s *Server) WaitEnrichment() {
+	s.enrichment.Wait()
 }

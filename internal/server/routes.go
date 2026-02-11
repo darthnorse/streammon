@@ -107,6 +107,9 @@ func (s *Server) routes() {
 			sr.Delete("/", s.handleDeleteTautulliSettings)
 			sr.Post("/test", s.handleTestTautulliConnection)
 			sr.Post("/import", s.handleTautulliImport)
+			sr.Post("/enrich", s.handleStartEnrichment)
+			sr.Post("/enrich/stop", s.handleStopEnrichment)
+			sr.Get("/enrich/status", s.handleEnrichmentStatus)
 		})
 
 		r.Route("/settings/overseerr", func(sr chi.Router) {

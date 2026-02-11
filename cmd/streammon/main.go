@@ -155,6 +155,9 @@ func main() {
 
 	vc := version.NewChecker(Version)
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	opts := []server.Option{
 		server.WithPoller(p),
 		server.WithGeoResolver(geoResolver),
@@ -162,6 +165,7 @@ func main() {
 		server.WithGeoUpdater(geoUpdater),
 		server.WithRulesEngine(rulesEngine),
 		server.WithVersion(vc),
+		server.WithAppContext(ctx),
 	}
 	if corsOrigin != "" {
 		opts = append(opts, server.WithCORSOrigin(corsOrigin))
@@ -174,9 +178,6 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	go vc.Start(ctx)
 	go geoUpdater.Start(ctx)
@@ -194,6 +195,7 @@ func main() {
 	log.Println("Shutting down...")
 	p.Stop()
 	p.PersistActiveSessions()
+	srv.WaitEnrichment()
 	rulesEngine.WaitForNotifications()
 	server.StopRateLimiter()
 	server.StopAuthRateLimiter()

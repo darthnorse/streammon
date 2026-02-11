@@ -163,6 +163,8 @@ type WatchHistoryEntry struct {
 	DynamicRange      string            `json:"dynamic_range,omitempty"`
 	PausedMs          int64             `json:"paused_ms,omitempty"`
 	Watched           bool              `json:"watched"`
+	// Internal: Tautulli reference_id for background enrichment
+	TautulliReferenceID int64 `json:"-"`
 	// Geo fields from ip_geo_cache (optional, populated by ListHistory)
 	City    string `json:"city,omitempty"`
 	Country string `json:"country,omitempty"`

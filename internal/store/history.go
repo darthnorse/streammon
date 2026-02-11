@@ -28,8 +28,8 @@ const historyInsertSQL = `INSERT INTO watch_history (server_id, item_id, grandpa
 	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at,
 	season_number, episode_number, thumb_url, video_resolution, transcode_decision,
 	video_codec, audio_codec, audio_channels, bandwidth, video_decision, audio_decision,
-	transcode_hw_decode, transcode_hw_encode, dynamic_range, paused_ms, watched)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	transcode_hw_decode, transcode_hw_encode, dynamic_range, paused_ms, watched, tautulli_reference_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 func scanHistoryEntry(scanner interface{ Scan(...any) error }) (models.WatchHistoryEntry, error) {
 	var e models.WatchHistoryEntry
@@ -75,7 +75,7 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		entry.VideoResolution, entry.TranscodeDecision,
 		entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
 		entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,
-		entry.PausedMs, watched,
+		entry.PausedMs, watched, entry.TautulliReferenceID,
 	)
 	if err != nil {
 		return fmt.Errorf("inserting history: %w", err)
@@ -500,7 +500,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			entry.VideoResolution, entry.TranscodeDecision,
 			entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
 			entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,
-			entry.PausedMs, watched,
+			entry.PausedMs, watched, entry.TautulliReferenceID,
 		)
 		if err != nil {
 			return 0, 0, fmt.Errorf("inserting entry: %w", err)
@@ -541,4 +541,74 @@ func (s *Store) GetWatchedEpisodeCount(ctx context.Context, serverID int64, show
 		return 0, fmt.Errorf("get watched episode count: %w", err)
 	}
 	return count, nil
+}
+
+// UnenrichedRef is a minimal pair of (row ID, tautulli reference_id) for enrichment.
+type UnenrichedRef struct {
+	ID    int64
+	RefID int64
+}
+
+func (s *Store) CountUnenrichedHistory(ctx context.Context, serverID int64) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM watch_history
+		 WHERE tautulli_reference_id > 0 AND enriched = 0 AND server_id = ?`,
+		serverID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("counting unenriched history: %w", err)
+	}
+	return count, nil
+}
+
+func (s *Store) ListUnenrichedHistory(ctx context.Context, serverID int64, limit int) ([]UnenrichedRef, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, tautulli_reference_id FROM watch_history
+		 WHERE tautulli_reference_id > 0 AND enriched = 0 AND server_id = ?
+		 ORDER BY id LIMIT ?`,
+		serverID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listing unenriched history: %w", err)
+	}
+	defer rows.Close()
+
+	var refs []UnenrichedRef
+	for rows.Next() {
+		var ref UnenrichedRef
+		if err := rows.Scan(&ref.ID, &ref.RefID); err != nil {
+			return nil, err
+		}
+		refs = append(refs, ref)
+	}
+	return refs, rows.Err()
+}
+
+func (s *Store) UpdateHistoryEnrichment(ctx context.Context, id int64, entry *models.WatchHistoryEntry) error {
+	hwDecode := boolToInt(entry.TranscodeHWDecode)
+	hwEncode := boolToInt(entry.TranscodeHWEncode)
+	_, err := s.db.ExecContext(ctx, `UPDATE watch_history SET
+		video_resolution = COALESCE(NULLIF(?, ''), video_resolution),
+		video_codec = ?, audio_codec = ?, audio_channels = ?,
+		bandwidth = ?,
+		transcode_decision = COALESCE(NULLIF(?, ''), transcode_decision),
+		video_decision = ?, audio_decision = ?,
+		transcode_hw_decode = ?, transcode_hw_encode = ?, dynamic_range = ?,
+		enriched = 1
+		WHERE id = ?`,
+		entry.VideoResolution, entry.VideoCodec, entry.AudioCodec, entry.AudioChannels,
+		entry.Bandwidth, entry.TranscodeDecision, entry.VideoDecision, entry.AudioDecision,
+		hwDecode, hwEncode, entry.DynamicRange, id,
+	)
+	if err != nil {
+		return fmt.Errorf("updating history enrichment: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) MarkHistoryEnriched(ctx context.Context, id int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE watch_history SET enriched = 1 WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("marking history enriched: %w", err)
+	}
+	return nil
 }

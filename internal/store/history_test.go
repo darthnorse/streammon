@@ -625,6 +625,223 @@ func TestInsertHistoryWatchedFalse(t *testing.T) {
 	}
 }
 
+func TestCountUnenrichedHistory(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+
+	// Insert record with reference_id and enriched=0 (unenriched)
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Unenriched 1", StartedAt: now, StoppedAt: now,
+		TautulliReferenceID: 42,
+	}); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+	// Insert record with reference_id, then mark as enriched
+	enrichedEntry := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Enriched 1", StartedAt: now.Add(time.Hour), StoppedAt: now.Add(2 * time.Hour),
+		TautulliReferenceID: 43,
+	}
+	if err := s.InsertHistory(enrichedEntry); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+	if err := s.MarkHistoryEnriched(context.Background(), enrichedEntry.ID); err != nil {
+		t.Fatalf("MarkHistoryEnriched: %v", err)
+	}
+	// Insert record without reference_id (not from Tautulli)
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Native 1", StartedAt: now.Add(2 * time.Hour), StoppedAt: now.Add(3 * time.Hour),
+	}); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+
+	count, err := s.CountUnenrichedHistory(context.Background(), serverID)
+	if err != nil {
+		t.Fatalf("CountUnenrichedHistory: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 unenriched, got %d", count)
+	}
+}
+
+func TestListUnenrichedHistory(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Unenriched 1", StartedAt: now, StoppedAt: now,
+		TautulliReferenceID: 100,
+	}); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Unenriched 2", StartedAt: now.Add(time.Hour), StoppedAt: now.Add(2 * time.Hour),
+		TautulliReferenceID: 200,
+	}); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+
+	refs, err := s.ListUnenrichedHistory(context.Background(), serverID, 10)
+	if err != nil {
+		t.Fatalf("ListUnenrichedHistory: %v", err)
+	}
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 refs, got %d", len(refs))
+	}
+	if refs[0].RefID != 100 {
+		t.Errorf("expected ref_id 100, got %d", refs[0].RefID)
+	}
+	if refs[1].RefID != 200 {
+		t.Errorf("expected ref_id 200, got %d", refs[1].RefID)
+	}
+
+	// Test limit
+	refs, err = s.ListUnenrichedHistory(context.Background(), serverID, 1)
+	if err != nil {
+		t.Fatalf("ListUnenrichedHistory (limit 1): %v", err)
+	}
+	if len(refs) != 1 {
+		t.Fatalf("expected 1 ref with limit, got %d", len(refs))
+	}
+}
+
+func TestUpdateHistoryEnrichment(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	entry := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Test Movie", StartedAt: now, StoppedAt: now.Add(time.Hour),
+		TautulliReferenceID: 55,
+	}
+	if err := s.InsertHistory(entry); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+
+	enriched := &models.WatchHistoryEntry{
+		VideoResolution:   "1080p",
+		VideoCodec:        "h264",
+		AudioCodec:        "aac",
+		AudioChannels:     6,
+		Bandwidth:         5000,
+		TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		VideoDecision:     models.TranscodeDecisionDirectPlay,
+		AudioDecision:     models.TranscodeDecisionDirectPlay,
+		TranscodeHWDecode: true,
+		DynamicRange:      "SDR",
+	}
+	if err := s.UpdateHistoryEnrichment(context.Background(), entry.ID, enriched); err != nil {
+		t.Fatalf("UpdateHistoryEnrichment: %v", err)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "")
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Items[0].VideoCodec != "h264" {
+		t.Errorf("expected h264, got %s", result.Items[0].VideoCodec)
+	}
+	if result.Items[0].VideoResolution != "1080p" {
+		t.Errorf("expected 1080p, got %s", result.Items[0].VideoResolution)
+	}
+	if result.Items[0].AudioChannels != 6 {
+		t.Errorf("expected 6 channels, got %d", result.Items[0].AudioChannels)
+	}
+	if !result.Items[0].TranscodeHWDecode {
+		t.Errorf("expected TranscodeHWDecode true")
+	}
+	if result.Items[0].TranscodeHWEncode {
+		t.Errorf("expected TranscodeHWEncode false")
+	}
+
+	// After enrichment, should no longer be counted as unenriched (enriched=1)
+	count, err := s.CountUnenrichedHistory(context.Background(), serverID)
+	if err != nil {
+		t.Fatalf("CountUnenrichedHistory: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 unenriched after enrichment, got %d", count)
+	}
+}
+
+func TestUpdateHistoryEnrichment_PreservesExistingFields(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	entry := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Test Movie", StartedAt: now, StoppedAt: now.Add(time.Hour),
+		TautulliReferenceID: 56,
+		VideoResolution:     "4K",
+		TranscodeDecision:   models.TranscodeDecisionTranscode,
+	}
+	if err := s.InsertHistory(entry); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+
+	// Enrich with empty VideoResolution and TranscodeDecision — should preserve originals
+	enriched := &models.WatchHistoryEntry{
+		VideoCodec:    "hevc",
+		AudioCodec:    "eac3",
+		AudioChannels: 8,
+	}
+	if err := s.UpdateHistoryEnrichment(context.Background(), entry.ID, enriched); err != nil {
+		t.Fatalf("UpdateHistoryEnrichment: %v", err)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "")
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Items[0].VideoResolution != "4K" {
+		t.Errorf("expected preserved VideoResolution '4K', got %q", result.Items[0].VideoResolution)
+	}
+	if result.Items[0].TranscodeDecision != models.TranscodeDecisionTranscode {
+		t.Errorf("expected preserved TranscodeDecision 'transcode', got %q", result.Items[0].TranscodeDecision)
+	}
+	if result.Items[0].VideoCodec != "hevc" {
+		t.Errorf("expected hevc, got %s", result.Items[0].VideoCodec)
+	}
+}
+
+func TestMarkHistoryEnriched(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	entry := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Test Movie", StartedAt: now, StoppedAt: now.Add(time.Hour),
+		TautulliReferenceID: 77,
+	}
+	if err := s.InsertHistory(entry); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+
+	count, _ := s.CountUnenrichedHistory(context.Background(), serverID)
+	if count != 1 {
+		t.Fatalf("expected 1 unenriched, got %d", count)
+	}
+
+	if err := s.MarkHistoryEnriched(context.Background(), entry.ID); err != nil {
+		t.Fatalf("MarkHistoryEnriched: %v", err)
+	}
+
+	count, _ = s.CountUnenrichedHistory(context.Background(), serverID)
+	if count != 0 {
+		t.Errorf("expected 0 unenriched after marking, got %d", count)
+	}
+}
+
 func TestGetRecentISPs(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)

@@ -361,6 +361,13 @@ export interface TautulliImportResult {
   error?: string
 }
 
+export interface EnrichmentStatus {
+  running: boolean
+  processed: number
+  total: number
+  server_id: number
+}
+
 // Shared chart tooltip payload types for Recharts
 export interface ChartTooltipPayloadItem {
   color: string

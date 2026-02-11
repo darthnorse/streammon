@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"streammon/internal/mediautil"
@@ -68,7 +69,7 @@ func (s *Server) handleGetTautulliSettings(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleUpdateTautulliSettings(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16) // 64KB limit
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	var req tautulliSettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -108,7 +109,7 @@ func (s *Server) handleDeleteTautulliSettings(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleTestTautulliConnection(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16) // 64KB limit
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	var req tautulliSettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -159,7 +160,7 @@ func (s *Server) handleTestTautulliConnection(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16) // 64KB limit
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
 	var req tautulliImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -218,31 +219,13 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 
 	var totalInserted, totalSkipped, totalRecords, processed int
 
-	enrichRateLimiter := time.NewTicker(100 * time.Millisecond) // 10 req/s max
-	defer enrichRateLimiter.Stop()
-
 	err = client.StreamHistory(ctx, 1000, func(batch tautulli.BatchResult) error {
 		entries := make([]*models.WatchHistoryEntry, 0, len(batch.Records))
 		for i, rec := range batch.Records {
 			entry := convertTautulliRecord(rec, req.ServerID)
-
-			if rec.ReferenceID != 0 {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-enrichRateLimiter.C:
-				}
-				streamData, err := client.GetStreamData(ctx, int(rec.ReferenceID))
-				if err != nil {
-					log.Printf("Failed to get stream data for reference_id %d: %v", rec.ReferenceID, err)
-				} else if streamData != nil {
-					enrichEntryFromStreamData(entry, streamData)
-				}
-			}
-
+			entry.TautulliReferenceID = int64(rec.ReferenceID)
 			entries = append(entries, entry)
 
-			// Send progress every 10 records or on last record
 			if (i+1)%10 == 0 || i == len(batch.Records)-1 {
 				sendEvent(tautulliProgressEvent{
 					Type:      "progress",
@@ -359,6 +342,94 @@ func convertTranscodeDecision(decision string) models.TranscodeDecision {
 	}
 }
 
+type tautulliEnrichRequest struct {
+	ServerID int64 `json:"server_id"`
+}
+
+type tautulliEnrichResponse struct {
+	Total  int    `json:"total"`
+	Status string `json:"status"` // "none", "started"
+}
+
+func (s *Server) handleStartEnrichment(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	var req tautulliEnrichRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+
+	if req.ServerID == 0 {
+		writeError(w, http.StatusBadRequest, "server_id is required")
+		return
+	}
+
+	if _, err := s.store.GetServer(req.ServerID); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	cfg, err := s.store.GetTautulliConfig()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	if cfg.URL == "" || cfg.APIKey == "" {
+		writeError(w, http.StatusBadRequest, "Tautulli settings not configured")
+		return
+	}
+
+	count, err := s.store.CountUnenrichedHistory(r.Context(), req.ServerID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	if count == 0 {
+		writeJSON(w, http.StatusOK, tautulliEnrichResponse{Total: 0, Status: "none"})
+		return
+	}
+
+	client, err := tautulli.NewClient(cfg.URL, cfg.APIKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if !s.enrichment.start(s.appCtx, s.store, client, req.ServerID, count) {
+		writeError(w, http.StatusConflict, "enrichment already running")
+		return
+	}
+	writeJSON(w, http.StatusOK, tautulliEnrichResponse{Total: count, Status: "started"})
+}
+
+func (s *Server) handleStopEnrichment(w http.ResponseWriter, r *http.Request) {
+	s.enrichment.stop()
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
+	st := s.enrichment.status()
+
+	// When not running, allow the frontend to query pending count for a specific server.
+	if !st.Running {
+		serverID := st.ServerID
+		if v := r.URL.Query().Get("server_id"); v != "" {
+			if id, err := strconv.ParseInt(v, 10, 64); err == nil && id > 0 {
+				serverID = id
+			}
+		}
+		if serverID > 0 {
+			count, err := s.store.CountUnenrichedHistory(r.Context(), serverID)
+			if err == nil {
+				st.Total = count
+				st.ServerID = serverID
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, st)
+}
+
 func enrichEntryFromStreamData(entry *models.WatchHistoryEntry, sd *tautulli.StreamData) {
 	if sd.VideoCodec != "" {
 		entry.VideoCodec = sd.VideoCodec
@@ -371,6 +442,9 @@ func enrichEntryFromStreamData(entry *models.WatchHistoryEntry, sd *tautulli.Str
 	}
 	if sd.Bandwidth > 0 {
 		entry.Bandwidth = sd.Bandwidth
+	}
+	if sd.TranscodeDecision != "" {
+		entry.TranscodeDecision = convertTranscodeDecision(sd.TranscodeDecision)
 	}
 	if sd.VideoDecision != "" {
 		entry.VideoDecision = convertTranscodeDecision(sd.VideoDecision)
