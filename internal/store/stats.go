@@ -22,6 +22,15 @@ const (
 	DefaultConcurrentPeakDays = 90
 )
 
+func formatLastSeen(s sql.NullString) string {
+	if s.Valid {
+		if t, _ := parseSQLiteTime(s.String); !t.IsZero() {
+			return t.Format(time.RFC3339)
+		}
+	}
+	return ""
+}
+
 func cutoffTime(days int) time.Time {
 	if days <= 0 {
 		return time.Time{}
@@ -78,11 +87,11 @@ func (s *Store) topMedia(limit int, days int, cfg topMediaConfig) ([]models.Medi
 
 	var args []any
 	if hasTimeFilter {
-		args = append(args, cutoff, cutoff, cutoff) // for all three subqueries
+		args = append(args, cutoff, cutoff, cutoff)
 	}
 	args = append(args, cfg.mediaType)
 	if hasTimeFilter {
-		args = append(args, cutoff) // for main WHERE
+		args = append(args, cutoff)
 	}
 	args = append(args, limit)
 
@@ -196,71 +205,44 @@ func (s *Store) LibraryStats(days int) (*models.LibraryStat, error) {
 	var stats models.LibraryStat
 	var totalHours sql.NullFloat64
 	cutoff := cutoffTime(days)
+	hasTimeFilter := !cutoff.IsZero()
 
-	if cutoff.IsZero() {
-		err := s.db.QueryRow(
-			`SELECT COUNT(*) as total_plays,
-				SUM(watched_ms) / 3600000.0 as total_hours,
-				COUNT(DISTINCT user_name) as unique_users
-			FROM watch_history`,
-		).Scan(&stats.TotalPlays, &totalHours, &stats.UniqueUsers)
-		if err != nil {
-			return nil, fmt.Errorf("library stats: %w", err)
-		}
-	} else {
-		err := s.db.QueryRow(
-			`SELECT COUNT(*) as total_plays,
-				SUM(watched_ms) / 3600000.0 as total_hours,
-				COUNT(DISTINCT user_name) as unique_users
-			FROM watch_history WHERE started_at >= ?`,
-			cutoff,
-		).Scan(&stats.TotalPlays, &totalHours, &stats.UniqueUsers)
-		if err != nil {
-			return nil, fmt.Errorf("library stats: %w", err)
-		}
+	query := `SELECT COUNT(*) as total_plays,
+		SUM(watched_ms) / 3600000.0 as total_hours,
+		COUNT(DISTINCT user_name) as unique_users
+	FROM watch_history`
+	var args []any
+	if hasTimeFilter {
+		query += ` WHERE started_at >= ?`
+		args = append(args, cutoff)
+	}
+	if err := s.db.QueryRow(query, args...).Scan(&stats.TotalPlays, &totalHours, &stats.UniqueUsers); err != nil {
+		return nil, fmt.Errorf("library stats: %w", err)
 	}
 	if totalHours.Valid {
 		stats.TotalHours = totalHours.Float64
 	}
 
-	if cutoff.IsZero() {
-		err := s.db.QueryRow(
-			`SELECT COUNT(DISTINCT title || '|' || COALESCE(year, 0))
-			FROM watch_history WHERE media_type = ?`,
-			models.MediaTypeMovie,
-		).Scan(&stats.UniqueMovies)
-		if err != nil {
-			return nil, fmt.Errorf("unique movies: %w", err)
-		}
-	} else {
-		err := s.db.QueryRow(
-			`SELECT COUNT(DISTINCT title || '|' || COALESCE(year, 0))
-			FROM watch_history WHERE media_type = ? AND started_at >= ?`,
-			models.MediaTypeMovie, cutoff,
-		).Scan(&stats.UniqueMovies)
-		if err != nil {
-			return nil, fmt.Errorf("unique movies: %w", err)
-		}
+	query = `SELECT COUNT(DISTINCT title || '|' || COALESCE(year, 0))
+	FROM watch_history WHERE media_type = ?`
+	args = []any{models.MediaTypeMovie}
+	if hasTimeFilter {
+		query += ` AND started_at >= ?`
+		args = append(args, cutoff)
+	}
+	if err := s.db.QueryRow(query, args...).Scan(&stats.UniqueMovies); err != nil {
+		return nil, fmt.Errorf("unique movies: %w", err)
 	}
 
-	if cutoff.IsZero() {
-		err := s.db.QueryRow(
-			`SELECT COUNT(DISTINCT grandparent_title)
-			FROM watch_history WHERE media_type = ? AND grandparent_title != ''`,
-			models.MediaTypeTV,
-		).Scan(&stats.UniqueTVShows)
-		if err != nil {
-			return nil, fmt.Errorf("unique tv shows: %w", err)
-		}
-	} else {
-		err := s.db.QueryRow(
-			`SELECT COUNT(DISTINCT grandparent_title)
-			FROM watch_history WHERE media_type = ? AND grandparent_title != '' AND started_at >= ?`,
-			models.MediaTypeTV, cutoff,
-		).Scan(&stats.UniqueTVShows)
-		if err != nil {
-			return nil, fmt.Errorf("unique tv shows: %w", err)
-		}
+	query = `SELECT COUNT(DISTINCT grandparent_title)
+	FROM watch_history WHERE media_type = ? AND grandparent_title != ''`
+	args = []any{models.MediaTypeTV}
+	if hasTimeFilter {
+		query += ` AND started_at >= ?`
+		args = append(args, cutoff)
+	}
+	if err := s.db.QueryRow(query, args...).Scan(&stats.UniqueTVShows); err != nil {
+		return nil, fmt.Errorf("unique tv shows: %w", err)
 	}
 
 	return &stats, nil
@@ -276,16 +258,13 @@ type concurrentEvent struct {
 // loadConcurrentEvents queries watch_history and returns sorted start/stop events.
 // Events are sorted by time with stops before starts at equal timestamps (half-open intervals).
 func (s *Store) loadConcurrentEvents(ctx context.Context, cutoff time.Time) ([]concurrentEvent, error) {
-	var rows *sql.Rows
-	var err error
-	if cutoff.IsZero() {
-		rows, err = s.db.QueryContext(ctx, `SELECT started_at, stopped_at, transcode_decision FROM watch_history`)
-	} else {
-		rows, err = s.db.QueryContext(ctx,
-			`SELECT started_at, stopped_at, transcode_decision FROM watch_history WHERE started_at >= ?`,
-			cutoff,
-		)
+	query := `SELECT started_at, stopped_at, transcode_decision FROM watch_history`
+	var args []any
+	if !cutoff.IsZero() {
+		query += ` WHERE started_at >= ?`
+		args = append(args, cutoff)
 	}
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("loading concurrent events: %w", err)
 	}
@@ -365,31 +344,20 @@ func (s *Store) ConcurrentStreamsPeakByType(ctx context.Context, days int) (mode
 }
 
 func (s *Store) AllWatchLocations(days int) ([]models.GeoResult, error) {
-	var rows *sql.Rows
-	var err error
 	cutoff := cutoffTime(days)
-	if cutoff.IsZero() {
-		rows, err = s.db.Query(
-			`SELECT g.lat, g.lng, g.city, g.country, COALESCE(MAX(g.isp), '') as isp,
-				COALESCE(GROUP_CONCAT(DISTINCT h.user_name), '') as users
-			FROM watch_history h
-			JOIN ip_geo_cache g ON h.ip_address = g.ip
-			WHERE h.ip_address != ''
-			GROUP BY g.lat, g.lng, g.city, g.country
-			ORDER BY g.country, g.city`,
-		)
-	} else {
-		rows, err = s.db.Query(
-			`SELECT g.lat, g.lng, g.city, g.country, COALESCE(MAX(g.isp), '') as isp,
-				COALESCE(GROUP_CONCAT(DISTINCT h.user_name), '') as users
-			FROM watch_history h
-			JOIN ip_geo_cache g ON h.ip_address = g.ip
-			WHERE h.ip_address != '' AND h.started_at >= ?
-			GROUP BY g.lat, g.lng, g.city, g.country
-			ORDER BY g.country, g.city`,
-			cutoff,
-		)
+	query := `SELECT g.lat, g.lng, g.city, g.country, COALESCE(MAX(g.isp), '') as isp,
+		COALESCE(GROUP_CONCAT(DISTINCT h.user_name), '') as users
+	FROM watch_history h
+	JOIN ip_geo_cache g ON h.ip_address = g.ip
+	WHERE h.ip_address != ''`
+	var args []any
+	if !cutoff.IsZero() {
+		query += ` AND h.started_at >= ?`
+		args = append(args, cutoff)
 	}
+	query += ` GROUP BY g.lat, g.lng, g.city, g.country
+	ORDER BY g.country, g.city`
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("watch locations: %w", err)
 	}
@@ -458,11 +426,7 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 		if err := locRows.Scan(&loc.City, &loc.Country, &loc.SessionCount, &lastSeenStr); err != nil {
 			return nil, fmt.Errorf("scanning location stat: %w", err)
 		}
-		if lastSeenStr.Valid {
-			if t, _ := parseSQLiteTime(lastSeenStr.String); !t.IsZero() {
-				loc.LastSeen = t.Format(time.RFC3339)
-			}
-		}
+		loc.LastSeen = formatLastSeen(lastSeenStr)
 		totalLocSessions += loc.SessionCount
 		stats.Locations = append(stats.Locations, loc)
 	}
@@ -498,11 +462,7 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 		if err := devRows.Scan(&dev.Player, &dev.Platform, &dev.SessionCount, &lastSeenStr); err != nil {
 			return nil, fmt.Errorf("scanning device stat: %w", err)
 		}
-		if lastSeenStr.Valid {
-			if t, _ := parseSQLiteTime(lastSeenStr.String); !t.IsZero() {
-				dev.LastSeen = t.Format(time.RFC3339)
-			}
-		}
+		dev.LastSeen = formatLastSeen(lastSeenStr)
 		totalDevSessions += dev.SessionCount
 		stats.Devices = append(stats.Devices, dev)
 	}
@@ -539,11 +499,7 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 		if err := ispRows.Scan(&isp.ISP, &isp.SessionCount, &lastSeenStr); err != nil {
 			return nil, fmt.Errorf("scanning isp stat: %w", err)
 		}
-		if lastSeenStr.Valid {
-			if t, _ := parseSQLiteTime(lastSeenStr.String); !t.IsZero() {
-				isp.LastSeen = t.Format(time.RFC3339)
-			}
-		}
+		isp.LastSeen = formatLastSeen(lastSeenStr)
 		totalISPSessions += isp.SessionCount
 		stats.ISPs = append(stats.ISPs, isp)
 	}
@@ -719,7 +675,6 @@ func (s *Store) ConcurrentStreamsOverTime(ctx context.Context, days int) ([]mode
 		return []models.ConcurrentTimePoint{}, nil
 	}
 
-	// Aggregate into hourly buckets to prevent large datasets
 	hourlyMax := make(map[time.Time]models.ConcurrentTimePoint)
 	var directPlay, directStream, transcode int
 

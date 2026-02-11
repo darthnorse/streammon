@@ -5,8 +5,10 @@ import (
 	"time"
 )
 
-var ErrNotFound = errors.New("not found")
-var ErrNotImplemented = errors.New("not implemented")
+var (
+	ErrNotFound       = errors.New("not found")
+	ErrNotImplemented = errors.New("not implemented")
+)
 
 type MediaType string
 
@@ -129,46 +131,44 @@ type User struct {
 }
 
 type WatchHistoryEntry struct {
-	ID                int64     `json:"id"`
-	ServerID          int64     `json:"server_id"`
-	ItemID            string    `json:"item_id,omitempty"`
-	GrandparentItemID string    `json:"grandparent_item_id,omitempty"`
-	UserName          string    `json:"user_name"`
-	MediaType        MediaType `json:"media_type"`
-	Title            string    `json:"title"`
-	ParentTitle      string    `json:"parent_title"`
-	GrandparentTitle string    `json:"grandparent_title"`
-	Year             int       `json:"year"`
-	DurationMs       int64     `json:"duration_ms"`
-	WatchedMs        int64     `json:"watched_ms"`
-	Player           string    `json:"player"`
-	Platform         string    `json:"platform"`
-	IPAddress        string    `json:"ip_address"`
-	StartedAt        time.Time `json:"started_at"`
-	StoppedAt        time.Time `json:"stopped_at"`
-	CreatedAt        time.Time `json:"created_at"`
-	SeasonNumber     int       `json:"season_number,omitempty"`
-	EpisodeNumber    int       `json:"episode_number,omitempty"`
-	ThumbURL          string            `json:"thumb_url,omitempty"`
-	VideoResolution   string            `json:"video_resolution,omitempty"`
-	TranscodeDecision TranscodeDecision `json:"transcode_decision,omitempty"`
-	VideoCodec        string            `json:"video_codec,omitempty"`
-	AudioCodec        string            `json:"audio_codec,omitempty"`
-	AudioChannels     int               `json:"audio_channels,omitempty"`
-	Bandwidth         int64             `json:"bandwidth,omitempty"`
-	VideoDecision     TranscodeDecision `json:"video_decision,omitempty"`
-	AudioDecision     TranscodeDecision `json:"audio_decision,omitempty"`
-	TranscodeHWDecode bool              `json:"transcode_hw_decode,omitempty"`
-	TranscodeHWEncode bool              `json:"transcode_hw_encode,omitempty"`
-	DynamicRange      string            `json:"dynamic_range,omitempty"`
-	PausedMs          int64             `json:"paused_ms,omitempty"`
-	Watched           bool              `json:"watched"`
-	// Internal: Tautulli reference_id for background enrichment
-	TautulliReferenceID int64 `json:"-"`
-	// Geo fields from ip_geo_cache (optional, populated by ListHistory)
-	City    string `json:"city,omitempty"`
-	Country string `json:"country,omitempty"`
-	ISP     string `json:"isp,omitempty"`
+	ID                  int64             `json:"id"`
+	ServerID            int64             `json:"server_id"`
+	ItemID              string            `json:"item_id,omitempty"`
+	GrandparentItemID   string            `json:"grandparent_item_id,omitempty"`
+	UserName            string            `json:"user_name"`
+	MediaType           MediaType         `json:"media_type"`
+	Title               string            `json:"title"`
+	ParentTitle         string            `json:"parent_title"`
+	GrandparentTitle    string            `json:"grandparent_title"`
+	Year                int               `json:"year"`
+	DurationMs          int64             `json:"duration_ms"`
+	WatchedMs           int64             `json:"watched_ms"`
+	Player              string            `json:"player"`
+	Platform            string            `json:"platform"`
+	IPAddress           string            `json:"ip_address"`
+	StartedAt           time.Time         `json:"started_at"`
+	StoppedAt           time.Time         `json:"stopped_at"`
+	CreatedAt           time.Time         `json:"created_at"`
+	SeasonNumber        int               `json:"season_number,omitempty"`
+	EpisodeNumber       int               `json:"episode_number,omitempty"`
+	ThumbURL            string            `json:"thumb_url,omitempty"`
+	VideoResolution     string            `json:"video_resolution,omitempty"`
+	TranscodeDecision   TranscodeDecision `json:"transcode_decision,omitempty"`
+	VideoCodec          string            `json:"video_codec,omitempty"`
+	AudioCodec          string            `json:"audio_codec,omitempty"`
+	AudioChannels       int               `json:"audio_channels,omitempty"`
+	Bandwidth           int64             `json:"bandwidth,omitempty"`
+	VideoDecision       TranscodeDecision `json:"video_decision,omitempty"`
+	AudioDecision       TranscodeDecision `json:"audio_decision,omitempty"`
+	TranscodeHWDecode   bool              `json:"transcode_hw_decode,omitempty"`
+	TranscodeHWEncode   bool              `json:"transcode_hw_encode,omitempty"`
+	DynamicRange        string            `json:"dynamic_range,omitempty"`
+	PausedMs            int64             `json:"paused_ms,omitempty"`
+	Watched             bool              `json:"watched"`
+	TautulliReferenceID int64             `json:"-"`
+	City                string            `json:"city,omitempty"`
+	Country             string            `json:"country,omitempty"`
+	ISP                 string            `json:"isp,omitempty"`
 }
 
 type TranscodeDecision string
@@ -180,35 +180,35 @@ const (
 )
 
 type ActiveStream struct {
-	SessionID          string    `json:"session_id"`
-	ServerID           int64     `json:"server_id"`
-	ItemID             string    `json:"item_id,omitempty"`
-	GrandparentItemID  string    `json:"grandparent_item_id,omitempty"`
-	ServerName         string    `json:"server_name"`
-	ServerType       ServerType `json:"server_type"`
-	UserName         string     `json:"user_name"`
-	MediaType        MediaType `json:"media_type"`
-	Title            string    `json:"title"`
-	ParentTitle      string    `json:"parent_title"`
-	GrandparentTitle string    `json:"grandparent_title"`
-	Year             int       `json:"year"`
-	DurationMs       int64     `json:"duration_ms"`
-	ProgressMs       int64     `json:"progress_ms"`
-	Player           string    `json:"player"`
-	Platform         string    `json:"platform"`
-	IPAddress        string    `json:"ip_address"`
-	StartedAt        time.Time `json:"started_at"`
-	LastPollSeen       time.Time `json:"-"`
-	LastProgressChange time.Time `json:"-"`
-	IdleStopped        bool      `json:"-"`
+	SessionID          string     `json:"session_id"`
+	ServerID           int64      `json:"server_id"`
+	ItemID             string     `json:"item_id,omitempty"`
+	GrandparentItemID  string     `json:"grandparent_item_id,omitempty"`
+	ServerName         string     `json:"server_name"`
+	ServerType         ServerType `json:"server_type"`
+	UserName           string     `json:"user_name"`
+	MediaType          MediaType  `json:"media_type"`
+	Title              string     `json:"title"`
+	ParentTitle        string     `json:"parent_title"`
+	GrandparentTitle   string     `json:"grandparent_title"`
+	Year               int        `json:"year"`
+	DurationMs         int64      `json:"duration_ms"`
+	ProgressMs         int64      `json:"progress_ms"`
+	Player             string     `json:"player"`
+	Platform           string     `json:"platform"`
+	IPAddress          string     `json:"ip_address"`
+	StartedAt          time.Time  `json:"started_at"`
+	LastPollSeen       time.Time  `json:"-"`
+	LastProgressChange time.Time  `json:"-"`
+	IdleStopped        bool       `json:"-"`
 
-	VideoCodec        string            `json:"video_codec,omitempty"`
-	AudioCodec        string            `json:"audio_codec,omitempty"`
-	VideoResolution   string            `json:"video_resolution,omitempty"`
-	Container         string            `json:"container,omitempty"`
-	Bitrate           int64             `json:"bitrate,omitempty"`
-	AudioChannels     int               `json:"audio_channels,omitempty"`
-	SubtitleCodec     string            `json:"subtitle_codec,omitempty"`
+	VideoCodec               string            `json:"video_codec,omitempty"`
+	AudioCodec               string            `json:"audio_codec,omitempty"`
+	VideoResolution          string            `json:"video_resolution,omitempty"`
+	Container                string            `json:"container,omitempty"`
+	Bitrate                  int64             `json:"bitrate,omitempty"`
+	AudioChannels            int               `json:"audio_channels,omitempty"`
+	SubtitleCodec            string            `json:"subtitle_codec,omitempty"`
 	VideoDecision            TranscodeDecision `json:"video_decision,omitempty"`
 	AudioDecision            TranscodeDecision `json:"audio_decision,omitempty"`
 	TranscodeHWDecode        bool              `json:"transcode_hw_decode,omitempty"`

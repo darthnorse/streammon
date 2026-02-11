@@ -116,39 +116,39 @@ func (c *Client) DeleteItem(ctx context.Context, itemID string) error {
 }
 
 type embySession struct {
-	ID       string    `json:"Id"`
-	UserName string    `json:"UserName"`
-	Client   string    `json:"Client"`
-	DeviceName string    `json:"DeviceName"`
-	RemoteIP string    `json:"RemoteEndPoint"`
-	NowPlaying     *nowPlaying     `json:"NowPlayingItem"`
-	PlayState      *playState      `json:"PlayState"`
+	ID              string           `json:"Id"`
+	UserName        string           `json:"UserName"`
+	Client          string           `json:"Client"`
+	DeviceName      string           `json:"DeviceName"`
+	RemoteIP        string           `json:"RemoteEndPoint"`
+	NowPlaying      *nowPlaying      `json:"NowPlayingItem"`
+	PlayState       *playState       `json:"PlayState"`
 	TranscodingInfo *transcodingInfo `json:"TranscodingInfo"`
 }
 
 type nowPlaying struct {
-	Name              string            `json:"Name"`
-	SeriesName        string            `json:"SeriesName"`
-	SeriesId          string            `json:"SeriesId"`
-	SeriesPrimaryImageTag string        `json:"SeriesPrimaryImageTag"`
-	SeasonName        string            `json:"SeasonName"`
-	Type              string            `json:"Type"`
-	ProductionYear    int               `json:"ProductionYear"`
-	RunTimeTicks      int64             `json:"RunTimeTicks"`
-	MediaSources      []mediaSource     `json:"MediaSources"`
-	ID                string            `json:"Id"`
-	ImageTags         map[string]string `json:"ImageTags"`
-	Container         string            `json:"Container"`
-	Bitrate           int64             `json:"Bitrate"`
-	MediaStreams      []mediaStream     `json:"MediaStreams"`
-	ParentIndexNumber int               `json:"ParentIndexNumber"`
-	IndexNumber       int               `json:"IndexNumber"`
+	Name                  string            `json:"Name"`
+	SeriesName            string            `json:"SeriesName"`
+	SeriesId              string            `json:"SeriesId"`
+	SeriesPrimaryImageTag string            `json:"SeriesPrimaryImageTag"`
+	SeasonName            string            `json:"SeasonName"`
+	Type                  string            `json:"Type"`
+	ProductionYear        int               `json:"ProductionYear"`
+	RunTimeTicks          int64             `json:"RunTimeTicks"`
+	MediaSources          []mediaSource     `json:"MediaSources"`
+	ID                    string            `json:"Id"`
+	ImageTags             map[string]string `json:"ImageTags"`
+	Container             string            `json:"Container"`
+	Bitrate               int64             `json:"Bitrate"`
+	MediaStreams           []mediaStream     `json:"MediaStreams"`
+	ParentIndexNumber     int               `json:"ParentIndexNumber"`
+	IndexNumber           int               `json:"IndexNumber"`
 }
 
 type mediaSource struct {
 	Container    string        `json:"Container"`
 	Bitrate      int64         `json:"Bitrate"`
-	MediaStreams  []mediaStream `json:"MediaStreams"`
+	MediaStreams []mediaStream `json:"MediaStreams"`
 }
 
 type mediaStream struct {
@@ -394,7 +394,7 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 			Year:          item.ProductionYear,
 			MediaType:     embyMediaType(item.Type),
 			ThumbURL:      thumbURL,
-			AddedAt:       addedAt.UTC(),
+			AddedAt:       addedAt,
 			ServerID:      c.serverID,
 			ServerName:    c.serverName,
 			ServerType:    c.serverType,
@@ -412,13 +412,10 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 }
 
 func parseEmbyTime(s string) time.Time {
-	// Emby/Jellyfin return dates in various formats
 	formats := []string{
-		time.RFC3339,
 		time.RFC3339Nano,
-		"2006-01-02T15:04:05.0000000Z",
+		time.RFC3339,
 		"2006-01-02T15:04:05.0000000",
-		"2006-01-02T15:04:05Z",
 		"2006-01-02T15:04:05",
 	}
 	for _, f := range formats {
@@ -526,8 +523,8 @@ func (c *Client) getVirtualFolders(ctx context.Context) ([]virtualFolder, error)
 }
 
 type libraryCounts struct {
-	items        int
-	children     int
+	items         int
+	children      int
 	grandchildren int
 }
 

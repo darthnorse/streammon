@@ -70,21 +70,15 @@ func main() {
 
 	geoUpdater := geoip.NewUpdater(s, geoResolver, geoDBPath)
 
-	// Initialize auth manager with providers
 	authMgr := auth.NewManager(s)
-
-	// Register local provider (always available)
 	authMgr.RegisterProvider(auth.NewLocalProvider(s, authMgr))
 
-	// Register Plex provider
 	plexProvider := auth.NewPlexProvider(s, authMgr)
 	authMgr.RegisterProvider(plexProvider)
 
-	// Register Emby and Jellyfin providers
 	authMgr.RegisterProvider(auth.NewMediaServerProvider(s, authMgr, models.ServerTypeEmby))
 	authMgr.RegisterProvider(auth.NewMediaServerProvider(s, authMgr, models.ServerTypeJellyfin))
 
-	// Register OIDC provider
 	oidcCfg, err := s.GetOIDCConfig()
 	if err != nil {
 		log.Fatalf("loading OIDC config: %v", err)
@@ -101,7 +95,6 @@ func main() {
 
 	log.Printf("Auth providers: %v", authMgr.GetEnabledProviders())
 
-	// Initialize rules engine
 	rulesGeo := &geoAdapter{resolver: geoResolver}
 	rulesEngine := rules.NewEngine(s, rulesGeo, rules.DefaultEngineConfig())
 	rulesEngine.SetNotifier(notifier.New())

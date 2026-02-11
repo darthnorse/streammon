@@ -37,8 +37,8 @@ type Poller struct {
 	done      chan struct{}
 
 	wsCancel    map[int64]context.CancelFunc
-	triggerPoll chan struct{}
-	pollNotify  chan struct{}
+	triggerPoll chan struct{} // nil unless externally triggered; nil channel blocks forever in select
+	pollNotify  chan struct{} // nil unless set by tests; guarded by nil check before send
 
 	rulesEngine *rules.Engine
 
