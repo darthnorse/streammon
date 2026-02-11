@@ -196,6 +196,7 @@ func main() {
 	p.Stop()
 	p.PersistActiveSessions()
 	srv.WaitEnrichment()
+	srv.WaitAutoSync()
 	rulesEngine.WaitForNotifications()
 	server.StopRateLimiter()
 	server.StopAuthRateLimiter()

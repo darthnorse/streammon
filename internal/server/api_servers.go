@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -17,6 +18,37 @@ import (
 	"streammon/internal/media/plex"
 	"streammon/internal/models"
 )
+
+type autoSyncState struct {
+	mu     sync.Mutex
+	wg     sync.WaitGroup
+	active map[int64]bool
+}
+
+func (a *autoSyncState) tryStart(serverID int64) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.active[serverID] {
+		return false
+	}
+	if a.active == nil {
+		a.active = make(map[int64]bool)
+	}
+	a.active[serverID] = true
+	a.wg.Add(1)
+	return true
+}
+
+func (a *autoSyncState) finish(serverID int64) {
+	a.mu.Lock()
+	delete(a.active, serverID)
+	a.mu.Unlock()
+	a.wg.Done()
+}
+
+func (a *autoSyncState) Wait() {
+	a.wg.Wait()
+}
 
 func parseServerID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -252,7 +284,17 @@ func (s *Server) triggerServerSync(srv *models.Server) {
 	if srv.Type == models.ServerTypePlex {
 		return
 	}
+	if !s.autoSync.tryStart(srv.ID) {
+		return
+	}
+
+	originalURL := srv.URL
+	originalType := srv.Type
+	originalMachineID := srv.MachineID
+
 	go func() {
+		defer s.autoSync.finish(srv.ID)
+
 		ms, ok := s.poller.GetServer(srv.ID)
 		if !ok {
 			return
@@ -280,6 +322,14 @@ func (s *Server) triggerServerSync(srv *models.Server) {
 			if err != nil {
 				log.Printf("auto-sync: fetch items for %s/%s: %v", ms.Name(), lib.Name, err)
 				continue
+			}
+
+			current, err := s.store.GetServer(srv.ID)
+			if err != nil || current.URL != originalURL ||
+				current.Type != originalType ||
+				current.MachineID != originalMachineID {
+				log.Printf("auto-sync: server %d identity changed, aborting", srv.ID)
+				return
 			}
 
 			count, _, err := s.store.SyncLibraryItems(ctx, srv.ID, lib.ID, items)

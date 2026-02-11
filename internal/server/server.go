@@ -39,6 +39,7 @@ type Server struct {
 	rulesEngine    RulesEngine
 	version        *version.Checker
 	enrichment     *enrichmentState
+	autoSync       autoSyncState
 	appCtx         context.Context
 	overseerrUsers     *overseerrUserCache
 	overseerrPlexCache *overseerrPlexTokenCache
@@ -61,7 +62,6 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 	for _, o := range opts {
 		o(srv)
 	}
-	srv.router.Use(middleware.Logger)
 	srv.router.Use(middleware.Recoverer)
 	srv.router.Use(securityHeaders)
 	srv.routes()
@@ -109,4 +109,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // WaitEnrichment blocks until any running background enrichment finishes.
 func (s *Server) WaitEnrichment() {
 	s.enrichment.Wait()
+}
+
+// WaitAutoSync blocks until any running background library syncs finish.
+func (s *Server) WaitAutoSync() {
+	s.autoSync.Wait()
 }

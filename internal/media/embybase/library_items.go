@@ -70,6 +70,18 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	if result == nil {
 		result = []models.LibraryItemCache{}
 	}
+
+	var totalSize int64
+	var zeroSize int
+	for _, item := range result {
+		totalSize += item.FileSize
+		if item.FileSize == 0 {
+			zeroSize++
+		}
+	}
+	log.Printf("%s: library %s — %d movies, %d series, %d items total, %d with zero size, total %d bytes",
+		c.serverType, libraryID, len(movies), len(series), len(result), zeroSize, totalSize)
+
 	return result, nil
 }
 
