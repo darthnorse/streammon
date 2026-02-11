@@ -9,164 +9,59 @@ import (
 	"testing"
 
 	"streammon/internal/models"
+	"streammon/internal/store"
 )
 
-func TestGetTautulliSettings_Empty(t *testing.T) {
-	srv, _ := newTestServerWrapped(t)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/settings/tautulli", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp tautulliSettingsResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.URL != "" {
-		t.Fatalf("expected empty URL, got %q", resp.URL)
-	}
-	if resp.APIKey != "" {
-		t.Fatalf("expected empty api_key, got %q", resp.APIKey)
-	}
+func mockTautulli(t *testing.T) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("apikey") != "test-api-key" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"response": map[string]any{
+					"result":  "error",
+					"message": "Invalid apikey",
+				},
+			})
+			return
+		}
+		switch r.URL.Query().Get("cmd") {
+		case "get_server_info":
+			json.NewEncoder(w).Encode(map[string]any{
+				"response": map[string]any{
+					"result":  "success",
+					"message": "",
+					"data":    map[string]any{"pms_name": "Test"},
+				},
+			})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return ts
 }
 
-func TestGetTautulliSettings_MasksAPIKey(t *testing.T) {
-	srv, st := newTestServerWrapped(t)
-
-	if err := st.SetSetting("tautulli.url", "http://localhost:8181"); err != nil {
+func configureTautulli(t *testing.T, st *store.Store, mockURL string) {
+	t.Helper()
+	if err := st.SetTautulliConfig(store.TautulliConfig{
+		URL:     mockURL,
+		APIKey:  "test-api-key",
+		Enabled: true,
+	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetSetting("tautulli.api_key", "supersecretkey"); err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/api/settings/tautulli", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp tautulliSettingsResponse
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if resp.APIKey != maskedSecret {
-		t.Fatalf("expected masked api_key %q, got %q", maskedSecret, resp.APIKey)
-	}
-	if resp.URL != "http://localhost:8181" {
-		t.Fatalf("expected URL, got %q", resp.URL)
-	}
 }
 
-func TestUpdateTautulliSettings_Saves(t *testing.T) {
-	srv, st := newTestServerWrapped(t)
-
-	body := `{"url":"http://tautulli:8181","api_key":"myapikey123"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/settings/tautulli", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	cfg, err := st.GetTautulliConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.URL != "http://tautulli:8181" {
-		t.Fatalf("URL: got %q", cfg.URL)
-	}
-	if cfg.APIKey != "myapikey123" {
-		t.Fatalf("APIKey: got %q", cfg.APIKey)
-	}
-}
-
-func TestUpdateTautulliSettings_MaskedKeyPreservesExisting(t *testing.T) {
-	srv, st := newTestServerWrapped(t)
-
-	if err := st.SetSetting("tautulli.api_key", "original_key"); err != nil {
-		t.Fatal(err)
-	}
-
-	body := `{"url":"http://new-host:8181","api_key":"********"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/settings/tautulli", strings.NewReader(body))
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	cfg, err := st.GetTautulliConfig()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.APIKey != "original_key" {
-		t.Fatalf("expected preserved API key, got %q", cfg.APIKey)
-	}
-}
-
-func TestUpdateTautulliSettings_InvalidJSON(t *testing.T) {
-	srv, _ := newTestServerWrapped(t)
-
-	req := httptest.NewRequest(http.MethodPut, "/api/settings/tautulli", strings.NewReader("{bad"))
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d", w.Code)
-	}
-}
-
-func TestDeleteTautulliSettings(t *testing.T) {
-	srv, st := newTestServerWrapped(t)
-
-	st.SetSetting("tautulli.url", "http://localhost:8181")
-	st.SetSetting("tautulli.api_key", "somekey")
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/settings/tautulli", nil)
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	cfg, _ := st.GetTautulliConfig()
-	if cfg.URL != "" || cfg.APIKey != "" {
-		t.Fatalf("expected cleared config, got %+v", cfg)
-	}
-}
-
-func TestTestTautulliConnection_MissingURL(t *testing.T) {
-	srv, _ := newTestServerWrapped(t)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/test", strings.NewReader(`{"url":"","api_key":"key"}`))
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
-}
-
-func TestTestTautulliConnection_MissingAPIKey(t *testing.T) {
-	srv, _ := newTestServerWrapped(t)
-
-	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/test", strings.NewReader(`{"url":"http://localhost:8181","api_key":""}`))
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
-	}
+func TestTautulliIntegrationSettings(t *testing.T) {
+	testIntegrationSettingsCRUD(t, integrationTestConfig{
+		name:           "tautulli",
+		settingsPath:   "/api/settings/tautulli",
+		testPath:       "/api/settings/tautulli/test",
+		configure:      configureTautulli,
+		getConfig:      func(st *store.Store) (store.IntegrationConfig, error) { return st.GetTautulliConfig() },
+		setConfig:      func(st *store.Store, c store.IntegrationConfig) error { return st.SetTautulliConfig(c) },
+		mockServer:     mockTautulli,
+	})
 }
 
 func TestTautulliImport_MissingServerID(t *testing.T) {
@@ -260,8 +155,7 @@ func TestStartEnrich_NoTautulliConfigured(t *testing.T) {
 func TestStartEnrich_NoneToEnrich(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
-	st.SetSetting("tautulli.url", "http://localhost:8181")
-	st.SetSetting("tautulli.api_key", "testkey")
+	configureTautulli(t, st, "http://localhost:8181")
 
 	plex := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "k", Enabled: true}
 	st.CreateServer(plex)

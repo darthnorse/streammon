@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { MobileNav } from './MobileNav'
@@ -6,14 +6,23 @@ import { ThemeToggle } from './ThemeToggle'
 import { ProfileModal } from './ProfileModal'
 import { UserAvatar } from './UserAvatar'
 import { useAuth } from '../context/AuthContext'
+import { useFetch } from '../hooks/useFetch'
+import type { IntegrationStatus } from '../lib/constants'
 
 export function Layout() {
   const { user } = useAuth()
   const [showProfile, setShowProfile] = useState(false)
+  const { data: sonarrStatus } = useFetch<{ configured: boolean }>('/api/sonarr/configured')
+  const { data: overseerrStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
+
+  const integrations = useMemo<IntegrationStatus>(() => ({
+    sonarr: sonarrStatus?.configured ?? false,
+    overseerr: overseerrStatus?.configured ?? false,
+  }), [sonarrStatus, overseerrStatus])
 
   return (
     <div className="flex min-h-screen scanlines">
-      <Sidebar onOpenProfile={() => setShowProfile(true)} />
+      <Sidebar onOpenProfile={() => setShowProfile(true)} integrations={integrations} />
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="lg:hidden flex items-center justify-between px-4 h-14
@@ -44,7 +53,7 @@ export function Layout() {
         </main>
       </div>
 
-      <MobileNav />
+      <MobileNav integrations={integrations} />
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
     </div>

@@ -102,10 +102,11 @@ func (s *Server) routes() {
 
 		r.Route("/settings/tautulli", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
-			sr.Get("/", s.handleGetTautulliSettings)
-			sr.Put("/", s.handleUpdateTautulliSettings)
-			sr.Delete("/", s.handleDeleteTautulliSettings)
-			sr.Post("/test", s.handleTestTautulliConnection)
+			td := s.tautulliDeps()
+			sr.Get("/", s.handleGetIntegrationSettings(td))
+			sr.Put("/", s.handleUpdateIntegrationSettings(td))
+			sr.Delete("/", s.handleDeleteIntegrationSettings(td))
+			sr.Post("/test", s.handleTestIntegrationConnection(td))
 			sr.Post("/import", s.handleTautulliImport)
 			sr.Post("/enrich", s.handleStartEnrichment)
 			sr.Post("/enrich/stop", s.handleStopEnrichment)
@@ -114,27 +115,29 @@ func (s *Server) routes() {
 
 		r.Route("/settings/overseerr", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
-			sr.Get("/", s.handleGetOverseerrSettings)
-			sr.Put("/", s.handleUpdateOverseerrSettings)
-			sr.Delete("/", s.handleDeleteOverseerrSettings)
-			sr.Post("/test", s.handleTestOverseerrConnection)
+			od := s.overseerrDeps()
+			sr.Get("/", s.handleGetIntegrationSettings(od))
+			sr.Put("/", s.handleUpdateIntegrationSettings(od))
+			sr.Delete("/", s.handleDeleteIntegrationSettings(od))
+			sr.Post("/test", s.handleTestIntegrationConnection(od))
 		})
 
 		r.Route("/settings/sonarr", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
-			sr.Get("/", s.handleGetSonarrSettings)
-			sr.Put("/", s.handleUpdateSonarrSettings)
-			sr.Delete("/", s.handleDeleteSonarrSettings)
-			sr.Post("/test", s.handleTestSonarrConnection)
+			sd := s.sonarrDeps()
+			sr.Get("/", s.handleGetIntegrationSettings(sd))
+			sr.Put("/", s.handleUpdateIntegrationSettings(sd))
+			sr.Delete("/", s.handleDeleteIntegrationSettings(sd))
+			sr.Post("/test", s.handleTestIntegrationConnection(sd))
 		})
 
 		r.Route("/sonarr", func(sr chi.Router) {
-			sr.Get("/configured", s.handleSonarrConfigured)
+			sr.Get("/configured", s.handleIntegrationConfigured(s.sonarrDeps()))
 			sr.Get("/calendar", s.handleSonarrCalendar)
 		})
 
 		r.Route("/overseerr", func(sr chi.Router) {
-			sr.Get("/configured", s.handleOverseerrConfigured)
+			sr.Get("/configured", s.handleIntegrationConfigured(s.overseerrDeps()))
 			sr.Get("/search", s.handleOverseerrSearch)
 			sr.Get("/discover/*", s.handleOverseerrDiscover)
 			sr.Get("/movie/{id}", s.handleOverseerrMovie)

@@ -12,24 +12,8 @@ import (
 
 	"streammon/internal/mediautil"
 	"streammon/internal/models"
-	"streammon/internal/store"
 	"streammon/internal/tautulli"
 )
-
-type tautulliSettingsResponse struct {
-	URL    string `json:"url"`
-	APIKey string `json:"api_key"`
-}
-
-type tautulliSettingsRequest struct {
-	URL    string `json:"url"`
-	APIKey string `json:"api_key"`
-}
-
-type tautulliTestResponse struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
-}
 
 type tautulliImportRequest struct {
 	ServerID int64 `json:"server_id"`
@@ -51,117 +35,18 @@ type tautulliProgressEvent struct {
 	Error     string `json:"error,omitempty"`
 }
 
-func (s *Server) handleGetTautulliSettings(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.GetTautulliConfig()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
+func (s *Server) tautulliDeps() integrationDeps {
+	return integrationDeps{
+		validateURL:  tautulli.ValidateURL,
+		newClient:    func(url, apiKey string) (integrationClient, error) { return tautulli.NewClient(url, apiKey) },
+		getConfig:    s.store.GetTautulliConfig,
+		setConfig:    s.store.SetTautulliConfig,
+		deleteConfig: s.store.DeleteTautulliConfig,
 	}
-
-	apiKey := ""
-	if cfg.APIKey != "" {
-		apiKey = maskedSecret
-	}
-
-	writeJSON(w, http.StatusOK, tautulliSettingsResponse{
-		URL:    cfg.URL,
-		APIKey: apiKey,
-	})
-}
-
-func (s *Server) handleUpdateTautulliSettings(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	var req tautulliSettingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-
-	if req.APIKey == maskedSecret {
-		req.APIKey = ""
-	}
-
-	if req.URL != "" {
-		if err := tautulli.ValidateURL(req.URL); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	storeCfg := store.TautulliConfig{
-		URL:    req.URL,
-		APIKey: req.APIKey,
-	}
-
-	if err := s.store.SetTautulliConfig(storeCfg); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (s *Server) handleDeleteTautulliSettings(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteTautulliConfig(); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (s *Server) handleTestTautulliConnection(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	var req tautulliSettingsRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-
-	if req.URL == "" {
-		writeError(w, http.StatusBadRequest, "url is required")
-		return
-	}
-
-	apiKey := req.APIKey
-	if apiKey == "" || apiKey == maskedSecret {
-		cfg, err := s.store.GetTautulliConfig()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-		apiKey = cfg.APIKey
-	}
-
-	if apiKey == "" {
-		writeError(w, http.StatusBadRequest, "api_key is required")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	client, err := tautulli.NewClient(req.URL, apiKey)
-	if err != nil {
-		writeJSON(w, http.StatusOK, tautulliTestResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	if err := client.TestConnection(ctx); err != nil {
-		writeJSON(w, http.StatusOK, tautulliTestResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, tautulliTestResponse{Success: true})
 }
 
 func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req tautulliImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -353,7 +238,7 @@ type tautulliEnrichResponse struct {
 }
 
 func (s *Server) handleStartEnrichment(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req tautulliEnrichRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")

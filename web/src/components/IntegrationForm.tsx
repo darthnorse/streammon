@@ -32,6 +32,7 @@ export function IntegrationForm({ config, settings, onClose, onSaved, renderExtr
   const [form, setForm] = useState({
     url: settings?.url ?? '',
     api_key: isEdit ? settings?.api_key ?? '' : '',
+    enabled: settings?.enabled ?? true,
   })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -43,6 +44,10 @@ export function IntegrationForm({ config, settings, onClose, onSaved, renderExtr
     setForm(prev => ({ ...prev, [key]: value }))
     setError('')
     setTestResult(null)
+  }
+
+  function setEnabled(value: boolean) {
+    setForm(prev => ({ ...prev, enabled: value }))
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -62,6 +67,7 @@ export function IntegrationForm({ config, settings, onClose, onSaved, renderExtr
       await api.put(config.settingsPath, {
         url: form.url.trim(),
         api_key: form.api_key.trim(),
+        enabled: form.enabled,
       })
       onClose()
       onSaved()
@@ -149,6 +155,19 @@ export function IntegrationForm({ config, settings, onClose, onSaved, renderExtr
               {config.apiKeyHint}
             </p>
           </div>
+
+          {isEdit && (
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.enabled}
+                onChange={e => setEnabled(e.target.checked)}
+                className="w-4 h-4 rounded border-border dark:border-border-dark
+                           accent-accent cursor-pointer"
+              />
+              <span className="text-sm font-medium">Enabled</span>
+            </label>
+          )}
 
           {error && (
             <div className="text-sm text-red-500 dark:text-red-400 font-mono px-1">

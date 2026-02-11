@@ -3,15 +3,17 @@ import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import { UserAvatar } from './UserAvatar'
 import { visibleNavLinks, navIconMap } from '../lib/constants'
+import type { IntegrationStatus } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
 import { useFetch } from '../hooks/useFetch'
 import type { VersionInfo } from '../types'
 
 interface SidebarProps {
   onOpenProfile: () => void
+  integrations: IntegrationStatus
 }
 
-export function Sidebar({ onOpenProfile }: SidebarProps) {
+export function Sidebar({ onOpenProfile, integrations }: SidebarProps) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -50,7 +52,7 @@ export function Sidebar({ onOpenProfile }: SidebarProps) {
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-1">
-        {visibleNavLinks(user?.role).map(link => {
+        {visibleNavLinks(user?.role, integrations).map(link => {
             const Icon = navIconMap[link.icon]
             return (
               <NavLink

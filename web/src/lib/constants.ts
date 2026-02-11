@@ -57,23 +57,33 @@ export interface NavLink {
   label: string
   icon: keyof typeof navIconMap
   visibility: 'all' | Role
+  requires?: 'sonarr' | 'overseerr'
+}
+
+export interface IntegrationStatus {
+  sonarr: boolean
+  overseerr: boolean
 }
 
 export const navLinks: NavLink[] = [
   { to: '/', label: 'Dashboard', icon: 'LayoutDashboard', visibility: 'admin' },
-  { to: '/requests', label: 'Requests', icon: 'Film', visibility: 'all' },
-  { to: '/calendar', label: 'Calendar', icon: 'CalendarDays', visibility: 'all' },
+  { to: '/requests', label: 'Requests', icon: 'Film', visibility: 'all', requires: 'overseerr' },
   { to: '/history', label: 'History', icon: 'History', visibility: 'admin' },
   { to: '/my-stats', label: 'My Stats', icon: 'User', visibility: 'viewer' },
   { to: '/statistics', label: 'Statistics', icon: 'BarChart3', visibility: 'admin' },
+  { to: '/calendar', label: 'Calendar', icon: 'CalendarDays', visibility: 'all', requires: 'sonarr' },
   { to: '/library', label: 'Library', icon: 'Library', visibility: 'admin' },
   { to: '/users', label: 'Users', icon: 'Users', visibility: 'admin' },
   { to: '/rules', label: 'Rules', icon: 'ShieldAlert', visibility: 'admin' },
   { to: '/settings', label: 'Settings', icon: 'Settings', visibility: 'admin' },
 ]
 
-export function visibleNavLinks(role: Role | undefined): NavLink[] {
-  return navLinks.filter(link => link.visibility === 'all' || link.visibility === role)
+export function visibleNavLinks(role: Role | undefined, integrations?: IntegrationStatus): NavLink[] {
+  return navLinks.filter(link => {
+    if (link.visibility !== 'all' && link.visibility !== role) return false
+    if (link.requires && role !== 'admin' && integrations && !integrations[link.requires]) return false
+    return true
+  })
 }
 
 export const SEVERITY_COLORS: Record<Severity, string> = {
@@ -91,3 +101,6 @@ export const DISCOVER_CATEGORIES = [
 ] as const
 
 export const MEDIA_GRID_CLASS = 'grid grid-cols-3 sm:[grid-template-columns:repeat(auto-fill,minmax(150px,1fr))] gap-3'
+
+export const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
+export const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { MoreHorizontal, X } from 'lucide-react'
 import { visibleNavLinks, navIconMap } from '../lib/constants'
+import type { IntegrationStatus } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
 
 const navPanelBase = `lg:hidden fixed bottom-0 left-0 right-0 z-50
@@ -14,13 +15,17 @@ const navItemBase = `flex flex-col items-center gap-1 px-3 py-2 min-w-[64px]
 const navItemActive = 'text-accent-dim dark:text-accent'
 const navItemInactive = 'text-muted dark:text-muted-dark'
 
-export function MobileNav() {
+interface MobileNavProps {
+  integrations: IntegrationStatus
+}
+
+export function MobileNav({ integrations }: MobileNavProps) {
   const [showMore, setShowMore] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const { user } = useAuth()
 
-  const filteredLinks = visibleNavLinks(user?.role)
+  const filteredLinks = visibleNavLinks(user?.role, integrations)
   const primaryLinks = filteredLinks.slice(0, 4)
   const moreLinks = filteredLinks.slice(4)
 

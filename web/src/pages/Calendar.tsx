@@ -102,7 +102,7 @@ export function Calendar() {
       <EmptyState
         icon="&#128197;"
         title="Sonarr Not Configured"
-        description="Connect Sonarr in Settings to view your TV calendar."
+        description="To enable the TV calendar, configure the Sonarr integration in Settings \u2192 Integrations. Non-admin users won\u2019t see this page until Sonarr is connected."
       />
     )
   }

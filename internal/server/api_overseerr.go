@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -16,16 +16,6 @@ import (
 	"streammon/internal/overseerr"
 	"streammon/internal/store"
 )
-
-type overseerrSettings struct {
-	URL    string `json:"url"`
-	APIKey string `json:"api_key"`
-}
-
-type overseerrTestResponse struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
-}
 
 type overseerrCreateRequestBody struct {
 	MediaType string          `json:"mediaType"`
@@ -70,147 +60,25 @@ const (
 	overseerrPlexClaimTTL      = 30 * time.Second
 )
 
-func (s *Server) handleGetOverseerrSettings(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.GetOverseerrConfig()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
+func (s *Server) overseerrDeps() integrationDeps {
+	return integrationDeps{
+		validateURL:  overseerr.ValidateURL,
+		newClient:    func(url, apiKey string) (integrationClient, error) { return overseerr.NewClient(url, apiKey) },
+		getConfig:    s.store.GetOverseerrConfig,
+		setConfig:    s.store.SetOverseerrConfig,
+		deleteConfig: s.store.DeleteOverseerrConfig,
+		onUpdate:     s.invalidateOverseerrUserCache,
+		onDelete:     s.invalidateOverseerrUserCache,
 	}
-
-	apiKey := ""
-	if cfg.APIKey != "" {
-		apiKey = maskedSecret
-	}
-
-	writeJSON(w, http.StatusOK, overseerrSettings{
-		URL:    cfg.URL,
-		APIKey: apiKey,
-	})
-}
-
-func (s *Server) handleUpdateOverseerrSettings(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	var req overseerrSettings
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-
-	if req.APIKey == maskedSecret {
-		req.APIKey = ""
-	}
-
-	if req.URL != "" {
-		if err := overseerr.ValidateURL(req.URL); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	if req.APIKey == "" {
-		existing, err := s.store.GetOverseerrConfig()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-		if req.URL != existing.URL {
-			writeError(w, http.StatusBadRequest, "api_key is required when changing the URL")
-			return
-		}
-	}
-
-	storeCfg := store.OverseerrConfig{
-		URL:    req.URL,
-		APIKey: req.APIKey,
-	}
-
-	if err := s.store.SetOverseerrConfig(storeCfg); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-
-	s.invalidateOverseerrUserCache()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (s *Server) handleDeleteOverseerrSettings(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteOverseerrConfig(); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	s.invalidateOverseerrUserCache()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (s *Server) handleTestOverseerrConnection(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	var req overseerrSettings
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-
-	if req.URL == "" {
-		writeError(w, http.StatusBadRequest, "url is required")
-		return
-	}
-
-	apiKey := req.APIKey
-	if apiKey == "" || apiKey == maskedSecret {
-		cfg, err := s.store.GetOverseerrConfig()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-		apiKey = cfg.APIKey
-	}
-
-	if apiKey == "" {
-		writeError(w, http.StatusBadRequest, "api_key is required")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	client, err := overseerr.NewClient(req.URL, apiKey)
-	if err != nil {
-		writeJSON(w, http.StatusOK, overseerrTestResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	if err := client.TestConnection(ctx); err != nil {
-		writeJSON(w, http.StatusOK, overseerrTestResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, overseerrTestResponse{Success: true})
-}
-
-func (s *Server) handleOverseerrConfigured(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.GetOverseerrConfig()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{
-		"configured": cfg.URL != "" && cfg.APIKey != "",
-	})
 }
 
 func (s *Server) newOverseerrClient() (*overseerr.Client, error) {
 	cfg, err := s.store.GetOverseerrConfig()
 	if err != nil {
-		return nil, fmt.Errorf("overseerr not available")
+		return nil, errors.New("overseerr not available")
 	}
-	if cfg.URL == "" || cfg.APIKey == "" {
-		return nil, fmt.Errorf("overseerr not configured")
+	if cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
+		return nil, errors.New("overseerr not configured")
 	}
 	return overseerr.NewClient(cfg.URL, cfg.APIKey)
 }
@@ -221,7 +89,7 @@ func (s *Server) overseerrClientWithTimeout(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return nil, nil, nil, false
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), integrationTimeout)
 	return client, ctx, cancel, true
 }
 
@@ -483,18 +351,26 @@ func (s *Server) invalidatePlexTokenCache() {
 func (s *Server) resolveOverseerrUserWithPlex(ctx context.Context, userID int64) (int, bool) {
 	s.overseerrPlexCache.mu.RLock()
 	if expiry, ok := s.overseerrPlexCache.entryExpiry[userID]; ok && time.Now().UTC().Before(expiry) {
-		id := s.overseerrPlexCache.userIDMap[userID]
+		if id, exists := s.overseerrPlexCache.userIDMap[userID]; exists {
+			s.overseerrPlexCache.mu.RUnlock()
+			return id, true
+		}
+		// Claim in progress by another goroutine — skip attribution
 		s.overseerrPlexCache.mu.RUnlock()
-		return id, true
+		return 0, false
 	}
 	s.overseerrPlexCache.mu.RUnlock()
 
 	// Write lock, re-check, claim with short expiry to prevent thundering herd
 	s.overseerrPlexCache.mu.Lock()
 	if expiry, ok := s.overseerrPlexCache.entryExpiry[userID]; ok && time.Now().UTC().Before(expiry) {
-		id := s.overseerrPlexCache.userIDMap[userID]
+		if id, exists := s.overseerrPlexCache.userIDMap[userID]; exists {
+			s.overseerrPlexCache.mu.Unlock()
+			return id, true
+		}
+		// Claim in progress by another goroutine — skip attribution
 		s.overseerrPlexCache.mu.Unlock()
-		return id, true
+		return 0, false
 	}
 	claimedExpiry := time.Now().UTC().Add(overseerrPlexClaimTTL)
 	s.overseerrPlexCache.entryExpiry[userID] = claimedExpiry
@@ -524,7 +400,7 @@ func (s *Server) resolveOverseerrUserWithPlex(ctx context.Context, userID int64)
 	}
 
 	cfg, err := s.store.GetOverseerrConfig()
-	if err != nil || cfg.URL == "" || cfg.APIKey == "" {
+	if err != nil || cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
 		clearClaim()
 		return 0, false
 	}
@@ -574,7 +450,7 @@ func (s *Server) resolveOverseerrUserWithPlex(ctx context.Context, userID int64)
 }
 
 func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
 	var req overseerrCreateRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")

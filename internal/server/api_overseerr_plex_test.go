@@ -277,10 +277,39 @@ func TestOverseerrCreateRequest_PlexTokenCached(t *testing.T) {
 }
 
 func TestOverseerrCreateRequest_PlexTokenConcurrent(t *testing.T) {
-	mock := mockOverseerrWithPlexAuth(t, 77, nil)
+	var mu sync.Mutex
+	var capturedBodies []map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/plex" {
+			json.NewEncoder(w).Encode(map[string]any{"id": 77, "email": "user@plex.tv"})
+			return
+		}
+		if r.Header.Get("X-Api-Key") != "test-api-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 0},
+				"results":  []any{},
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/request":
+			var body map[string]any
+			json.NewDecoder(r.Body).Decode(&body)
+			mu.Lock()
+			capturedBodies = append(capturedBodies, body)
+			mu.Unlock()
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"id": 10, "status": 2})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(ts.Close)
 
 	srv, st := newTestServerWithEncryptor(t)
-	configureOverseerr(t, st, mock.URL)
+	configureOverseerr(t, st, ts.URL)
 	st.SetStorePlexTokens(true)
 
 	user, err := st.CreateLocalUser("plex-conc", "", "", models.RoleViewer)
@@ -309,6 +338,17 @@ func TestOverseerrCreateRequest_PlexTokenConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+
+	// Verify no request was sent with userId: 0 (the concurrency bug)
+	mu.Lock()
+	defer mu.Unlock()
+	for i, body := range capturedBodies {
+		if uid, ok := body["userId"]; ok {
+			if int(uid.(float64)) == 0 {
+				t.Errorf("request %d: userId was 0 (concurrency bug)", i)
+			}
+		}
+	}
 }
 
 func TestOverseerrCreateRequest_ExistingTests_StillPass(t *testing.T) {

@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"streammon/internal/units"
 )
+
+const encryptedPrefix = "enc:"
 
 func (s *Store) GetSetting(key string) (string, error) {
 	var value string
@@ -90,137 +93,100 @@ func (s *Store) SetSetting(key, value string) error {
 	return nil
 }
 
-type TautulliConfig struct {
-	URL    string
-	APIKey string
+type TautulliConfig = IntegrationConfig
+
+func (s *Store) GetTautulliConfig() (TautulliConfig, error)  { return s.getIntegrationConfig("tautulli") }
+func (s *Store) SetTautulliConfig(cfg TautulliConfig) error   { return s.setIntegrationConfig("tautulli", cfg) }
+func (s *Store) DeleteTautulliConfig() error                  { return s.deleteIntegrationConfig("tautulli") }
+
+type IntegrationConfig struct {
+	URL     string
+	APIKey  string
+	Enabled bool
 }
 
-func (s *Store) GetTautulliConfig() (TautulliConfig, error) {
-	var cfg TautulliConfig
+type OverseerrConfig = IntegrationConfig
+type SonarrConfig = IntegrationConfig
+
+func (s *Store) getIntegrationConfig(prefix string) (IntegrationConfig, error) {
+	var cfg IntegrationConfig
 	var err error
-	if cfg.URL, err = s.GetSetting("tautulli.url"); err != nil {
+	if cfg.URL, err = s.GetSetting(prefix + ".url"); err != nil {
 		return cfg, err
 	}
-	if cfg.APIKey, err = s.GetSetting("tautulli.api_key"); err != nil {
+	raw, err := s.GetSetting(prefix + ".api_key")
+	if err != nil {
 		return cfg, err
 	}
+	if strings.HasPrefix(raw, encryptedPrefix) {
+		if s.encryptor == nil {
+			return cfg, fmt.Errorf("api key is encrypted but no encryption key configured")
+		}
+		cfg.APIKey, err = s.encryptor.Decrypt(strings.TrimPrefix(raw, encryptedPrefix))
+		if err != nil {
+			return cfg, fmt.Errorf("decrypting %s api key: %w", prefix, err)
+		}
+	} else {
+		cfg.APIKey = raw
+	}
+	enabled, err := s.GetSetting(prefix + ".enabled")
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Enabled = enabled != "0"
 	return cfg, nil
 }
 
-func (s *Store) SetTautulliConfig(cfg TautulliConfig) error {
+func (s *Store) setIntegrationConfig(prefix string, cfg IntegrationConfig) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec(settingUpsert, "tautulli.url", cfg.URL); err != nil {
-		return fmt.Errorf("setting %q: %w", "tautulli.url", err)
+	if _, err := tx.Exec(settingUpsert, prefix+".url", cfg.URL); err != nil {
+		return fmt.Errorf("setting %q: %w", prefix+".url", err)
 	}
 	if cfg.APIKey != "" {
-		if _, err := tx.Exec(settingUpsert, "tautulli.api_key", cfg.APIKey); err != nil {
-			return fmt.Errorf("setting %q: %w", "tautulli.api_key", err)
+		apiKeyVal := cfg.APIKey
+		if s.encryptor != nil {
+			encrypted, err := s.encryptor.Encrypt(cfg.APIKey)
+			if err != nil {
+				return fmt.Errorf("encrypting %s api key: %w", prefix, err)
+			}
+			apiKeyVal = encryptedPrefix + encrypted
 		}
+		if _, err := tx.Exec(settingUpsert, prefix+".api_key", apiKeyVal); err != nil {
+			return fmt.Errorf("setting %q: %w", prefix+".api_key", err)
+		}
+	}
+	enabledVal := "1"
+	if !cfg.Enabled {
+		enabledVal = "0"
+	}
+	if _, err := tx.Exec(settingUpsert, prefix+".enabled", enabledVal); err != nil {
+		return fmt.Errorf("setting %q: %w", prefix+".enabled", err)
 	}
 
 	return tx.Commit()
 }
 
-func (s *Store) DeleteTautulliConfig() error {
-	_, err := s.db.Exec(`DELETE FROM settings WHERE key IN ('tautulli.url', 'tautulli.api_key')`)
+func (s *Store) deleteIntegrationConfig(prefix string) error {
+	_, err := s.db.Exec(`DELETE FROM settings WHERE key IN (?, ?, ?)`,
+		prefix+".url", prefix+".api_key", prefix+".enabled")
 	if err != nil {
-		return fmt.Errorf("deleting Tautulli config: %w", err)
+		return fmt.Errorf("deleting %s config: %w", prefix, err)
 	}
 	return nil
 }
 
-type OverseerrConfig struct {
-	URL    string
-	APIKey string
-}
+func (s *Store) GetOverseerrConfig() (OverseerrConfig, error) { return s.getIntegrationConfig("overseerr") }
+func (s *Store) SetOverseerrConfig(cfg OverseerrConfig) error  { return s.setIntegrationConfig("overseerr", cfg) }
+func (s *Store) DeleteOverseerrConfig() error                  { return s.deleteIntegrationConfig("overseerr") }
 
-func (s *Store) GetOverseerrConfig() (OverseerrConfig, error) {
-	var cfg OverseerrConfig
-	var err error
-	if cfg.URL, err = s.GetSetting("overseerr.url"); err != nil {
-		return cfg, err
-	}
-	if cfg.APIKey, err = s.GetSetting("overseerr.api_key"); err != nil {
-		return cfg, err
-	}
-	return cfg, nil
-}
-
-func (s *Store) SetOverseerrConfig(cfg OverseerrConfig) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(settingUpsert, "overseerr.url", cfg.URL); err != nil {
-		return fmt.Errorf("setting %q: %w", "overseerr.url", err)
-	}
-	if cfg.APIKey != "" {
-		if _, err := tx.Exec(settingUpsert, "overseerr.api_key", cfg.APIKey); err != nil {
-			return fmt.Errorf("setting %q: %w", "overseerr.api_key", err)
-		}
-	}
-
-	return tx.Commit()
-}
-
-func (s *Store) DeleteOverseerrConfig() error {
-	_, err := s.db.Exec(`DELETE FROM settings WHERE key IN ('overseerr.url', 'overseerr.api_key')`)
-	if err != nil {
-		return fmt.Errorf("deleting Overseerr config: %w", err)
-	}
-	return nil
-}
-
-type SonarrConfig struct {
-	URL    string
-	APIKey string
-}
-
-func (s *Store) GetSonarrConfig() (SonarrConfig, error) {
-	var cfg SonarrConfig
-	var err error
-	if cfg.URL, err = s.GetSetting("sonarr.url"); err != nil {
-		return cfg, err
-	}
-	if cfg.APIKey, err = s.GetSetting("sonarr.api_key"); err != nil {
-		return cfg, err
-	}
-	return cfg, nil
-}
-
-func (s *Store) SetSonarrConfig(cfg SonarrConfig) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(settingUpsert, "sonarr.url", cfg.URL); err != nil {
-		return fmt.Errorf("setting %q: %w", "sonarr.url", err)
-	}
-	if cfg.APIKey != "" {
-		if _, err := tx.Exec(settingUpsert, "sonarr.api_key", cfg.APIKey); err != nil {
-			return fmt.Errorf("setting %q: %w", "sonarr.api_key", err)
-		}
-	}
-
-	return tx.Commit()
-}
-
-func (s *Store) DeleteSonarrConfig() error {
-	_, err := s.db.Exec(`DELETE FROM settings WHERE key IN ('sonarr.url', 'sonarr.api_key')`)
-	if err != nil {
-		return fmt.Errorf("deleting Sonarr config: %w", err)
-	}
-	return nil
-}
+func (s *Store) GetSonarrConfig() (SonarrConfig, error) { return s.getIntegrationConfig("sonarr") }
+func (s *Store) SetSonarrConfig(cfg SonarrConfig) error  { return s.setIntegrationConfig("sonarr", cfg) }
+func (s *Store) DeleteSonarrConfig() error               { return s.deleteIntegrationConfig("sonarr") }
 
 const unitSystemKey = "display.units"
 

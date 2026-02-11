@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,158 +13,25 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"streammon/internal/sonarr"
-	"streammon/internal/store"
 )
 
-type sonarrSettings struct {
-	URL    string `json:"url"`
-	APIKey string `json:"api_key"`
-}
-
-type sonarrTestResponse struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error,omitempty"`
-}
-
-func (s *Server) handleGetSonarrSettings(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.GetSonarrConfig()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
+func (s *Server) sonarrDeps() integrationDeps {
+	return integrationDeps{
+		validateURL:  sonarr.ValidateURL,
+		newClient:    func(url, apiKey string) (integrationClient, error) { return sonarr.NewClient(url, apiKey) },
+		getConfig:    s.store.GetSonarrConfig,
+		setConfig:    s.store.SetSonarrConfig,
+		deleteConfig: s.store.DeleteSonarrConfig,
 	}
-
-	apiKey := ""
-	if cfg.APIKey != "" {
-		apiKey = maskedSecret
-	}
-
-	writeJSON(w, http.StatusOK, sonarrSettings{
-		URL:    cfg.URL,
-		APIKey: apiKey,
-	})
-}
-
-func (s *Server) handleUpdateSonarrSettings(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	var req sonarrSettings
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-
-	if req.APIKey == maskedSecret {
-		req.APIKey = ""
-	}
-
-	if req.URL != "" {
-		if err := sonarr.ValidateURL(req.URL); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	}
-
-	if req.APIKey == "" {
-		existing, err := s.store.GetSonarrConfig()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-		if req.URL != existing.URL {
-			writeError(w, http.StatusBadRequest, "api_key is required when changing the URL")
-			return
-		}
-	}
-
-	storeCfg := store.SonarrConfig{
-		URL:    req.URL,
-		APIKey: req.APIKey,
-	}
-
-	if err := s.store.SetSonarrConfig(storeCfg); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (s *Server) handleDeleteSonarrSettings(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteSonarrConfig(); err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-func (s *Server) handleTestSonarrConnection(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	var req sonarrSettings
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-
-	if req.URL == "" {
-		writeError(w, http.StatusBadRequest, "url is required")
-		return
-	}
-
-	apiKey := req.APIKey
-	if apiKey == "" || apiKey == maskedSecret {
-		cfg, err := s.store.GetSonarrConfig()
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-		apiKey = cfg.APIKey
-	}
-
-	if apiKey == "" {
-		writeError(w, http.StatusBadRequest, "api_key is required")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
-	defer cancel()
-
-	client, err := sonarr.NewClient(req.URL, apiKey)
-	if err != nil {
-		writeJSON(w, http.StatusOK, sonarrTestResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	if err := client.TestConnection(ctx); err != nil {
-		writeJSON(w, http.StatusOK, sonarrTestResponse{
-			Success: false,
-			Error:   err.Error(),
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, sonarrTestResponse{Success: true})
-}
-
-func (s *Server) handleSonarrConfigured(w http.ResponseWriter, r *http.Request) {
-	cfg, err := s.store.GetSonarrConfig()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{
-		"configured": cfg.URL != "" && cfg.APIKey != "",
-	})
 }
 
 func (s *Server) newSonarrClient() (*sonarr.Client, error) {
 	cfg, err := s.store.GetSonarrConfig()
 	if err != nil {
-		return nil, fmt.Errorf("sonarr not available")
+		return nil, errors.New("sonarr not available")
 	}
-	if cfg.URL == "" || cfg.APIKey == "" {
-		return nil, fmt.Errorf("sonarr not configured")
+	if cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
+		return nil, errors.New("sonarr not configured")
 	}
 	return sonarr.NewClient(cfg.URL, cfg.APIKey)
 }
@@ -175,7 +42,7 @@ func (s *Server) sonarrClientWithTimeout(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return nil, nil, nil, false
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), integrationTimeout)
 	return client, ctx, cancel, true
 }
 
@@ -219,7 +86,7 @@ func (s *Server) handleSonarrPoster(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg, err := s.store.GetSonarrConfig()
-	if err != nil || cfg.URL == "" || cfg.APIKey == "" {
+	if err != nil || cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
 		writeError(w, http.StatusServiceUnavailable, "sonarr not configured")
 		return
 	}
@@ -229,7 +96,7 @@ func (s *Server) handleSonarrPoster(w http.ResponseWriter, r *http.Request) {
 
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, imgURL, nil)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "bad request")
+		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 	req.Header.Set("X-Api-Key", cfg.APIKey)

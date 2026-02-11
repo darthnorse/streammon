@@ -181,8 +181,8 @@ export function Requests() {
           icon="&#127916;"
           title="Overseerr Not Configured"
           description={isAdmin
-            ? 'Configure Overseerr in Settings → Integrations to enable media requests.'
-            : 'Media requests are not available yet. Ask an admin to configure Overseerr.'}
+            ? 'To enable media requests, configure Overseerr in Settings \u2192 Integrations.'
+            : 'Media requests are not available yet. Ask an admin to configure the Overseerr integration.'}
         />
       </div>
     )

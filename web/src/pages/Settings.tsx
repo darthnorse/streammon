@@ -10,7 +10,9 @@ import { TautulliForm } from '../components/TautulliForm'
 import { OverseerrForm } from '../components/OverseerrForm'
 import { SonarrForm } from '../components/SonarrForm'
 import { EmptyState } from '../components/EmptyState'
+import { IntegrationCard } from '../components/IntegrationCard'
 import { UserManagement } from '../components/UserManagement'
+import { btnOutline, btnDanger } from '../lib/constants'
 
 const serverTypeColors: Record<string, string> = {
   plex: 'badge-warn',
@@ -27,9 +29,6 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'import', label: 'Import' },
   { key: 'display', label: 'Display' },
 ]
-
-const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
-const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
 
 type TabKey = 'servers' | 'users' | 'auth' | 'integrations' | 'geoip' | 'import' | 'display'
 
@@ -57,8 +56,6 @@ export function Settings() {
   const serverList = servers ?? []
   const oidcConfigured = !!oidc?.issuer
   const tautulliConfigured = !!tautulli?.url
-  const overseerrConfigured = !!overseerr?.url
-  const sonarrConfigured = !!sonarr?.url
 
   function openAdd() {
     setEditingServer(undefined)
@@ -123,37 +120,27 @@ export function Settings() {
     }
   }
 
-  function handleOverseerrSaved() {
-    setShowOverseerrForm(false)
-    refetchOverseerr()
+  function makeIntegrationSaved(setShow: (v: boolean) => void, refetch: () => void) {
+    return () => { setShow(false); refetch() }
   }
 
-  async function handleDeleteOverseerr() {
-    if (!window.confirm('Remove Overseerr configuration?')) return
-    try {
-      await api.del('/api/settings/overseerr')
-      setActionError('')
-      refetchOverseerr()
-    } catch {
-      setActionError('Failed to delete Overseerr configuration')
+  function makeIntegrationDelete(path: string, name: string, refetch: () => void) {
+    return async () => {
+      if (!window.confirm(`Remove ${name} configuration?`)) return
+      try {
+        await api.del(path)
+        setActionError('')
+        refetch()
+      } catch {
+        setActionError(`Failed to delete ${name} configuration`)
+      }
     }
   }
 
-  function handleSonarrSaved() {
-    setShowSonarrForm(false)
-    refetchSonarr()
-  }
-
-  async function handleDeleteSonarr() {
-    if (!window.confirm('Remove Sonarr configuration?')) return
-    try {
-      await api.del('/api/settings/sonarr')
-      setActionError('')
-      refetchSonarr()
-    } catch {
-      setActionError('Failed to delete Sonarr configuration')
-    }
-  }
+  const handleOverseerrSaved = makeIntegrationSaved(setShowOverseerrForm, refetchOverseerr)
+  const handleDeleteOverseerr = makeIntegrationDelete('/api/settings/overseerr', 'Overseerr', refetchOverseerr)
+  const handleSonarrSaved = makeIntegrationSaved(setShowSonarrForm, refetchSonarr)
+  const handleDeleteSonarr = makeIntegrationDelete('/api/settings/sonarr', 'Sonarr', refetchSonarr)
 
   async function handleCalculateHouseholds() {
     setCalculatingHouseholds(true)
@@ -408,49 +395,19 @@ export function Settings() {
       )}
 
       {tab === 'integrations' && (
-        <>
-          {overseerrLoading && <EmptyState icon="&#8635;" title="Loading..." />}
-
-          {overseerrFetchError && !overseerrLoading && (
-            <EmptyState icon="!" title="Failed to load Overseerr settings">
-              <button onClick={refetchOverseerr} className="text-sm text-accent hover:underline">Retry</button>
-            </EmptyState>
-          )}
-
-          {!overseerrLoading && !overseerrFetchError && !overseerrConfigured && (
-            <EmptyState icon="&#127916;" title="Overseerr Not Configured" description="Connect to Overseerr to enable media requests directly from StreamMon.">
-              <button
-                onClick={() => setShowOverseerrForm(true)}
-                className="px-4 py-2.5 text-sm font-semibold rounded-lg
-                           bg-accent text-gray-900 hover:bg-accent/90 transition-colors"
-              >
-                Configure Overseerr
-              </button>
-            </EmptyState>
-          )}
-
-          {!overseerrLoading && !overseerrFetchError && overseerrConfigured && overseerr && (
-            <div className="card p-5">
-              <div className="flex items-start justify-between mb-4">
-                <h3 className="font-semibold text-base">Overseerr</h3>
-                <span className="badge badge-accent">Connected</span>
-              </div>
-              <div className="space-y-2 text-sm mb-4">
-                <div>
-                  <span className="text-muted dark:text-muted-dark">URL: </span>
-                  <span className="font-mono">{overseerr.url}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
-                <button onClick={() => setShowOverseerrForm(true)} className={btnOutline}>
-                  Edit
-                </button>
-                <button onClick={handleDeleteOverseerr} className={btnDanger}>
-                  Remove
-                </button>
-              </div>
-            </div>
-          )}
+        <div className="space-y-4">
+          <IntegrationCard
+            name="Overseerr"
+            icon="&#127916;"
+            description="Connect to Overseerr to enable media requests directly from StreamMon."
+            settings={overseerr}
+            loading={overseerrLoading}
+            error={overseerrFetchError}
+            onConfigure={() => setShowOverseerrForm(true)}
+            onEdit={() => setShowOverseerrForm(true)}
+            onDelete={handleDeleteOverseerr}
+            onRetry={refetchOverseerr}
+          />
 
           {showOverseerrForm && (
             <OverseerrForm
@@ -460,48 +417,18 @@ export function Settings() {
             />
           )}
 
-          {sonarrLoading && <EmptyState icon="&#8635;" title="Loading..." />}
-
-          {sonarrFetchError && !sonarrLoading && (
-            <EmptyState icon="!" title="Failed to load Sonarr settings">
-              <button onClick={refetchSonarr} className="text-sm text-accent hover:underline">Retry</button>
-            </EmptyState>
-          )}
-
-          {!sonarrLoading && !sonarrFetchError && !sonarrConfigured && (
-            <EmptyState icon="&#128250;" title="Sonarr Not Configured" description="Connect to Sonarr to view your TV calendar with upcoming episodes.">
-              <button
-                onClick={() => setShowSonarrForm(true)}
-                className="px-4 py-2.5 text-sm font-semibold rounded-lg
-                           bg-accent text-gray-900 hover:bg-accent/90 transition-colors"
-              >
-                Configure Sonarr
-              </button>
-            </EmptyState>
-          )}
-
-          {!sonarrLoading && !sonarrFetchError && sonarrConfigured && sonarr && (
-            <div className="card p-5 mt-4">
-              <div className="flex items-start justify-between mb-4">
-                <h3 className="font-semibold text-base">Sonarr</h3>
-                <span className="badge badge-accent">Connected</span>
-              </div>
-              <div className="space-y-2 text-sm mb-4">
-                <div>
-                  <span className="text-muted dark:text-muted-dark">URL: </span>
-                  <span className="font-mono">{sonarr.url}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
-                <button onClick={() => setShowSonarrForm(true)} className={btnOutline}>
-                  Edit
-                </button>
-                <button onClick={handleDeleteSonarr} className={btnDanger}>
-                  Remove
-                </button>
-              </div>
-            </div>
-          )}
+          <IntegrationCard
+            name="Sonarr"
+            icon="&#128250;"
+            description="Connect to Sonarr to view your TV calendar with upcoming episodes."
+            settings={sonarr}
+            loading={sonarrLoading}
+            error={sonarrFetchError}
+            onConfigure={() => setShowSonarrForm(true)}
+            onEdit={() => setShowSonarrForm(true)}
+            onDelete={handleDeleteSonarr}
+            onRetry={refetchSonarr}
+          />
 
           {showSonarrForm && (
             <SonarrForm
@@ -510,7 +437,7 @@ export function Settings() {
               onSaved={handleSonarrSaved}
             />
           )}
-        </>
+        </div>
       )}
 
       {tab === 'geoip' && (

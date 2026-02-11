@@ -12,9 +12,13 @@ func migrationsDir() string {
 	return filepath.Join(filepath.Dir(f), "..", "..", "migrations")
 }
 
-func newTestStoreWithMigrations(t *testing.T) *Store {
+func newTestStoreWithMigrations(t *testing.T, opts ...Option) *Store {
 	t.Helper()
-	s := newTestStore(t)
+	s, err := New(":memory:", opts...)
+	if err != nil {
+		t.Fatalf("New(:memory:) failed: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
 	dir := migrationsDir()
 	if _, err := os.Stat(dir); err != nil {
 		t.Fatalf("migrations dir not found: %v", err)

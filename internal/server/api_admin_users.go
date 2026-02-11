@@ -157,6 +157,7 @@ func (s *Server) handleAdminUnlinkUser(w http.ResponseWriter, r *http.Request) {
 		writeUserError(w, err)
 		return
 	}
+	s.invalidatePlexTokenCache()
 
 	user, err := s.store.GetAdminUserByID(id)
 	if err != nil {
@@ -198,6 +199,7 @@ func (s *Server) handleAdminMergeUsers(w http.ResponseWriter, r *http.Request) {
 		writeUserError(w, err)
 		return
 	}
+	s.invalidateOverseerrUserCache()
 
 	writeJSON(w, http.StatusOK, result)
 }

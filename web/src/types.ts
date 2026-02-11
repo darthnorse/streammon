@@ -342,10 +342,7 @@ export interface UserDetailStats {
   isps: ISPStat[]
 }
 
-export interface TautulliSettings {
-  url: string
-  api_key: string
-}
+export type TautulliSettings = IntegrationSettings
 
 export interface TautulliImportResult {
   imported: number
@@ -651,6 +648,7 @@ export interface BulkDeleteResult {
 export interface IntegrationSettings {
   url: string
   api_key: string
+  enabled: boolean
 }
 
 export type OverseerrSettings = IntegrationSettings
