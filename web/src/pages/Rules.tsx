@@ -3,9 +3,9 @@ import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
 import type { Rule, RuleViolation, NotificationChannel, PaginatedResult } from '../types'
 import { RULE_TYPE_LABELS } from '../types'
-import { SEVERITY_COLORS, PER_PAGE } from '../lib/constants'
-import { formatDate } from '../lib/format'
+import { PER_PAGE } from '../lib/constants'
 import { RuleForm } from '../components/RuleForm'
+import { ViolationsTable } from '../components/ViolationsTable'
 import { NotificationChannelForm } from '../components/NotificationChannelForm'
 import { Pagination } from '../components/Pagination'
 import { api } from '../lib/api'
@@ -180,51 +180,13 @@ export function Rules() {
 
       {tab === 'violations' && (
         <div className="space-y-4">
-          {!violations?.items.length ? (
-            <div className="card p-8 text-center text-muted dark:text-muted-dark">
-              No violations detected yet.
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-left text-sm text-muted dark:text-muted-dark border-b border-border dark:border-border-dark">
-                      <th className="pb-2 font-medium">Time</th>
-                      <th className="pb-2 font-medium">User</th>
-                      <th className="pb-2 font-medium">Rule</th>
-                      <th className="pb-2 font-medium">Severity</th>
-                      <th className="pb-2 font-medium">Confidence</th>
-                      <th className="pb-2 font-medium">Message</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border dark:divide-border-dark">
-                    {violations.items.map((v) => (
-                      <tr key={v.id} className="text-sm">
-                        <td className="py-3 whitespace-nowrap">
-                          {formatDate(v.occurred_at)}
-                        </td>
-                        <td className="py-3 font-medium">{v.user_name}</td>
-                        <td className="py-3">{v.rule_name}</td>
-                        <td className="py-3">
-                          <span className={`px-2 py-0.5 text-xs rounded-full ${SEVERITY_COLORS[v.severity]}`}>
-                            {v.severity}
-                          </span>
-                        </td>
-                        <td className="py-3">{v.confidence_score.toFixed(0)}%</td>
-                        <td className="py-3 max-w-xs truncate">{v.message}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <Pagination
-                page={page}
-                totalPages={Math.ceil(violations.total / PER_PAGE)}
-                onPageChange={setPage}
-              />
-            </>
+          <ViolationsTable violations={violations?.items ?? []} />
+          {violations && violations.total > PER_PAGE && (
+            <Pagination
+              page={page}
+              totalPages={Math.ceil(violations.total / PER_PAGE)}
+              onPageChange={setPage}
+            />
           )}
         </div>
       )}
