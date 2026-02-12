@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo } from 'react'
+import { Component, useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
 import { HeatmapLayer } from 'react-leaflet-heatmap-layer-v3'
 import type { LatLngBoundsExpression } from 'leaflet'
@@ -75,8 +75,20 @@ class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorBoundary
 
 function MapBoundsUpdater({ locations }: { locations: GeoResult[] }) {
   const map = useMap()
+  const userInteractedRef = useRef(false)
 
   useEffect(() => {
+    const onInteraction = () => { userInteractedRef.current = true }
+    map.on('zoomstart', onInteraction)
+    map.on('dragstart', onInteraction)
+    return () => {
+      map.off('zoomstart', onInteraction)
+      map.off('dragstart', onInteraction)
+    }
+  }, [map])
+
+  useEffect(() => {
+    if (userInteractedRef.current) return
     if (locations.length === 0) return
 
     if (locations.length === 1) {
