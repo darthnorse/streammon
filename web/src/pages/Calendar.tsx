@@ -1,7 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useAuth } from '../context/AuthContext'
 import { EmptyState } from '../components/EmptyState'
+import { OverseerrDetailModal } from '../components/OverseerrDetailModal'
+import { MEDIA_GRID_CLASS } from '../lib/constants'
 import type { SonarrEpisode } from '../types'
 
 type CalendarView = 'week' | 'month'
@@ -33,6 +35,10 @@ function addDays(date: Date, n: number): Date {
   return d
 }
 
+function parseDate(dateStr: string): Date {
+  return new Date(dateStr + 'T12:00:00')
+}
+
 function getDatesInRange(start: Date, end: Date): string[] {
   const dates: string[] = []
   const d = new Date(start)
@@ -43,23 +49,32 @@ function getDatesInRange(start: Date, end: Date): string[] {
   return dates
 }
 
+const navBtnClass = `px-3 py-1.5 text-sm font-medium rounded-lg
+  border border-border dark:border-border-dark
+  hover:border-accent/30 transition-colors`
+
 export function Calendar() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const [view, setView] = useState<CalendarView>(getStoredView)
   const [offset, setOffset] = useState(0)
   const { data: configured } = useFetch<{ configured: boolean }>('/api/sonarr/configured')
+  const sonarrReady = configured?.configured ?? false
+  const { data: overseerrStatus } = useFetch<{ configured: boolean }>(sonarrReady ? '/api/overseerr/configured' : null)
+  const overseerrAvailable = overseerrStatus?.configured ?? false
+  const [selectedTmdbId, setSelectedTmdbId] = useState<number | null>(null)
+  const closeModal = useCallback(() => setSelectedTmdbId(null), [])
 
-  const today = formatDate(new Date())
-
-  const { start, end, label } = useMemo(() => {
+  const { today, start, end, label } = useMemo(() => {
     const now = new Date()
+    const todayStr = formatDate(now)
     if (view === 'week') {
       const ws = startOfWeek(now)
       ws.setDate(ws.getDate() + offset * 7)
       const we = addDays(ws, 6)
       const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       return {
+        today: todayStr,
         start: formatDate(ws),
         end: formatDate(we),
         label: `${fmt(ws)} \u2013 ${fmt(we)}, ${we.getFullYear()}`,
@@ -68,19 +83,20 @@ export function Calendar() {
     const ms = new Date(now.getFullYear(), now.getMonth() + offset, 1)
     const me = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0)
     return {
+      today: todayStr,
       start: formatDate(ms),
       end: formatDate(me),
       label: ms.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
     }
   }, [view, offset])
 
-  const url = configured?.configured
+  const url = sonarrReady
     ? `/api/sonarr/calendar?start=${start}&end=${end}`
     : null
   const { data: episodes, loading, error } = useFetch<SonarrEpisode[]>(url)
 
   const dates = useMemo(() => {
-    return getDatesInRange(new Date(start + 'T12:00:00'), new Date(end + 'T12:00:00'))
+    return getDatesInRange(parseDate(start), parseDate(end))
   }, [start, end])
 
   const grouped = useMemo(() => {
@@ -140,20 +156,10 @@ export function Calendar() {
 
       <div className="flex items-center justify-between">
         <div className="flex gap-1">
-          <button
-            onClick={() => setOffset(o => o - 1)}
-            className="px-3 py-1.5 text-sm font-medium rounded-lg
-                       border border-border dark:border-border-dark
-                       hover:border-accent/30 transition-colors"
-          >
+          <button onClick={() => setOffset(o => o - 1)} className={navBtnClass}>
             &larr;
           </button>
-          <button
-            onClick={() => setOffset(o => o + 1)}
-            className="px-3 py-1.5 text-sm font-medium rounded-lg
-                       border border-border dark:border-border-dark
-                       hover:border-accent/30 transition-colors"
-          >
+          <button onClick={() => setOffset(o => o + 1)} className={navBtnClass}>
             &rarr;
           </button>
         </div>
@@ -193,6 +199,8 @@ export function Calendar() {
                 date={date}
                 episodes={dayEps ?? []}
                 isToday={date === today}
+                overseerrAvailable={overseerrAvailable}
+                onSeriesClick={setSelectedTmdbId}
               />
             )
           })}
@@ -205,6 +213,14 @@ export function Calendar() {
           )}
         </div>
       )}
+
+      {selectedTmdbId !== null && (
+        <OverseerrDetailModal
+          mediaType="tv"
+          mediaId={selectedTmdbId}
+          onClose={closeModal}
+        />
+      )}
     </div>
   )
 }
@@ -213,10 +229,12 @@ interface CalendarDayProps {
   date: string
   episodes: SonarrEpisode[]
   isToday: boolean
+  overseerrAvailable: boolean
+  onSeriesClick: (tmdbId: number) => void
 }
 
-function CalendarDay({ date, episodes, isToday }: CalendarDayProps) {
-  const dateObj = new Date(date + 'T12:00:00')
+function CalendarDay({ date, episodes, isToday, overseerrAvailable, onSeriesClick }: CalendarDayProps) {
+  const dateObj = parseDate(date)
   const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' })
   const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 
@@ -236,9 +254,14 @@ function CalendarDay({ date, episodes, isToday }: CalendarDayProps) {
           No episodes
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+        <div className={MEDIA_GRID_CLASS}>
           {episodes.map(ep => (
-            <EpisodeCard key={ep.id} episode={ep} />
+            <EpisodeCard
+              key={ep.id}
+              episode={ep}
+              overseerrAvailable={overseerrAvailable}
+              onSeriesClick={onSeriesClick}
+            />
           ))}
         </div>
       )}
@@ -248,6 +271,8 @@ function CalendarDay({ date, episodes, isToday }: CalendarDayProps) {
 
 interface EpisodeCardProps {
   episode: SonarrEpisode
+  overseerrAvailable: boolean
+  onSeriesClick: (tmdbId: number) => void
 }
 
 function episodeStatus(ep: SonarrEpisode): { className: string; label: string } {
@@ -256,9 +281,11 @@ function episodeStatus(ep: SonarrEpisode): { className: string; label: string } 
   return { className: 'bg-gray-500/20 text-gray-400', label: 'Unmonitored' }
 }
 
-function EpisodeCard({ episode }: EpisodeCardProps) {
+function EpisodeCard({ episode, overseerrAvailable, onSeriesClick }: EpisodeCardProps) {
   const posterUrl = `/api/sonarr/poster/${episode.seriesId}`
   const status = episodeStatus(episode)
+  const tmdbId = episode.series.tmdbId
+  const clickable = overseerrAvailable && tmdbId != null
 
   const epCode = `S${String(episode.seasonNumber).padStart(2, '0')}E${String(episode.episodeNumber).padStart(2, '0')}`
 
@@ -267,8 +294,19 @@ function EpisodeCard({ episode }: EpisodeCardProps) {
     minute: '2-digit',
   })
 
+  function handleClick() {
+    if (tmdbId != null) onSeriesClick(tmdbId)
+  }
+
   return (
-    <div className="card overflow-hidden group hover:ring-1 hover:ring-accent/30 transition-all">
+    <div
+      className={`card overflow-hidden group hover:ring-1 hover:ring-accent/30 transition-all${clickable ? ' cursor-pointer' : ''}`}
+      onClick={clickable ? handleClick : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick() } } : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? `View details for ${episode.series.title}` : undefined}
+    >
       <div className="aspect-[2/3] bg-surface dark:bg-surface-dark relative overflow-hidden">
         <img
           src={posterUrl}

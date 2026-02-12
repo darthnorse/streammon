@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { UserDetail } from '../pages/UserDetail'
 import { ApiError } from '../lib/api'
 import { baseUser, baseHistoryEntry } from './fixtures'
+import { makeAuthContext } from '../test-utils'
 import type { WatchHistoryEntry, PaginatedResult, UserDetailStats, GeoResult } from '../types'
 
 vi.mock('../hooks/useFetch', () => ({
@@ -40,24 +41,11 @@ function fetchResult<T>(data: T | null, error: Error | null = null) {
 
 const noData = () => fetchResult(null)
 
-const adminAuth = {
-  user: { id: 1, name: 'admin', email: '', role: 'admin' as const, thumb_url: '', has_password: true, created_at: '', updated_at: '' },
-  loading: false,
-  setupRequired: false,
-  setUser: vi.fn(),
-  clearSetupRequired: vi.fn(),
-  refreshUser: vi.fn(),
-  logout: vi.fn(),
-}
-
-const viewerAuth = {
-  ...adminAuth,
-  user: { ...adminAuth.user, id: 2, name: 'viewer', role: 'viewer' as const },
-}
+const adminAuth = makeAuthContext('admin')
+const viewerAuth = makeAuthContext('viewer')
 
 beforeEach(() => {
   localStorage.clear()
-  // Default: admin user viewing the page
   mockUseAuth.mockReturnValue(adminAuth)
   // Default fallback for any useFetch call (child components like UserTrustScoreCard, UserHouseholdCard)
   mockUseFetch.mockReturnValue(noData())

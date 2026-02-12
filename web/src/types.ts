@@ -820,6 +820,20 @@ export interface OverseerrRequestCount {
 
 export type SonarrSettings = IntegrationSettings
 
+export interface SonarrImage {
+  coverType: string
+  remoteUrl: string
+}
+
+export interface SonarrSeries {
+  id: number
+  title: string
+  tmdbId?: number
+  year?: number
+  network?: string
+  images?: SonarrImage[]
+}
+
 export interface SonarrEpisode {
   id: number
   seriesId: number
@@ -831,12 +845,6 @@ export interface SonarrEpisode {
   airDate: string
   hasFile: boolean
   monitored: boolean
-  series: {
-    id: number
-    title: string
-    year?: number
-    network?: string
-    images?: Array<{ coverType: string; remoteUrl: string }>
-  }
+  series: SonarrSeries
 }
 
