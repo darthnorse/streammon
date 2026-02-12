@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"streammon/internal/sonarr"
+	"streammon/internal/store"
 )
 
 func (s *Server) sonarrDeps() integrationDeps {
@@ -25,13 +26,21 @@ func (s *Server) sonarrDeps() integrationDeps {
 	}
 }
 
-func (s *Server) newSonarrClient() (*sonarr.Client, error) {
+func (s *Server) validSonarrConfig() (store.IntegrationConfig, error) {
 	cfg, err := s.store.GetSonarrConfig()
 	if err != nil {
-		return nil, errors.New("sonarr not available")
+		return cfg, errors.New("sonarr not available")
 	}
 	if cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
-		return nil, errors.New("sonarr not configured")
+		return cfg, errors.New("sonarr not configured")
+	}
+	return cfg, nil
+}
+
+func (s *Server) newSonarrClient() (*sonarr.Client, error) {
+	cfg, err := s.validSonarrConfig()
+	if err != nil {
+		return nil, err
 	}
 	return sonarr.NewClient(cfg.URL, cfg.APIKey)
 }
@@ -52,6 +61,25 @@ func validDateParam(s string) bool {
 	}
 	_, err := time.Parse("2006-01-02", s)
 	return err == nil
+}
+
+func (s *Server) handleSonarrSeries(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil || id <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid series ID")
+		return
+	}
+	client, ctx, cancel, ok := s.sonarrClientWithTimeout(w, r)
+	if !ok {
+		return
+	}
+	defer cancel()
+	data, err := client.GetSeries(ctx, id)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "upstream service error")
+		return
+	}
+	writeRawJSON(w, http.StatusOK, data)
 }
 
 func (s *Server) handleSonarrCalendar(w http.ResponseWriter, r *http.Request) {
@@ -85,9 +113,9 @@ func (s *Server) handleSonarrPoster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cfg, err := s.store.GetSonarrConfig()
-	if err != nil || cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
-		writeError(w, http.StatusServiceUnavailable, "sonarr not configured")
+	cfg, err := s.validSonarrConfig()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
 

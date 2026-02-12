@@ -134,6 +134,7 @@ func (s *Server) routes() {
 		r.Route("/sonarr", func(sr chi.Router) {
 			sr.Get("/configured", s.handleIntegrationConfigured(s.sonarrDeps()))
 			sr.Get("/calendar", s.handleSonarrCalendar)
+			sr.Get("/series/{id}", s.handleSonarrSeries)
 		})
 
 		r.Route("/overseerr", func(sr chi.Router) {

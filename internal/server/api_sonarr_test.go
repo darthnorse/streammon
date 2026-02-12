@@ -30,6 +30,13 @@ func mockSonarr(t *testing.T) *httptest.Server {
 					"series": map[string]any{"id": 10, "title": "Test Show"},
 				},
 			})
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v3/series/"):
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": 10, "title": "Test Show", "year": 2024, "network": "HBO",
+				"overview": "A test show overview", "status": "continuing",
+				"genres": []string{"Drama"},
+				"ratings": map[string]any{"value": 8.5},
+			})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v3/mediacover/"):
 			w.Header().Set("Content-Type", "image/jpeg")
 			w.Write([]byte("fake-image-data"))
@@ -203,14 +210,19 @@ func TestSonarrPoster_NotConfigured(t *testing.T) {
 	}
 }
 
-func TestSonarrPoster_UpstreamError(t *testing.T) {
+func failingSonarrTestServer(t *testing.T) (http.Handler, *store.Store) {
+	t.Helper()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
-	defer ts.Close()
-
+	t.Cleanup(ts.Close)
 	srv, st := newTestServerWrapped(t)
 	st.SetSonarrConfig(store.SonarrConfig{URL: ts.URL, APIKey: "k", Enabled: true})
+	return srv, st
+}
+
+func TestSonarrPoster_UpstreamError(t *testing.T) {
+	srv, _ := failingSonarrTestServer(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/sonarr/poster/999", nil)
 	w := httptest.NewRecorder()
@@ -235,6 +247,72 @@ func TestSonarrCalendar_ViewerCanAccess(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200 for viewer, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSonarrSeries_Success(t *testing.T) {
+	srv, _ := newSonarrTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sonarr/series/10", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var series map[string]any
+	json.NewDecoder(w.Body).Decode(&series)
+	if series["title"] != "Test Show" {
+		t.Fatalf("expected Test Show, got %v", series["title"])
+	}
+}
+
+func TestSonarrSeries_InvalidID(t *testing.T) {
+	srv, _ := newSonarrTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sonarr/series/abc", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSonarrSeries_NegativeID(t *testing.T) {
+	srv, _ := newSonarrTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sonarr/series/-1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSonarrSeries_UpstreamError(t *testing.T) {
+	srv, _ := failingSonarrTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sonarr/series/999", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSonarrSeries_NotConfigured(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sonarr/series/10", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

@@ -86,6 +86,39 @@ func TestTestConnectionFailure(t *testing.T) {
 	}
 }
 
+func TestGetSeries(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v3/series/10" {
+			t.Errorf("expected path /api/v3/series/10, got %s", r.URL.Path)
+		}
+		if r.Header.Get("X-Api-Key") != "test-key" {
+			t.Errorf("expected X-Api-Key header test-key, got %s", r.Header.Get("X-Api-Key"))
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"id":    10,
+			"title": "Test Series",
+			"year":  2024,
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	data, err := c.GetSeries(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("GetSeries: %v", err)
+	}
+
+	var series struct {
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal(data, &series); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if series.Title != "Test Series" {
+		t.Fatalf("expected Test Series, got %s", series.Title)
+	}
+}
+
 func TestGetCalendar(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v3/calendar" {

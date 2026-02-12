@@ -18,9 +18,9 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: vi.fn(),
 }))
 
-vi.mock('../components/OverseerrDetailModal', () => ({
-  OverseerrDetailModal: ({ mediaType, mediaId, onClose }: { mediaType: string; mediaId: number; onClose: () => void }) => (
-    <div data-testid="overseerr-modal" data-media-type={mediaType} data-media-id={mediaId}>
+vi.mock('../components/SeriesDetailModal', () => ({
+  SeriesDetailModal: ({ tmdbId, sonarrSeriesId, overseerrAvailable, onClose }: { tmdbId: number | null; sonarrSeriesId: number; overseerrAvailable: boolean; onClose: () => void }) => (
+    <div data-testid="series-modal" data-tmdb-id={tmdbId} data-sonarr-series-id={sonarrSeriesId} data-overseerr-available={String(overseerrAvailable)}>
       <button onClick={onClose}>Close</button>
     </div>
   ),
@@ -99,8 +99,8 @@ describe('Calendar', () => {
     })
   })
 
-  describe('Overseerr integration', () => {
-    it('does not render cards as clickable when Overseerr is not configured', async () => {
+  describe('series detail modal', () => {
+    it('cards are always clickable even when Overseerr is not configured', async () => {
       const ep = makeEpisode()
       mockApiGet({
         '/api/sonarr/configured': { configured: true },
@@ -112,10 +112,10 @@ describe('Calendar', () => {
       await waitFor(() => {
         expect(screen.getByText('Test Series')).toBeDefined()
       })
-      expect(screen.queryByRole('button', { name: /view details/i })).toBeNull()
+      expect(screen.getByRole('button', { name: /view details for test series/i })).toBeDefined()
     })
 
-    it('renders cards as clickable when Overseerr is configured and tmdbId present', async () => {
+    it('cards are clickable when Overseerr is configured and tmdbId present', async () => {
       const ep = makeEpisode()
       mockApiGet({
         '/api/sonarr/configured': { configured: true },
@@ -129,7 +129,7 @@ describe('Calendar', () => {
       })
     })
 
-    it('does not render card as clickable when tmdbId is absent', async () => {
+    it('cards are clickable even when tmdbId is absent', async () => {
       const ep = makeEpisode({ series: { id: 10, title: 'No TMDB', network: 'FOX' } })
       mockApiGet({
         '/api/sonarr/configured': { configured: true },
@@ -141,10 +141,10 @@ describe('Calendar', () => {
       await waitFor(() => {
         expect(screen.getByText('No TMDB')).toBeDefined()
       })
-      expect(screen.queryByRole('button', { name: /view details/i })).toBeNull()
+      expect(screen.getByRole('button', { name: /view details for no tmdb/i })).toBeDefined()
     })
 
-    it('opens OverseerrDetailModal on episode card click', async () => {
+    it('opens SeriesDetailModal with both tmdbId and sonarrSeriesId', async () => {
       const ep = makeEpisode()
       mockApiGet({
         '/api/sonarr/configured': { configured: true },
@@ -159,10 +159,31 @@ describe('Calendar', () => {
 
       await userEvent.click(screen.getByRole('button', { name: /view details for test series/i }))
 
-      const modal = screen.getByTestId('overseerr-modal')
+      const modal = screen.getByTestId('series-modal')
       expect(modal).toBeDefined()
-      expect(modal.getAttribute('data-media-type')).toBe('tv')
-      expect(modal.getAttribute('data-media-id')).toBe('42')
+      expect(modal.getAttribute('data-tmdb-id')).toBe('42')
+      expect(modal.getAttribute('data-sonarr-series-id')).toBe('10')
+      expect(modal.getAttribute('data-overseerr-available')).toBe('true')
+    })
+
+    it('passes null tmdbId when series has no tmdbId', async () => {
+      const ep = makeEpisode({ series: { id: 10, title: 'No TMDB', network: 'FOX' } })
+      mockApiGet({
+        '/api/sonarr/configured': { configured: true },
+        '/api/overseerr/configured': { configured: false },
+        '/api/sonarr/calendar': [ep],
+      })
+      renderWithRouter(<Calendar />)
+
+      await waitFor(() => {
+        expect(screen.getByText('No TMDB')).toBeDefined()
+      })
+
+      await userEvent.click(screen.getByRole('button', { name: /view details for no tmdb/i }))
+
+      const modal = screen.getByTestId('series-modal')
+      expect(modal.getAttribute('data-tmdb-id')).toBeNull()
+      expect(modal.getAttribute('data-overseerr-available')).toBe('false')
     })
 
     it('closes modal when onClose is called', async () => {
@@ -179,10 +200,10 @@ describe('Calendar', () => {
       })
 
       await userEvent.click(screen.getByRole('button', { name: /view details for test series/i }))
-      expect(screen.getByTestId('overseerr-modal')).toBeDefined()
+      expect(screen.getByTestId('series-modal')).toBeDefined()
 
       await userEvent.click(screen.getByText('Close'))
-      expect(screen.queryByTestId('overseerr-modal')).toBeNull()
+      expect(screen.queryByTestId('series-modal')).toBeNull()
     })
   })
 

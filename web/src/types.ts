@@ -834,6 +834,28 @@ export interface SonarrSeries {
   images?: SonarrImage[]
 }
 
+export interface SonarrSeason {
+  seasonNumber: number
+  monitored?: boolean
+  statistics?: { episodeCount?: number; totalEpisodeCount?: number }
+}
+
+export interface SonarrSeriesDetails {
+  id: number
+  title: string
+  overview?: string
+  year?: number
+  network?: string
+  status?: string
+  certification?: string
+  runtime?: number
+  genres?: string[]
+  ratings?: { value?: number }
+  images?: SonarrImage[]
+  seasons?: SonarrSeason[]
+  statistics?: { seasonCount?: number; episodeCount?: number; totalEpisodeCount?: number }
+}
+
 export interface SonarrEpisode {
   id: number
   seriesId: number

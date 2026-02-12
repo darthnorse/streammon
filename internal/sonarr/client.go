@@ -85,6 +85,10 @@ func (c *Client) TestConnection(ctx context.Context) error {
 	return err
 }
 
+func (c *Client) GetSeries(ctx context.Context, seriesID int) (json.RawMessage, error) {
+	return c.doGet(ctx, fmt.Sprintf("/series/%d", seriesID), nil)
+}
+
 func (c *Client) GetCalendar(ctx context.Context, start, end string) (json.RawMessage, error) {
 	params := url.Values{}
 	if start != "" {

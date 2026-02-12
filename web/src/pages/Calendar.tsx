@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useAuth } from '../context/AuthContext'
 import { EmptyState } from '../components/EmptyState'
-import { OverseerrDetailModal } from '../components/OverseerrDetailModal'
+import { SeriesDetailModal } from '../components/SeriesDetailModal'
 import { MEDIA_GRID_CLASS } from '../lib/constants'
 import type { SonarrEpisode } from '../types'
 
@@ -62,8 +62,8 @@ export function Calendar() {
   const sonarrReady = configured?.configured ?? false
   const { data: overseerrStatus } = useFetch<{ configured: boolean }>(sonarrReady ? '/api/overseerr/configured' : null)
   const overseerrAvailable = overseerrStatus?.configured ?? false
-  const [selectedTmdbId, setSelectedTmdbId] = useState<number | null>(null)
-  const closeModal = useCallback(() => setSelectedTmdbId(null), [])
+  const [selectedSeries, setSelectedSeries] = useState<{ tmdbId: number | null; sonarrSeriesId: number } | null>(null)
+  const closeModal = useCallback(() => setSelectedSeries(null), [])
 
   const { today, start, end, label } = useMemo(() => {
     const now = new Date()
@@ -199,8 +199,7 @@ export function Calendar() {
                 date={date}
                 episodes={dayEps ?? []}
                 isToday={date === today}
-                overseerrAvailable={overseerrAvailable}
-                onSeriesClick={setSelectedTmdbId}
+                onSeriesClick={(tmdbId, sonarrSeriesId) => setSelectedSeries({ tmdbId, sonarrSeriesId })}
               />
             )
           })}
@@ -214,10 +213,11 @@ export function Calendar() {
         </div>
       )}
 
-      {selectedTmdbId !== null && (
-        <OverseerrDetailModal
-          mediaType="tv"
-          mediaId={selectedTmdbId}
+      {selectedSeries !== null && (
+        <SeriesDetailModal
+          tmdbId={selectedSeries.tmdbId}
+          sonarrSeriesId={selectedSeries.sonarrSeriesId}
+          overseerrAvailable={overseerrAvailable}
           onClose={closeModal}
         />
       )}
@@ -229,11 +229,10 @@ interface CalendarDayProps {
   date: string
   episodes: SonarrEpisode[]
   isToday: boolean
-  overseerrAvailable: boolean
-  onSeriesClick: (tmdbId: number) => void
+  onSeriesClick: (tmdbId: number | null, sonarrSeriesId: number) => void
 }
 
-function CalendarDay({ date, episodes, isToday, overseerrAvailable, onSeriesClick }: CalendarDayProps) {
+function CalendarDay({ date, episodes, isToday, onSeriesClick }: CalendarDayProps) {
   const dateObj = parseDate(date)
   const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'long' })
   const monthDay = dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -259,7 +258,6 @@ function CalendarDay({ date, episodes, isToday, overseerrAvailable, onSeriesClic
             <EpisodeCard
               key={ep.id}
               episode={ep}
-              overseerrAvailable={overseerrAvailable}
               onSeriesClick={onSeriesClick}
             />
           ))}
@@ -271,21 +269,23 @@ function CalendarDay({ date, episodes, isToday, overseerrAvailable, onSeriesClic
 
 interface EpisodeCardProps {
   episode: SonarrEpisode
-  overseerrAvailable: boolean
-  onSeriesClick: (tmdbId: number) => void
+  onSeriesClick: (tmdbId: number | null, sonarrSeriesId: number) => void
 }
 
 function episodeStatus(ep: SonarrEpisode): { className: string; label: string } {
-  if (ep.hasFile) return { className: 'bg-green-500/20 text-green-400', label: 'Downloaded' }
-  if (ep.monitored) return { className: 'bg-accent/20 text-accent', label: 'Upcoming' }
-  return { className: 'bg-gray-500/20 text-gray-400', label: 'Unmonitored' }
+  if (ep.hasFile) return { className: 'bg-green-600/80 text-white', label: 'Available' }
+  if (ep.monitored) {
+    const isPast = new Date(ep.airDateUtc) < new Date()
+    const label = isPast ? 'Pending' : 'Upcoming'
+    return { className: 'bg-accent/80 text-white', label }
+  }
+  return { className: 'bg-gray-500/80 text-white', label: 'Unmonitored' }
 }
 
-function EpisodeCard({ episode, overseerrAvailable, onSeriesClick }: EpisodeCardProps) {
+function EpisodeCard({ episode, onSeriesClick }: EpisodeCardProps) {
   const posterUrl = `/api/sonarr/poster/${episode.seriesId}`
   const status = episodeStatus(episode)
-  const tmdbId = episode.series.tmdbId
-  const clickable = overseerrAvailable && tmdbId != null
+  const tmdbId = episode.series.tmdbId ?? null
 
   const epCode = `S${String(episode.seasonNumber).padStart(2, '0')}E${String(episode.episodeNumber).padStart(2, '0')}`
 
@@ -295,17 +295,17 @@ function EpisodeCard({ episode, overseerrAvailable, onSeriesClick }: EpisodeCard
   })
 
   function handleClick() {
-    if (tmdbId != null) onSeriesClick(tmdbId)
+    onSeriesClick(tmdbId, episode.seriesId)
   }
 
   return (
     <div
-      className={`card overflow-hidden group hover:ring-1 hover:ring-accent/30 transition-all${clickable ? ' cursor-pointer' : ''}`}
-      onClick={clickable ? handleClick : undefined}
-      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick() } } : undefined}
-      role={clickable ? 'button' : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      aria-label={clickable ? `View details for ${episode.series.title}` : undefined}
+      className="card overflow-hidden group hover:ring-1 hover:ring-accent/30 transition-all cursor-pointer"
+      onClick={handleClick}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick() } }}
+      role="button"
+      tabIndex={0}
+      aria-label={`View details for ${episode.series.title}`}
     >
       <div className="aspect-[2/3] bg-surface dark:bg-surface-dark relative overflow-hidden">
         <img
