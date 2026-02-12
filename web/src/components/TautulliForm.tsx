@@ -261,6 +261,7 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
             <input
               id="tautulli-api-key"
               type="password"
+              autoComplete="off"
               value={form.api_key}
               onChange={e => setField('api_key', e.target.value)}
               placeholder={isEdit ? '(unchanged)' : 'Enter API key'}

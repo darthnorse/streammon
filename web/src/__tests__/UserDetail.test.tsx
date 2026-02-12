@@ -39,7 +39,7 @@ function fetchResult<T>(data: T | null, error: Error | null = null) {
   return { data, loading: false, error, refetch: vi.fn() }
 }
 
-const noData = () => fetchResult(null)
+const noData = () => fetchResult<unknown>(null)
 
 const adminAuth = makeAuthContext('admin')
 const viewerAuth = makeAuthContext('viewer')

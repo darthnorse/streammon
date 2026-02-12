@@ -160,6 +160,7 @@ export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
             <input
               id="oidc-client-secret"
               type="password"
+              autoComplete="off"
               value={form.client_secret}
               onChange={e => setField('client_secret', e.target.value)}
               placeholder={isEdit ? '(unchanged)' : 'Enter client secret'}

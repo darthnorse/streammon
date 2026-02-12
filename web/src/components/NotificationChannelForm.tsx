@@ -317,6 +317,7 @@ function renderConfigFields(
             <label className="block text-sm mb-1">API Token</label>
             <input
               type="password"
+              autoComplete="off"
               value={(config.api_token as string) ?? ''}
               onChange={e => updateField('api_token', e.target.value)}
               placeholder="Your Pushover API token"
@@ -353,6 +354,7 @@ function renderConfigFields(
             <label className="block text-sm mb-1">Token (optional)</label>
             <input
               type="password"
+              autoComplete="off"
               value={(config.token as string) ?? ''}
               onChange={e => updateField('token', e.target.value)}
               placeholder="For authenticated topics"

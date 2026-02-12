@@ -108,6 +108,7 @@ export function MaxMindForm({ settings, onSaved }: MaxMindFormProps) {
           <input
             id="maxmind-key"
             type="password"
+            autoComplete="off"
             value={key}
             onChange={e => { setKey(e.target.value); setError('') }}
             placeholder="Enter MaxMind license key"

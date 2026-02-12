@@ -247,6 +247,7 @@ export function ServerForm({ server, onClose, onSaved }: ServerFormProps) {
             <input
               id="srv-key"
               type="password"
+              autoComplete="off"
               value={form.api_key}
               onChange={e => setField('api_key', e.target.value)}
               placeholder={isEdit ? '(unchanged)' : 'Enter API key'}

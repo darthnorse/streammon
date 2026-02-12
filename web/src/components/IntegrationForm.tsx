@@ -146,6 +146,7 @@ export function IntegrationForm({ config, settings, onClose, onSaved, renderExtr
             <input
               id={`${config.name.toLowerCase()}-api-key`}
               type="password"
+              autoComplete="off"
               value={form.api_key}
               onChange={e => setField('api_key', e.target.value)}
               placeholder={isEdit ? '(unchanged)' : 'Enter API key'}
