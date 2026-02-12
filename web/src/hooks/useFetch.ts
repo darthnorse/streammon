@@ -22,7 +22,7 @@ export function useFetch<T>(url: string | null): FetchState<T> & { refetch: () =
     }
 
     const controller = new AbortController()
-    setState({ data: null, loading: true, error: null })
+    setState(prev => ({ data: prev.data, loading: true, error: null }))
 
     api.get<T>(url, controller.signal)
       .then(data => {

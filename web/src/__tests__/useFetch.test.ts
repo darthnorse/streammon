@@ -66,7 +66,7 @@ describe('useFetch', () => {
     await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
   })
 
-  it('resets data to null when url changes', async () => {
+  it('preserves stale data while loading after url change', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() =>
       new Promise(resolve =>
         setTimeout(() => resolve({
@@ -83,8 +83,8 @@ describe('useFetch', () => {
     )
     await waitFor(() => expect(result.current.data).toEqual({ page: 1 }))
     rerender({ url: '/api/page2' })
-    // After URL change, data should be reset to null while loading
-    expect(result.current.data).toBeNull()
+    // After URL change, stale data should be preserved while loading
+    expect(result.current.data).toEqual({ page: 1 })
     expect(result.current.loading).toBe(true)
   })
 })

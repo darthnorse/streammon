@@ -504,6 +504,7 @@ function CandidatesView({
   const [deleteProgress, setDeleteProgress] = useState<DeleteProgress | null>(null)
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'partial' | 'error'; message: string; errors?: Array<{ title: string; error: string }> } | null>(null)
   const [rowMenuOpen, setRowMenuOpen] = useState<number | null>(null)
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const mountedRef = useMountedRef()
 
   const { searchInput, setSearchInput, search, resetSearch } = useDebouncedSearch(() => setPage(1))
@@ -532,12 +533,19 @@ function CandidatesView({
   const selectedSize = hasSelection
     ? selectedItems.reduce((sum, c) => sum + (c.item?.file_size || 0), 0)
     : 0
+  const menuCandidate = rowMenuOpen !== null ? filteredItems.find(c => c.id === rowMenuOpen) ?? null : null
 
   useEffect(() => {
     setPage(1)
     clearSelection()
     resetSearch()
   }, [rule.id, clearSelection, resetSearch])
+
+  // Close row menu when data changes (page/search navigations)
+  useEffect(() => {
+    setRowMenuOpen(null)
+    setMenuPos(null)
+  }, [data])
 
   // Clamp page to valid range after data changes (e.g., after delete)
   useEffect(() => {
@@ -678,14 +686,19 @@ function CandidatesView({
     }
   }
 
-  const handleSingleDelete = (candidate: MaintenanceCandidate) => {
+  const closeRowMenu = () => {
     setRowMenuOpen(null)
+    setMenuPos(null)
+  }
+
+  const handleSingleDelete = (candidate: MaintenanceCandidate) => {
+    closeRowMenu()
     setShowDetails(false) // Reset on dialog open
     setDeleteConfirm([candidate])
   }
 
   const handleSingleExclude = (candidate: MaintenanceCandidate) => {
-    setRowMenuOpen(null)
+    closeRowMenu()
     setExcludeConfirm([candidate])
   }
 
@@ -852,9 +865,17 @@ function CandidatesView({
                       <td className="px-4 py-3 text-sm text-amber-500">
                         {candidate.reason}
                       </td>
-                      <td className="px-4 py-3 relative">
+                      <td className="px-4 py-3">
                         <button
-                          onClick={() => setRowMenuOpen(rowMenuOpen === candidate.id ? null : candidate.id)}
+                          onClick={(e) => {
+                            if (rowMenuOpen === candidate.id) {
+                              closeRowMenu()
+                            } else {
+                              const rect = e.currentTarget.getBoundingClientRect()
+                              setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right })
+                              setRowMenuOpen(candidate.id)
+                            }
+                          }}
                           className="p-1 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
                         >
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -863,25 +884,6 @@ function CandidatesView({
                             <circle cx="12" cy="19" r="2" />
                           </svg>
                         </button>
-                        {rowMenuOpen === candidate.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setRowMenuOpen(null)} />
-                            <div className="absolute right-0 top-full mt-1 z-20 bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded-lg shadow-lg min-w-[140px]">
-                              <button
-                                onClick={() => handleSingleExclude(candidate)}
-                                className="w-full px-4 py-2 text-left text-sm hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-                              >
-                                Exclude from Rule
-                              </button>
-                              <button
-                                onClick={() => handleSingleDelete(candidate)}
-                                className="w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </>
-                        )}
                       </td>
                     </tr>
                   ))}
@@ -895,6 +897,29 @@ function CandidatesView({
             totalPages={totalPages}
             onPageChange={(p) => { setPage(p); clearSelection() }}
           />
+        </>
+      )}
+
+      {menuCandidate && menuPos && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={closeRowMenu} />
+          <div
+            className="fixed z-20 bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded-lg shadow-lg min-w-[140px]"
+            style={{ top: menuPos.top, right: menuPos.right }}
+          >
+            <button
+              onClick={() => handleSingleExclude(menuCandidate)}
+              className="w-full px-4 py-2 text-left text-sm hover:bg-surface dark:hover:bg-surface-dark transition-colors rounded-t-lg"
+            >
+              Exclude from Rule
+            </button>
+            <button
+              onClick={() => handleSingleDelete(menuCandidate)}
+              className="w-full px-4 py-2 text-left text-sm text-red-500 hover:bg-surface dark:hover:bg-surface-dark transition-colors rounded-b-lg"
+            >
+              Delete
+            </button>
+          </div>
         </>
       )}
 
