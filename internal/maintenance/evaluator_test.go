@@ -337,8 +337,8 @@ func TestEvaluateUnwatchedTVNoneNeverWatched(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("got %d results, want 1", len(results))
 	}
-	if !strings.Contains(results[0].Reason, "No episodes watched") {
-		t.Errorf("expected 'No episodes watched' in reason, got %q", results[0].Reason)
+	if !strings.Contains(results[0].Reason, "Never watched") {
+		t.Errorf("expected 'Never watched' in reason, got %q", results[0].Reason)
 	}
 }
 
@@ -378,7 +378,7 @@ func TestEvaluateUnwatchedTVNoneRecentNotFlagged(t *testing.T) {
 	}
 }
 
-func TestEvaluateUnwatchedTVNoneWatchedSkipped(t *testing.T) {
+func TestEvaluateUnwatchedTVNoneWatchedLongAgoFlagged(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 	srv := seedTestServer(t, s)
@@ -397,7 +397,7 @@ func TestEvaluateUnwatchedTVNoneWatchedSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Show was watched 400 days ago — should NOT be flagged by TVNone (it has watch history)
+	// Show was watched 400 days ago — should be flagged (last activity > 30 days)
 	if err := s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: srv.ID, UserName: "alice", MediaType: models.MediaTypeTV,
 		ItemID: "ep1", GrandparentItemID: "show1", Title: "Episode 1",
@@ -418,8 +418,11 @@ func TestEvaluateUnwatchedTVNoneWatchedSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
 	}
-	if len(results) != 0 {
-		t.Errorf("got %d results, want 0 (show has watch history, TVNone should skip)", len(results))
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (last activity 400 days ago, threshold 30)", len(results))
+	}
+	if !strings.Contains(results[0].Reason, "Last watched") {
+		t.Errorf("expected 'Last watched' in reason, got %q", results[0].Reason)
 	}
 }
 

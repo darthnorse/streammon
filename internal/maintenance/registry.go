@@ -29,7 +29,7 @@ func GetCriterionTypes() []models.CriterionTypeInfo {
 		{
 			Type:        models.CriterionUnwatchedTVNone,
 			Name:        "Unwatched TV Shows (Zero Episodes)",
-			Description: "TV shows where no episodes have ever been watched",
+			Description: "TV shows with no episodes watched or no activity in specified days",
 			MediaTypes:  []models.MediaType{models.MediaTypeTV},
 			Parameters: []models.ParamSpec{
 				{Name: "days", Type: "int", Label: "Days since last watched", Default: DefaultDays, Min: &minDays, Max: &maxDays},

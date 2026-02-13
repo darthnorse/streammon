@@ -148,22 +148,26 @@ func (e *Evaluator) evaluateUnwatchedTVNone(ctx context.Context, rule *models.Ma
 			continue
 		}
 
-		_, wasWatched, err := e.getItemRefTime(ctx, rule.ServerID, item)
+		refTime, wasWatched, err := e.getItemRefTime(ctx, rule.ServerID, item)
 		if err != nil {
 			return nil, err
 		}
-		if wasWatched {
-			continue
-		}
-		if item.AddedAt.After(cutoff) {
+		if refTime.After(cutoff) {
 			continue
 		}
 
-		days := int(now.Sub(item.AddedAt).Hours() / 24)
-		results = append(results, CandidateResult{
-			LibraryItemID: item.ID,
-			Reason:        fmt.Sprintf("No episodes watched (added %d days ago)", days),
-		})
+		days := int(now.Sub(refTime).Hours() / 24)
+		if wasWatched {
+			results = append(results, CandidateResult{
+				LibraryItemID: item.ID,
+				Reason:        fmt.Sprintf("Last watched %d days ago", days),
+			})
+		} else {
+			results = append(results, CandidateResult{
+				LibraryItemID: item.ID,
+				Reason:        fmt.Sprintf("Never watched (%d days inactive)", days),
+			})
+		}
 	}
 	return results, nil
 }

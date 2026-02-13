@@ -74,7 +74,7 @@ function getUniqueServers(libraries: Library[]): { id: number; name: string }[] 
 
 const criterionFormatters: Record<CriterionType, (params: Record<string, unknown>) => string> = {
   unwatched_movie: (p) => `Movies not watched in ${p.days || 365} days`,
-  unwatched_tv_none: (p) => `TV shows never watched, added ${p.days || 365}+ days ago`,
+  unwatched_tv_none: (p) => `TV shows with no watch activity for ${p.days || 365}+ days`,
   unwatched_tv_low: (p) => `TV shows <${p.max_percent || 10}% watched, inactive ${p.days || 365}+ days`,
   low_resolution: (p) => `Resolution at or below ${p.max_height || 720}p`,
   large_files: (p) => `Files larger than ${p.min_size_gb || 10} GB`,
