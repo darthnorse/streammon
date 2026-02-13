@@ -160,7 +160,7 @@ describe('Libraries clickable titles', () => {
 
       const titleButton = screen.getByRole('button', { name: 'View details for Old Movie' })
       expect(titleButton).toBeInTheDocument()
-      expect(titleButton).toHaveClass('text-accent')
+      expect(titleButton).toHaveClass('hover:text-accent')
     })
 
     it('opens MediaDetailModal when title is clicked', async () => {
@@ -235,7 +235,7 @@ describe('Libraries clickable titles', () => {
 
       const titleButton = screen.getByRole('button', { name: 'View details for Excluded Movie' })
       expect(titleButton).toBeInTheDocument()
-      expect(titleButton).toHaveClass('text-accent')
+      expect(titleButton).toHaveClass('hover:text-accent')
     })
 
     it('opens MediaDetailModal when exclusion title is clicked', async () => {

@@ -58,7 +58,7 @@ function ItemTitleButton({ item, onSelect }: { item?: LibraryItemCache; onSelect
   return (
     <button
       onClick={() => onSelect(item.server_id, item.item_id)}
-      className="text-left text-accent hover:underline"
+      className="text-left hover:text-accent hover:underline"
       aria-label={`View details for ${item.title}`}
     >
       {item.title}
