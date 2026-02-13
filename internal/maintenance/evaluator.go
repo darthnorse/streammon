@@ -13,7 +13,6 @@ import (
 	"streammon/internal/store"
 )
 
-// Default parameter values (centralized)
 const (
 	DefaultDays       = 365
 	DefaultMaxPercent = 10
@@ -21,13 +20,11 @@ const (
 	DefaultMinSizeGB  = 10.0
 )
 
-// CandidateResult represents a single evaluation result
 type CandidateResult struct {
 	LibraryItemID int64
 	Reason        string
 }
 
-// ToBatch converts a slice of CandidateResults to BatchCandidates for store operations
 func ToBatch(candidates []CandidateResult) []models.BatchCandidate {
 	batch := make([]models.BatchCandidate, len(candidates))
 	for i, c := range candidates {
@@ -39,17 +36,26 @@ func ToBatch(candidates []CandidateResult) []models.BatchCandidate {
 	return batch
 }
 
-// Evaluator evaluates a rule against library items
 type Evaluator struct {
 	store *store.Store
 }
 
-// NewEvaluator creates a new evaluator
 func NewEvaluator(s *store.Store) *Evaluator {
 	return &Evaluator{store: s}
 }
 
-// EvaluateRule evaluates a rule and returns matching candidates
+// getItemRefTime returns the last-watched time for an item, or AddedAt if never watched.
+func (e *Evaluator) getItemRefTime(ctx context.Context, serverID int64, item models.LibraryItemCache) (time.Time, bool, error) {
+	lastWatched, found, err := e.store.GetItemLastWatchedAt(ctx, serverID, item.ItemID)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if found {
+		return lastWatched, true, nil
+	}
+	return item.AddedAt, false, nil
+}
+
 func (e *Evaluator) EvaluateRule(ctx context.Context, rule *models.MaintenanceRule) ([]CandidateResult, error) {
 	switch rule.CriterionType {
 	case models.CriterionUnwatchedMovie:
@@ -91,19 +97,25 @@ func (e *Evaluator) evaluateUnwatchedMovie(ctx context.Context, rule *models.Mai
 		if item.MediaType != models.MediaTypeMovie {
 			continue
 		}
-		if item.AddedAt.After(cutoff) {
-			continue
-		}
 
-		watched, err := e.store.IsItemWatched(ctx, rule.ServerID, item.ItemID)
+		refTime, wasWatched, err := e.getItemRefTime(ctx, rule.ServerID, item)
 		if err != nil {
 			return nil, err
 		}
-		if !watched {
-			days := int(now.Sub(item.AddedAt).Hours() / 24)
+		if refTime.After(cutoff) {
+			continue
+		}
+
+		days := int(now.Sub(refTime).Hours() / 24)
+		if wasWatched {
 			results = append(results, CandidateResult{
 				LibraryItemID: item.ID,
-				Reason:        fmt.Sprintf("Unwatched for %d days", days),
+				Reason:        fmt.Sprintf("Not watched in %d days", days),
+			})
+		} else {
+			results = append(results, CandidateResult{
+				LibraryItemID: item.ID,
+				Reason:        fmt.Sprintf("Never watched (added %d days ago)", days),
 			})
 		}
 	}
@@ -119,7 +131,8 @@ func (e *Evaluator) evaluateUnwatchedTVNone(ctx context.Context, rule *models.Ma
 		params.Days = DefaultDays
 	}
 
-	cutoff := time.Now().UTC().AddDate(0, 0, -params.Days)
+	now := time.Now().UTC()
+	cutoff := now.AddDate(0, 0, -params.Days)
 	items, err := e.store.ListLibraryItems(ctx, rule.ServerID, rule.LibraryID)
 	if err != nil {
 		return nil, err
@@ -134,20 +147,23 @@ func (e *Evaluator) evaluateUnwatchedTVNone(ctx context.Context, rule *models.Ma
 		if item.MediaType != models.MediaTypeTV {
 			continue
 		}
+
+		_, wasWatched, err := e.getItemRefTime(ctx, rule.ServerID, item)
+		if err != nil {
+			return nil, err
+		}
+		if wasWatched {
+			continue
+		}
 		if item.AddedAt.After(cutoff) {
 			continue
 		}
 
-		watched, err := e.store.IsItemWatched(ctx, rule.ServerID, item.ItemID)
-		if err != nil {
-			return nil, err
-		}
-		if !watched {
-			results = append(results, CandidateResult{
-				LibraryItemID: item.ID,
-				Reason:        "No episodes watched",
-			})
-		}
+		days := int(now.Sub(item.AddedAt).Hours() / 24)
+		results = append(results, CandidateResult{
+			LibraryItemID: item.ID,
+			Reason:        fmt.Sprintf("No episodes watched (added %d days ago)", days),
+		})
 	}
 	return results, nil
 }
@@ -164,7 +180,8 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 		params.MaxPercent = DefaultMaxPercent
 	}
 
-	cutoff := time.Now().UTC().AddDate(0, 0, -params.Days)
+	now := time.Now().UTC()
+	cutoff := now.AddDate(0, 0, -params.Days)
 	items, err := e.store.ListLibraryItems(ctx, rule.ServerID, rule.LibraryID)
 	if err != nil {
 		return nil, err
@@ -178,9 +195,16 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 		if item.MediaType != models.MediaTypeTV {
 			continue
 		}
-		if item.AddedAt.After(cutoff) {
+
+		refTime, wasWatched, err := e.getItemRefTime(ctx, rule.ServerID, item)
+		if err != nil {
+			return nil, err
+		}
+		if refTime.After(cutoff) {
 			continue
 		}
+
+		days := int(now.Sub(refTime).Hours() / 24)
 
 		watchedCount, err := e.store.GetWatchedEpisodeCount(ctx, rule.ServerID, item.ItemID)
 		if err != nil {
@@ -192,9 +216,13 @@ func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.Mai
 		if item.EpisodeCount > 0 {
 			watchedPct := float64(watchedCount) / float64(item.EpisodeCount) * 100
 			if watchedPct < float64(params.MaxPercent) {
+				reason := fmt.Sprintf("%.1f%% watched (%d/%d episodes)", watchedPct, watchedCount, item.EpisodeCount)
+				if wasWatched {
+					reason += fmt.Sprintf(", last watched %d days ago", days)
+				}
 				results = append(results, CandidateResult{
 					LibraryItemID: item.ID,
-					Reason:        fmt.Sprintf("%.1f%% watched (%d/%d episodes)", watchedPct, watchedCount, item.EpisodeCount),
+					Reason:        reason,
 				})
 			}
 		} else if watchedCount == 0 {

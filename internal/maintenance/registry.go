@@ -4,7 +4,6 @@ import (
 	"streammon/internal/models"
 )
 
-// Parameter bounds for criterion types
 var (
 	minDays    = 1
 	maxDays    = 3650
@@ -16,22 +15,21 @@ var (
 	maxSizeGB  = 1000
 )
 
-// GetCriterionTypes returns all available criterion types
 func GetCriterionTypes() []models.CriterionTypeInfo {
 	return []models.CriterionTypeInfo{
 		{
 			Type:        models.CriterionUnwatchedMovie,
 			Name:        "Unwatched Movies",
-			Description: "Movies not watched by anyone, older than specified days",
+			Description: "Movies never watched or not watched in specified days",
 			MediaTypes:  []models.MediaType{models.MediaTypeMovie},
 			Parameters: []models.ParamSpec{
-				{Name: "days", Type: "int", Label: "Days since added", Default: DefaultDays, Min: &minDays, Max: &maxDays},
+				{Name: "days", Type: "int", Label: "Days since last watched", Default: DefaultDays, Min: &minDays, Max: &maxDays},
 			},
 		},
 		{
 			Type:        models.CriterionUnwatchedTVNone,
 			Name:        "Unwatched TV Shows (Zero Episodes)",
-			Description: "TV shows where no episodes have been watched",
+			Description: "TV shows where no episodes have ever been watched",
 			MediaTypes:  []models.MediaType{models.MediaTypeTV},
 			Parameters: []models.ParamSpec{
 				{Name: "days", Type: "int", Label: "Days since added", Default: DefaultDays, Min: &minDays, Max: &maxDays},
@@ -40,10 +38,10 @@ func GetCriterionTypes() []models.CriterionTypeInfo {
 		{
 			Type:        models.CriterionUnwatchedTVLow,
 			Name:        "Unwatched TV Shows (Low Watch %)",
-			Description: "TV shows with watch percentage below threshold",
+			Description: "TV shows with watch percentage below threshold and no recent activity",
 			MediaTypes:  []models.MediaType{models.MediaTypeTV},
 			Parameters: []models.ParamSpec{
-				{Name: "days", Type: "int", Label: "Days since added", Default: DefaultDays, Min: &minDays, Max: &maxDays},
+				{Name: "days", Type: "int", Label: "Days since last watched", Default: DefaultDays, Min: &minDays, Max: &maxDays},
 				{Name: "max_percent", Type: "int", Label: "Max watch percentage", Default: DefaultMaxPercent, Min: &minPercent, Max: &maxPercent},
 			},
 		},

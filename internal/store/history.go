@@ -515,20 +515,24 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 	return inserted, skipped, nil
 }
 
-func (s *Store) IsItemWatched(ctx context.Context, serverID int64, itemID string) (bool, error) {
-	var count int
+func (s *Store) GetItemLastWatchedAt(ctx context.Context, serverID int64, itemID string) (time.Time, bool, error) {
+	var raw sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT 1 FROM watch_history
-		WHERE server_id = ? AND (item_id = ? OR grandparent_item_id = ?)
-		LIMIT 1`,
-		serverID, itemID, itemID).Scan(&count)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
+		SELECT MAX(COALESCE(stopped_at, started_at))
+		FROM watch_history
+		WHERE server_id = ? AND (item_id = ? OR grandparent_item_id = ?)`,
+		serverID, itemID, itemID).Scan(&raw)
 	if err != nil {
-		return false, fmt.Errorf("check item watched: %w", err)
+		return time.Time{}, false, fmt.Errorf("get item last watched at: %w", err)
 	}
-	return true, nil
+	if !raw.Valid || raw.String == "" {
+		return time.Time{}, false, nil
+	}
+	t, err := parseSQLiteTime(raw.String)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("get item last watched at: %w", err)
+	}
+	return t, true, nil
 }
 
 func (s *Store) GetWatchedEpisodeCount(ctx context.Context, serverID int64, showItemID string) (int, error) {
