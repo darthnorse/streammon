@@ -187,12 +187,12 @@ export function Settings() {
         )}
       </div>
 
-      <div className="flex gap-1 mb-6 border-b border-border dark:border-border-dark">
+      <div className="flex gap-1 mb-6 border-b border-border dark:border-border-dark overflow-x-auto scrollbar-hide">
         {tabs.map(t => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 ${
               tab === t.key
                 ? 'border-accent text-accent'
                 : 'border-transparent text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
