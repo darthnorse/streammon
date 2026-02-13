@@ -237,7 +237,7 @@ func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverNam
 			continue
 		}
 
-		if err := sch.store.BatchUpsertCandidates(syncCtx, rule.ID, maintenance.ToBatch(candidates)); err != nil {
+		if err := sch.store.BatchUpsertCandidates(syncCtx, rule.ID, candidates); err != nil {
 			log.Printf("scheduler: upsert candidates for rule %d: %v", rule.ID, err)
 			continue
 		}

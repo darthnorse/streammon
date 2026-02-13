@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -379,6 +379,9 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 	items := make([]models.LibraryItem, 0, len(data.Items))
 	for _, item := range data.Items {
 		addedAt := parseEmbyTime(item.DateCreated)
+		if addedAt.IsZero() {
+			addedAt = time.Now().UTC()
+		}
 
 		title := item.Name
 		if item.SeriesName != "" {
@@ -414,7 +417,6 @@ func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.Libr
 func parseEmbyTime(s string) time.Time {
 	formats := []string{
 		time.RFC3339Nano,
-		time.RFC3339,
 		"2006-01-02T15:04:05.0000000",
 		"2006-01-02T15:04:05",
 	}
@@ -423,7 +425,7 @@ func parseEmbyTime(s string) time.Time {
 			return t.UTC()
 		}
 	}
-	return time.Now().UTC()
+	return time.Time{}
 }
 
 type itemDetailsJSON struct {
@@ -491,7 +493,7 @@ func (c *Client) GetLibraries(ctx context.Context) ([]models.Library, error) {
 
 		counts, err := c.getLibraryCounts(ctx, folder.ItemID, folder.CollectionType)
 		if err != nil {
-			log.Printf("%s: failed to get counts for library %s: %v", c.serverType, folder.Name, err)
+			slog.Warn("failed to get library counts", "server_type", c.serverType, "library", folder.Name, "error", err)
 		} else {
 			lib.ItemCount = counts.items
 			lib.ChildCount = counts.children

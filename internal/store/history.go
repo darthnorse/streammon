@@ -515,38 +515,6 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 	return inserted, skipped, nil
 }
 
-func (s *Store) GetItemLastWatchedAt(ctx context.Context, serverID int64, itemID string) (time.Time, bool, error) {
-	var raw sql.NullString
-	err := s.db.QueryRowContext(ctx, `
-		SELECT MAX(COALESCE(stopped_at, started_at))
-		FROM watch_history
-		WHERE server_id = ? AND (item_id = ? OR grandparent_item_id = ?)`,
-		serverID, itemID, itemID).Scan(&raw)
-	if err != nil {
-		return time.Time{}, false, fmt.Errorf("get item last watched at: %w", err)
-	}
-	if !raw.Valid || raw.String == "" {
-		return time.Time{}, false, nil
-	}
-	t, err := parseSQLiteTime(raw.String)
-	if err != nil {
-		return time.Time{}, false, fmt.Errorf("get item last watched at: %w", err)
-	}
-	return t, true, nil
-}
-
-func (s *Store) GetWatchedEpisodeCount(ctx context.Context, serverID int64, showItemID string) (int, error) {
-	var count int
-	err := s.db.QueryRowContext(ctx, `
-		SELECT COUNT(DISTINCT item_id) FROM watch_history
-		WHERE server_id = ? AND grandparent_item_id = ?`,
-		serverID, showItemID).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("get watched episode count: %w", err)
-	}
-	return count, nil
-}
-
 // UnenrichedRef is a minimal pair of (row ID, tautulli reference_id) for enrichment.
 type UnenrichedRef struct {
 	ID    int64

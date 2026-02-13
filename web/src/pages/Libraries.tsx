@@ -75,7 +75,6 @@ function getUniqueServers(libraries: Library[]): { id: number; name: string }[] 
 const criterionFormatters: Record<CriterionType, (params: Record<string, unknown>) => string> = {
   unwatched_movie: (p) => `Movies not watched in ${p.days || 365} days`,
   unwatched_tv_none: (p) => `TV shows with no watch activity for ${p.days || 365}+ days`,
-  unwatched_tv_low: (p) => `TV shows <${p.max_percent || 10}% watched, inactive ${p.days || 365}+ days`,
   low_resolution: (p) => `Resolution at or below ${p.max_height || 720}p`,
   large_files: (p) => `Files larger than ${p.min_size_gb || 10} GB`,
 }
@@ -83,10 +82,6 @@ const criterionFormatters: Record<CriterionType, (params: Record<string, unknown
 function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
   const params = rule.parameters as Record<string, unknown>
   return criterionFormatters[rule.criterion_type]?.(params) ?? JSON.stringify(params)
-}
-
-function getLibraryIcon(type: LibraryType): string {
-  return libraryTypeIcon[type] || '▤'
 }
 
 // Wrapper for SubViewHeader that adds library icon
@@ -103,7 +98,7 @@ function LibrarySubViewHeader({
 }) {
   return (
     <SubViewHeader
-      icon={getLibraryIcon(library.type)}
+      icon={libraryTypeIcon[library.type]}
       title={title}
       subtitle={subtitle}
       onBack={onBack}
@@ -122,7 +117,7 @@ interface LibraryRowProps {
 
 function LibraryRow({ library, maintenance, syncing, onSync, onRules, onViolations }: LibraryRowProps) {
   const accent = serverAccent[library.server_type] || 'bg-gray-100 text-gray-600'
-  const icon = getLibraryIcon(library.type)
+  const icon = libraryTypeIcon[library.type]
   const rules = maintenance?.rules || []
   const ruleCount = rules.length
   const violationCount = rules.reduce((sum, r) => sum + r.candidate_count, 0)

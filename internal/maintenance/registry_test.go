@@ -9,16 +9,15 @@ import (
 func TestGetCriterionTypes(t *testing.T) {
 	types := GetCriterionTypes()
 
-	// Should have 5 criterion types
-	if len(types) != 5 {
-		t.Errorf("GetCriterionTypes() returned %d types, want 5", len(types))
+	// Should have 4 criterion types
+	if len(types) != 4 {
+		t.Errorf("GetCriterionTypes() returned %d types, want 4", len(types))
 	}
 
 	// Check each type exists
 	expectedTypes := map[models.CriterionType]bool{
 		models.CriterionUnwatchedMovie:  false,
 		models.CriterionUnwatchedTVNone: false,
-		models.CriterionUnwatchedTVLow:  false,
 		models.CriterionLowResolution:   false,
 		models.CriterionLargeFiles:      false,
 	}
@@ -81,10 +80,6 @@ func TestDefaultsUsedInRegistry(t *testing.T) {
 			case "days":
 				if param.Default != DefaultDays {
 					t.Errorf("Criterion %s parameter 'days' default = %v, want %d", ct.Type, param.Default, DefaultDays)
-				}
-			case "max_percent":
-				if param.Default != DefaultMaxPercent {
-					t.Errorf("Criterion %s parameter 'max_percent' default = %v, want %d", ct.Type, param.Default, DefaultMaxPercent)
 				}
 			case "max_height":
 				if param.Default != DefaultMaxHeight {

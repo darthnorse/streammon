@@ -376,6 +376,106 @@ func TestGetLastSyncTime(t *testing.T) {
 	}
 }
 
+func TestUpsertLibraryItemsLastWatchedAt(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	watchedAt := now.AddDate(0, 0, -30).Truncate(time.Second)
+
+	// Insert item with LastWatchedAt set
+	items := []models.LibraryItemCache{{
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		ItemID:        "movie1",
+		MediaType:     models.MediaTypeMovie,
+		Title:         "Watched Movie",
+		Year:          2024,
+		AddedAt:       now.AddDate(0, 0, -90),
+		LastWatchedAt: &watchedAt,
+		SyncedAt:      now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert item without LastWatchedAt (nil)
+	items2 := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "movie2",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Unwatched Movie",
+		Year:      2024,
+		AddedAt:   now.AddDate(0, 0, -60),
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items2); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ListLibraryItems(ctx, srv.ID, "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d items, want 2", len(got))
+	}
+
+	// Find each item by title
+	var watched, unwatched *models.LibraryItemCache
+	for i := range got {
+		switch got[i].Title {
+		case "Watched Movie":
+			watched = &got[i]
+		case "Unwatched Movie":
+			unwatched = &got[i]
+		}
+	}
+
+	// Verify watched item round-trips LastWatchedAt
+	if watched == nil {
+		t.Fatal("watched movie not found")
+	}
+	if watched.LastWatchedAt == nil {
+		t.Fatal("expected non-nil LastWatchedAt for watched movie")
+	}
+	if watched.LastWatchedAt.Sub(watchedAt).Abs() > time.Second {
+		t.Errorf("LastWatchedAt = %v, want ~%v", *watched.LastWatchedAt, watchedAt)
+	}
+
+	// Verify unwatched item has nil LastWatchedAt
+	if unwatched == nil {
+		t.Fatal("unwatched movie not found")
+	}
+	if unwatched.LastWatchedAt != nil {
+		t.Errorf("expected nil LastWatchedAt for unwatched movie, got %v", *unwatched.LastWatchedAt)
+	}
+
+	// Verify update: change LastWatchedAt on second sync
+	newWatchedAt := now.AddDate(0, 0, -5).Truncate(time.Second)
+	items[0].LastWatchedAt = &newWatchedAt
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := s.GetLibraryItem(ctx, watched.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.LastWatchedAt == nil {
+		t.Fatal("expected non-nil LastWatchedAt after update")
+	}
+	if updated.LastWatchedAt.Sub(newWatchedAt).Abs() > time.Second {
+		t.Errorf("updated LastWatchedAt = %v, want ~%v", *updated.LastWatchedAt, newWatchedAt)
+	}
+}
+
 func TestGetAllLibraryTotalSizes(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

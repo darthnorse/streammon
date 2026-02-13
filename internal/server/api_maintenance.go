@@ -22,15 +22,13 @@ const maxBulkOperationSize = 500  // SQLite SQLITE_MAX_VARIABLE_NUMBER limit is 
 const maxExportSize = 10000       // Prevent OOM on large exports
 const maxSearchLength = 200       // Prevent abuse with extremely long search strings
 
-// deleteItemResult captures the outcome of deleting a single item
 type deleteItemResult struct {
-	ServerDeleted bool   // File was deleted from media server
-	DBCleaned     bool   // Database record was removed
-	FileSize      int64  // Size of deleted file (for reporting)
-	Error         string // Error message if any step failed
+	ServerDeleted bool
+	DBCleaned     bool
+	FileSize      int64
+	Error         string
 }
 
-// deleteItemFromServer handles the core deletion logic for a single item.
 // Uses background contexts to ensure operations complete even if request is cancelled.
 func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, deletedBy string) deleteItemResult {
 	result := deleteItemResult{FileSize: candidate.Item.FileSize}
@@ -42,21 +40,18 @@ func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, del
 		return result
 	}
 
-	// Delete from media server with timeout
 	deleteCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	deleteErr := ms.DeleteItem(deleteCtx, candidate.Item.ItemID)
 	cancel()
 
 	if deleteErr != nil {
 		result.Error = deleteErr.Error()
-		// Record failed attempt in audit log
 		s.recordDeleteAudit(candidate, deletedBy, false, result.Error)
 		return result
 	}
 
 	result.ServerDeleted = true
 
-	// Clean up database
 	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	dbErr := s.store.DeleteLibraryItem(cleanupCtx, candidate.LibraryItemID)
 	cleanupCancel()
@@ -68,13 +63,11 @@ func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, del
 		result.DBCleaned = true
 	}
 
-	// Record audit log with final status
 	s.recordDeleteAudit(candidate, deletedBy, result.ServerDeleted && result.DBCleaned, result.Error)
 
 	return result
 }
 
-// recordDeleteAudit records a deletion attempt in the audit log
 func (s *Server) recordDeleteAudit(candidate models.MaintenanceCandidate, deletedBy string, success bool, errMsg string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -287,7 +280,7 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 				log.Printf("evaluate rule %d: %v", rule.ID, evalErr)
 				continue
 			}
-			if err := s.store.BatchUpsertCandidates(ctx, rule.ID, maintenance.ToBatch(candidates)); err != nil {
+			if err := s.store.BatchUpsertCandidates(ctx, rule.ID, candidates); err != nil {
 				log.Printf("upsert candidates for rule %d: %v", rule.ID, err)
 			}
 		}
@@ -319,6 +312,10 @@ func (s *Server) handleCreateMaintenanceRule(w http.ResponseWriter, r *http.Requ
 	var input models.MaintenanceRuleInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := input.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -363,6 +360,10 @@ func (s *Server) handleUpdateMaintenanceRule(w http.ResponseWriter, r *http.Requ
 	var input models.MaintenanceRuleUpdateInput
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if err := input.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -428,7 +429,7 @@ func (s *Server) handleEvaluateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.store.BatchUpsertCandidates(ctx, rule.ID, maintenance.ToBatch(candidates)); err != nil {
+	if err := s.store.BatchUpsertCandidates(ctx, rule.ID, candidates); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save candidates")
 		return
 	}
@@ -495,7 +496,6 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use shared delete helper
 	result := s.deleteItemFromServer(*candidate, getUserEmail(r))
 
 	if !result.ServerDeleted {
@@ -751,13 +751,11 @@ func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Build a map for quick lookup and track which IDs were found
 	candidateMap := make(map[int64]models.MaintenanceCandidate)
 	for _, c := range candidates {
 		candidateMap[c.ID] = c
 	}
 
-	// Log warning if some candidates weren't found (may have been deleted by sync)
 	if len(candidates) != len(req.CandidateIDs) {
 		log.Printf("bulk delete: requested %d candidates but only found %d (some may have been removed by sync)",
 			len(req.CandidateIDs), len(candidates))
@@ -765,7 +763,6 @@ func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Reque
 
 	deletedBy := getUserEmail(r)
 
-	// Check if client wants SSE streaming
 	if r.Header.Get("Accept") == "text/event-stream" {
 		s.streamBulkDelete(w, r, req.CandidateIDs, candidateMap, deletedBy)
 		return
@@ -823,7 +820,6 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 	total := len(candidateIDs)
 
 	for i, candidateID := range candidateIDs {
-		// Check for context cancellation between iterations
 		if ctx.Err() != nil {
 			log.Printf("bulk delete cancelled: %v", ctx.Err())
 			break
@@ -835,7 +831,6 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 			title = candidate.Item.Title
 		}
 
-		// Send progress update before processing
 		if onProgress != nil {
 			onProgress(BulkDeleteProgress{
 				Current:   i + 1,
@@ -889,7 +884,6 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 			continue
 		}
 
-		// Use shared delete helper
 		delResult := s.deleteItemFromServer(candidate, deletedBy)
 
 		if delResult.ServerDeleted {

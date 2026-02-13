@@ -14,27 +14,10 @@ import (
 )
 
 const (
-	DefaultDays       = 365
-	DefaultMaxPercent = 10
-	DefaultMaxHeight  = 720
-	DefaultMinSizeGB  = 10.0
+	DefaultDays      = 365
+	DefaultMaxHeight = 720
+	DefaultMinSizeGB = 10.0
 )
-
-type CandidateResult struct {
-	LibraryItemID int64
-	Reason        string
-}
-
-func ToBatch(candidates []CandidateResult) []models.BatchCandidate {
-	batch := make([]models.BatchCandidate, len(candidates))
-	for i, c := range candidates {
-		batch[i] = models.BatchCandidate{
-			LibraryItemID: c.LibraryItemID,
-			Reason:        c.Reason,
-		}
-	}
-	return batch
-}
 
 type Evaluator struct {
 	store *store.Store
@@ -45,25 +28,21 @@ func NewEvaluator(s *store.Store) *Evaluator {
 }
 
 // getItemRefTime returns the last-watched time for an item, or AddedAt if never watched.
-func (e *Evaluator) getItemRefTime(ctx context.Context, serverID int64, item models.LibraryItemCache) (time.Time, bool, error) {
-	lastWatched, found, err := e.store.GetItemLastWatchedAt(ctx, serverID, item.ItemID)
-	if err != nil {
-		return time.Time{}, false, err
+func getItemRefTime(item models.LibraryItemCache) (time.Time, bool) {
+	if item.LastWatchedAt != nil {
+		return *item.LastWatchedAt, true
 	}
-	if found {
-		return lastWatched, true, nil
-	}
-	return item.AddedAt, false, nil
+	return item.AddedAt, false
 }
 
-func (e *Evaluator) EvaluateRule(ctx context.Context, rule *models.MaintenanceRule) ([]CandidateResult, error) {
+func (e *Evaluator) EvaluateRule(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, error) {
 	switch rule.CriterionType {
 	case models.CriterionUnwatchedMovie:
-		return e.evaluateUnwatchedMovie(ctx, rule)
+		return e.evaluateUnwatched(ctx, rule, models.MediaTypeMovie,
+			"Not watched in %d days", "Never watched (added %d days ago)")
 	case models.CriterionUnwatchedTVNone:
-		return e.evaluateUnwatchedTVNone(ctx, rule)
-	case models.CriterionUnwatchedTVLow:
-		return e.evaluateUnwatchedTVLow(ctx, rule)
+		return e.evaluateUnwatched(ctx, rule, models.MediaTypeTV,
+			"Last watched %d days ago", "Never watched (%d days inactive)")
 	case models.CriterionLowResolution:
 		return e.evaluateLowResolution(ctx, rule)
 	case models.CriterionLargeFiles:
@@ -73,8 +52,12 @@ func (e *Evaluator) EvaluateRule(ctx context.Context, rule *models.MaintenanceRu
 	}
 }
 
-func (e *Evaluator) evaluateUnwatchedMovie(ctx context.Context, rule *models.MaintenanceRule) ([]CandidateResult, error) {
-	var params models.UnwatchedMovieParams
+type unwatchedParams struct {
+	Days int `json:"days"`
+}
+
+func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.MaintenanceRule, mediaType models.MediaType, watchedFmt, neverFmt string) ([]models.BatchCandidate, error) {
+	var params unwatchedParams
 	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
@@ -89,157 +72,37 @@ func (e *Evaluator) evaluateUnwatchedMovie(ctx context.Context, rule *models.Mai
 		return nil, err
 	}
 
-	var results []CandidateResult
+	var results []models.BatchCandidate
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if item.MediaType != models.MediaTypeMovie {
+		if item.MediaType != mediaType {
 			continue
 		}
 
-		refTime, wasWatched, err := e.getItemRefTime(ctx, rule.ServerID, item)
-		if err != nil {
-			return nil, err
-		}
+		refTime, wasWatched := getItemRefTime(item)
 		if refTime.After(cutoff) {
 			continue
 		}
 
 		days := int(now.Sub(refTime).Hours() / 24)
 		if wasWatched {
-			results = append(results, CandidateResult{
+			results = append(results, models.BatchCandidate{
 				LibraryItemID: item.ID,
-				Reason:        fmt.Sprintf("Not watched in %d days", days),
+				Reason:        fmt.Sprintf(watchedFmt, days),
 			})
 		} else {
-			results = append(results, CandidateResult{
+			results = append(results, models.BatchCandidate{
 				LibraryItemID: item.ID,
-				Reason:        fmt.Sprintf("Never watched (added %d days ago)", days),
+				Reason:        fmt.Sprintf(neverFmt, days),
 			})
 		}
 	}
 	return results, nil
 }
 
-func (e *Evaluator) evaluateUnwatchedTVNone(ctx context.Context, rule *models.MaintenanceRule) ([]CandidateResult, error) {
-	var params models.UnwatchedTVNoneParams
-	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
-		return nil, fmt.Errorf("parse params: %w", err)
-	}
-	if params.Days <= 0 {
-		params.Days = DefaultDays
-	}
-
-	now := time.Now().UTC()
-	cutoff := now.AddDate(0, 0, -params.Days)
-	items, err := e.store.ListLibraryItems(ctx, rule.ServerID, rule.LibraryID)
-	if err != nil {
-		return nil, err
-	}
-
-	var results []CandidateResult
-	for _, item := range items {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		// EpisodeCount may be 0 for some media servers (e.g., Emby), so we only check media type
-		if item.MediaType != models.MediaTypeTV {
-			continue
-		}
-
-		refTime, wasWatched, err := e.getItemRefTime(ctx, rule.ServerID, item)
-		if err != nil {
-			return nil, err
-		}
-		if refTime.After(cutoff) {
-			continue
-		}
-
-		days := int(now.Sub(refTime).Hours() / 24)
-		if wasWatched {
-			results = append(results, CandidateResult{
-				LibraryItemID: item.ID,
-				Reason:        fmt.Sprintf("Last watched %d days ago", days),
-			})
-		} else {
-			results = append(results, CandidateResult{
-				LibraryItemID: item.ID,
-				Reason:        fmt.Sprintf("Never watched (%d days inactive)", days),
-			})
-		}
-	}
-	return results, nil
-}
-
-func (e *Evaluator) evaluateUnwatchedTVLow(ctx context.Context, rule *models.MaintenanceRule) ([]CandidateResult, error) {
-	var params models.UnwatchedTVLowParams
-	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
-		return nil, fmt.Errorf("parse params: %w", err)
-	}
-	if params.Days <= 0 {
-		params.Days = DefaultDays
-	}
-	if params.MaxPercent <= 0 {
-		params.MaxPercent = DefaultMaxPercent
-	}
-
-	now := time.Now().UTC()
-	cutoff := now.AddDate(0, 0, -params.Days)
-	items, err := e.store.ListLibraryItems(ctx, rule.ServerID, rule.LibraryID)
-	if err != nil {
-		return nil, err
-	}
-
-	var results []CandidateResult
-	for _, item := range items {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		if item.MediaType != models.MediaTypeTV {
-			continue
-		}
-
-		refTime, wasWatched, err := e.getItemRefTime(ctx, rule.ServerID, item)
-		if err != nil {
-			return nil, err
-		}
-		if refTime.After(cutoff) {
-			continue
-		}
-
-		days := int(now.Sub(refTime).Hours() / 24)
-
-		watchedCount, err := e.store.GetWatchedEpisodeCount(ctx, rule.ServerID, item.ItemID)
-		if err != nil {
-			return nil, err
-		}
-
-		// If episode count is 0 (e.g., Emby doesn't provide it), fall back to
-		// treating 0 watched as "low percentage"
-		if item.EpisodeCount > 0 {
-			watchedPct := float64(watchedCount) / float64(item.EpisodeCount) * 100
-			if watchedPct < float64(params.MaxPercent) {
-				reason := fmt.Sprintf("%.1f%% watched (%d/%d episodes)", watchedPct, watchedCount, item.EpisodeCount)
-				if wasWatched {
-					reason += fmt.Sprintf(", last watched %d days ago", days)
-				}
-				results = append(results, CandidateResult{
-					LibraryItemID: item.ID,
-					Reason:        reason,
-				})
-			}
-		} else if watchedCount == 0 {
-			results = append(results, CandidateResult{
-				LibraryItemID: item.ID,
-				Reason:        "No episodes watched (episode count unknown)",
-			})
-		}
-	}
-	return results, nil
-}
-
-func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.MaintenanceRule) ([]CandidateResult, error) {
+func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, error) {
 	var params models.LowResolutionParams
 	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
 		return nil, fmt.Errorf("parse params: %w", err)
@@ -253,7 +116,7 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 		return nil, err
 	}
 
-	var results []CandidateResult
+	var results []models.BatchCandidate
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -264,7 +127,7 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 
 		height := parseResolutionHeight(item.VideoResolution)
 		if height > 0 && height <= params.MaxHeight {
-			results = append(results, CandidateResult{
+			results = append(results, models.BatchCandidate{
 				LibraryItemID: item.ID,
 				Reason:        fmt.Sprintf("Resolution %s below %dp", item.VideoResolution, params.MaxHeight),
 			})
@@ -273,7 +136,7 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 	return results, nil
 }
 
-func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.MaintenanceRule) ([]CandidateResult, error) {
+func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, error) {
 	var params models.LargeFilesParams
 	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
 		return nil, fmt.Errorf("parse params: %w", err)
@@ -289,7 +152,7 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 		return nil, err
 	}
 
-	var results []CandidateResult
+	var results []models.BatchCandidate
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -300,7 +163,7 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 
 		if item.FileSize >= minSizeBytes {
 			sizeGB := float64(item.FileSize) / (1024 * 1024 * 1024)
-			results = append(results, CandidateResult{
+			results = append(results, models.BatchCandidate{
 				LibraryItemID: item.ID,
 				Reason:        fmt.Sprintf("File size %.1f GB exceeds %.1f GB", sizeGB, params.MinSizeGB),
 			})
@@ -314,10 +177,8 @@ var resolutionRegex = regexp.MustCompile(`^(\d+)p?$`)
 
 // parseResolutionHeight extracts height from resolution strings like "1080p", "720p", "4K", "480", "576p"
 func parseResolutionHeight(res string) int {
-	// Normalize to lowercase for case-insensitive matching
 	lower := strings.ToLower(res)
 
-	// Handle named resolutions
 	switch lower {
 	case "4k", "uhd":
 		return 2160
@@ -331,7 +192,6 @@ func parseResolutionHeight(res string) int {
 		return 480
 	}
 
-	// Try to parse numeric resolution (e.g., "1080p", "720", "576p")
 	if matches := resolutionRegex.FindStringSubmatch(lower); len(matches) == 2 {
 		if height, err := strconv.Atoi(matches[1]); err == nil {
 			return height

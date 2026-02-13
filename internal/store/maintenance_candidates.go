@@ -11,22 +11,27 @@ import (
 	"streammon/internal/models"
 )
 
-// candidateSelectColumns defines the columns for candidate queries with joined library items
 const candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
-	i.added_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at`
+	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at`
 
-// scanCandidate scans a row into a MaintenanceCandidate with its LibraryItemCache
 func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
 	var c models.MaintenanceCandidate
 	var item models.LibraryItemCache
+	var lastWatchedAt sql.NullString
 	err := scanner.Scan(&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
 		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
-		&item.Title, &item.Year, &item.AddedAt, &item.VideoResolution, &item.FileSize,
+		&item.Title, &item.Year, &item.AddedAt, &lastWatchedAt, &item.VideoResolution, &item.FileSize,
 		&item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
 	if err != nil {
 		return c, err
+	}
+	if lastWatchedAt.Valid && lastWatchedAt.String != "" {
+		t, parseErr := parseSQLiteTime(lastWatchedAt.String)
+		if parseErr == nil {
+			item.LastWatchedAt = &t
+		}
 	}
 	c.Item = &item
 	return c, nil

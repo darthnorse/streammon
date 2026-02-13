@@ -10,7 +10,6 @@ func TestCriterionTypeValid(t *testing.T) {
 	validTypes := []CriterionType{
 		CriterionUnwatchedMovie,
 		CriterionUnwatchedTVNone,
-		CriterionUnwatchedTVLow,
 		CriterionLowResolution,
 		CriterionLargeFiles,
 	}
@@ -174,37 +173,6 @@ func TestMaintenanceRuleUpdateInputValidate(t *testing.T) {
 					t.Errorf("Validate() error = nil, wantErr %q", tt.wantErr)
 				} else if !strings.Contains(err.Error(), tt.wantErr) {
 					t.Errorf("Validate() error = %v, wantErr containing %q", err, tt.wantErr)
-				}
-			}
-		})
-	}
-}
-
-func TestValidateRuleFields(t *testing.T) {
-	tests := []struct {
-		name          string
-		ruleName      string
-		criterionType CriterionType
-		wantErr       string
-	}{
-		{"valid", "My Rule", CriterionUnwatchedMovie, ""},
-		{"empty name", "", CriterionUnwatchedMovie, "name is required"},
-		{"name too long", strings.Repeat("x", 256), CriterionUnwatchedMovie, "name must be 255 characters or less"},
-		{"invalid criterion", "My Rule", "bad_type", "invalid criterion type"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateRuleFields(tt.ruleName, tt.criterionType)
-			if tt.wantErr == "" {
-				if err != nil {
-					t.Errorf("validateRuleFields() error = %v, wantErr nil", err)
-				}
-			} else {
-				if err == nil {
-					t.Errorf("validateRuleFields() error = nil, wantErr %q", tt.wantErr)
-				} else if !strings.Contains(err.Error(), tt.wantErr) {
-					t.Errorf("validateRuleFields() error = %v, wantErr containing %q", err, tt.wantErr)
 				}
 			}
 		})

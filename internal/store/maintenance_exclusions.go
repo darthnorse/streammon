@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -11,17 +12,24 @@ import (
 const exclusionSelectColumns = `
 	e.id, e.rule_id, e.library_item_id, e.excluded_by, e.excluded_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
-	i.added_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at`
+	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at`
 
 func scanExclusion(scanner interface{ Scan(...any) error }) (models.MaintenanceExclusion, error) {
 	var e models.MaintenanceExclusion
 	var item models.LibraryItemCache
+	var lastWatchedAt sql.NullString
 	err := scanner.Scan(&e.ID, &e.RuleID, &e.LibraryItemID, &e.ExcludedBy, &e.ExcludedAt,
 		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
-		&item.Title, &item.Year, &item.AddedAt, &item.VideoResolution, &item.FileSize,
+		&item.Title, &item.Year, &item.AddedAt, &lastWatchedAt, &item.VideoResolution, &item.FileSize,
 		&item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
 	if err != nil {
 		return e, err
+	}
+	if lastWatchedAt.Valid && lastWatchedAt.String != "" {
+		t, parseErr := parseSQLiteTime(lastWatchedAt.String)
+		if parseErr == nil {
+			item.LastWatchedAt = &t
+		}
 	}
 	e.Item = &item
 	return e, nil

@@ -12,8 +12,7 @@ type CriterionType string
 const (
 	CriterionUnwatchedMovie  CriterionType = "unwatched_movie"
 	CriterionUnwatchedTVNone CriterionType = "unwatched_tv_none"
-	CriterionUnwatchedTVLow  CriterionType = "unwatched_tv_low"
-	CriterionLowResolution   CriterionType = "low_resolution"
+	CriterionLowResolution CriterionType = "low_resolution"
 	CriterionLargeFiles      CriterionType = "large_files"
 )
 
@@ -21,8 +20,7 @@ const (
 func (ct CriterionType) Valid() bool {
 	switch ct {
 	case CriterionUnwatchedMovie, CriterionUnwatchedTVNone,
-		CriterionUnwatchedTVLow, CriterionLowResolution,
-		CriterionLargeFiles:
+		CriterionLowResolution, CriterionLargeFiles:
 		return true
 	}
 	return false
@@ -60,8 +58,9 @@ type LibraryItemCache struct {
 	VideoResolution string    `json:"video_resolution,omitempty"`
 	FileSize        int64     `json:"file_size,omitempty"`
 	EpisodeCount    int       `json:"episode_count,omitempty"`
-	ThumbURL        string    `json:"thumb_url,omitempty"`
-	SyncedAt        time.Time `json:"synced_at"`
+	LastWatchedAt   *time.Time `json:"last_watched_at,omitempty"`
+	ThumbURL        string     `json:"thumb_url,omitempty"`
+	SyncedAt        time.Time  `json:"synced_at"`
 }
 
 // MaintenanceRule represents a user-defined maintenance rule
@@ -191,22 +190,6 @@ type MaintenanceRuleWithCount struct {
 	MaintenanceRule
 	CandidateCount int `json:"candidate_count"`
 	ExclusionCount int `json:"exclusion_count"`
-}
-
-// UnwatchedMovieParams for unwatched_movie criterion
-type UnwatchedMovieParams struct {
-	Days int `json:"days"`
-}
-
-// UnwatchedTVNoneParams for unwatched_tv_none criterion
-type UnwatchedTVNoneParams struct {
-	Days int `json:"days"`
-}
-
-// UnwatchedTVLowParams for unwatched_tv_low criterion
-type UnwatchedTVLowParams struct {
-	Days       int `json:"days"`
-	MaxPercent int `json:"max_percent"`
 }
 
 // LowResolutionParams for low_resolution criterion

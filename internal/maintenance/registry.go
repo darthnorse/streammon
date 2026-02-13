@@ -5,14 +5,12 @@ import (
 )
 
 var (
-	minDays    = 1
-	maxDays    = 3650
-	minPercent = 1
-	maxPercent = 100
-	minHeight  = 240
-	maxHeight  = 4320
-	minSizeGB  = 1
-	maxSizeGB  = 1000
+	minDays   = 1
+	maxDays   = 3650
+	minHeight = 240
+	maxHeight = 4320
+	minSizeGB = 1
+	maxSizeGB = 1000
 )
 
 func GetCriterionTypes() []models.CriterionTypeInfo {
@@ -28,21 +26,11 @@ func GetCriterionTypes() []models.CriterionTypeInfo {
 		},
 		{
 			Type:        models.CriterionUnwatchedTVNone,
-			Name:        "Unwatched TV Shows (Zero Episodes)",
-			Description: "TV shows with no episodes watched or no activity in specified days",
+			Name:        "Unwatched TV Shows",
+			Description: "TV shows with no watch activity reported by the media server in specified days",
 			MediaTypes:  []models.MediaType{models.MediaTypeTV},
 			Parameters: []models.ParamSpec{
 				{Name: "days", Type: "int", Label: "Days since last watched", Default: DefaultDays, Min: &minDays, Max: &maxDays},
-			},
-		},
-		{
-			Type:        models.CriterionUnwatchedTVLow,
-			Name:        "Unwatched TV Shows (Low Watch %)",
-			Description: "TV shows with watch percentage below threshold and no recent activity",
-			MediaTypes:  []models.MediaType{models.MediaTypeTV},
-			Parameters: []models.ParamSpec{
-				{Name: "days", Type: "int", Label: "Days since last watched", Default: DefaultDays, Min: &minDays, Max: &maxDays},
-				{Name: "max_percent", Type: "int", Label: "Max watch percentage", Default: DefaultMaxPercent, Min: &minPercent, Max: &maxPercent},
 			},
 		},
 		{

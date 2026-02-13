@@ -528,7 +528,7 @@ export const RULE_TYPE_LABELS: Record<RuleType, string> = Object.fromEntries(
 ) as Record<RuleType, string>
 
 // Maintenance types
-export type CriterionType = 'unwatched_movie' | 'unwatched_tv_none' | 'unwatched_tv_low' | 'low_resolution' | 'large_files'
+export type CriterionType = 'unwatched_movie' | 'unwatched_tv_none' | 'low_resolution' | 'large_files'
 
 export interface ParamSpec {
   name: string
@@ -556,6 +556,7 @@ export interface LibraryItemCache {
   title: string
   year: number
   added_at: string
+  last_watched_at?: string
   video_resolution?: string
   file_size?: number
   episode_count?: number

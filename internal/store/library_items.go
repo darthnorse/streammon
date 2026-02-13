@@ -11,17 +11,49 @@ import (
 )
 
 const libraryItemColumns = `id, server_id, library_id, item_id, media_type, title, year,
-	added_at, video_resolution, file_size, episode_count, thumb_url, synced_at`
+	added_at, last_watched_at, video_resolution, file_size, episode_count, thumb_url, synced_at`
+
+const libraryItemUpsertSQL = `
+	INSERT INTO library_items (server_id, library_id, item_id, media_type, title, year,
+		added_at, last_watched_at, video_resolution, file_size, episode_count, thumb_url, synced_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(server_id, item_id) DO UPDATE SET
+		library_id = excluded.library_id,
+		media_type = excluded.media_type,
+		title = excluded.title,
+		year = excluded.year,
+		last_watched_at = excluded.last_watched_at,
+		video_resolution = excluded.video_resolution,
+		file_size = excluded.file_size,
+		episode_count = excluded.episode_count,
+		thumb_url = excluded.thumb_url,
+		synced_at = excluded.synced_at`
+
+func execLibraryItemUpsert(ctx context.Context, stmt *sql.Stmt, item models.LibraryItemCache, syncTime time.Time) error {
+	_, err := stmt.ExecContext(ctx, item.ServerID, item.LibraryID, item.ItemID,
+		item.MediaType, item.Title, item.Year, item.AddedAt, item.LastWatchedAt,
+		item.VideoResolution, item.FileSize, item.EpisodeCount, item.ThumbURL, syncTime)
+	return err
+}
 
 func scanLibraryItem(scanner interface{ Scan(...any) error }) (models.LibraryItemCache, error) {
 	var item models.LibraryItemCache
+	var lastWatchedAt sql.NullString
 	err := scanner.Scan(&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID,
-		&item.MediaType, &item.Title, &item.Year, &item.AddedAt, &item.VideoResolution,
-		&item.FileSize, &item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
-	return item, err
+		&item.MediaType, &item.Title, &item.Year, &item.AddedAt, &lastWatchedAt,
+		&item.VideoResolution, &item.FileSize, &item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
+	if err != nil {
+		return item, err
+	}
+	if lastWatchedAt.Valid && lastWatchedAt.String != "" {
+		t, parseErr := parseSQLiteTime(lastWatchedAt.String)
+		if parseErr == nil {
+			item.LastWatchedAt = &t
+		}
+	}
+	return item, nil
 }
 
-// UpsertLibraryItems batch inserts/updates library items
 func (s *Store) UpsertLibraryItems(ctx context.Context, items []models.LibraryItemCache) (int, error) {
 	if len(items) == 0 {
 		return 0, nil
@@ -33,20 +65,7 @@ func (s *Store) UpsertLibraryItems(ctx context.Context, items []models.LibraryIt
 	}
 	defer tx.Rollback()
 
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO library_items (server_id, library_id, item_id, media_type, title, year,
-			added_at, video_resolution, file_size, episode_count, thumb_url, synced_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(server_id, item_id) DO UPDATE SET
-			library_id = excluded.library_id,
-			media_type = excluded.media_type,
-			title = excluded.title,
-			year = excluded.year,
-			video_resolution = excluded.video_resolution,
-			file_size = excluded.file_size,
-			episode_count = excluded.episode_count,
-			thumb_url = excluded.thumb_url,
-			synced_at = excluded.synced_at`)
+	stmt, err := tx.PrepareContext(ctx, libraryItemUpsertSQL)
 	if err != nil {
 		return 0, fmt.Errorf("prepare: %w", err)
 	}
@@ -58,10 +77,7 @@ func (s *Store) UpsertLibraryItems(ctx context.Context, items []models.LibraryIt
 		if ctx.Err() != nil {
 			return count, ctx.Err()
 		}
-		_, err := stmt.ExecContext(ctx, item.ServerID, item.LibraryID, item.ItemID,
-			item.MediaType, item.Title, item.Year, item.AddedAt, item.VideoResolution,
-			item.FileSize, item.EpisodeCount, item.ThumbURL, now)
-		if err != nil {
+		if err := execLibraryItemUpsert(ctx, stmt, item, now); err != nil {
 			return count, fmt.Errorf("upsert item %s: %w", item.ItemID, err)
 		}
 		count++
@@ -70,7 +86,6 @@ func (s *Store) UpsertLibraryItems(ctx context.Context, items []models.LibraryIt
 	return count, tx.Commit()
 }
 
-// GetLibraryItem returns a single cached library item
 func (s *Store) GetLibraryItem(ctx context.Context, id int64) (*models.LibraryItemCache, error) {
 	item, err := scanLibraryItem(s.db.QueryRowContext(ctx,
 		`SELECT `+libraryItemColumns+` FROM library_items WHERE id = ?`, id))
@@ -83,7 +98,6 @@ func (s *Store) GetLibraryItem(ctx context.Context, id int64) (*models.LibraryIt
 	return &item, nil
 }
 
-// ListLibraryItems returns cached items for a library
 func (s *Store) ListLibraryItems(ctx context.Context, serverID int64, libraryID string) ([]models.LibraryItemCache, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+libraryItemColumns+` FROM library_items WHERE server_id = ? AND library_id = ? ORDER BY added_at DESC`,
@@ -104,7 +118,6 @@ func (s *Store) ListLibraryItems(ctx context.Context, serverID int64, libraryID 
 	return items, rows.Err()
 }
 
-// GetLastSyncTime returns the most recent sync time for a library
 func (s *Store) GetLastSyncTime(ctx context.Context, serverID int64, libraryID string) (*time.Time, error) {
 	var syncedAtStr sql.NullString
 	err := s.db.QueryRowContext(ctx,
@@ -123,7 +136,6 @@ func (s *Store) GetLastSyncTime(ctx context.Context, serverID int64, libraryID s
 	return &syncedAt, nil
 }
 
-// DeleteStaleLibraryItems removes items not seen since the given time
 func (s *Store) DeleteStaleLibraryItems(ctx context.Context, serverID int64, libraryID string, before time.Time) (int64, error) {
 	result, err := s.db.ExecContext(ctx,
 		`DELETE FROM library_items WHERE server_id = ? AND library_id = ? AND synced_at < ?`,
@@ -152,20 +164,7 @@ func (s *Store) SyncLibraryItems(ctx context.Context, serverID int64, libraryID 
 	// Record sync time BEFORE any operations - this is the cutoff for stale items
 	syncTime := time.Now().UTC()
 
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO library_items (server_id, library_id, item_id, media_type, title, year,
-			added_at, video_resolution, file_size, episode_count, thumb_url, synced_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(server_id, item_id) DO UPDATE SET
-			library_id = excluded.library_id,
-			media_type = excluded.media_type,
-			title = excluded.title,
-			year = excluded.year,
-			video_resolution = excluded.video_resolution,
-			file_size = excluded.file_size,
-			episode_count = excluded.episode_count,
-			thumb_url = excluded.thumb_url,
-			synced_at = excluded.synced_at`)
+	stmt, err := tx.PrepareContext(ctx, libraryItemUpsertSQL)
 	if err != nil {
 		return 0, 0, fmt.Errorf("prepare: %w", err)
 	}
@@ -175,16 +174,12 @@ func (s *Store) SyncLibraryItems(ctx context.Context, serverID int64, libraryID 
 		if ctx.Err() != nil {
 			return upserted, 0, ctx.Err()
 		}
-		_, err := stmt.ExecContext(ctx, item.ServerID, item.LibraryID, item.ItemID,
-			item.MediaType, item.Title, item.Year, item.AddedAt, item.VideoResolution,
-			item.FileSize, item.EpisodeCount, item.ThumbURL, syncTime)
-		if err != nil {
+		if err := execLibraryItemUpsert(ctx, stmt, item, syncTime); err != nil {
 			return upserted, 0, fmt.Errorf("upsert item %s: %w", item.ItemID, err)
 		}
 		upserted++
 	}
 
-	// Delete stale items within the same transaction
 	result, err := tx.ExecContext(ctx,
 		`DELETE FROM library_items WHERE server_id = ? AND library_id = ? AND synced_at < ?`,
 		serverID, libraryID, syncTime)
@@ -201,7 +196,6 @@ func (s *Store) SyncLibraryItems(ctx context.Context, serverID int64, libraryID 
 	return upserted, deleted, nil
 }
 
-// CountLibraryItems returns the count of cached items for a library
 func (s *Store) CountLibraryItems(ctx context.Context, serverID int64, libraryID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx,
@@ -213,7 +207,6 @@ func (s *Store) CountLibraryItems(ctx context.Context, serverID int64, libraryID
 	return count, nil
 }
 
-// GetLibraryTotalSize returns the total file size in bytes for a library from cached items
 func (s *Store) GetLibraryTotalSize(ctx context.Context, serverID int64, libraryID string) (int64, error) {
 	var total sql.NullInt64
 	err := s.db.QueryRowContext(ctx,

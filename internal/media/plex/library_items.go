@@ -28,13 +28,14 @@ type libraryItemsContainer struct {
 }
 
 type libraryItemXML struct {
-	RatingKey string         `xml:"ratingKey,attr"`
-	Type      string         `xml:"type,attr"`
-	Title     string         `xml:"title,attr"`
-	Year      string         `xml:"year,attr"`
-	AddedAt   string         `xml:"addedAt,attr"`
-	LeafCount string         `xml:"leafCount,attr"`
-	Media     []mediaInfoXML `xml:"Media"`
+	RatingKey    string         `xml:"ratingKey,attr"`
+	Type         string         `xml:"type,attr"`
+	Title        string         `xml:"title,attr"`
+	Year         string         `xml:"year,attr"`
+	AddedAt      string         `xml:"addedAt,attr"`
+	LastViewedAt string         `xml:"lastViewedAt,attr"`
+	LeafCount    string         `xml:"leafCount,attr"`
+	Media        []mediaInfoXML `xml:"Media"`
 }
 
 type mediaInfoXML struct {
@@ -174,6 +175,12 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 		mediaType := plexMediaType(item.Type)
 		episodeCount := atoi(item.LeafCount)
 
+		var lastWatchedAt *time.Time
+		if ts := atoi64(item.LastViewedAt); ts > 0 {
+			t := time.Unix(ts, 0).UTC()
+			lastWatchedAt = &t
+		}
+
 		items = append(items, models.LibraryItemCache{
 			ServerID:        s.serverID,
 			LibraryID:       libraryID,
@@ -182,6 +189,7 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 			Title:           item.Title,
 			Year:            atoi(item.Year),
 			AddedAt:         time.Unix(atoi64(item.AddedAt), 0).UTC(),
+			LastWatchedAt:   lastWatchedAt,
 			VideoResolution: resolution,
 			FileSize:        fileSize,
 			EpisodeCount:    episodeCount,

@@ -74,9 +74,6 @@ func TestDefaultConstants(t *testing.T) {
 	if DefaultDays != 365 {
 		t.Errorf("DefaultDays = %d, want 365", DefaultDays)
 	}
-	if DefaultMaxPercent != 10 {
-		t.Errorf("DefaultMaxPercent = %d, want 10", DefaultMaxPercent)
-	}
 	if DefaultMaxHeight != 720 {
 		t.Errorf("DefaultMaxHeight = %d, want 720", DefaultMaxHeight)
 	}
@@ -214,26 +211,19 @@ func TestEvaluateMovieWatchedLongAgoFlagged(t *testing.T) {
 	srv := seedTestServer(t, s)
 
 	now := time.Now().UTC()
+	watchedAt := now.AddDate(0, 0, -60)
 	items := []models.LibraryItemCache{{
-		ServerID:  srv.ID,
-		LibraryID: "lib1",
-		ItemID:    "movie1",
-		MediaType: models.MediaTypeMovie,
-		Title:     "Old Movie",
-		Year:      2020,
-		AddedAt:   now.AddDate(-2, 0, 0),
-		SyncedAt:  now,
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		ItemID:        "movie1",
+		MediaType:     models.MediaTypeMovie,
+		Title:         "Old Movie",
+		Year:          2020,
+		AddedAt:       now.AddDate(-2, 0, 0),
+		LastWatchedAt: &watchedAt,
+		SyncedAt:      now,
 	}}
 	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	// Movie was watched 60 days ago
-	if err := s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: srv.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
-		ItemID: "movie1", Title: "Old Movie",
-		StartedAt: now.AddDate(0, 0, -60), StoppedAt: now.AddDate(0, 0, -60).Add(2 * time.Hour),
-	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -263,26 +253,19 @@ func TestEvaluateMovieWatchedRecentlyNotFlagged(t *testing.T) {
 	srv := seedTestServer(t, s)
 
 	now := time.Now().UTC()
+	watchedAt := now.AddDate(0, 0, -5)
 	items := []models.LibraryItemCache{{
-		ServerID:  srv.ID,
-		LibraryID: "lib1",
-		ItemID:    "movie1",
-		MediaType: models.MediaTypeMovie,
-		Title:     "Old Movie",
-		Year:      2020,
-		AddedAt:   now.AddDate(-2, 0, 0),
-		SyncedAt:  now,
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		ItemID:        "movie1",
+		MediaType:     models.MediaTypeMovie,
+		Title:         "Old Movie",
+		Year:          2020,
+		AddedAt:       now.AddDate(-2, 0, 0),
+		LastWatchedAt: &watchedAt,
+		SyncedAt:      now,
 	}}
 	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	// Movie was watched 5 days ago — should NOT be flagged with 30-day threshold
-	if err := s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: srv.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
-		ItemID: "movie1", Title: "Old Movie",
-		StartedAt: now.AddDate(0, 0, -5), StoppedAt: now.AddDate(0, 0, -5).Add(2 * time.Hour),
-	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -384,25 +367,18 @@ func TestEvaluateUnwatchedTVNoneWatchedLongAgoFlagged(t *testing.T) {
 	srv := seedTestServer(t, s)
 
 	now := time.Now().UTC()
+	watchedAt := now.AddDate(0, 0, -400)
 	items := []models.LibraryItemCache{{
-		ServerID:  srv.ID,
-		LibraryID: "lib1",
-		ItemID:    "show1",
-		MediaType: models.MediaTypeTV,
-		Title:     "Watched Show",
-		AddedAt:   now.AddDate(-2, 0, 0),
-		SyncedAt:  now,
+		ServerID:      srv.ID,
+		LibraryID:     "lib1",
+		ItemID:        "show1",
+		MediaType:     models.MediaTypeTV,
+		Title:         "Watched Show",
+		AddedAt:       now.AddDate(-2, 0, 0),
+		LastWatchedAt: &watchedAt,
+		SyncedAt:      now,
 	}}
 	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	// Show was watched 400 days ago — should be flagged (last activity > 30 days)
-	if err := s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: srv.ID, UserName: "alice", MediaType: models.MediaTypeTV,
-		ItemID: "ep1", GrandparentItemID: "show1", Title: "Episode 1",
-		StartedAt: now.AddDate(0, 0, -400), StoppedAt: now.AddDate(0, 0, -400).Add(time.Hour),
-	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -423,101 +399,6 @@ func TestEvaluateUnwatchedTVNoneWatchedLongAgoFlagged(t *testing.T) {
 	}
 	if !strings.Contains(results[0].Reason, "Last watched") {
 		t.Errorf("expected 'Last watched' in reason, got %q", results[0].Reason)
-	}
-}
-
-func TestEvaluateTVLowWatchedLongAgoFlagged(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-	ctx := context.Background()
-	srv := seedTestServer(t, s)
-
-	now := time.Now().UTC()
-	items := []models.LibraryItemCache{{
-		ServerID:     srv.ID,
-		LibraryID:    "lib1",
-		ItemID:       "show1",
-		MediaType:    models.MediaTypeTV,
-		Title:        "Stale Show",
-		EpisodeCount: 20,
-		AddedAt:      now.AddDate(-2, 0, 0),
-		SyncedAt:     now,
-	}}
-	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	// Watched 1 episode 60 days ago (5% < 10% threshold, last watched > 30 days)
-	if err := s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: srv.ID, UserName: "alice", MediaType: models.MediaTypeTV,
-		ItemID: "ep1", GrandparentItemID: "show1", Title: "Episode 1",
-		StartedAt: now.AddDate(0, 0, -60), StoppedAt: now.AddDate(0, 0, -60).Add(time.Hour),
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
-		CriterionType: models.CriterionUnwatchedTVLow,
-		Parameters:    json.RawMessage(`{"days": 30, "max_percent": 10}`),
-	}
-
-	e := NewEvaluator(s)
-	results, err := e.EvaluateRule(ctx, rule)
-	if err != nil {
-		t.Fatalf("EvaluateRule: %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("got %d results, want 1", len(results))
-	}
-	if !strings.Contains(results[0].Reason, "last watched") {
-		t.Errorf("expected 'last watched' in reason, got %q", results[0].Reason)
-	}
-}
-
-func TestEvaluateTVLowWatchedRecentlyNotFlagged(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-	ctx := context.Background()
-	srv := seedTestServer(t, s)
-
-	now := time.Now().UTC()
-	items := []models.LibraryItemCache{{
-		ServerID:     srv.ID,
-		LibraryID:    "lib1",
-		ItemID:       "show1",
-		MediaType:    models.MediaTypeTV,
-		Title:        "Active Show",
-		EpisodeCount: 20,
-		AddedAt:      now.AddDate(-2, 0, 0),
-		SyncedAt:     now,
-	}}
-	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	// Watched 1 episode 5 days ago (5% < 10% threshold, but last watched < 30 days)
-	if err := s.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: srv.ID, UserName: "alice", MediaType: models.MediaTypeTV,
-		ItemID: "ep1", GrandparentItemID: "show1", Title: "Episode 1",
-		StartedAt: now.AddDate(0, 0, -5), StoppedAt: now.AddDate(0, 0, -5).Add(time.Hour),
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
-		CriterionType: models.CriterionUnwatchedTVLow,
-		Parameters:    json.RawMessage(`{"days": 30, "max_percent": 10}`),
-	}
-
-	e := NewEvaluator(s)
-	results, err := e.EvaluateRule(ctx, rule)
-	if err != nil {
-		t.Fatalf("EvaluateRule: %v", err)
-	}
-	if len(results) != 0 {
-		t.Errorf("got %d results, want 0 (show watched 5 days ago, threshold 30)", len(results))
 	}
 }
 
@@ -598,31 +479,6 @@ func TestEvaluateRuleUnknownCriterion(t *testing.T) {
 	_, err := e.EvaluateRule(ctx, rule)
 	if err == nil {
 		t.Error("expected error for unknown criterion")
-	}
-}
-
-func TestToBatch(t *testing.T) {
-	candidates := []CandidateResult{
-		{LibraryItemID: 1, Reason: "Reason 1"},
-		{LibraryItemID: 2, Reason: "Reason 2"},
-	}
-
-	batch := ToBatch(candidates)
-	if len(batch) != 2 {
-		t.Fatalf("got %d batch items, want 2", len(batch))
-	}
-	if batch[0].LibraryItemID != 1 {
-		t.Errorf("batch[0].LibraryItemID = %d, want 1", batch[0].LibraryItemID)
-	}
-	if batch[1].Reason != "Reason 2" {
-		t.Errorf("batch[1].Reason = %q, want %q", batch[1].Reason, "Reason 2")
-	}
-}
-
-func TestToBatchEmpty(t *testing.T) {
-	batch := ToBatch(nil)
-	if len(batch) != 0 {
-		t.Errorf("got %d batch items, want 0", len(batch))
 	}
 }
 

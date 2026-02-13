@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
+	"time"
 
 	"streammon/internal/httputil"
 	"streammon/internal/mediautil"
@@ -30,6 +31,12 @@ type embyLibraryItem struct {
 	RecursiveItemCount int               `json:"RecursiveItemCount"`
 	ChildCount         int               `json:"ChildCount"`
 	MediaSources       []embyMediaSource `json:"MediaSources,omitempty"`
+	UserData           *embyUserData     `json:"UserData,omitempty"`
+}
+
+type embyUserData struct {
+	LastPlayedDate string `json:"LastPlayedDate"`
+	Played         bool   `json:"Played"`
 }
 
 type embyMediaSource struct {
@@ -59,7 +66,7 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 		if series[i].FileSize == 0 {
 			size, err := c.getSeriesEpisodeSize(ctx, series[i].ItemID)
 			if err != nil {
-				log.Printf("%s: failed to get episode sizes for %q: %v", c.serverType, series[i].Title, err)
+				slog.Warn("failed to get episode sizes", "server_type", c.serverType, "title", series[i].Title, "error", err)
 				continue
 			}
 			series[i].FileSize = size
@@ -68,7 +75,7 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 
 	result := slices.Concat(movies, series)
 	if result == nil {
-		result = []models.LibraryItemCache{}
+		return []models.LibraryItemCache{}, nil
 	}
 
 	var totalSize int64
@@ -79,8 +86,10 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 			zeroSize++
 		}
 	}
-	log.Printf("%s: library %s — %d movies, %d series, %d items total, %d with zero size, total %d bytes",
-		c.serverType, libraryID, len(movies), len(series), len(result), zeroSize, totalSize)
+	slog.Info("library sync stats",
+		"server_type", c.serverType, "library", libraryID,
+		"movies", len(movies), "series", len(series), "total", len(result),
+		"zero_size", zeroSize, "total_bytes", totalSize)
 
 	return result, nil
 }
@@ -194,7 +203,7 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 		"ParentId":         {libraryID},
 		"Recursive":        {"true"},
 		"IncludeItemTypes": {itemType},
-		"Fields":           {"DateCreated,MediaSources,RecursiveItemCount,ChildCount"},
+		"Fields":           {"DateCreated,MediaSources,RecursiveItemCount,ChildCount,UserData"},
 		"StartIndex":       {strconv.Itoa(offset)},
 		"Limit":            {strconv.Itoa(batchSize)},
 	}
@@ -225,6 +234,17 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 		}
 
 		addedAt := parseEmbyTime(item.DateCreated)
+		if addedAt.IsZero() {
+			addedAt = time.Now().UTC()
+		}
+
+		var lastWatchedAt *time.Time
+		if item.UserData != nil && item.UserData.LastPlayedDate != "" {
+			t := parseEmbyTime(item.UserData.LastPlayedDate)
+			if !t.IsZero() {
+				lastWatchedAt = &t
+			}
+		}
 
 		episodeCount := item.RecursiveItemCount
 		if episodeCount == 0 {
@@ -239,6 +259,7 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 			Title:           item.Name,
 			Year:            item.ProductionYear,
 			AddedAt:         addedAt,
+			LastWatchedAt:   lastWatchedAt,
 			VideoResolution: resolution,
 			FileSize:        fileSize,
 			EpisodeCount:    episodeCount,
