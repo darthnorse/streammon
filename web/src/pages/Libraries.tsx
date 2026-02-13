@@ -4,11 +4,13 @@ import { useMultiSelect } from '../hooks/useMultiSelect'
 import { useMountedRef } from '../hooks/useMountedRef'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
+import { useItemDetails } from '../hooks/useItemDetails'
 import { api } from '../lib/api'
 import { PER_PAGE_OPTIONS } from '../lib/constants'
 import { errorMessage } from '../lib/utils'
 import { formatCount, formatSize } from '../lib/format'
 import { Pagination } from '../components/Pagination'
+import { MediaDetailModal } from '../components/MediaDetailModal'
 import {
   SubViewHeader,
   SearchInput,
@@ -22,6 +24,7 @@ import type {
   LibrariesResponse,
   Library,
   LibraryType,
+  LibraryItemCache,
   ServerType,
   MaintenanceDashboard,
   LibraryMaintenance,
@@ -33,6 +36,35 @@ import type {
   CriterionTypeInfo,
   CriterionType,
 } from '../types'
+
+function useMediaDetailModal() {
+  const [selectedItem, setSelectedItem] = useState<{ serverId: number; itemId: string } | null>(null)
+  const { data: itemDetails, loading: detailsLoading } = useItemDetails(
+    selectedItem?.serverId ?? 0,
+    selectedItem?.itemId ?? null
+  )
+  const modal = selectedItem ? (
+    <MediaDetailModal
+      item={itemDetails}
+      loading={detailsLoading}
+      onClose={() => setSelectedItem(null)}
+    />
+  ) : null
+  return { setSelectedItem, modal }
+}
+
+function ItemTitleButton({ item, onSelect }: { item?: LibraryItemCache; onSelect: (serverId: number, itemId: string) => void }) {
+  if (!item) return <>Unknown</>
+  return (
+    <button
+      onClick={() => onSelect(item.server_id, item.item_id)}
+      className="text-left text-accent hover:underline"
+      aria-label={`View details for ${item.title}`}
+    >
+      {item.title}
+    </button>
+  )
+}
 
 const serverAccent: Record<ServerType, string> = {
   plex: 'bg-warn/10 text-warn',
@@ -84,7 +116,6 @@ function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
   return criterionFormatters[rule.criterion_type]?.(params) ?? JSON.stringify(params)
 }
 
-// Wrapper for SubViewHeader that adds library icon
 function LibrarySubViewHeader({
   library,
   title,
@@ -504,6 +535,7 @@ function CandidatesView({
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'partial' | 'error'; message: string; errors?: Array<{ title: string; error: string }> } | null>(null)
   const [rowMenuOpen, setRowMenuOpen] = useState<number | null>(null)
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
+  const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
   const mountedRef = useMountedRef()
 
   const { searchInput, setSearchInput, search, resetSearch } = useDebouncedSearch(() => setPage(1))
@@ -561,7 +593,6 @@ function CandidatesView({
 
     const candidateIds = deleteConfirm.map(c => c.id)
 
-    // Initialize progress state
     setDeleteProgress({
       current: 0,
       total: candidateIds.length,
@@ -574,7 +605,6 @@ function CandidatesView({
     })
 
     try {
-      // Use fetch with SSE for streaming progress
       const response = await fetch('/api/maintenance/candidates/bulk-delete', {
         method: 'POST',
         headers: {
@@ -692,7 +722,7 @@ function CandidatesView({
 
   const handleSingleDelete = (candidate: MaintenanceCandidate) => {
     closeRowMenu()
-    setShowDetails(false) // Reset on dialog open
+    setShowDetails(false)
     setDeleteConfirm([candidate])
   }
 
@@ -702,7 +732,7 @@ function CandidatesView({
   }
 
   const handleBulkDeleteClick = () => {
-    setShowDetails(false) // Reset on dialog open
+    setShowDetails(false)
     setDeleteConfirm(selectedItems)
   }
 
@@ -850,7 +880,7 @@ function CandidatesView({
                         />
                       </td>
                       <td className="px-4 py-3 font-medium">
-                        {candidate.item?.title || 'Unknown'}
+                        <ItemTitleButton item={candidate.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {candidate.item?.year || '-'}
@@ -922,7 +952,6 @@ function CandidatesView({
         </>
       )}
 
-      {/* Delete Confirmation Dialog */}
       {deleteConfirm && (
         <ConfirmDialog
           title={`Delete ${deleteConfirm.length} item${deleteConfirm.length > 1 ? 's' : ''} from ${library.server_name}?`}
@@ -960,7 +989,6 @@ function CandidatesView({
         </ConfirmDialog>
       )}
 
-      {/* Exclude Confirmation Dialog */}
       {excludeConfirm && (
         <ConfirmDialog
           title={`Exclude ${excludeConfirm.length} item${excludeConfirm.length > 1 ? 's' : ''} from this rule?`}
@@ -972,10 +1000,11 @@ function CandidatesView({
         />
       )}
 
-      {/* Delete Progress Modal */}
       {deleteProgress && (
         <DeleteProgressModal progress={deleteProgress} />
       )}
+
+      {detailModal}
     </div>
   )
 }
@@ -993,6 +1022,7 @@ function ExclusionsView({
   const [perPage, setPerPage] = usePersistedPerPage()
   const [operating, setOperating] = useState(false)
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
   const mountedRef = useMountedRef()
 
   const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setPage(1))
@@ -1142,7 +1172,7 @@ function ExclusionsView({
                         />
                       </td>
                       <td className="px-4 py-3 font-medium">
-                        {exclusion.item?.title || 'Unknown'}
+                        <ItemTitleButton item={exclusion.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {exclusion.item?.year || '-'}
@@ -1167,6 +1197,8 @@ function ExclusionsView({
           />
         </>
       )}
+
+      {detailModal}
     </div>
   )
 }
@@ -1447,7 +1479,6 @@ export function Libraries() {
     [displayedLibraries]
   )
 
-  // Handle sub-views
   if (view.type === 'rules') {
     const freshMaintenance = getMaintenanceForLibrary(view.library)
     return (
