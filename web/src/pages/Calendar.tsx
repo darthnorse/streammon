@@ -318,13 +318,13 @@ function EpisodeCard({ episode, onSeriesClick }: EpisodeCardProps) {
             target.style.display = 'none'
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent hidden sm:block" />
         <div className="absolute top-2 right-2">
           <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${status.className}`}>
             {status.label}
           </span>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 p-2.5">
+        <div className="absolute bottom-0 left-0 right-0 p-2.5 hidden sm:block">
           <p className="text-white text-xs font-semibold truncate drop-shadow-lg">
             {episode.series.title}
           </p>
@@ -333,9 +333,13 @@ function EpisodeCard({ episode, onSeriesClick }: EpisodeCardProps) {
           </p>
         </div>
       </div>
-      <div className="p-2.5 space-y-1">
-        <p className="text-xs font-medium truncate" title={episode.title}>
-          {episode.title}
+      <div className="p-2 sm:p-2.5 space-y-0.5 sm:space-y-1">
+        <p className="text-[11px] sm:text-xs font-semibold sm:font-medium truncate" title={episode.series.title}>
+          <span className="sm:hidden">{episode.series.title}</span>
+          <span className="hidden sm:inline">{episode.title}</span>
+        </p>
+        <p className="text-[10px] text-muted dark:text-muted-dark truncate sm:hidden">
+          {epCode} &middot; {episode.title}
         </p>
         <div className="flex items-center justify-between text-[10px] text-muted dark:text-muted-dark">
           <span>{airTime}</span>

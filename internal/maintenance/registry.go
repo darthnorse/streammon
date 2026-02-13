@@ -32,7 +32,7 @@ func GetCriterionTypes() []models.CriterionTypeInfo {
 			Description: "TV shows where no episodes have ever been watched",
 			MediaTypes:  []models.MediaType{models.MediaTypeTV},
 			Parameters: []models.ParamSpec{
-				{Name: "days", Type: "int", Label: "Days since added", Default: DefaultDays, Min: &minDays, Max: &maxDays},
+				{Name: "days", Type: "int", Label: "Days since last watched", Default: DefaultDays, Min: &minDays, Max: &maxDays},
 			},
 		},
 		{

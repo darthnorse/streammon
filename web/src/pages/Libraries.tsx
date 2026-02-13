@@ -319,11 +319,11 @@ function RulesView({
         <div className="space-y-3">
           {rules.map((rule) => (
             <div key={rule.id} className="card p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-3 flex-wrap">
                     <h3 className="font-semibold truncate">{rule.name}</h3>
-                    <span className="px-2 py-0.5 text-xs rounded-full bg-surface dark:bg-surface-dark">
+                    <span className="px-2 py-0.5 text-xs rounded-full bg-surface dark:bg-surface-dark whitespace-nowrap">
                       {rule.criterion_type.replace(/_/g, ' ')}
                     </span>
                   </div>
@@ -331,83 +331,87 @@ function RulesView({
                     {formatRuleParameters(rule)}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  {rule.candidate_count > 0 ? (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    {rule.candidate_count > 0 ? (
+                      <button
+                        onClick={() => onViewCandidates(rule)}
+                        className="text-amber-500 font-medium text-sm hover:underline whitespace-nowrap"
+                        aria-label={`View ${rule.candidate_count} violations for rule ${rule.name}`}
+                      >
+                        {formatCount(rule.candidate_count)} violations
+                      </button>
+                    ) : (
+                      <span className="text-amber-500 font-medium text-sm whitespace-nowrap">
+                        0 violations
+                      </span>
+                    )}
+                    {rule.exclusion_count > 0 && (
+                      <>
+                        <span className="text-muted dark:text-muted-dark text-sm" aria-hidden="true">·</span>
+                        <button
+                          onClick={() => onViewExclusions(rule)}
+                          className="text-muted dark:text-muted-dark font-medium text-sm hover:underline whitespace-nowrap"
+                          aria-label={`View ${rule.exclusion_count} exclusions for rule ${rule.name}`}
+                        >
+                          {formatCount(rule.exclusion_count)} excluded
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleToggleRule(rule)}
+                      className={`px-3 py-1 text-xs font-medium rounded-full transition-colors
+                        ${rule.enabled
+                          ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                          : 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30'
+                        }`}
+                    >
+                      {rule.enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                    <button
+                      onClick={() => onEditRule(rule)}
+                      className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+                      title="Edit rule"
+                      aria-label={`Edit rule ${rule.name}`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => handleEvaluateRule(rule)}
+                      className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+                      title="Re-evaluate"
+                      aria-label={`Re-evaluate rule ${rule.name}`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </button>
                     <button
                       onClick={() => onViewCandidates(rule)}
-                      className="text-amber-500 font-medium text-sm hover:underline"
-                      aria-label={`View ${rule.candidate_count} violations for rule ${rule.name}`}
+                      className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
+                      title="View violations"
+                      aria-label={`View violations for rule ${rule.name}`}
                     >
-                      {formatCount(rule.candidate_count)} violations
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
                     </button>
-                  ) : (
-                    <span className="text-amber-500 font-medium text-sm">
-                      0 violations
-                    </span>
-                  )}
-                  {rule.exclusion_count > 0 && (
-                    <>
-                      <span className="text-muted dark:text-muted-dark text-sm" aria-hidden="true">·</span>
-                      <button
-                        onClick={() => onViewExclusions(rule)}
-                        className="text-muted dark:text-muted-dark font-medium text-sm hover:underline"
-                        aria-label={`View ${rule.exclusion_count} exclusions for rule ${rule.name}`}
-                      >
-                        {formatCount(rule.exclusion_count)} excluded
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={() => handleToggleRule(rule)}
-                    className={`px-3 py-1 text-xs font-medium rounded-full transition-colors
-                      ${rule.enabled
-                        ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
-                        : 'bg-gray-500/20 text-gray-400 hover:bg-gray-500/30'
-                      }`}
-                  >
-                    {rule.enabled ? 'Enabled' : 'Disabled'}
-                  </button>
-                  <button
-                    onClick={() => onEditRule(rule)}
-                    className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-                    title="Edit rule"
-                    aria-label={`Edit rule ${rule.name}`}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => handleEvaluateRule(rule)}
-                    className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-                    title="Re-evaluate"
-                    aria-label={`Re-evaluate rule ${rule.name}`}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => onViewCandidates(rule)}
-                    className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"
-                    title="View violations"
-                    aria-label={`View violations for rule ${rule.name}`}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  </button>
-                  <button
-                    onClick={() => setDeleteConfirm(rule)}
-                    className="p-1.5 rounded hover:bg-red-500/20 text-red-400 transition-colors"
-                    title="Delete"
-                    aria-label={`Delete rule ${rule.name}`}
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+                    <button
+                      onClick={() => setDeleteConfirm(rule)}
+                      className="p-1.5 rounded hover:bg-red-500/20 text-red-400 transition-colors"
+                      title="Delete"
+                      aria-label={`Delete rule ${rule.name}`}
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
