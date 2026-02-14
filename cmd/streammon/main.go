@@ -186,18 +186,19 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("Shutting down...")
-	p.PersistActiveSessions()
-	p.Stop()
-	srv.WaitEnrichment()
-	srv.WaitAutoSync()
-	rulesEngine.WaitForNotifications()
-	server.StopRateLimiter()
-	server.StopAuthRateLimiter()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown error: %v", err)
 	}
+	p.PersistActiveSessions()
+	p.Stop()
+	srv.WaitEnrichment()
+	srv.WaitAutoSync()
+	srv.WaitLibrarySync()
+	rulesEngine.WaitForNotifications()
+	server.StopRateLimiter()
+	server.StopAuthRateLimiter()
 }
 
 func envOr(key, fallback string) string {

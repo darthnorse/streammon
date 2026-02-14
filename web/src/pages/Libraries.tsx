@@ -5,7 +5,7 @@ import { useMountedRef } from '../hooks/useMountedRef'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
 import { useItemDetails } from '../hooks/useItemDetails'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { PER_PAGE_OPTIONS } from '../lib/constants'
 import { readSSEStream } from '../lib/sse'
 import { errorMessage } from '../lib/utils'
@@ -118,7 +118,7 @@ const criterionFormatters: Record<CriterionType, (params: Record<string, unknown
 }
 
 function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
-  const params = rule.parameters as Record<string, unknown>
+  const params = rule.parameters
   return criterionFormatters[rule.criterion_type]?.(params) ?? JSON.stringify(params)
 }
 
@@ -208,7 +208,7 @@ function LibraryRow({ library, maintenance, syncState, onSync, onRules, onViolat
         {isMaintenanceSupported ? (
           <button
             onClick={onRules}
-            className="text-sm text-accent hover:underline"
+            className="text-sm hover:text-accent hover:underline"
           >
             {ruleCount}
           </button>
@@ -1268,7 +1268,6 @@ function RuleFormView({
     [availableTypes, criterionType]
   )
 
-  // Update parameters when criterion type changes
   useEffect(() => {
     if (!isEdit || (isEdit && criterionType !== rule?.criterion_type)) {
       const currentSelectedType = availableTypes.find((ct) => ct.type === criterionType)
@@ -1438,13 +1437,8 @@ export function Libraries() {
   const [selectedServer, setSelectedServer] = useState<number | 'all'>('all')
   const [view, setView] = useState<ViewState>({ type: 'list' })
   const [syncStates, setSyncStates] = useState<Record<string, SyncProgress>>({})
+  const handledKeysRef = useRef(new Set<string>())
   const [syncError, setSyncError] = useState<string | null>(null)
-  const syncAbortRef = useRef<AbortController | null>(null)
-  const mountedRef = useMountedRef()
-
-  useEffect(() => {
-    return () => { syncAbortRef.current?.abort() }
-  }, [])
 
   const { data, loading, error, refetch } = useFetch<LibrariesResponse>('/api/libraries')
   const { data: maintenanceData, refetch: refetchMaintenance } = useFetch<MaintenanceDashboard>('/api/maintenance/dashboard')
@@ -1475,63 +1469,64 @@ export function Libraries() {
     }
   }, [view, getMaintenanceForLibrary])
 
-  const handleSync = async (library: Library) => {
-    const key = syncKey(library)
-    setSyncStates(prev => ({ ...prev, [key]: { phase: 'items', library: library.id } }))
-    setSyncError(null)
+  // Poll for sync progress (only on list view where progress is displayed)
+  const hasSyncsRunning = Object.keys(syncStates).length > 0
+  useEffect(() => {
+    if (view.type !== 'list' && !hasSyncsRunning) return
 
-    syncAbortRef.current?.abort()
-    const abortController = new AbortController()
-    syncAbortRef.current = abortController
+    let active = true
 
-    try {
-      const response = await fetch('/api/maintenance/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'text/event-stream',
-        },
-        body: JSON.stringify({
-          server_id: library.server_id,
-          library_id: library.id,
-        }),
-        signal: abortController.signal,
-      })
+    const poll = async () => {
+      if (!active) return
+      try {
+        const status = await api.get<Record<string, SyncProgress>>('/api/maintenance/sync/status')
+        if (!active) return
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
+        let needRefresh = false
+        const activeStates: Record<string, SyncProgress> = {}
 
-      let hadError = false
-      await readSSEStream(response, {
-        onData(raw) {
-          if (!mountedRef.current) return
-          try {
-            const data = JSON.parse(raw) as SyncProgress
-            if (data.phase === 'error') {
-              hadError = true
-              setSyncError(`Failed to sync "${library.name}": ${data.error}`)
-            } else if (data.phase !== 'done') {
-              setSyncStates(prev => ({ ...prev, [key]: data }))
+        for (const [key, progress] of Object.entries(status)) {
+          if (progress.phase === 'done') {
+            if (!handledKeysRef.current.has(key)) {
+              handledKeysRef.current.add(key)
+              needRefresh = true
             }
-          } catch {
-            // Skip malformed SSE data
+          } else if (progress.phase === 'error') {
+            if (!handledKeysRef.current.has(key)) {
+              handledKeysRef.current.add(key)
+              setSyncError(`Sync failed: ${progress.error}`)
+              needRefresh = true
+            }
+          } else {
+            activeStates[key] = progress
+            handledKeysRef.current.delete(key)
           }
-        },
-      })
+        }
 
-      if (mountedRef.current && !hadError) refetchMaintenance()
+        setSyncStates(activeStates)
+        if (needRefresh) refetchMaintenance()
+      } catch { /* ignore polling errors */ }
+    }
+
+    poll()
+    const interval = setInterval(poll, 1500)
+    return () => { active = false; clearInterval(interval) }
+  }, [view.type, hasSyncsRunning, refetchMaintenance])
+
+  const handleSync = async (library: Library) => {
+    setSyncError(null)
+    try {
+      await api.post('/api/maintenance/sync', {
+        server_id: library.server_id,
+        library_id: library.id,
+      })
+      setSyncStates(prev => ({
+        ...prev,
+        [syncKey(library)]: { phase: 'items', library: library.id },
+      }))
     } catch (err) {
-      if (abortController.signal.aborted) return
-      console.error('Sync failed:', err)
-      if (mountedRef.current) setSyncError(`Failed to sync "${library.name}". Please try again.`)
-    } finally {
-      if (mountedRef.current) {
-        setSyncStates(prev => {
-          const next = { ...prev }
-          delete next[key]
-          return next
-        })
+      if ((err as ApiError).status !== 409) {
+        setSyncError(`Failed to start sync for "${library.name}"`)
       }
     }
   }

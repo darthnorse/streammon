@@ -215,6 +215,7 @@ func (s *Server) routes() {
 			mr.Get("/criterion-types", s.handleGetCriterionTypes)
 			mr.Get("/dashboard", s.handleGetMaintenanceDashboard)
 			mr.Post("/sync", s.handleSyncLibraryItems)
+			mr.Get("/sync/status", s.handleSyncStatus)
 			mr.Get("/rules", s.handleListMaintenanceRules)
 			mr.Post("/rules", s.handleCreateMaintenanceRule)
 			mr.Get("/rules/{id}", s.handleGetMaintenanceRule)

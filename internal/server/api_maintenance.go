@@ -34,7 +34,6 @@ type deleteItemResult struct {
 func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, deletedBy string) deleteItemResult {
 	result := deleteItemResult{FileSize: candidate.Item.FileSize}
 
-	// Get the media server
 	ms, ok := s.poller.GetServer(candidate.Item.ServerID)
 	if !ok {
 		result.Error = "server not configured"
@@ -142,6 +141,11 @@ func (s *Server) handleGetCriterionTypes(w http.ResponseWriter, r *http.Request)
 
 // GET /api/maintenance/dashboard
 func (s *Server) handleGetMaintenanceDashboard(w http.ResponseWriter, r *http.Request) {
+	if s.poller == nil {
+		writeError(w, http.StatusInternalServerError, "poller not configured")
+		return
+	}
+
 	servers, err := s.store.ListServers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list servers")
@@ -204,6 +208,11 @@ func (s *Server) handleGetMaintenanceDashboard(w http.ResponseWriter, r *http.Re
 
 // POST /api/maintenance/sync
 func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) {
+	if s.poller == nil {
+		writeError(w, http.StatusInternalServerError, "poller not configured")
+		return
+	}
+
 	var req struct {
 		ServerID  int64  `json:"server_id"`
 		LibraryID string `json:"library_id"`
@@ -222,160 +231,125 @@ func (s *Server) handleSyncLibraryItems(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if r.Header.Get("Accept") == "text/event-stream" {
-		s.streamSyncLibraryItems(w, r, req.ServerID, req.LibraryID)
+	key := fmt.Sprintf("%d-%s", req.ServerID, req.LibraryID)
+	if !s.librarySync.tryStart(key, req.LibraryID) {
+		writeError(w, http.StatusConflict, "sync already in progress")
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Minute)
-	defer cancel()
-
-	count, deleted, err := s.executeSyncLibrary(ctx, req.ServerID, req.LibraryID)
-	if err != nil {
-		s.writeSyncError(w, err)
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{
-		"synced":  count,
-		"deleted": deleted,
-	})
+	s.startBackgroundSync(key, req.ServerID, req.LibraryID)
+	writeJSON(w, http.StatusAccepted, map[string]any{"status": "started"})
 }
 
-func (s *Server) streamSyncLibraryItems(w http.ResponseWriter, r *http.Request, serverID int64, libraryID string) {
-	flusher, ok := sseFlusher(w)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "streaming not supported")
-		return
-	}
-
-	sendEvent := func(p mediautil.SyncProgress) {
-		data, err := json.Marshal(p)
-		if err != nil {
-			return
-		}
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Minute)
-	defer cancel()
-
-	progressCtx, progressCh := mediautil.ContextWithProgress(ctx)
-
-	type syncResult struct {
-		count   int
-		deleted int64
-		err     error
-	}
-	done := make(chan syncResult, 1)
-
+func (s *Server) startBackgroundSync(key string, serverID int64, libraryID string) {
 	go func() {
-		count, deleted, err := s.executeSyncLibrary(progressCtx, serverID, libraryID)
-		mediautil.CloseProgress(progressCtx)
-		done <- syncResult{count, deleted, err}
-	}()
+		var count int
+		var deleted int64
+		var err error
 
-	keepalive := time.NewTicker(15 * time.Second)
-	defer keepalive.Stop()
-
-	channelOpen := true
-	for channelOpen {
-		select {
-		case p, ok := <-progressCh:
-			if !ok {
-				channelOpen = false
-				break
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("background sync %s: panic: %v", key, r)
+				s.librarySync.finish(key, 0, 0, fmt.Errorf("internal error"))
+				return
 			}
-			sendEvent(p)
-		case <-keepalive.C:
-			fmt.Fprintf(w, ": keepalive\n\n")
-			flusher.Flush()
-		}
-	}
+			s.librarySync.finish(key, count, int(deleted), err)
+		}()
 
-	result := <-done
-	if result.err != nil {
-		errMsg := result.err.Error()
-		var se *syncError
-		if errors.As(result.err, &se) {
-			errMsg = se.message
-			if se.logMessage != "" {
-				log.Printf("sync library stream: %s", se.logMessage)
+		ctx, cancel := context.WithTimeout(s.appCtx, time.Hour)
+		defer cancel()
+
+		progressCtx, progressCh := mediautil.ContextWithProgress(ctx)
+
+		log.Printf("background sync %s: started", key)
+
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			var lastLog int
+			for p := range progressCh {
+				s.librarySync.updateProgress(key, p)
+				if p.Phase == mediautil.PhaseHistory && p.Current-lastLog >= 1000 {
+					log.Printf("background sync %s: history %d/%d", key, p.Current, p.Total)
+					lastLog = p.Current
+				}
+			}
+		}()
+
+		count, deleted, err = s.executeSyncLibrary(progressCtx, serverID, libraryID)
+		mediautil.CloseProgress(progressCtx)
+		<-done
+
+		if err != nil {
+			var se *syncError
+			if errors.As(err, &se) {
+				if se.logMessage != "" {
+					log.Printf("background sync %s: %s", key, se.logMessage)
+				}
+			} else {
+				log.Printf("background sync %s: %v", key, err)
 			}
 		} else {
-			log.Printf("sync library stream: %v", result.err)
+			log.Printf("background sync %s: completed (synced=%d deleted=%d)", key, count, deleted)
 		}
-		sendEvent(mediautil.SyncProgress{
-			Phase:   mediautil.PhaseError,
-			Library: libraryID,
-			Error:   errMsg,
-		})
-		return
-	}
+	}()
+}
 
-	sendEvent(mediautil.SyncProgress{
-		Phase:   mediautil.PhaseDone,
-		Library: libraryID,
-		Synced:  result.count,
-		Deleted: int(result.deleted),
-	})
+// GET /api/maintenance/sync/status
+func (s *Server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.librarySync.status())
 }
 
 type syncError struct {
-	statusCode int
 	message    string
 	logMessage string
 }
 
-func (e *syncError) Error() string { return e.logMessage }
-
-func (s *Server) writeSyncError(w http.ResponseWriter, err error) {
-	var se *syncError
-	if errors.As(err, &se) {
-		if se.logMessage != "" {
-			log.Printf("sync library: %s", se.logMessage)
-		}
-		writeError(w, se.statusCode, se.message)
-		return
+func (e *syncError) Error() string {
+	if e.logMessage != "" {
+		return e.logMessage
 	}
-	writeError(w, http.StatusInternalServerError, err.Error())
+	return e.message
 }
 
 func (s *Server) executeSyncLibrary(ctx context.Context, serverID int64, libraryID string) (int, int64, error) {
 	originalServer, err := s.store.GetServer(serverID)
 	if err != nil {
-		return 0, 0, &syncError{http.StatusNotFound, "server not found", ""}
+		return 0, 0, &syncError{message: "server not found"}
 	}
 
 	ms, ok := s.poller.GetServer(serverID)
 	if !ok {
-		return 0, 0, &syncError{http.StatusNotFound, "server not found in poller", ""}
+		return 0, 0, &syncError{message: "server not found in poller"}
 	}
 
 	items, err := ms.GetLibraryItems(ctx, libraryID)
 	if err != nil {
-		return 0, 0, &syncError{http.StatusInternalServerError, "failed to fetch library items", fmt.Sprintf("fetch items failed: %v", err)}
+		return 0, 0, &syncError{message: "failed to fetch library items", logMessage: fmt.Sprintf("fetch items failed: %v", err)}
 	}
 
 	currentServer, err := s.store.GetServer(serverID)
 	if err != nil {
-		return 0, 0, &syncError{http.StatusInternalServerError, "server not found", ""}
+		return 0, 0, &syncError{message: "server not found"}
 	}
 	if currentServer.URL != originalServer.URL ||
 		currentServer.Type != originalServer.Type ||
 		currentServer.MachineID != originalServer.MachineID {
-		return 0, 0, &syncError{http.StatusConflict, "server configuration changed during sync, please retry",
-			fmt.Sprintf("server %d identity changed during sync, aborting", serverID)}
+		return 0, 0, &syncError{
+			message:    "server configuration changed during sync, please retry",
+			logMessage: fmt.Sprintf("server %d identity changed during sync, aborting", serverID),
+		}
 	}
 
 	count, deleted, err := s.store.SyncLibraryItems(ctx, serverID, libraryID, items)
 	if err != nil {
-		return 0, 0, &syncError{http.StatusInternalServerError, "failed to save library items", fmt.Sprintf("save items failed: %v", err)}
+		return 0, 0, &syncError{message: "failed to save library items", logMessage: fmt.Sprintf("save items failed: %v", err)}
 	}
 
 	rules, err := s.store.ListMaintenanceRules(ctx, serverID, libraryID)
-	if err == nil {
+	if err != nil {
+		log.Printf("list maintenance rules for %d/%s: %v", serverID, libraryID, err)
+	} else {
 		evaluator := maintenance.NewEvaluator(s.store)
 		for _, rule := range rules {
 			if !rule.Enabled {
@@ -572,7 +546,7 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if s.poller == nil {
-		writeError(w, http.StatusNotFound, "server not found or not configured")
+		writeError(w, http.StatusInternalServerError, "poller not configured")
 		return
 	}
 
@@ -839,7 +813,7 @@ func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Reque
 	}
 
 	if s.poller == nil {
-		writeError(w, http.StatusInternalServerError, "server not configured")
+		writeError(w, http.StatusInternalServerError, "poller not configured")
 		return
 	}
 
@@ -907,7 +881,6 @@ func (s *Server) streamBulkDelete(w http.ResponseWriter, r *http.Request, candid
 
 	result := s.executeBulkDelete(r.Context(), candidateIDs, candidateMap, deletedBy, sendProgress)
 
-	// Send final result
 	if finalData, err := json.Marshal(result); err == nil {
 		fmt.Fprintf(w, "event: complete\ndata: %s\n\n", finalData)
 		flusher.Flush()

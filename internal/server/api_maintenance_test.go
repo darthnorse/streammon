@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"streammon/internal/mediautil"
 	"streammon/internal/models"
-	"streammon/internal/poller"
 )
 
 func TestGetCriterionTypesAPI(t *testing.T) {
@@ -90,8 +90,8 @@ func TestCreateMaintenanceRuleAPIValidation(t *testing.T) {
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, req)
 
-			if w.Code != http.StatusInternalServerError && w.Code != http.StatusBadRequest {
-				t.Errorf("expected 400 or 500, got %d: %s", w.Code, w.Body.String())
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("expected 400, got %d: %s", w.Code, w.Body.String())
 			}
 		})
 	}
@@ -450,7 +450,8 @@ func setupDeleteCandidateTest(t *testing.T, s interface {
 }
 
 func TestDeleteCandidateNotFoundAPI(t *testing.T) {
-	srv, _ := newTestServerWrapped(t)
+	srv, s := newTestServerWrapped(t)
+	setupTestPoller(t, srv.Unwrap(), s)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/99999", nil)
 	w := httptest.NewRecorder()
@@ -481,8 +482,8 @@ func TestDeleteCandidateServerNotFoundAPI(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404 (server not found), got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 (poller not configured), got %d: %s", w.Code, w.Body.String())
 	}
 }
 
@@ -491,15 +492,7 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 	ctx := context.Background()
 	serverID := setupDeleteCandidateTest(t, s, "item123")
 
-	p := poller.New(s, time.Hour)
-	srv.poller = p
-	pCtx, cancel := context.WithCancel(context.Background())
-	p.Start(pCtx)
-	t.Cleanup(func() {
-		cancel()
-		p.Stop()
-	})
-
+	p := setupTestPoller(t, srv.Unwrap(), s)
 	mock := &mockDeleteServer{}
 	p.AddServer(serverID, mock)
 
@@ -526,15 +519,7 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 	ctx := context.Background()
 	serverID := setupDeleteCandidateTest(t, s, "item456")
 
-	p := poller.New(s, time.Hour)
-	srv.poller = p
-	pCtx, cancel := context.WithCancel(context.Background())
-	p.Start(pCtx)
-	t.Cleanup(func() {
-		cancel()
-		p.Stop()
-	})
-
+	p := setupTestPoller(t, srv.Unwrap(), s)
 	mock := &mockDeleteServer{deleteErr: errors.New("media server unavailable")}
 	p.AddServer(serverID, mock)
 
@@ -661,15 +646,7 @@ func TestBulkDeleteCandidatesAPI(t *testing.T) {
 	ctx := context.Background()
 	serverID := setupDeleteCandidateTest(t, s, "item1")
 
-	p := poller.New(s, time.Hour)
-	srv.poller = p
-	pCtx, cancel := context.WithCancel(context.Background())
-	p.Start(pCtx)
-	t.Cleanup(func() {
-		cancel()
-		p.Stop()
-	})
-
+	p := setupTestPoller(t, srv.Unwrap(), s)
 	mock := &mockDeleteServer{}
 	p.AddServer(serverID, mock)
 
@@ -704,15 +681,7 @@ func TestBulkDeleteCandidatesPartialFailureAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
 	serverID := setupDeleteCandidateTest(t, s, "item1")
 
-	p := poller.New(s, time.Hour)
-	srv.poller = p
-	pCtx, cancel := context.WithCancel(context.Background())
-	p.Start(pCtx)
-	t.Cleanup(func() {
-		cancel()
-		p.Stop()
-	})
-
+	p := setupTestPoller(t, srv.Unwrap(), s)
 	mock := &mockDeleteServer{deleteErr: errors.New("server error")}
 	p.AddServer(serverID, mock)
 
@@ -740,6 +709,149 @@ func TestBulkDeleteCandidatesPartialFailureAPI(t *testing.T) {
 	if len(errs) != 2 {
 		t.Errorf("errors count = %d, want 2", len(errs))
 	}
+}
+
+func TestSyncLibraryItemsReturns202(t *testing.T) {
+	srv, s := newTestServerWrapped(t)
+
+	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+
+	setupTestPoller(t, srv.Unwrap(), s)
+
+	body := `{"server_id":1,"library_id":"lib1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/sync", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["status"] != "started" {
+		t.Errorf("status = %v, want started", resp["status"])
+	}
+
+	// Wait for background goroutine to complete (will fail quickly since no server in poller)
+	srv.Unwrap().WaitLibrarySync()
+}
+
+func TestSyncLibraryItemsConflict(t *testing.T) {
+	srv, s := newTestServerWrapped(t)
+	setupTestPoller(t, srv.Unwrap(), s)
+
+	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+
+	// Manually start a sync to simulate one already running
+	srv.Unwrap().librarySync.tryStart("1-lib1", "lib1")
+
+	body := `{"server_id":1,"library_id":"lib1"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/sync", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Clean up the WaitGroup
+	srv.Unwrap().librarySync.finish("1-lib1", 0, 0, nil)
+}
+
+func TestSyncLibraryItemsValidation(t *testing.T) {
+	srv, s := newTestServerWrapped(t)
+	setupTestPoller(t, srv.Unwrap(), s)
+
+	tests := []struct {
+		name string
+		body string
+		code int
+	}{
+		{"invalid json", `{invalid`, http.StatusBadRequest},
+		{"missing server_id", `{"library_id":"lib1"}`, http.StatusBadRequest},
+		{"missing library_id", `{"server_id":1}`, http.StatusBadRequest},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/maintenance/sync", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != tt.code {
+				t.Errorf("expected %d, got %d: %s", tt.code, w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestSyncStatusEmpty(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/sync/status", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp) != 0 {
+		t.Errorf("expected empty status, got %v", resp)
+	}
+}
+
+func TestSyncStatusShowsRunningJob(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	srv.Unwrap().librarySync.tryStart("1-lib1", "lib1")
+	srv.Unwrap().librarySync.updateProgress("1-lib1", mediautil.SyncProgress{
+		Phase:   mediautil.PhaseHistory,
+		Current: 50,
+		Total:   200,
+		Library: "lib1",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/sync/status", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp map[string]map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	job, ok := resp["1-lib1"]
+	if !ok {
+		t.Fatal("expected 1-lib1 in status")
+	}
+	if job["phase"] != "history" {
+		t.Errorf("phase = %v, want history", job["phase"])
+	}
+	if job["current"].(float64) != 50 {
+		t.Errorf("current = %v, want 50", job["current"])
+	}
+
+	srv.Unwrap().librarySync.finish("1-lib1", 0, 0, nil)
 }
 
 func TestExcludedCandidatesFilteredFromListAPI(t *testing.T) {

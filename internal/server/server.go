@@ -41,6 +41,7 @@ type Server struct {
 	version        *version.Checker
 	enrichment     *enrichmentState
 	autoSync       autoSyncState
+	librarySync    *librarySyncManager
 	appCtx         context.Context
 	overseerrUsers     *overseerrUserCache
 	overseerrPlexCache *overseerrPlexTokenCache
@@ -53,8 +54,9 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 	srv := &Server{
 		router:     chi.NewRouter(),
 		store:      s,
-		libCache:   &libraryCache{},
-		enrichment: &enrichmentState{},
+		libCache:    &libraryCache{},
+		enrichment:  &enrichmentState{},
+		librarySync: &librarySyncManager{active: make(map[string]*librarySyncJob)},
 		appCtx:     context.Background(),
 		overseerrUsers: &overseerrUserCache{},
 		overseerrPlexCache: &overseerrPlexTokenCache{
@@ -116,7 +118,12 @@ func (s *Server) WaitEnrichment() {
 	s.enrichment.Wait()
 }
 
-// WaitAutoSync blocks until any running background library syncs finish.
+// WaitAutoSync blocks until any running server auto-syncs (on add/update) finish.
 func (s *Server) WaitAutoSync() {
 	s.autoSync.Wait()
+}
+
+// WaitLibrarySync blocks until any running on-demand library syncs finish.
+func (s *Server) WaitLibrarySync() {
+	s.librarySync.Wait()
 }
