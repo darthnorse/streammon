@@ -256,7 +256,7 @@ func (s *Server) startBackgroundSync(key string, serverID int64, libraryID strin
 			s.librarySync.finish(key, count, int(deleted), err)
 		}()
 
-		ctx, cancel := context.WithTimeout(s.appCtx, time.Hour)
+		ctx, cancel := context.WithTimeout(s.appCtx, 2*time.Hour)
 		defer cancel()
 
 		progressCtx, progressCh := mediautil.ContextWithProgress(ctx)
