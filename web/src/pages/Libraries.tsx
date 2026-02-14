@@ -553,6 +553,11 @@ function CandidatesView({
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
   const mountedRef = useMountedRef()
+  const deleteAbortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    return () => { deleteAbortRef.current?.abort() }
+  }, [])
 
   const { searchInput, setSearchInput, search, resetSearch } = useDebouncedSearch(() => setPage(1))
 
@@ -620,6 +625,10 @@ function CandidatesView({
       total_size: 0,
     })
 
+    deleteAbortRef.current?.abort()
+    const abortController = new AbortController()
+    deleteAbortRef.current = abortController
+
     try {
       const response = await fetch('/api/maintenance/candidates/bulk-delete', {
         method: 'POST',
@@ -628,6 +637,7 @@ function CandidatesView({
           'Accept': 'text/event-stream',
         },
         body: JSON.stringify({ candidate_ids: candidateIds }),
+        signal: abortController.signal,
       })
 
       if (!response.ok) {
@@ -679,6 +689,7 @@ function CandidatesView({
       clearSelection()
       refetch()
     } catch (err) {
+      if (abortController.signal.aborted) return
       console.error('Bulk delete failed:', err)
       if (mountedRef.current) setOperationResult({ type: 'error', message: 'Failed to delete items' })
     } finally {
