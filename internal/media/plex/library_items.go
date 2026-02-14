@@ -5,9 +5,9 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -65,73 +65,24 @@ type historyItemXML struct {
 }
 
 func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
-	var allItems []models.LibraryItemCache
-
 	movies, err := s.fetchLibraryItemsPage(ctx, libraryID, plexTypeMovie)
 	if err != nil {
 		return nil, fmt.Errorf("fetch movies: %w", err)
 	}
-	if len(movies) > 0 {
-		mediautil.SendProgress(ctx, mediautil.SyncProgress{
-			Phase:   mediautil.PhaseItems,
-			Current: len(movies),
-			Total:   len(movies),
-			Library: libraryID,
-		})
-	}
-	allItems = append(allItems, movies...)
 
-	shows, err := s.fetchLibraryItemsPage(ctx, libraryID, plexTypeShow)
+	series, err := s.fetchLibraryItemsPage(ctx, libraryID, plexTypeShow)
 	if err != nil {
-		return nil, fmt.Errorf("fetch shows: %w", err)
+		return nil, fmt.Errorf("fetch series: %w", err)
 	}
-	for i := range shows {
-		if shows[i].FileSize == 0 {
-			size, err := s.getShowEpisodeSize(ctx, shows[i].ItemID)
-			if err != nil {
-				slog.Warn("plex: failed to get episode sizes", "title", shows[i].Title, "error", err)
-				continue
-			}
-			shows[i].FileSize = size
-		}
-		mediautil.SendProgress(ctx, mediautil.SyncProgress{
-			Phase:   mediautil.PhaseItems,
-			Current: i + 1,
-			Total:   len(shows),
-			Library: libraryID,
-		})
-	}
-	if len(shows) > 0 {
-		mediautil.SendProgress(ctx, mediautil.SyncProgress{
-			Phase:   mediautil.PhaseHistory,
-			Library: libraryID,
-		})
-		historyMap, err := s.fetchShowWatchHistory(ctx)
-		if err != nil {
-			slog.Warn("plex: failed to fetch show watch history, using show-level data", "error", err)
-		} else {
-			mediautil.EnrichLastWatched(shows, historyMap)
-		}
-	}
-	allItems = append(allItems, shows...)
+	mediautil.EnrichSeriesData(ctx, series, libraryID, "plex", s.getSeriesEpisodeSize, s.fetchSeriesWatchHistory)
 
-	if allItems == nil {
+	result := slices.Concat(movies, series)
+	if result == nil {
 		return []models.LibraryItemCache{}, nil
 	}
 
-	var totalSize int64
-	var zeroSize int
-	for _, item := range allItems {
-		totalSize += item.FileSize
-		if item.FileSize == 0 {
-			zeroSize++
-		}
-	}
-	slog.Info("plex: library sync complete",
-		"library", libraryID, "movies", len(movies), "series", len(shows),
-		"total", len(allItems), "zero_size", zeroSize, "total_bytes", totalSize)
-
-	return allItems, nil
+	mediautil.LogSyncSummary("plex", libraryID, len(movies), len(series), result)
+	return result, nil
 }
 
 func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilter string) ([]models.LibraryItemCache, error) {
@@ -154,6 +105,12 @@ func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilte
 
 		allItems = append(allItems, items...)
 		offset += len(items)
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseItems,
+			Current: offset,
+			Total:   totalCount,
+			Library: libraryID,
+		})
 
 		if offset >= totalCount {
 			break
@@ -249,7 +206,7 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 	return items, container.TotalSize, nil
 }
 
-func (s *Server) getShowEpisodeSize(ctx context.Context, showRatingKey string) (int64, error) {
+func (s *Server) getSeriesEpisodeSize(ctx context.Context, showRatingKey string) (int64, error) {
 	var totalSize int64
 	offset := 0
 
@@ -322,7 +279,7 @@ func (s *Server) fetchEpisodeSizeBatch(ctx context.Context, showRatingKey string
 	return totalSize, len(container.Videos), nil
 }
 
-func (s *Server) fetchShowWatchHistory(ctx context.Context) (map[string]time.Time, error) {
+func (s *Server) fetchSeriesWatchHistory(ctx context.Context, libraryID string) (map[string]time.Time, error) {
 	result := make(map[string]time.Time)
 	offset := 0
 
@@ -352,6 +309,12 @@ func (s *Server) fetchShowWatchHistory(ctx context.Context) (map[string]time.Tim
 		}
 
 		offset += len(container.Videos)
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseHistory,
+			Current: offset,
+			Total:   container.Size,
+			Library: libraryID,
+		})
 		if offset >= container.Size {
 			break
 		}

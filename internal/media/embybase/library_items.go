@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -19,6 +18,7 @@ import (
 
 const (
 	itemBatchSize     = 100
+	historyBatchSize  = 200
 	historyMaxEntries = 100000
 	maxResponseBody   = 50 << 20 // 50 MB
 )
@@ -62,69 +62,19 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	if err != nil {
 		return nil, fmt.Errorf("fetch movies: %w", err)
 	}
-	if len(movies) > 0 {
-		mediautil.SendProgress(ctx, mediautil.SyncProgress{
-			Phase:   mediautil.PhaseItems,
-			Current: len(movies),
-			Total:   len(movies),
-			Library: libraryID,
-		})
-	}
 
 	series, err := c.fetchLibraryItemsByType(ctx, libraryID, "Series")
 	if err != nil {
 		return nil, fmt.Errorf("fetch series: %w", err)
 	}
-
-	// For series without file sizes, fetch episode sizes
-	for i := range series {
-		if series[i].FileSize == 0 {
-			size, err := c.getSeriesEpisodeSize(ctx, series[i].ItemID)
-			if err != nil {
-				slog.Warn("failed to get episode sizes", "server_type", c.serverType, "title", series[i].Title, "error", err)
-				continue
-			}
-			series[i].FileSize = size
-		}
-		mediautil.SendProgress(ctx, mediautil.SyncProgress{
-			Phase:   mediautil.PhaseItems,
-			Current: i + 1,
-			Total:   len(series),
-			Library: libraryID,
-		})
-	}
-	if len(series) > 0 {
-		mediautil.SendProgress(ctx, mediautil.SyncProgress{
-			Phase:   mediautil.PhaseHistory,
-			Library: libraryID,
-		})
-		historyMap, err := c.fetchSeriesWatchHistory(ctx, libraryID)
-		if err != nil {
-			slog.Warn("failed to fetch series watch history, using series-level data",
-				"server_type", c.serverType, "error", err)
-		} else {
-			mediautil.EnrichLastWatched(series, historyMap)
-		}
-	}
+	mediautil.EnrichSeriesData(ctx, series, libraryID, string(c.serverType), c.getSeriesEpisodeSize, c.fetchSeriesWatchHistory)
 
 	result := slices.Concat(movies, series)
 	if result == nil {
 		return []models.LibraryItemCache{}, nil
 	}
 
-	var totalSize int64
-	var zeroSize int
-	for _, item := range result {
-		totalSize += item.FileSize
-		if item.FileSize == 0 {
-			zeroSize++
-		}
-	}
-	slog.Info("library sync stats",
-		"server_type", c.serverType, "library", libraryID,
-		"movies", len(movies), "series", len(series), "total", len(result),
-		"zero_size", zeroSize, "total_bytes", totalSize)
-
+	mediautil.LogSyncSummary(string(c.serverType), libraryID, len(movies), len(series), result)
 	return result, nil
 }
 
@@ -220,6 +170,12 @@ func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemTyp
 
 		allItems = append(allItems, items...)
 		offset += len(items)
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseItems,
+			Current: offset,
+			Total:   totalCount,
+			Library: libraryID,
+		})
 
 		if offset >= totalCount {
 			break
@@ -319,7 +275,7 @@ func (c *Client) fetchSeriesWatchHistory(ctx context.Context, libraryID string) 
 			"SortBy":           {"DatePlayed"},
 			"SortOrder":        {"Descending"},
 			"StartIndex":       {strconv.Itoa(offset)},
-			"Limit":            {strconv.Itoa(itemBatchSize)},
+			"Limit":            {strconv.Itoa(historyBatchSize)},
 		}
 
 		var resp libraryItemsCacheResponse
@@ -346,6 +302,12 @@ func (c *Client) fetchSeriesWatchHistory(ctx context.Context, libraryID string) 
 		}
 
 		offset += len(resp.Items)
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseHistory,
+			Current: offset,
+			Total:   resp.TotalRecordCount,
+			Library: libraryID,
+		})
 		if offset >= resp.TotalRecordCount {
 			break
 		}

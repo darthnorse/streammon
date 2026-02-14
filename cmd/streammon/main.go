@@ -170,7 +170,6 @@ func main() {
 		Addr:              listenAddr,
 		Handler:           srv,
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
 	}
 
 	go vc.Start(ctx)

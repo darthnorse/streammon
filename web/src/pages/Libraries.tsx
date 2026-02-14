@@ -153,10 +153,16 @@ interface LibraryRowProps {
 }
 
 function formatSyncStatus(state: SyncProgress): string {
-  if (state.phase === 'items' && state.total) {
-    return `Scanning ${state.current ?? 0}/${state.total}`
+  if (state.phase === 'items') {
+    if (state.total) {
+      return `Scanning ${state.current ?? 0}/${state.total}`
+    }
+    return 'Scanning...'
   }
   if (state.phase === 'history') {
+    if (state.total) {
+      return `History ${state.current ?? 0}/${state.total}`
+    }
     return 'Fetching history...'
   }
   return 'Syncing...'
