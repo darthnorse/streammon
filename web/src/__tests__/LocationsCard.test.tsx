@@ -1,25 +1,16 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { LocationsCard } from '../components/stats/LocationsCard'
-import type { GeoResult } from '../types'
+import type { GeoResult, ViewMode } from '../types'
 
-vi.mock('react-leaflet', () => ({
-  MapContainer: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="map">{children}</div>
+vi.mock('../components/shared/LeafletMap', () => ({
+  LeafletMap: ({ viewMode }: { locations: GeoResult[]; viewMode?: ViewMode }) => (
+    <div data-testid="map">
+      {viewMode === 'markers'
+        ? <div data-testid="marker" />
+        : <div data-testid="heatmap" />}
+    </div>
   ),
-  TileLayer: () => null,
-  CircleMarker: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="marker">{children}</div>
-  ),
-  Popup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  useMap: () => ({
-    setView: vi.fn(),
-    fitBounds: vi.fn(),
-  }),
-}))
-
-vi.mock('react-leaflet-heatmap-layer-v3', () => ({
-  HeatmapLayer: () => <div data-testid="heatmap" />,
 }))
 
 const mockLocations: GeoResult[] = [
@@ -138,12 +129,11 @@ describe('LocationsCard', () => {
     render(<LocationsCard locations={mockLocations} />)
 
     expect(screen.getByTestId('heatmap')).toBeInTheDocument()
-    expect(screen.queryAllByTestId('marker')).toHaveLength(0)
 
     fireEvent.click(screen.getByText('Markers'))
 
     expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
-    expect(screen.getAllByTestId('marker')).toHaveLength(2)
+    expect(screen.getByTestId('marker')).toBeInTheDocument()
   })
 
   it('switches back to heatmap view when clicking Heatmap button', () => {
