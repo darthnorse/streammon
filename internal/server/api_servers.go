@@ -301,7 +301,7 @@ func (s *Server) triggerServerSync(srv *models.Server) {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(s.appCtx, 5*time.Minute)
+		ctx, cancel := context.WithTimeout(s.appCtx, 15*time.Minute)
 		defer cancel()
 
 		libs, err := ms.GetLibraries(ctx)
