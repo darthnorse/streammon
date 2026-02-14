@@ -276,7 +276,8 @@ func (s *Server) startBackgroundSync(key string, serverID int64, libraryID strin
 			}
 		}()
 
-		count, deleted, err = s.executeSyncLibrary(progressCtx, serverID, libraryID)
+		var candidates int
+		count, deleted, candidates, err = s.executeSyncLibrary(progressCtx, serverID, libraryID)
 		mediautil.CloseProgress(progressCtx)
 		<-done
 
@@ -290,7 +291,7 @@ func (s *Server) startBackgroundSync(key string, serverID int64, libraryID strin
 				log.Printf("background sync %s: %v", key, err)
 			}
 		} else {
-			log.Printf("background sync %s: completed (synced=%d deleted=%d)", key, count, deleted)
+			log.Printf("background sync %s: completed (synced=%d deleted=%d candidates=%d)", key, count, deleted, candidates)
 		}
 	}()
 }
@@ -312,30 +313,30 @@ func (e *syncError) Error() string {
 	return e.message
 }
 
-func (s *Server) executeSyncLibrary(ctx context.Context, serverID int64, libraryID string) (int, int64, error) {
+func (s *Server) executeSyncLibrary(ctx context.Context, serverID int64, libraryID string) (int, int64, int, error) {
 	originalServer, err := s.store.GetServer(serverID)
 	if err != nil {
-		return 0, 0, &syncError{message: "server not found"}
+		return 0, 0, 0, &syncError{message: "server not found"}
 	}
 
 	ms, ok := s.poller.GetServer(serverID)
 	if !ok {
-		return 0, 0, &syncError{message: "server not found in poller"}
+		return 0, 0, 0, &syncError{message: "server not found in poller"}
 	}
 
 	items, err := ms.GetLibraryItems(ctx, libraryID)
 	if err != nil {
-		return 0, 0, &syncError{message: "failed to fetch library items", logMessage: fmt.Sprintf("fetch items failed: %v", err)}
+		return 0, 0, 0, &syncError{message: "failed to fetch library items", logMessage: fmt.Sprintf("fetch items failed: %v", err)}
 	}
 
 	currentServer, err := s.store.GetServer(serverID)
 	if err != nil {
-		return 0, 0, &syncError{message: "server not found"}
+		return 0, 0, 0, &syncError{message: "server not found"}
 	}
 	if currentServer.URL != originalServer.URL ||
 		currentServer.Type != originalServer.Type ||
 		currentServer.MachineID != originalServer.MachineID {
-		return 0, 0, &syncError{
+		return 0, 0, 0, &syncError{
 			message:    "server configuration changed during sync, please retry",
 			logMessage: fmt.Sprintf("server %d identity changed during sync, aborting", serverID),
 		}
@@ -343,9 +344,10 @@ func (s *Server) executeSyncLibrary(ctx context.Context, serverID int64, library
 
 	count, deleted, err := s.store.SyncLibraryItems(ctx, serverID, libraryID, items)
 	if err != nil {
-		return 0, 0, &syncError{message: "failed to save library items", logMessage: fmt.Sprintf("save items failed: %v", err)}
+		return 0, 0, 0, &syncError{message: "failed to save library items", logMessage: fmt.Sprintf("save items failed: %v", err)}
 	}
 
+	var candidateCount int
 	rules, err := s.store.ListMaintenanceRules(ctx, serverID, libraryID)
 	if err != nil {
 		log.Printf("list maintenance rules for %d/%s: %v", serverID, libraryID, err)
@@ -360,6 +362,7 @@ func (s *Server) executeSyncLibrary(ctx context.Context, serverID int64, library
 				log.Printf("evaluate rule %d: %v", rule.ID, evalErr)
 				continue
 			}
+			candidateCount += len(candidates)
 			if err := s.store.BatchUpsertCandidates(ctx, rule.ID, candidates); err != nil {
 				log.Printf("upsert candidates for rule %d: %v", rule.ID, err)
 			}
@@ -367,7 +370,7 @@ func (s *Server) executeSyncLibrary(ctx context.Context, serverID int64, library
 	}
 
 	s.InvalidateLibraryCache()
-	return count, deleted, nil
+	return count, deleted, candidateCount, nil
 }
 
 // GET /api/maintenance/rules

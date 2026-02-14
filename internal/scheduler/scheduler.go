@@ -13,7 +13,7 @@ import (
 	"streammon/internal/store"
 )
 
-const DefaultSyncTimeout = 15 * time.Minute
+const DefaultSyncTimeout = 2 * time.Hour
 
 type Scheduler struct {
 	store       *store.Store
