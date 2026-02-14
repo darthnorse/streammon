@@ -8,7 +8,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"streammon/internal/mediautil"
 	"streammon/internal/models"
 )
 
@@ -764,6 +766,8 @@ func TestGetLibraryItems(t *testing.T) {
 				],
 				"TotalRecordCount": 2
 			}`))
+		case parentID == "lib1" && itemType == "Episode" && r.URL.Query().Get("Filters") == "IsPlayed":
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
 		default:
 			t.Errorf("unexpected request: ParentId=%s, IncludeItemTypes=%s", parentID, itemType)
 			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
@@ -1002,6 +1006,266 @@ func TestGetLibraryItemsWithMediaInfo(t *testing.T) {
 	}
 	if item.FileSize != 50000000000 {
 		t.Errorf("file size = %d, want 50000000000", item.FileSize)
+	}
+}
+
+func TestSeriesEnrichedFromEpisodeHistory(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parentID := r.URL.Query().Get("ParentId")
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		filters := r.URL.Query().Get("Filters")
+
+		switch {
+		case parentID == "lib1" && itemType == "Movie":
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		case parentID == "lib1" && itemType == "Series":
+			w.Write([]byte(`{
+				"Items": [
+					{"Id": "series1", "Name": "NullShow", "Type": "Series", "ProductionYear": 2020, "DateCreated": "2024-01-01T00:00:00Z", "RecursiveItemCount": 10},
+					{"Id": "series2", "Name": "StaleShow", "Type": "Series", "ProductionYear": 2019, "DateCreated": "2024-01-01T00:00:00Z", "RecursiveItemCount": 5, "UserData": {"LastPlayedDate": "2023-01-01T00:00:00Z", "Played": true}}
+				],
+				"TotalRecordCount": 2
+			}`))
+		case parentID == "lib1" && itemType == "Episode" && filters == "IsPlayed":
+			w.Write([]byte(`{
+				"Items": [
+					{"Id": "ep1", "Type": "Episode", "SeriesId": "series1", "UserData": {"LastPlayedDate": "2025-06-15T12:00:00Z", "Played": true}},
+					{"Id": "ep2", "Type": "Episode", "SeriesId": "series2", "UserData": {"LastPlayedDate": "2025-07-01T08:00:00Z", "Played": true}}
+				],
+				"TotalRecordCount": 2
+			}`))
+		default:
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "test-key"}, models.ServerTypeEmby)
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	// NullShow: had no LastWatchedAt, should now have one from episode history
+	nullShow := items[0]
+	if nullShow.LastWatchedAt == nil {
+		t.Fatal("NullShow LastWatchedAt should be set from episode history")
+	}
+	wantNull := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
+	if !nullShow.LastWatchedAt.Equal(wantNull) {
+		t.Errorf("NullShow LastWatchedAt = %v, want %v", *nullShow.LastWatchedAt, wantNull)
+	}
+
+	// StaleShow: had old LastWatchedAt (2023-01-01), should be updated
+	staleShow := items[1]
+	if staleShow.LastWatchedAt == nil {
+		t.Fatal("StaleShow LastWatchedAt should be set")
+	}
+	wantStale := time.Date(2025, 7, 1, 8, 0, 0, 0, time.UTC)
+	if !staleShow.LastWatchedAt.Equal(wantStale) {
+		t.Errorf("StaleShow LastWatchedAt = %v, want %v", *staleShow.LastWatchedAt, wantStale)
+	}
+}
+
+func TestSeriesHistoryNeverDowngrades(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parentID := r.URL.Query().Get("ParentId")
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		filters := r.URL.Query().Get("Filters")
+
+		switch {
+		case parentID == "lib1" && itemType == "Movie":
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		case parentID == "lib1" && itemType == "Series":
+			// Series has a newer LastPlayedDate than what episodes report
+			w.Write([]byte(`{
+				"Items": [
+					{"Id": "series1", "Name": "NewerShow", "Type": "Series", "ProductionYear": 2021, "DateCreated": "2024-01-01T00:00:00Z", "RecursiveItemCount": 8, "UserData": {"LastPlayedDate": "2026-01-01T00:00:00Z", "Played": true}}
+				],
+				"TotalRecordCount": 1
+			}`))
+		case parentID == "lib1" && itemType == "Episode" && filters == "IsPlayed":
+			// Episode history has older date
+			w.Write([]byte(`{
+				"Items": [
+					{"Id": "ep1", "Type": "Episode", "SeriesId": "series1", "UserData": {"LastPlayedDate": "2025-06-01T00:00:00Z", "Played": true}}
+				],
+				"TotalRecordCount": 1
+			}`))
+		default:
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	show := items[0]
+	if show.LastWatchedAt == nil {
+		t.Fatal("LastWatchedAt should not be nil")
+	}
+	// Should keep the newer series-level value
+	want := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if !show.LastWatchedAt.Equal(want) {
+		t.Errorf("LastWatchedAt = %v, want %v (should not be downgraded)", *show.LastWatchedAt, want)
+	}
+}
+
+func TestSeriesHistoryEndpointFailure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parentID := r.URL.Query().Get("ParentId")
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		filters := r.URL.Query().Get("Filters")
+
+		switch {
+		case parentID == "lib1" && itemType == "Movie":
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		case parentID == "lib1" && itemType == "Series":
+			w.Write([]byte(`{
+				"Items": [
+					{"Id": "series1", "Name": "TestShow", "Type": "Series", "ProductionYear": 2022, "DateCreated": "2024-01-01T00:00:00Z", "RecursiveItemCount": 12, "UserData": {"LastPlayedDate": "2025-03-15T00:00:00Z", "Played": true}}
+				],
+				"TotalRecordCount": 1
+			}`))
+		case parentID == "lib1" && itemType == "Episode" && filters == "IsPlayed":
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal("should not fail when episode history endpoint fails:", err)
+	}
+
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	// Should keep the original series-level value
+	want := time.Date(2025, 3, 15, 0, 0, 0, 0, time.UTC)
+	if items[0].LastWatchedAt == nil || !items[0].LastWatchedAt.Equal(want) {
+		t.Errorf("LastWatchedAt = %v, want %v (fallback to series-level)", items[0].LastWatchedAt, want)
+	}
+}
+
+func TestMovieOnlyLibraryNoEpisodeHistoryCall(t *testing.T) {
+	historyCallCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		filters := r.URL.Query().Get("Filters")
+
+		if itemType == "Episode" && filters == "IsPlayed" {
+			historyCallCount++
+		}
+
+		switch itemType {
+		case "Movie":
+			w.Write([]byte(`{
+				"Items": [{"Id": "movie1", "Name": "TestMovie", "Type": "Movie", "ProductionYear": 2023, "DateCreated": "2024-01-01T00:00:00Z"}],
+				"TotalRecordCount": 1
+			}`))
+		default:
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if historyCallCount != 0 {
+		t.Errorf("episode history endpoint called %d times, want 0 for movie-only library", historyCallCount)
+	}
+}
+
+func TestSeriesHistoryPagination(t *testing.T) {
+	historyCallCount := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parentID := r.URL.Query().Get("ParentId")
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		filters := r.URL.Query().Get("Filters")
+
+		switch {
+		case parentID == "lib1" && itemType == "Movie":
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		case parentID == "lib1" && itemType == "Series":
+			w.Write([]byte(`{
+				"Items": [
+					{"Id": "series1", "Name": "PaginatedShow", "Type": "Series", "ProductionYear": 2023, "DateCreated": "2024-01-01T00:00:00Z", "RecursiveItemCount": 5}
+				],
+				"TotalRecordCount": 1
+			}`))
+		case parentID == "lib1" && itemType == "Episode" && filters == "IsPlayed":
+			historyCallCount++
+			startIndex := r.URL.Query().Get("StartIndex")
+			switch startIndex {
+			case "0":
+				// First batch: 100 episodes from other series
+				items := make([]string, 100)
+				for i := range items {
+					items[i] = fmt.Sprintf(`{"Id": "ep%d", "Type": "Episode", "SeriesId": "other%d", "UserData": {"LastPlayedDate": "2025-06-01T00:00:00Z", "Played": true}}`, i, i)
+				}
+				w.Write([]byte(fmt.Sprintf(`{"Items": [%s], "TotalRecordCount": 101}`, strings.Join(items, ","))))
+			case "100":
+				// Second batch: our series appears (last entry)
+				w.Write([]byte(`{
+					"Items": [
+						{"Id": "ep200", "Type": "Episode", "SeriesId": "series1", "UserData": {"LastPlayedDate": "2025-08-15T10:00:00Z", "Played": true}}
+					],
+					"TotalRecordCount": 101
+				}`))
+			default:
+				w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+			}
+		default:
+			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if historyCallCount != 2 {
+		t.Errorf("episode history endpoint called %d times, want 2 (pagination)", historyCallCount)
+	}
+
+	show := items[0]
+	if show.LastWatchedAt == nil {
+		t.Fatal("LastWatchedAt should be set from paginated history")
+	}
+	want := time.Date(2025, 8, 15, 10, 0, 0, 0, time.UTC)
+	if !show.LastWatchedAt.Equal(want) {
+		t.Errorf("LastWatchedAt = %v, want %v", *show.LastWatchedAt, want)
+	}
+}
+
+func TestEnrichLastWatched_EmptyMap(t *testing.T) {
+	series := []models.LibraryItemCache{
+		{ItemID: "100", Title: "Test"},
+	}
+	mediautil.EnrichLastWatched(series, map[string]time.Time{})
+	if series[0].LastWatchedAt != nil {
+		t.Error("should remain nil with empty history map")
 	}
 }
 

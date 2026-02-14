@@ -12,12 +12,17 @@ import (
 	"time"
 
 	"streammon/internal/httputil"
+	"streammon/internal/mediautil"
 	"streammon/internal/models"
 )
 
 const (
-	plexTypeMovie = "1"
-	plexTypeShow  = "2"
+	plexTypeMovie     = "1"
+	plexTypeShow      = "2"
+	itemBatchSize     = 100
+	historyBatchSize  = 200
+	historyMaxEntries = 100000
+	maxResponseBody   = 50 << 20 // 50 MB
 )
 
 type libraryItemsContainer struct {
@@ -48,6 +53,17 @@ type partInfoXML struct {
 	Size int64 `xml:"size,attr"`
 }
 
+type historyContainer struct {
+	XMLName xml.Name         `xml:"MediaContainer"`
+	Size    int              `xml:"totalSize,attr"`
+	Videos  []historyItemXML `xml:"Video"`
+}
+
+type historyItemXML struct {
+	GrandparentRatingKey string `xml:"grandparentRatingKey,attr"`
+	ViewedAt             string `xml:"viewedAt,attr"`
+}
+
 func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
 	var allItems []models.LibraryItemCache
 
@@ -65,13 +81,25 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 		if shows[i].FileSize == 0 {
 			size, err := s.getShowEpisodeSize(ctx, shows[i].ItemID)
 			if err != nil {
-				slog.Debug("plex: failed to get episode sizes", "title", shows[i].Title, "error", err)
+				slog.Warn("plex: failed to get episode sizes", "title", shows[i].Title, "error", err)
 				continue
 			}
 			shows[i].FileSize = size
 		}
 	}
+	if len(shows) > 0 {
+		historyMap, err := s.fetchShowWatchHistory(ctx)
+		if err != nil {
+			slog.Warn("plex: failed to fetch show watch history, using show-level data", "error", err)
+		} else {
+			mediautil.EnrichLastWatched(shows, historyMap)
+		}
+	}
 	allItems = append(allItems, shows...)
+
+	if allItems == nil {
+		return []models.LibraryItemCache{}, nil
+	}
 
 	var totalSize int64
 	var zeroSize int
@@ -81,15 +109,14 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 			zeroSize++
 		}
 	}
-	slog.Debug("plex: library sync complete",
+	slog.Info("plex: library sync complete",
 		"library", libraryID, "movies", len(movies), "series", len(shows),
-		"total", len(allItems), "zeroSize", zeroSize, "totalBytes", totalSize)
+		"total", len(allItems), "zero_size", zeroSize, "total_bytes", totalSize)
 
 	return allItems, nil
 }
 
 func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilter string) ([]models.LibraryItemCache, error) {
-	const batchSize = 100
 	var allItems []models.LibraryItemCache
 	offset := 0
 
@@ -98,15 +125,19 @@ func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilte
 			return nil, ctx.Err()
 		}
 
-		items, done, err := s.fetchLibraryBatch(ctx, libraryID, typeFilter, offset, batchSize)
+		items, totalCount, err := s.fetchLibraryBatch(ctx, libraryID, typeFilter, offset, itemBatchSize)
 		if err != nil {
 			return nil, err
+		}
+
+		if len(items) == 0 {
+			break
 		}
 
 		allItems = append(allItems, items...)
 		offset += len(items)
 
-		if done || len(items) < batchSize {
+		if offset >= totalCount {
 			break
 		}
 	}
@@ -114,10 +145,10 @@ func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilte
 	return allItems, nil
 }
 
-func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter string, offset, batchSize int) ([]models.LibraryItemCache, bool, error) {
+func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter string, offset, batchSize int) ([]models.LibraryItemCache, int, error) {
 	u, err := url.Parse(fmt.Sprintf("%s/library/sections/%s/all", s.url, url.PathEscape(libraryID)))
 	if err != nil {
-		return nil, false, fmt.Errorf("parse URL: %w", err)
+		return nil, 0, fmt.Errorf("parse URL: %w", err)
 	}
 	q := u.Query()
 	q.Set("type", typeFilter)
@@ -127,33 +158,33 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, false, err
+		return nil, 0, err
 	}
 	s.setHeaders(req)
 
 	resp, err := s.client.Do(req)
 	if err != nil {
-		return nil, false, fmt.Errorf("plex library items: %w", err)
+		return nil, 0, fmt.Errorf("plex library items: %w", err)
 	}
 	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("plex library items: status %d", resp.StatusCode)
+		return nil, 0, fmt.Errorf("plex library items: status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
-		return nil, false, err
+		return nil, 0, err
 	}
 
 	var container libraryItemsContainer
 	if err := xml.Unmarshal(body, &container); err != nil {
-		return nil, false, fmt.Errorf("parse library items: %w", err)
+		return nil, 0, fmt.Errorf("parse library items: %w", err)
 	}
 
 	xmlItems := append(container.Videos, container.Directories...)
 	if len(xmlItems) == 0 {
-		return nil, true, nil
+		return nil, container.TotalSize, nil
 	}
 
 	var items []models.LibraryItemCache
@@ -197,27 +228,26 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 		})
 	}
 
-	return items, false, nil
+	return items, container.TotalSize, nil
 }
 
 func (s *Server) getShowEpisodeSize(ctx context.Context, showRatingKey string) (int64, error) {
 	var totalSize int64
 	offset := 0
-	const batchSize = 100
 
 	for {
 		if ctx.Err() != nil {
 			return 0, ctx.Err()
 		}
 
-		size, n, err := s.fetchEpisodeSizeBatch(ctx, showRatingKey, offset, batchSize)
+		size, n, err := s.fetchEpisodeSizeBatch(ctx, showRatingKey, offset, itemBatchSize)
 		if err != nil {
 			return 0, err
 		}
 
 		totalSize += size
 
-		if n == 0 || n < batchSize {
+		if n == 0 || n < itemBatchSize {
 			break
 		}
 		offset += n
@@ -252,7 +282,7 @@ func (s *Server) fetchEpisodeSizeBatch(ctx context.Context, showRatingKey string
 		return 0, 0, fmt.Errorf("plex episodes: status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		return 0, 0, err
 	}
@@ -272,4 +302,82 @@ func (s *Server) fetchEpisodeSizeBatch(ctx context.Context, showRatingKey string
 	}
 
 	return totalSize, len(container.Videos), nil
+}
+
+func (s *Server) fetchShowWatchHistory(ctx context.Context) (map[string]time.Time, error) {
+	result := make(map[string]time.Time)
+	offset := 0
+
+	for offset < historyMaxEntries {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		container, err := s.fetchHistoryBatch(ctx, offset)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(container.Videos) == 0 {
+			break
+		}
+
+		for _, v := range container.Videos {
+			if v.GrandparentRatingKey == "" {
+				continue
+			}
+			if _, exists := result[v.GrandparentRatingKey]; !exists {
+				if ts := atoi64(v.ViewedAt); ts > 0 {
+					result[v.GrandparentRatingKey] = time.Unix(ts, 0).UTC()
+				}
+			}
+		}
+
+		offset += len(container.Videos)
+		if offset >= container.Size {
+			break
+		}
+	}
+
+	return result, nil
+}
+
+func (s *Server) fetchHistoryBatch(ctx context.Context, offset int) (*historyContainer, error) {
+	u, err := url.Parse(fmt.Sprintf("%s/status/sessions/history/all", s.url))
+	if err != nil {
+		return nil, fmt.Errorf("parse URL: %w", err)
+	}
+	q := u.Query()
+	q.Set("sort", "viewedAt:desc")
+	q.Set("X-Plex-Container-Start", strconv.Itoa(offset))
+	q.Set("X-Plex-Container-Size", strconv.Itoa(historyBatchSize))
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	s.setHeaders(req)
+
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("plex history: %w", err)
+	}
+	defer httputil.DrainBody(resp)
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("plex history: status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	if err != nil {
+		return nil, err
+	}
+
+	var container historyContainer
+	if err := xml.Unmarshal(body, &container); err != nil {
+		return nil, fmt.Errorf("parse history: %w", err)
+	}
+
+	return &container, nil
 }

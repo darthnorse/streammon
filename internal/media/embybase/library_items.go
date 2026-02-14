@@ -17,6 +17,12 @@ import (
 	"streammon/internal/models"
 )
 
+const (
+	itemBatchSize     = 100
+	historyMaxEntries = 100000
+	maxResponseBody   = 50 << 20 // 50 MB
+)
+
 type libraryItemsCacheResponse struct {
 	Items            []embyLibraryItem `json:"Items"`
 	TotalRecordCount int               `json:"TotalRecordCount"`
@@ -26,6 +32,7 @@ type embyLibraryItem struct {
 	ID                 string            `json:"Id"`
 	Name               string            `json:"Name"`
 	Type               string            `json:"Type"`
+	SeriesId           string            `json:"SeriesId"`
 	ProductionYear     int               `json:"ProductionYear"`
 	DateCreated        string            `json:"DateCreated"`
 	RecursiveItemCount int               `json:"RecursiveItemCount"`
@@ -72,6 +79,15 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 			series[i].FileSize = size
 		}
 	}
+	if len(series) > 0 {
+		historyMap, err := c.fetchSeriesWatchHistory(ctx, libraryID)
+		if err != nil {
+			slog.Warn("failed to fetch series watch history, using series-level data",
+				"server_type", c.serverType, "error", err)
+		} else {
+			mediautil.EnrichLastWatched(series, historyMap)
+		}
+	}
 
 	result := slices.Concat(movies, series)
 	if result == nil {
@@ -97,7 +113,6 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 func (c *Client) getSeriesEpisodeSize(ctx context.Context, seriesID string) (int64, error) {
 	var totalSize int64
 	offset := 0
-	const batchSize = 100
 
 	for {
 		if ctx.Err() != nil {
@@ -110,7 +125,7 @@ func (c *Client) getSeriesEpisodeSize(ctx context.Context, seriesID string) (int
 			"IncludeItemTypes": {"Episode"},
 			"Fields":           {"MediaSources"},
 			"StartIndex":       {strconv.Itoa(offset)},
-			"Limit":            {strconv.Itoa(batchSize)},
+			"Limit":            {strconv.Itoa(itemBatchSize)},
 		}
 
 		var episodesResp libraryItemsCacheResponse
@@ -153,14 +168,13 @@ func (c *Client) fetchItemsPage(ctx context.Context, params url.Values, result a
 	if err != nil {
 		return err
 	}
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
-		httputil.DrainBody(resp)
 		return fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
-	httputil.DrainBody(resp)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		return err
 	}
@@ -169,7 +183,6 @@ func (c *Client) fetchItemsPage(ctx context.Context, params url.Values, result a
 }
 
 func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemType string) ([]models.LibraryItemCache, error) {
-	const batchSize = 100
 	var allItems []models.LibraryItemCache
 	offset := 0
 
@@ -178,7 +191,7 @@ func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemTyp
 			return nil, ctx.Err()
 		}
 
-		items, totalCount, err := c.fetchLibraryBatch(ctx, libraryID, itemType, offset, batchSize)
+		items, totalCount, err := c.fetchLibraryBatch(ctx, libraryID, itemType, offset, itemBatchSize)
 		if err != nil {
 			return nil, err
 		}
@@ -269,3 +282,57 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 
 	return items, itemsResp.TotalRecordCount, nil
 }
+
+func (c *Client) fetchSeriesWatchHistory(ctx context.Context, libraryID string) (map[string]time.Time, error) {
+	result := make(map[string]time.Time)
+	offset := 0
+
+	for offset < historyMaxEntries {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		params := url.Values{
+			"ParentId":         {libraryID},
+			"Recursive":        {"true"},
+			"IncludeItemTypes": {"Episode"},
+			"Filters":          {"IsPlayed"},
+			"Fields":           {"UserData"},
+			"SortBy":           {"DatePlayed"},
+			"SortOrder":        {"Descending"},
+			"StartIndex":       {strconv.Itoa(offset)},
+			"Limit":            {strconv.Itoa(itemBatchSize)},
+		}
+
+		var resp libraryItemsCacheResponse
+		if err := c.fetchItemsPage(ctx, params, &resp); err != nil {
+			return nil, fmt.Errorf("fetch episode history: %w", err)
+		}
+
+		if len(resp.Items) == 0 {
+			break
+		}
+
+		for _, ep := range resp.Items {
+			if ep.SeriesId == "" {
+				continue
+			}
+			if _, exists := result[ep.SeriesId]; !exists {
+				if ep.UserData != nil && ep.UserData.LastPlayedDate != "" {
+					t := parseEmbyTime(ep.UserData.LastPlayedDate)
+					if !t.IsZero() {
+						result[ep.SeriesId] = t
+					}
+				}
+			}
+		}
+
+		offset += len(resp.Items)
+		if offset >= resp.TotalRecordCount {
+			break
+		}
+	}
+
+	return result, nil
+}
+
