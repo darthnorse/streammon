@@ -94,7 +94,7 @@ func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilte
 			return nil, ctx.Err()
 		}
 
-		items, totalCount, err := s.fetchLibraryBatch(ctx, libraryID, typeFilter, offset, itemBatchSize)
+		items, _, err := s.fetchLibraryBatch(ctx, libraryID, typeFilter, offset, itemBatchSize)
 		if err != nil {
 			return nil, err
 		}
@@ -108,11 +108,10 @@ func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilte
 		mediautil.SendProgress(ctx, mediautil.SyncProgress{
 			Phase:   mediautil.PhaseItems,
 			Current: offset,
-			Total:   totalCount,
 			Library: libraryID,
 		})
 
-		if offset >= totalCount {
+		if len(items) < itemBatchSize {
 			break
 		}
 	}
@@ -288,7 +287,7 @@ func (s *Server) fetchSeriesWatchHistory(ctx context.Context, libraryID string) 
 			return nil, ctx.Err()
 		}
 
-		container, err := s.fetchHistoryBatch(ctx, offset)
+		container, err := s.fetchHistoryBatch(ctx, libraryID, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -323,13 +322,14 @@ func (s *Server) fetchSeriesWatchHistory(ctx context.Context, libraryID string) 
 	return result, nil
 }
 
-func (s *Server) fetchHistoryBatch(ctx context.Context, offset int) (*historyContainer, error) {
+func (s *Server) fetchHistoryBatch(ctx context.Context, libraryID string, offset int) (*historyContainer, error) {
 	u, err := url.Parse(fmt.Sprintf("%s/status/sessions/history/all", s.url))
 	if err != nil {
 		return nil, fmt.Errorf("parse URL: %w", err)
 	}
 	q := u.Query()
 	q.Set("sort", "viewedAt:desc")
+	q.Set("librarySectionID", libraryID)
 	q.Set("X-Plex-Container-Start", strconv.Itoa(offset))
 	q.Set("X-Plex-Container-Size", strconv.Itoa(historyBatchSize))
 	u.RawQuery = q.Encode()

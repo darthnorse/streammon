@@ -276,8 +276,22 @@ func (s *Server) streamSyncLibraryItems(w http.ResponseWriter, r *http.Request, 
 		done <- syncResult{count, deleted, err}
 	}()
 
-	for p := range progressCh {
-		sendEvent(p)
+	keepalive := time.NewTicker(15 * time.Second)
+	defer keepalive.Stop()
+
+	channelOpen := true
+	for channelOpen {
+		select {
+		case p, ok := <-progressCh:
+			if !ok {
+				channelOpen = false
+				break
+			}
+			sendEvent(p)
+		case <-keepalive.C:
+			fmt.Fprintf(w, ": keepalive\n\n")
+			flusher.Flush()
+		}
 	}
 
 	result := <-done

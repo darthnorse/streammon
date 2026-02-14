@@ -159,7 +159,7 @@ func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemTyp
 			return nil, ctx.Err()
 		}
 
-		items, totalCount, err := c.fetchLibraryBatch(ctx, libraryID, itemType, offset, itemBatchSize)
+		items, _, err := c.fetchLibraryBatch(ctx, libraryID, itemType, offset, itemBatchSize)
 		if err != nil {
 			return nil, err
 		}
@@ -173,11 +173,10 @@ func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemTyp
 		mediautil.SendProgress(ctx, mediautil.SyncProgress{
 			Phase:   mediautil.PhaseItems,
 			Current: offset,
-			Total:   totalCount,
 			Library: libraryID,
 		})
 
-		if offset >= totalCount {
+		if len(items) < itemBatchSize {
 			break
 		}
 	}

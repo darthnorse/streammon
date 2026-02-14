@@ -231,14 +231,26 @@ function LibraryRow({ library, maintenance, syncState, onSync, onRules, onViolat
       <td className="px-4 py-3">
         {isMaintenanceSupported && (
           <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={onSync}
-              disabled={!!syncState}
-              className="px-2 py-1 text-xs font-medium rounded border border-border dark:border-border-dark
-                       hover:bg-surface dark:hover:bg-surface-dark transition-colors disabled:opacity-50"
-            >
-              {syncState ? formatSyncStatus(syncState) : 'Sync'}
-            </button>
+            <span className="relative group/sync">
+              <button
+                onClick={onSync}
+                disabled={!!syncState}
+                className="px-2 py-1 text-xs font-medium rounded border border-border dark:border-border-dark
+                         hover:bg-surface dark:hover:bg-surface-dark transition-colors disabled:opacity-50"
+              >
+                {syncState ? formatSyncStatus(syncState) : 'Sync'}
+                {syncState?.phase === 'history' && syncState.total && (
+                  <span className="ml-0.5 opacity-60">&#9432;</span>
+                )}
+              </button>
+              {syncState?.phase === 'history' && syncState.total && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 text-xs rounded
+                              bg-gray-900 text-white dark:bg-gray-700 whitespace-nowrap
+                              opacity-0 group-hover/sync:opacity-100 pointer-events-none transition-opacity z-50">
+                  This is total watch history, not episode count — includes rewatches
+                </div>
+              )}
+            </span>
             <button
               onClick={onRules}
               className="px-2 py-1 text-xs font-medium rounded border border-border dark:border-border-dark

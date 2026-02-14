@@ -41,7 +41,7 @@ export function Sidebar({ onOpenProfile, integrations }: SidebarProps) {
   }
 
   return (
-    <aside className="hidden lg:flex flex-col w-60 h-screen sticky top-0
+    <aside className="hidden lg:flex flex-col w-60 h-dvh sticky top-0
                       border-r border-border dark:border-border-dark
                       bg-panel dark:bg-panel-dark">
       <div className="flex items-center gap-2.5 px-5 h-16 border-b border-border dark:border-border-dark">
