@@ -19,6 +19,9 @@ export async function readSSEStream(response: Response, handlers: SSEHandlers): 
   let currentEvent: string | null = null
 
   const processLine = (line: string) => {
+    if (line.startsWith(':')) {
+      return
+    }
     if (line.startsWith('event: ')) {
       currentEvent = line.slice(7)
     } else if (line.startsWith('data: ')) {

@@ -244,8 +244,8 @@ function LibraryRow({ library, maintenance, syncState, onSync, onRules, onViolat
                 )}
               </button>
               {syncState?.phase === 'history' && syncState.total && (
-                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 px-2 py-1 text-xs rounded
-                              bg-gray-900 text-white dark:bg-gray-700 whitespace-nowrap
+                <div className="absolute bottom-full right-0 mb-1 px-2 py-1 text-xs rounded w-48
+                              bg-gray-900 text-white dark:bg-gray-700
                               opacity-0 group-hover/sync:opacity-100 pointer-events-none transition-opacity z-50">
                   This is total watch history, not episode count — includes rewatches
                 </div>
