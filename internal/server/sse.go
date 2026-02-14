@@ -8,22 +8,29 @@ import (
 	"streammon/internal/models"
 )
 
+func sseFlusher(w http.ResponseWriter) (http.Flusher, bool) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		return nil, false
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	return flusher, true
+}
+
 func (s *Server) handleDashboardSSE(w http.ResponseWriter, r *http.Request) {
 	if s.poller == nil {
 		writeError(w, http.StatusServiceUnavailable, "poller not configured")
 		return
 	}
 
-	flusher, ok := w.(http.Flusher)
+	flusher, ok := sseFlusher(w)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming not supported")
 		return
 	}
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
 
 	// Check if viewer needs filtering
 	user := UserFromContext(r.Context())

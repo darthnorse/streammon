@@ -636,6 +636,16 @@ export interface BulkDeleteError {
   error: string
 }
 
+export interface SyncProgress {
+  phase: 'items' | 'history' | 'done' | 'error'
+  current?: number
+  total?: number
+  library: string
+  error?: string
+  synced?: number
+  deleted?: number
+}
+
 export interface BulkDeleteResult {
   deleted: number
   failed: number

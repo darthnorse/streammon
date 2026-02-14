@@ -71,6 +71,14 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	if err != nil {
 		return nil, fmt.Errorf("fetch movies: %w", err)
 	}
+	if len(movies) > 0 {
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseItems,
+			Current: len(movies),
+			Total:   len(movies),
+			Library: libraryID,
+		})
+	}
 	allItems = append(allItems, movies...)
 
 	shows, err := s.fetchLibraryItemsPage(ctx, libraryID, plexTypeShow)
@@ -86,8 +94,18 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 			}
 			shows[i].FileSize = size
 		}
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseItems,
+			Current: i + 1,
+			Total:   len(shows),
+			Library: libraryID,
+		})
 	}
 	if len(shows) > 0 {
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseHistory,
+			Library: libraryID,
+		})
 		historyMap, err := s.fetchShowWatchHistory(ctx)
 		if err != nil {
 			slog.Warn("plex: failed to fetch show watch history, using show-level data", "error", err)

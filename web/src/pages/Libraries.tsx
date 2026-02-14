@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useMultiSelect } from '../hooks/useMultiSelect'
 import { useMountedRef } from '../hooks/useMountedRef'
@@ -7,6 +7,7 @@ import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
 import { useItemDetails } from '../hooks/useItemDetails'
 import { api } from '../lib/api'
 import { PER_PAGE_OPTIONS } from '../lib/constants'
+import { readSSEStream } from '../lib/sse'
 import { errorMessage } from '../lib/utils'
 import { formatCount, formatSize } from '../lib/format'
 import { Pagination } from '../components/Pagination'
@@ -35,6 +36,7 @@ import type {
   BulkDeleteResult,
   CriterionTypeInfo,
   CriterionType,
+  SyncProgress,
 } from '../types'
 
 function useMediaDetailModal() {
@@ -94,6 +96,10 @@ type ViewState =
   | { type: 'candidates'; library: Library; rule: MaintenanceRuleWithCount }
   | { type: 'exclusions'; library: Library; rule: MaintenanceRuleWithCount }
 
+function syncKey(lib: Library): string {
+  return `${lib.server_id}-${lib.id}`
+}
+
 function getUniqueServers(libraries: Library[]): { id: number; name: string }[] {
   const seen = new Map<number, string>()
   for (const lib of libraries) {
@@ -140,13 +146,23 @@ function LibrarySubViewHeader({
 interface LibraryRowProps {
   library: Library
   maintenance: LibraryMaintenance | null
-  syncing: boolean
+  syncState: SyncProgress | null
   onSync: () => void
   onRules: () => void
   onViolations: () => void
 }
 
-function LibraryRow({ library, maintenance, syncing, onSync, onRules, onViolations }: LibraryRowProps) {
+function formatSyncStatus(state: SyncProgress): string {
+  if (state.phase === 'items' && state.total) {
+    return `Scanning ${state.current ?? 0}/${state.total}`
+  }
+  if (state.phase === 'history') {
+    return 'Fetching history...'
+  }
+  return 'Syncing...'
+}
+
+function LibraryRow({ library, maintenance, syncState, onSync, onRules, onViolations }: LibraryRowProps) {
   const accent = serverAccent[library.server_type] || 'bg-gray-100 text-gray-600'
   const icon = libraryTypeIcon[library.type]
   const rules = maintenance?.rules || []
@@ -211,11 +227,11 @@ function LibraryRow({ library, maintenance, syncing, onSync, onRules, onViolatio
           <div className="flex items-center justify-end gap-2">
             <button
               onClick={onSync}
-              disabled={syncing}
+              disabled={!!syncState}
               className="px-2 py-1 text-xs font-medium rounded border border-border dark:border-border-dark
                        hover:bg-surface dark:hover:bg-surface-dark transition-colors disabled:opacity-50"
             >
-              {syncing ? 'Syncing...' : 'Sync'}
+              {syncState ? formatSyncStatus(syncState) : 'Sync'}
             </button>
             <button
               onClick={onRules}
@@ -618,49 +634,30 @@ function CandidatesView({
         throw new Error(`HTTP ${response.status}`)
       }
 
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('No response body')
+      const ref: { result: BulkDeleteResult | null } = { result: null }
 
-      const decoder = new TextDecoder()
-      let buffer = ''
-      let finalResult: BulkDeleteResult | null = null
-      let isCompleteEvent = false
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line === 'event: complete') {
-            isCompleteEvent = true
-          } else if (line.startsWith('data: ')) {
-            const data = JSON.parse(line.slice(6))
-            if (isCompleteEvent) {
-              finalResult = data
-            } else if (mountedRef.current) {
-              setDeleteProgress(data)
+      await readSSEStream(response, {
+        onData(raw) {
+          try {
+            if (mountedRef.current) setDeleteProgress(JSON.parse(raw) as DeleteProgress)
+          } catch {
+            // Skip malformed SSE data
+          }
+        },
+        onEvent(event, raw) {
+          if (event === 'complete') {
+            try {
+              ref.result = JSON.parse(raw) as BulkDeleteResult
+            } catch {
+              // Skip malformed SSE data
             }
           }
-        }
-      }
-
-      // Process any remaining data in buffer
-      if (!finalResult) {
-        for (const line of buffer.split('\n')) {
-          if (line === 'event: complete') {
-            isCompleteEvent = true
-          } else if (line.startsWith('data: ') && isCompleteEvent) {
-            finalResult = JSON.parse(line.slice(6))
-          }
-        }
-      }
+        },
+      })
 
       if (!mountedRef.current) return
 
+      const finalResult = ref.result
       if (finalResult) {
         const errorDetails = finalResult.errors?.map(e => ({ title: e.title, error: e.error })) ?? []
         const totalRequested = finalResult.deleted + finalResult.failed + finalResult.skipped
@@ -1411,8 +1408,14 @@ function RuleFormView({
 export function Libraries() {
   const [selectedServer, setSelectedServer] = useState<number | 'all'>('all')
   const [view, setView] = useState<ViewState>({ type: 'list' })
-  const [syncingLibrary, setSyncingLibrary] = useState<string | null>(null)
+  const [syncStates, setSyncStates] = useState<Record<string, SyncProgress>>({})
   const [syncError, setSyncError] = useState<string | null>(null)
+  const syncAbortRef = useRef<AbortController | null>(null)
+  const mountedRef = useMountedRef()
+
+  useEffect(() => {
+    return () => { syncAbortRef.current?.abort() }
+  }, [])
 
   const { data, loading, error, refetch } = useFetch<LibrariesResponse>('/api/libraries')
   const { data: maintenanceData, refetch: refetchMaintenance } = useFetch<MaintenanceDashboard>('/api/maintenance/dashboard')
@@ -1444,20 +1447,63 @@ export function Libraries() {
   }, [view, getMaintenanceForLibrary])
 
   const handleSync = async (library: Library) => {
-    const key = `${library.server_id}-${library.id}`
-    setSyncingLibrary(key)
+    const key = syncKey(library)
+    setSyncStates(prev => ({ ...prev, [key]: { phase: 'items', library: library.id } }))
     setSyncError(null)
+
+    syncAbortRef.current?.abort()
+    const abortController = new AbortController()
+    syncAbortRef.current = abortController
+
     try {
-      await api.post('/api/maintenance/sync', {
-        server_id: library.server_id,
-        library_id: library.id,
+      const response = await fetch('/api/maintenance/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+        },
+        body: JSON.stringify({
+          server_id: library.server_id,
+          library_id: library.id,
+        }),
+        signal: abortController.signal,
       })
-      refetchMaintenance()
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      let hadError = false
+      await readSSEStream(response, {
+        onData(raw) {
+          if (!mountedRef.current) return
+          try {
+            const data = JSON.parse(raw) as SyncProgress
+            if (data.phase === 'error') {
+              hadError = true
+              setSyncError(`Failed to sync "${library.name}": ${data.error}`)
+            } else if (data.phase !== 'done') {
+              setSyncStates(prev => ({ ...prev, [key]: data }))
+            }
+          } catch {
+            // Skip malformed SSE data
+          }
+        },
+      })
+
+      if (mountedRef.current && !hadError) refetchMaintenance()
     } catch (err) {
+      if (abortController.signal.aborted) return
       console.error('Sync failed:', err)
-      setSyncError(`Failed to sync "${library.name}". Please try again.`)
+      if (mountedRef.current) setSyncError(`Failed to sync "${library.name}". Please try again.`)
     } finally {
-      setSyncingLibrary(null)
+      if (mountedRef.current) {
+        setSyncStates(prev => {
+          const next = { ...prev }
+          delete next[key]
+          return next
+        })
+      }
     }
   }
 
@@ -1655,13 +1701,13 @@ export function Libraries() {
               <tbody>
                 {displayedLibraries.map(library => {
                   const maintenance = getMaintenanceForLibrary(library)
-                  const key = `${library.server_id}-${library.id}`
+                  const key = syncKey(library)
                   return (
                     <LibraryRow
                       key={key}
                       library={library}
                       maintenance={maintenance}
-                      syncing={syncingLibrary === key}
+                      syncState={syncStates[key] || null}
                       onSync={() => handleSync(library)}
                       onRules={() => setView({ type: 'rules', library, maintenance })}
                       onViolations={() => maintenance && setView({ type: 'violations', library, maintenance })}

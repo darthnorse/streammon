@@ -62,6 +62,14 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	if err != nil {
 		return nil, fmt.Errorf("fetch movies: %w", err)
 	}
+	if len(movies) > 0 {
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseItems,
+			Current: len(movies),
+			Total:   len(movies),
+			Library: libraryID,
+		})
+	}
 
 	series, err := c.fetchLibraryItemsByType(ctx, libraryID, "Series")
 	if err != nil {
@@ -78,8 +86,18 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 			}
 			series[i].FileSize = size
 		}
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseItems,
+			Current: i + 1,
+			Total:   len(series),
+			Library: libraryID,
+		})
 	}
 	if len(series) > 0 {
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseHistory,
+			Library: libraryID,
+		})
 		historyMap, err := c.fetchSeriesWatchHistory(ctx, libraryID)
 		if err != nil {
 			slog.Warn("failed to fetch series watch history, using series-level data",
