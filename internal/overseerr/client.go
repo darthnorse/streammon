@@ -227,7 +227,13 @@ func (c *Client) CreateRequestAsUser(ctx context.Context, plexToken string, reqB
 	if err != nil {
 		return nil, fmt.Errorf("creating cookie jar: %w", err)
 	}
-	userClient := &http.Client{Timeout: 30 * time.Second, Jar: jar}
+	userClient := &http.Client{
+		Timeout: 30 * time.Second,
+		Jar:     jar,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 
 	authPayload, err := json.Marshal(map[string]string{"authToken": plexToken})
 	if err != nil {
@@ -246,9 +252,8 @@ func (c *Client) CreateRequestAsUser(ctx context.Context, plexToken string, reqB
 	}
 
 	if authResp.StatusCode < 200 || authResp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(authResp.Body, maxResponseBody))
 		authResp.Body.Close()
-		return nil, fmt.Errorf("plex auth returned status %d: %s", authResp.StatusCode, truncate(body, 200))
+		return nil, fmt.Errorf("plex auth returned status %d", authResp.StatusCode)
 	}
 	// Drain body so the connection can be reused for the next request.
 	httputil.DrainBody(authResp)
