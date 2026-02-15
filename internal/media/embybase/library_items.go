@@ -19,7 +19,7 @@ import (
 const (
 	itemBatchSize     = 100
 	historyBatchSize  = 200
-	historyMaxEntries = 100000
+	historyMaxEntries = 5000000
 	maxResponseBody   = 50 << 20 // 50 MB
 )
 
