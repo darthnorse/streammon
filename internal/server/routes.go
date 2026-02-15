@@ -131,11 +131,22 @@ func (s *Server) routes() {
 			sr.Post("/test", s.handleTestIntegrationConnection(sd))
 		})
 
+		r.Route("/settings/radarr", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			rd := s.radarrDeps()
+			sr.Get("/", s.handleGetIntegrationSettings(rd))
+			sr.Put("/", s.handleUpdateIntegrationSettings(rd))
+			sr.Delete("/", s.handleDeleteIntegrationSettings(rd))
+			sr.Post("/test", s.handleTestIntegrationConnection(rd))
+		})
+
 		r.Route("/sonarr", func(sr chi.Router) {
 			sr.Get("/configured", s.handleIntegrationConfigured(s.sonarrDeps()))
 			sr.Get("/calendar", s.handleSonarrCalendar)
 			sr.Get("/series/{id}", s.handleSonarrSeries)
 		})
+
+		r.Get("/radarr/configured", s.handleIntegrationConfigured(s.radarrDeps()))
 
 		r.Route("/overseerr", func(sr chi.Router) {
 			sr.Get("/configured", s.handleIntegrationConfigured(s.overseerrDeps()))

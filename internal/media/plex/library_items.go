@@ -20,7 +20,7 @@ const (
 	plexTypeMovie     = "1"
 	plexTypeShow      = "2"
 	itemBatchSize     = 100
-	historyBatchSize  = 1000
+	historyBatchSize  = 2000
 	historyMaxEntries = 5000000
 	maxResponseBody   = 50 << 20 // 50 MB
 )
@@ -40,6 +40,7 @@ type libraryItemXML struct {
 	AddedAt      string         `xml:"addedAt,attr"`
 	LastViewedAt string         `xml:"lastViewedAt,attr"`
 	LeafCount    string         `xml:"leafCount,attr"`
+	Guids        []plexGuid     `xml:"Guid"`
 	Media        []mediaInfoXML `xml:"Media"`
 }
 
@@ -126,6 +127,7 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 	}
 	q := u.Query()
 	q.Set("type", typeFilter)
+	q.Set("includeGuids", "1")
 	q.Set("X-Plex-Container-Start", strconv.Itoa(offset))
 	q.Set("X-Plex-Container-Size", strconv.Itoa(batchSize))
 	u.RawQuery = q.Encode()
@@ -186,6 +188,7 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 			lastWatchedAt = &t
 		}
 
+		externalIDs := parsePlexGuids(item.Guids)
 		items = append(items, models.LibraryItemCache{
 			ServerID:        s.serverID,
 			LibraryID:       libraryID,
@@ -199,6 +202,9 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 			FileSize:        fileSize,
 			EpisodeCount:    episodeCount,
 			ThumbURL:        item.RatingKey,
+			TMDBID:          externalIDs.TMDB,
+			TVDBID:          externalIDs.TVDB,
+			IMDBID:          externalIDs.IMDB,
 		})
 	}
 

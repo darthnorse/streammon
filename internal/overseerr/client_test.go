@@ -338,6 +338,76 @@ func TestListUsers_APIError(t *testing.T) {
 	}
 }
 
+func TestFindRequestByTMDB_Found(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/movie/27205" {
+			t.Errorf("expected path /api/v1/movie/27205, got %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"id": 27205,
+			"mediaInfo": map[string]any{
+				"requests": []map[string]any{
+					{"id": 10},
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	id, err := c.FindRequestByTMDB(context.Background(), 27205, "movie")
+	if err != nil {
+		t.Fatalf("FindRequestByTMDB: %v", err)
+	}
+	if id != 10 {
+		t.Fatalf("expected request ID 10, got %d", id)
+	}
+}
+
+func TestFindRequestByTMDB_NotFound(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"id": 99999,
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	id, err := c.FindRequestByTMDB(context.Background(), 99999, "movie")
+	if err != nil {
+		t.Fatalf("FindRequestByTMDB: %v", err)
+	}
+	if id != 0 {
+		t.Fatalf("expected 0 for not found, got %d", id)
+	}
+}
+
+func TestFindRequestByTMDB_UsesCorrectPath(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/tv/12345" {
+			t.Errorf("expected path /api/v1/tv/12345, got %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"id": 12345,
+			"mediaInfo": map[string]any{
+				"requests": []map[string]any{
+					{"id": 20},
+				},
+			},
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	id, err := c.FindRequestByTMDB(context.Background(), 12345, "tv")
+	if err != nil {
+		t.Fatalf("FindRequestByTMDB: %v", err)
+	}
+	if id != 20 {
+		t.Fatalf("expected request ID 20, got %d", id)
+	}
+}
+
 func TestRequestCount(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{

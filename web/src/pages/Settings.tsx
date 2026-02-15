@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { Server, OIDCSettings, TautulliSettings, OverseerrSettings, SonarrSettings, EnrichmentStatus } from '../types'
+import type { Server, OIDCSettings, TautulliSettings, OverseerrSettings, SonarrSettings, RadarrSettings, EnrichmentStatus } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
@@ -9,6 +9,7 @@ import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
 import { TautulliForm } from '../components/TautulliForm'
 import { OverseerrForm } from '../components/OverseerrForm'
 import { SonarrForm } from '../components/SonarrForm'
+import { RadarrForm } from '../components/RadarrForm'
 import { EmptyState } from '../components/EmptyState'
 import { IntegrationCard } from '../components/IntegrationCard'
 import { UserManagement } from '../components/UserManagement'
@@ -40,6 +41,7 @@ export function Settings() {
   const { data: tautulli, loading: tautulliLoading, error: tautulliFetchError, refetch: refetchTautulli } = useFetch<TautulliSettings>(tab === 'import' ? '/api/settings/tautulli' : null)
   const { data: overseerr, loading: overseerrLoading, error: overseerrFetchError, refetch: refetchOverseerr } = useFetch<OverseerrSettings>(tab === 'integrations' ? '/api/settings/overseerr' : null)
   const { data: sonarr, loading: sonarrLoading, error: sonarrFetchError, refetch: refetchSonarr } = useFetch<SonarrSettings>(tab === 'integrations' ? '/api/settings/sonarr' : null)
+  const { data: radarr, loading: radarrLoading, error: radarrFetchError, refetch: refetchRadarr } = useFetch<RadarrSettings>(tab === 'integrations' ? '/api/settings/radarr' : null)
 
   const [editingServer, setEditingServer] = useState<Server | undefined>()
   const [showForm, setShowForm] = useState(false)
@@ -47,6 +49,7 @@ export function Settings() {
   const [showTautulliForm, setShowTautulliForm] = useState(false)
   const [showOverseerrForm, setShowOverseerrForm] = useState(false)
   const [showSonarrForm, setShowSonarrForm] = useState(false)
+  const [showRadarrForm, setShowRadarrForm] = useState(false)
   const [actionError, setActionError] = useState('')
   const [calculatingHouseholds, setCalculatingHouseholds] = useState(false)
   const [householdResult, setHouseholdResult] = useState<{ created: number } | null>(null)
@@ -141,6 +144,8 @@ export function Settings() {
   const handleDeleteOverseerr = makeIntegrationDelete('/api/settings/overseerr', 'Overseerr', refetchOverseerr)
   const handleSonarrSaved = makeIntegrationSaved(setShowSonarrForm, refetchSonarr)
   const handleDeleteSonarr = makeIntegrationDelete('/api/settings/sonarr', 'Sonarr', refetchSonarr)
+  const handleRadarrSaved = makeIntegrationSaved(setShowRadarrForm, refetchRadarr)
+  const handleDeleteRadarr = makeIntegrationDelete('/api/settings/radarr', 'Radarr', refetchRadarr)
 
   async function handleCalculateHouseholds() {
     setCalculatingHouseholds(true)
@@ -435,6 +440,27 @@ export function Settings() {
               settings={sonarr ?? undefined}
               onClose={() => setShowSonarrForm(false)}
               onSaved={handleSonarrSaved}
+            />
+          )}
+
+          <IntegrationCard
+            name="Radarr"
+            icon="&#127909;"
+            description="Connect to Radarr to enable automatic cleanup of movies when deleted via maintenance."
+            settings={radarr}
+            loading={radarrLoading}
+            error={radarrFetchError}
+            onConfigure={() => setShowRadarrForm(true)}
+            onEdit={() => setShowRadarrForm(true)}
+            onDelete={handleDeleteRadarr}
+            onRetry={refetchRadarr}
+          />
+
+          {showRadarrForm && (
+            <RadarrForm
+              settings={radarr ?? undefined}
+              onClose={() => setShowRadarrForm(false)}
+              onSaved={handleRadarrSaved}
             />
           )}
         </div>

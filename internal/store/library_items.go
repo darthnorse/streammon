@@ -11,12 +11,14 @@ import (
 )
 
 const libraryItemColumns = `id, server_id, library_id, item_id, media_type, title, year,
-	added_at, last_watched_at, video_resolution, file_size, episode_count, thumb_url, synced_at`
+	added_at, last_watched_at, video_resolution, file_size, episode_count, thumb_url,
+	tmdb_id, tvdb_id, imdb_id, synced_at`
 
 const libraryItemUpsertSQL = `
 	INSERT INTO library_items (server_id, library_id, item_id, media_type, title, year,
-		added_at, last_watched_at, video_resolution, file_size, episode_count, thumb_url, synced_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		added_at, last_watched_at, video_resolution, file_size, episode_count, thumb_url,
+		tmdb_id, tvdb_id, imdb_id, synced_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(server_id, item_id) DO UPDATE SET
 		library_id = excluded.library_id,
 		media_type = excluded.media_type,
@@ -27,12 +29,16 @@ const libraryItemUpsertSQL = `
 		file_size = excluded.file_size,
 		episode_count = excluded.episode_count,
 		thumb_url = excluded.thumb_url,
+		tmdb_id = excluded.tmdb_id,
+		tvdb_id = excluded.tvdb_id,
+		imdb_id = excluded.imdb_id,
 		synced_at = excluded.synced_at`
 
 func execLibraryItemUpsert(ctx context.Context, stmt *sql.Stmt, item models.LibraryItemCache, syncTime time.Time) error {
 	_, err := stmt.ExecContext(ctx, item.ServerID, item.LibraryID, item.ItemID,
 		item.MediaType, item.Title, item.Year, item.AddedAt, item.LastWatchedAt,
-		item.VideoResolution, item.FileSize, item.EpisodeCount, item.ThumbURL, syncTime)
+		item.VideoResolution, item.FileSize, item.EpisodeCount, item.ThumbURL,
+		item.TMDBID, item.TVDBID, item.IMDBID, syncTime)
 	return err
 }
 
@@ -41,7 +47,8 @@ func scanLibraryItem(scanner interface{ Scan(...any) error }) (models.LibraryIte
 	var lastWatchedAt sql.NullString
 	err := scanner.Scan(&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID,
 		&item.MediaType, &item.Title, &item.Year, &item.AddedAt, &lastWatchedAt,
-		&item.VideoResolution, &item.FileSize, &item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
+		&item.VideoResolution, &item.FileSize, &item.EpisodeCount, &item.ThumbURL,
+		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.SyncedAt)
 	if err != nil {
 		return item, err
 	}

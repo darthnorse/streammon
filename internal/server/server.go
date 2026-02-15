@@ -11,6 +11,7 @@ import (
 	"streammon/internal/auth"
 	"streammon/internal/geoip"
 	"streammon/internal/httputil"
+	"streammon/internal/maintenance"
 	"streammon/internal/models"
 	"streammon/internal/poller"
 	"streammon/internal/store"
@@ -40,6 +41,7 @@ type Server struct {
 	autoSync       autoSyncState
 	librarySync    *librarySyncManager
 	appCtx         context.Context
+	cascadeDeleter   *maintenance.CascadeDeleter
 	overseerrUsers   *overseerrUserCache
 	thumbProxyHTTP   *http.Client
 	sonarrPosterHTTP *http.Client
@@ -53,6 +55,7 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 		enrichment:  &enrichmentState{},
 		librarySync: &librarySyncManager{active: make(map[string]*librarySyncJob)},
 		appCtx:     context.Background(),
+		cascadeDeleter: maintenance.NewCascadeDeleter(s),
 		overseerrUsers: &overseerrUserCache{},
 		thumbProxyHTTP:   httputil.NewClient(),
 		sonarrPosterHTTP: httputil.NewClient(),

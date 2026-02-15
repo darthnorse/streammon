@@ -561,6 +561,9 @@ export interface LibraryItemCache {
   file_size?: number
   episode_count?: number
   thumb_url?: string
+  tmdb_id?: string
+  tvdb_id?: string
+  imdb_id?: string
   synced_at: string
 }
 
@@ -830,6 +833,7 @@ export interface OverseerrRequestCount {
 }
 
 export type SonarrSettings = IntegrationSettings
+export type RadarrSettings = IntegrationSettings
 
 export interface SonarrImage {
   coverType: string

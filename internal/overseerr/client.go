@@ -11,12 +11,12 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"streammon/internal/httputil"
 )
 
-const maxResponseBody = 2 << 20 // 2 MiB
+// ValidateURL checks that the given URL is valid for use as an Overseerr endpoint.
+var ValidateURL = httputil.ValidateIntegrationURL
 
 type Client struct {
 	baseURL string
@@ -32,25 +32,8 @@ func NewClient(baseURL, apiKey string) (*Client, error) {
 	return &Client{
 		baseURL: baseURL,
 		apiKey:  apiKey,
-		http:    &http.Client{Timeout: 30 * time.Second},
+		http:    httputil.NewClientWithTimeout(httputil.IntegrationTimeout),
 	}, nil
-}
-
-func ValidateURL(rawURL string) error {
-	if rawURL == "" {
-		return fmt.Errorf("URL is required")
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL format: %w", err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("URL must use http or https scheme")
-	}
-	if u.Host == "" {
-		return fmt.Errorf("URL must have a host")
-	}
-	return nil
 }
 
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader) (json.RawMessage, error) {
@@ -80,13 +63,13 @@ func (c *Client) doWithOpts(ctx context.Context, method, path string, query url.
 	}
 	defer httputil.DrainBody(resp)
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httputil.MaxResponseBody))
 	if err != nil {
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, truncate(respBody, 200))
+		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, httputil.Truncate(respBody, 200))
 	}
 
 	return json.RawMessage(respBody), nil
@@ -231,7 +214,7 @@ func (c *Client) CreateRequestAsUser(ctx context.Context, plexToken string, reqB
 		return nil, fmt.Errorf("creating cookie jar: %w", err)
 	}
 	userClient := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: httputil.IntegrationTimeout,
 		Jar:     jar,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -273,13 +256,13 @@ func (c *Client) CreateRequestAsUser(ctx context.Context, plexToken string, reqB
 	}
 	defer httputil.DrainBody(resp)
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httputil.MaxResponseBody))
 	if err != nil {
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, truncate(respBody, 200))
+		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, httputil.Truncate(respBody, 200))
 	}
 
 	return json.RawMessage(respBody), nil
@@ -296,10 +279,37 @@ func (c *Client) DeleteRequest(ctx context.Context, requestID int) error {
 	return c.doDelete(ctx, fmt.Sprintf("/request/%d", requestID))
 }
 
-func truncate(b []byte, max int) string {
-	r := []rune(string(b))
-	if len(r) > max {
-		return string(r[:max]) + "..."
-	}
-	return string(r)
+type mediaInfoResponse struct {
+	MediaInfo *struct {
+		Requests []struct {
+			ID int `json:"id"`
+		} `json:"requests"`
+	} `json:"mediaInfo"`
 }
+
+// FindRequestByTMDB looks up the Overseerr request for a given TMDB ID and media type.
+// Uses the movie/tv detail endpoint for an O(1) lookup instead of scanning all requests.
+// mediaType should be "movie" or "tv". Returns the request ID, or 0 if not found.
+func (c *Client) FindRequestByTMDB(ctx context.Context, tmdbID int, mediaType string) (int, error) {
+	path := fmt.Sprintf("/movie/%d", tmdbID)
+	if mediaType == "tv" {
+		path = fmt.Sprintf("/tv/%d", tmdbID)
+	}
+
+	raw, err := c.doGet(ctx, path, nil)
+	if err != nil {
+		return 0, fmt.Errorf("fetching media info: %w", err)
+	}
+
+	var resp mediaInfoResponse
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return 0, fmt.Errorf("parsing media info: %w", err)
+	}
+
+	if resp.MediaInfo == nil || len(resp.MediaInfo.Requests) == 0 {
+		return 0, nil
+	}
+
+	return resp.MediaInfo.Requests[0].ID, nil
+}
+

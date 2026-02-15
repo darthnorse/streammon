@@ -52,6 +52,14 @@ func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, del
 
 	result.ServerDeleted = true
 
+	// Best-effort cascade: delete from Radarr/Sonarr/Overseerr (each op has its own 15s timeout)
+	cascadeResults := s.cascadeDeleter.DeleteExternalReferences(context.Background(), candidate.Item)
+	for _, cr := range cascadeResults {
+		if cr.Error != "" {
+			log.Printf("cascade %s warning for %q: %s", cr.Service, candidate.Item.Title, cr.Error)
+		}
+	}
+
 	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	dbErr := s.store.DeleteLibraryItem(cleanupCtx, candidate.LibraryItemID)
 	cleanupCancel()
@@ -63,7 +71,7 @@ func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, del
 		result.DBCleaned = true
 	}
 
-	s.recordDeleteAudit(candidate, deletedBy, result.ServerDeleted && result.DBCleaned, result.Error)
+	s.recordDeleteAudit(candidate, deletedBy, result.ServerDeleted, result.Error)
 
 	return result
 }

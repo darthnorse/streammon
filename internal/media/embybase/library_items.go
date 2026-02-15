@@ -18,7 +18,7 @@ import (
 
 const (
 	itemBatchSize     = 100
-	historyBatchSize  = 1000
+	historyBatchSize  = 2000
 	historyMaxEntries = 5000000
 	maxResponseBody   = 50 << 20 // 50 MB
 )
@@ -39,6 +39,7 @@ type embyLibraryItem struct {
 	ChildCount         int               `json:"ChildCount"`
 	MediaSources       []embyMediaSource `json:"MediaSources,omitempty"`
 	UserData           *embyUserData     `json:"UserData,omitempty"`
+	ProviderIds        map[string]string `json:"ProviderIds,omitempty"`
 }
 
 type embyUserData struct {
@@ -189,7 +190,7 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 		"ParentId":         {libraryID},
 		"Recursive":        {"true"},
 		"IncludeItemTypes": {itemType},
-		"Fields":           {"DateCreated,MediaSources,RecursiveItemCount,ChildCount,UserData"},
+		"Fields":           {"DateCreated,MediaSources,RecursiveItemCount,ChildCount,UserData,ProviderIds"},
 		"StartIndex":       {strconv.Itoa(offset)},
 		"Limit":            {strconv.Itoa(batchSize)},
 	}
@@ -250,6 +251,9 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 			FileSize:        fileSize,
 			EpisodeCount:    episodeCount,
 			ThumbURL:        item.ID,
+			TMDBID:          item.ProviderIds["Tmdb"],
+			TVDBID:          item.ProviderIds["Tvdb"],
+			IMDBID:          item.ProviderIds["Imdb"],
 		})
 	}
 

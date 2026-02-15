@@ -14,7 +14,8 @@ import (
 const candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
-	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url, i.synced_at`
+	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url,
+	i.tmdb_id, i.tvdb_id, i.imdb_id, i.synced_at`
 
 func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
 	var c models.MaintenanceCandidate
@@ -23,7 +24,8 @@ func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceC
 	err := scanner.Scan(&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
 		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
 		&item.Title, &item.Year, &item.AddedAt, &lastWatchedAt, &item.VideoResolution, &item.FileSize,
-		&item.EpisodeCount, &item.ThumbURL, &item.SyncedAt)
+		&item.EpisodeCount, &item.ThumbURL,
+		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.SyncedAt)
 	if err != nil {
 		return c, err
 	}
@@ -77,7 +79,6 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
 	}
 
-	// Get count and total size in one query
 	statsQuery := `
 		SELECT COUNT(*), COALESCE(SUM(i.file_size), 0) FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
@@ -88,7 +89,6 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 		return nil, fmt.Errorf("count candidates: %w", err)
 	}
 
-	// Get exclusion count for this rule
 	var exclusionCount int
 	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM maintenance_exclusions WHERE rule_id = ?`, ruleID).Scan(&exclusionCount)
 	if err != nil {
@@ -96,7 +96,9 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 	}
 
 	offset := (page - 1) * perPage
-	listArgs := append(args, perPage, offset)
+	listArgs := make([]any, len(args), len(args)+2)
+	copy(listArgs, args)
+	listArgs = append(listArgs, perPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c

@@ -188,6 +188,12 @@ func (s *Store) GetSonarrConfig() (SonarrConfig, error) { return s.getIntegratio
 func (s *Store) SetSonarrConfig(cfg SonarrConfig) error  { return s.setIntegrationConfig("sonarr", cfg) }
 func (s *Store) DeleteSonarrConfig() error               { return s.deleteIntegrationConfig("sonarr") }
 
+type RadarrConfig = IntegrationConfig
+
+func (s *Store) GetRadarrConfig() (RadarrConfig, error) { return s.getIntegrationConfig("radarr") }
+func (s *Store) SetRadarrConfig(cfg RadarrConfig) error  { return s.setIntegrationConfig("radarr", cfg) }
+func (s *Store) DeleteRadarrConfig() error               { return s.deleteIntegrationConfig("radarr") }
+
 const unitSystemKey = "display.units"
 
 func (s *Store) GetUnitSystem() (string, error) {

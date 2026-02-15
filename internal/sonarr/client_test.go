@@ -32,8 +32,8 @@ func TestNewClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	if c.baseURL != "http://localhost:8989" {
-		t.Fatalf("expected baseURL http://localhost:8989, got %s", c.baseURL)
+	if c.BaseURL != "http://localhost:8989" {
+		t.Fatalf("expected baseURL http://localhost:8989, got %s", c.BaseURL)
 	}
 }
 
@@ -42,8 +42,8 @@ func TestNewClientTrimsSlash(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	if c.baseURL != "http://localhost:8989" {
-		t.Fatalf("expected trailing slash trimmed, got %s", c.baseURL)
+	if c.BaseURL != "http://localhost:8989" {
+		t.Fatalf("expected trailing slash trimmed, got %s", c.BaseURL)
 	}
 }
 
@@ -116,6 +116,80 @@ func TestGetSeries(t *testing.T) {
 	}
 	if series.Title != "Test Series" {
 		t.Fatalf("expected Test Series, got %s", series.Title)
+	}
+}
+
+func TestLookupSeriesByTVDB(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v3/series" {
+			t.Errorf("expected path /api/v3/series, got %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("tvdbId") != "12345" {
+			t.Errorf("expected tvdbId=12345, got %s", r.URL.Query().Get("tvdbId"))
+		}
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"id": 77, "title": "Test Show", "tvdbId": 12345},
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	id, err := c.LookupSeriesByTVDB(context.Background(), "12345")
+	if err != nil {
+		t.Fatalf("LookupSeriesByTVDB: %v", err)
+	}
+	if id != 77 {
+		t.Fatalf("expected series ID 77, got %d", id)
+	}
+}
+
+func TestLookupSeriesByTVDBNotFound(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	id, err := c.LookupSeriesByTVDB(context.Background(), "99999")
+	if err != nil {
+		t.Fatalf("LookupSeriesByTVDB: %v", err)
+	}
+	if id != 0 {
+		t.Fatalf("expected 0 for not found, got %d", id)
+	}
+}
+
+func TestDeleteSeries(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v3/series/77" {
+			t.Errorf("expected path /api/v3/series/77, got %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("deleteFiles") != "true" {
+			t.Errorf("expected deleteFiles=true, got %s", r.URL.Query().Get("deleteFiles"))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	if err := c.DeleteSeries(context.Background(), 77, true); err != nil {
+		t.Fatalf("DeleteSeries: %v", err)
+	}
+}
+
+func TestDeleteSeriesFailure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"message":"Series not found"}`))
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	if err := c.DeleteSeries(context.Background(), 999, true); err == nil {
+		t.Fatal("expected error for 404 response")
 	}
 }
 

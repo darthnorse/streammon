@@ -60,6 +60,9 @@ type LibraryItemCache struct {
 	EpisodeCount    int       `json:"episode_count,omitempty"`
 	LastWatchedAt   *time.Time `json:"last_watched_at,omitempty"`
 	ThumbURL        string     `json:"thumb_url,omitempty"`
+	TMDBID          string     `json:"tmdb_id,omitempty"`
+	TVDBID          string     `json:"tvdb_id,omitempty"`
+	IMDBID          string     `json:"imdb_id,omitempty"`
 	SyncedAt        time.Time  `json:"synced_at"`
 }
 
