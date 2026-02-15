@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -258,15 +259,16 @@ func TestHistoryPagination(t *testing.T) {
 	ts := newShowHistoryServer(t, showsXML, func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		start := r.URL.Query().Get("X-Plex-Container-Start")
+		total := historyBatchSize + 1
 		switch start {
 		case "0":
 			items := make([]string, historyBatchSize)
 			for i := range items {
 				items[i] = fmt.Sprintf(`<Video grandparentRatingKey="other%d" viewedAt="%d"/>`, i, 1700500000-i)
 			}
-			w.Write([]byte(fmt.Sprintf(`<MediaContainer totalSize="201">%s</MediaContainer>`, strings.Join(items, ""))))
-		case "200":
-			w.Write([]byte(`<MediaContainer totalSize="201"><Video grandparentRatingKey="800" viewedAt="1700600000"/></MediaContainer>`))
+			w.Write([]byte(fmt.Sprintf(`<MediaContainer totalSize="%d">%s</MediaContainer>`, total, strings.Join(items, ""))))
+		case strconv.Itoa(historyBatchSize):
+			w.Write([]byte(fmt.Sprintf(`<MediaContainer totalSize="%d"><Video grandparentRatingKey="800" viewedAt="1700600000"/></MediaContainer>`, total)))
 		default:
 			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
 		}

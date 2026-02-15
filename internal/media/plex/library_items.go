@@ -20,7 +20,7 @@ const (
 	plexTypeMovie     = "1"
 	plexTypeShow      = "2"
 	itemBatchSize     = 100
-	historyBatchSize  = 200
+	historyBatchSize  = 500
 	historyMaxEntries = 5000000
 	maxResponseBody   = 50 << 20 // 50 MB
 )
