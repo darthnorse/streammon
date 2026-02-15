@@ -74,6 +74,19 @@ func newTestServerWrapped(t *testing.T, storeOpts ...store.Option) (*testServer,
 	return &testServer{srv}, s
 }
 
+func createViewerSessionWithEmail(t *testing.T, st *store.Store, name, email string) string {
+	t.Helper()
+	user, err := st.CreateLocalUser(name, email, "", models.RoleViewer)
+	if err != nil {
+		t.Fatalf("creating viewer user: %v", err)
+	}
+	token, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
+	if err != nil {
+		t.Fatalf("creating viewer session: %v", err)
+	}
+	return token
+}
+
 // newEmptyStore creates a store with migrations but no users.
 // Use this for tests that need to verify behavior when no users exist.
 func newEmptyStore(t *testing.T) *store.Store {

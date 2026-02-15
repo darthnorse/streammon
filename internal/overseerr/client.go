@@ -194,13 +194,16 @@ func (c *Client) GetTVSeason(ctx context.Context, tvID, seasonNumber int) (json.
 	return c.doGet(ctx, fmt.Sprintf("/tv/%d/season/%d", tvID, seasonNumber), nil)
 }
 
-func (c *Client) ListRequests(ctx context.Context, take, skip int, filter, sort string) (json.RawMessage, error) {
+func (c *Client) ListRequests(ctx context.Context, take, skip, requestedBy int, filter, sort string) (json.RawMessage, error) {
 	params := url.Values{}
 	if take > 0 {
 		params.Set("take", strconv.Itoa(take))
 	}
 	if skip > 0 {
 		params.Set("skip", strconv.Itoa(skip))
+	}
+	if requestedBy > 0 {
+		params.Set("requestedBy", strconv.Itoa(requestedBy))
 	}
 	if filter != "" {
 		params.Set("filter", filter)

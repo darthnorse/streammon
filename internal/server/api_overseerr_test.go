@@ -7,18 +7,18 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"streammon/internal/auth"
-	"streammon/internal/models"
 	"streammon/internal/store"
 )
 
-func mockOverseerr(t *testing.T) *httptest.Server {
-	return mockOverseerrWithUsers(t, nil)
+type mockOverseerrOpts struct {
+	users           []map[string]any
+	onGetRequests   func(w http.ResponseWriter, r *http.Request)
+	onCreateRequest func(w http.ResponseWriter, r *http.Request)
 }
 
-func mockOverseerrWithUsers(t *testing.T, users []map[string]any) *httptest.Server {
+func newMockOverseerr(t *testing.T, opts mockOverseerrOpts) *httptest.Server {
 	t.Helper()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Api-Key") != "test-api-key" {
@@ -26,13 +26,14 @@ func mockOverseerrWithUsers(t *testing.T, users []map[string]any) *httptest.Serv
 			w.Write([]byte(`{"message":"Invalid API key"}`))
 			return
 		}
+		users := opts.users
+		if users == nil {
+			users = []map[string]any{}
+		}
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/status":
 			json.NewEncoder(w).Encode(map[string]string{"version": "1.33.2"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
-			if users == nil {
-				users = []map[string]any{}
-			}
 			json.NewEncoder(w).Encode(map[string]any{
 				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": len(users)},
 				"results":  users,
@@ -54,21 +55,29 @@ func mockOverseerrWithUsers(t *testing.T, users []map[string]any) *httptest.Serv
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/tv/1399/season/1":
 			json.NewEncoder(w).Encode(map[string]any{"id": 1, "seasonNumber": 1})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/request":
-			json.NewEncoder(w).Encode(map[string]any{
-				"pageInfo": map[string]any{"page": 1, "pages": 1, "results": 1},
-				"results":  []map[string]any{{"id": 1, "status": 2, "type": "movie"}},
-			})
+			if opts.onGetRequests != nil {
+				opts.onGetRequests(w, r)
+			} else {
+				json.NewEncoder(w).Encode(map[string]any{
+					"pageInfo": map[string]any{"page": 1, "pages": 1, "results": 1},
+					"results":  []map[string]any{{"id": 1, "status": 2, "type": "movie"}},
+				})
+			}
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/request/count":
 			json.NewEncoder(w).Encode(map[string]any{"total": 5, "pending": 2})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/request":
-			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
-			resp := map[string]any{"id": 10, "status": 2, "mediaType": body["mediaType"]}
-			if uid, ok := body["userId"]; ok {
-				resp["requestedBy"] = map[string]any{"id": uid}
+			if opts.onCreateRequest != nil {
+				opts.onCreateRequest(w, r)
+			} else {
+				var body map[string]any
+				json.NewDecoder(r.Body).Decode(&body)
+				resp := map[string]any{"id": 10, "status": 2, "mediaType": body["mediaType"]}
+				if uid, ok := body["userId"]; ok {
+					resp["requestedBy"] = map[string]any{"id": uid}
+				}
+				w.WriteHeader(http.StatusCreated)
+				json.NewEncoder(w).Encode(resp)
 			}
-			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(resp)
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/request/1/approve":
 			json.NewEncoder(w).Encode(map[string]any{"id": 1, "status": 2})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/request/1/decline":
@@ -82,6 +91,25 @@ func mockOverseerrWithUsers(t *testing.T, users []map[string]any) *httptest.Serv
 	}))
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+func mockOverseerr(t *testing.T) *httptest.Server {
+	return newMockOverseerr(t, mockOverseerrOpts{})
+}
+
+func mockOverseerrWithUsers(t *testing.T, users []map[string]any) *httptest.Server {
+	return newMockOverseerr(t, mockOverseerrOpts{users: users})
+}
+
+func mockOverseerrCaptureRequest(t *testing.T, users []map[string]any, captured *map[string]any) *httptest.Server {
+	return newMockOverseerr(t, mockOverseerrOpts{
+		users: users,
+		onCreateRequest: func(w http.ResponseWriter, r *http.Request) {
+			json.NewDecoder(r.Body).Decode(captured)
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{"id": 10, "status": 2})
+		},
+	})
 }
 
 func configureOverseerr(t *testing.T, st *store.Store, mockURL string) {
@@ -101,34 +129,6 @@ func newOverseerrTestServer(t *testing.T) (http.Handler, *store.Store) {
 	srv, st := newTestServerWrapped(t)
 	configureOverseerr(t, st, mock.URL)
 	return srv, st
-}
-
-func mockOverseerrCaptureRequest(t *testing.T, users []map[string]any, captured *map[string]any) *httptest.Server {
-	t.Helper()
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Api-Key") != "test-api-key" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
-			if users == nil {
-				users = []map[string]any{}
-			}
-			json.NewEncoder(w).Encode(map[string]any{
-				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": len(users)},
-				"results":  users,
-			})
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/request":
-			json.NewDecoder(r.Body).Decode(captured)
-			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(map[string]any{"id": 10, "status": 2})
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	t.Cleanup(ts.Close)
-	return ts
 }
 
 func TestOverseerrIntegrationSettings(t *testing.T) {
@@ -512,19 +512,11 @@ func TestOverseerrCreateRequest_InjectsUserID(t *testing.T) {
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
-
-	user, err := st.CreateLocalUser("viewer-attr", "viewer@test.local", "", models.RoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	token, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer-attr", "viewer@test.local")
 
 	body := `{"mediaType":"movie","mediaId":27205}`
 	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
-	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -549,19 +541,11 @@ func TestOverseerrCreateRequest_NoMatchFallsBack(t *testing.T) {
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
-
-	user, err := st.CreateLocalUser("viewer-nomatch", "nomatch@test.local", "", models.RoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	token, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer-nomatch", "nomatch@test.local")
 
 	body := `{"mediaType":"movie","mediaId":27205}`
 	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
-	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -582,19 +566,11 @@ func TestOverseerrCreateRequest_ClientUserIdStripped(t *testing.T) {
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
-
-	user, err := st.CreateLocalUser("viewer-strip", "nomatch@test.local", "", models.RoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	token, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer-strip", "nomatch@test.local")
 
 	body := `{"mediaType":"movie","mediaId":27205,"userId":999}`
 	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
-	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -615,19 +591,11 @@ func TestOverseerrCreateRequest_CaseInsensitiveEmail(t *testing.T) {
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
-
-	user, err := st.CreateLocalUser("alice-ci", "alice@example.com", "", models.RoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	token, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
+	viewerToken := createViewerSessionWithEmail(t, st, "alice-ci", "alice@example.com")
 
 	body := `{"mediaType":"movie","mediaId":27205}`
 	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
-	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: token})
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -672,67 +640,174 @@ func TestOverseerrCreateRequest_AdminEmailResolved(t *testing.T) {
 	}
 }
 
-func TestOverseerrUserCache_InvalidatedOnSettingsUpdate(t *testing.T) {
-	mock := mockOverseerrWithUsers(t, []map[string]any{
-		{"id": 42, "email": "admin@test.local"},
+func TestOverseerrUserCache_InvalidatedOnSettingsChange(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		body       func(mockURL string) string
+		wantStatus int
+	}{
+		{"update", http.MethodPut, func(u string) string { return `{"url":"` + u + `","api_key":"test-api-key"}` }, http.StatusOK},
+		{"delete", http.MethodDelete, nil, http.StatusNoContent},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := mockOverseerrWithUsers(t, []map[string]any{
+				{"id": 42, "email": "admin@test.local"},
+			})
+			srv, st := newTestServerWrapped(t)
+			configureOverseerr(t, st, mock.URL)
+			srv.Unwrap().resolveOverseerrUserID(context.Background(), "admin@test.local")
+
+			var req *http.Request
+			if tt.body != nil {
+				req = httptest.NewRequest(tt.method, "/api/settings/overseerr", strings.NewReader(tt.body(mock.URL)))
+			} else {
+				req = httptest.NewRequest(tt.method, "/api/settings/overseerr", nil)
+			}
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Fatalf("expected %d, got %d: %s", tt.wantStatus, w.Code, w.Body.String())
+			}
+
+			srv.Unwrap().overseerrUsers.mu.RLock()
+			expired := srv.Unwrap().overseerrUsers.expiresAt.IsZero()
+			mapCleared := srv.Unwrap().overseerrUsers.emailToID == nil
+			srv.Unwrap().overseerrUsers.mu.RUnlock()
+			if !expired || !mapCleared {
+				t.Fatal("expected cache to be invalidated")
+			}
+		})
+	}
+}
+
+func TestOverseerrListRequests_ViewerFiltered(t *testing.T) {
+	var capturedRequestedBy string
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users: []map[string]any{{"id": 42, "email": "viewer-filter@test.local"}},
+		onGetRequests: func(w http.ResponseWriter, r *http.Request) {
+			capturedRequestedBy = r.URL.Query().Get("requestedBy")
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"page": 1, "pages": 1, "results": 1},
+				"results":  []map[string]any{{"id": 1, "status": 2, "type": "movie"}},
+			})
+		},
 	})
 
-	srv, st := newTestServerWrapped(t)
+	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
+	viewerToken := createViewerSession(t, st, "viewer-filter")
 
-	id, ok := srv.Unwrap().resolveOverseerrUserID(context.Background(), "admin@test.local")
-	if !ok || id != 42 {
-		t.Fatalf("expected (42, true), got (%d, %v)", id, ok)
-	}
-
-	body := `{"url":"` + mock.URL + `","api_key":"test-api-key"}`
-	req := httptest.NewRequest(http.MethodPut, "/api/settings/overseerr", strings.NewReader(body))
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-
-	srv.Unwrap().overseerrUsers.mu.RLock()
-	expired := srv.Unwrap().overseerrUsers.expiresAt.IsZero()
-	mapCleared := srv.Unwrap().overseerrUsers.emailToID == nil
-	srv.Unwrap().overseerrUsers.mu.RUnlock()
-	if !expired {
-		t.Fatal("expected cache to be invalidated after settings update")
-	}
-	if !mapCleared {
-		t.Fatal("expected emailToID map to be cleared after settings update")
+	if capturedRequestedBy != "42" {
+		t.Fatalf("expected requestedBy=42, got %q", capturedRequestedBy)
 	}
 }
 
-func TestOverseerrUserCache_InvalidatedOnSettingsDelete(t *testing.T) {
-	mock := mockOverseerrWithUsers(t, []map[string]any{
-		{"id": 42, "email": "admin@test.local"},
-	})
+func TestOverseerrListRequests_ViewerNoEmail(t *testing.T) {
+	mock := mockOverseerr(t)
 
-	srv, st := newTestServerWrapped(t)
+	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer-noemail", "")
 
-	srv.Unwrap().resolveOverseerrUserID(context.Background(), "admin@test.local")
-
-	req := httptest.NewRequest(http.MethodDelete, "/api/settings/overseerr", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
+	var result struct {
+		PageInfo struct{ Results int } `json:"pageInfo"`
+		Results  []json.RawMessage    `json:"results"`
+	}
+	json.NewDecoder(w.Body).Decode(&result)
+	if len(result.Results) != 0 {
+		t.Fatalf("expected empty results for viewer with no email, got %d", len(result.Results))
+	}
+}
 
-	srv.Unwrap().overseerrUsers.mu.RLock()
-	expired := srv.Unwrap().overseerrUsers.expiresAt.IsZero()
-	mapCleared := srv.Unwrap().overseerrUsers.emailToID == nil
-	srv.Unwrap().overseerrUsers.mu.RUnlock()
-	if !expired {
-		t.Fatal("expected cache to be invalidated after settings delete")
+func TestOverseerrListRequests_ViewerNoOverseerrAccount(t *testing.T) {
+	// Overseerr has no user with this email
+	mock := mockOverseerrWithUsers(t, []map[string]any{
+		{"id": 99, "email": "someone-else@example.com"},
+	})
+
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+	viewerToken := createViewerSession(t, st, "viewer-nomatch")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
-	if !mapCleared {
-		t.Fatal("expected emailToID map to be cleared after settings delete")
+	var result struct {
+		PageInfo struct{ Results int } `json:"pageInfo"`
+		Results  []json.RawMessage    `json:"results"`
+	}
+	json.NewDecoder(w.Body).Decode(&result)
+	if len(result.Results) != 0 {
+		t.Fatalf("expected empty results for unresolvable viewer, got %d", len(result.Results))
+	}
+}
+
+func TestOverseerrListRequests_AdminUnfiltered(t *testing.T) {
+	var capturedRequestedBy string
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		onGetRequests: func(w http.ResponseWriter, r *http.Request) {
+			capturedRequestedBy = r.URL.Query().Get("requestedBy")
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"page": 1, "pages": 1, "results": 1},
+				"results":  []map[string]any{{"id": 1, "status": 2, "type": "movie"}},
+			})
+		},
+	})
+
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests", nil)
+	addAuthCookie(req)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if capturedRequestedBy != "" {
+		t.Fatalf("expected no requestedBy for admin, got %q", capturedRequestedBy)
+	}
+}
+
+func TestOverseerrRequestCount_ViewerForbidden(t *testing.T) {
+	mock := mockOverseerr(t)
+
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+	viewerToken := createViewerSession(t, st, "viewer-count")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests/count", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer on count endpoint, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

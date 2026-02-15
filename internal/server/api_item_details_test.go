@@ -12,18 +12,8 @@ import (
 	"streammon/internal/store"
 )
 
-// createViewerSession creates a viewer user and returns their session token
 func createViewerSession(t *testing.T, st *store.Store, name string) string {
-	t.Helper()
-	user, err := st.CreateLocalUser(name, name+"@test.local", "", models.RoleViewer)
-	if err != nil {
-		t.Fatalf("creating viewer user: %v", err)
-	}
-	token, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatalf("creating viewer session: %v", err)
-	}
-	return token
+	return createViewerSessionWithEmail(t, st, name, name+"@test.local")
 }
 
 func TestItemDetailsHistoryAdminSeesAllUsers(t *testing.T) {

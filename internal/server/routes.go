@@ -145,7 +145,7 @@ func (s *Server) routes() {
 			sr.Get("/tv/{id}", s.handleOverseerrTV)
 			sr.Get("/tv/{id}/season/{seasonNumber}", s.handleOverseerrTVSeason)
 			sr.Get("/requests", s.handleOverseerrListRequests)
-			sr.Get("/requests/count", s.handleOverseerrRequestCount)
+			sr.With(RequireRole(models.RoleAdmin)).Get("/requests/count", s.handleOverseerrRequestCount)
 			sr.Post("/requests", s.handleOverseerrCreateRequest)
 			sr.With(RequireRole(models.RoleAdmin)).Post("/requests/{id}/{action}", s.handleOverseerrRequestAction)
 			sr.With(RequireRole(models.RoleAdmin)).Delete("/requests/{id}", s.handleOverseerrDeleteRequest)

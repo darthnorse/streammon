@@ -148,7 +148,7 @@ export function Requests() {
     refetch: refetchRequests,
   } = useInfiniteFetch<OverseerrRequest>(requestsBaseUrl, 30)
 
-  const { data: counts } = useFetch<OverseerrRequestCount>(configured ? '/api/overseerr/requests/count' : null)
+  const { data: counts } = useFetch<OverseerrRequestCount>(configured && isAdmin ? '/api/overseerr/requests/count' : null)
 
   useEffect(() => {
     if (!search || !configured) {
@@ -212,7 +212,7 @@ export function Requests() {
         </button>
         <button onClick={() => setTab('requests')} className={tabClass(tab === 'requests')}>
           Requests
-          {counts && counts.total > 0 && (
+          {counts && counts.total > 0 && isAdmin && (
             <span className="ml-1.5 text-xs text-muted dark:text-muted-dark">({counts.total})</span>
           )}
         </button>

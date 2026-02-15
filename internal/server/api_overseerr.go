@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"streammon/internal/models"
 	"streammon/internal/overseerr"
 	"streammon/internal/store"
 )
@@ -42,6 +43,8 @@ var allowedRequestSorts = map[string]bool{
 
 const maxRequestTake = 100
 const defaultRequestTake = 20
+
+var emptyRequestList = json.RawMessage(`{"pageInfo":{"pages":1,"page":1,"results":0},"results":[]}`)
 
 type overseerrUserCache struct {
 	mu        sync.RWMutex
@@ -231,13 +234,33 @@ func (s *Server) handleOverseerrListRequests(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// For non-admin users, filter to only their own requests.
+	var requestedBy int
+	user := UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if user.Role != models.RoleAdmin {
+		if user.Email == "" {
+			writeRawJSON(w, http.StatusOK, emptyRequestList)
+			return
+		}
+		id, ok := s.resolveOverseerrUserID(r.Context(), user.Email)
+		if !ok {
+			writeRawJSON(w, http.StatusOK, emptyRequestList)
+			return
+		}
+		requestedBy = id
+	}
+
 	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
 	if !ok {
 		return
 	}
 	defer cancel()
 
-	data, err := client.ListRequests(ctx, take, skip, filter, sort)
+	data, err := client.ListRequests(ctx, take, skip, requestedBy, filter, sort)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "upstream service error")
 		return

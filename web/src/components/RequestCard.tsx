@@ -50,7 +50,6 @@ export function RequestCard({
   }
 
   const typeBadge = request.type === 'movie' ? 'Movie' : 'TV Show'
-  const requester = request.requestedBy?.username || request.requestedBy?.plexUsername || request.requestedBy?.email || 'Unknown'
 
   return (
     <div className="card p-4 flex items-start gap-4">
@@ -81,8 +80,11 @@ export function RequestCard({
           )}
         </div>
         <p className="text-sm text-muted dark:text-muted-dark mt-1">
-          Requested by <span className="font-medium text-foreground dark:text-foreground-dark">{requester}</span>
-          {' · '}
+          {isAdmin && (
+            <>Requested by <span className="font-medium text-foreground dark:text-foreground-dark">
+              {request.requestedBy?.username || request.requestedBy?.plexUsername || request.requestedBy?.email || 'Unknown'}
+            </span>{' · '}</>
+          )}
           {new Date(request.createdAt).toLocaleDateString()}
         </p>
       </div>
