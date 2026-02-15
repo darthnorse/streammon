@@ -247,19 +247,20 @@ func (s *Server) startBackgroundSync(key string, serverID int64, libraryID strin
 		var deleted int64
 		var err error
 
+		ctx, cancel := context.WithTimeout(s.appCtx, 2*time.Hour)
+		defer cancel()
+
+		progressCtx, progressCh := mediautil.ContextWithProgress(ctx)
+
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("background sync %s: panic: %v", key, r)
+				mediautil.CloseProgress(progressCtx)
 				s.librarySync.finish(key, 0, 0, fmt.Errorf("internal error"))
 				return
 			}
 			s.librarySync.finish(key, count, int(deleted), err)
 		}()
-
-		ctx, cancel := context.WithTimeout(s.appCtx, 2*time.Hour)
-		defer cancel()
-
-		progressCtx, progressCh := mediautil.ContextWithProgress(ctx)
 
 		log.Printf("background sync %s: started", key)
 

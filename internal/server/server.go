@@ -4,8 +4,6 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"sync"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -23,7 +21,6 @@ type GeoLookup interface {
 	Lookup(ip net.IP) *models.GeoResult
 }
 
-// RulesEngine allows the server to invalidate the rules cache when rules are modified.
 type RulesEngine interface {
 	InvalidateCache()
 }
@@ -43,11 +40,9 @@ type Server struct {
 	autoSync       autoSyncState
 	librarySync    *librarySyncManager
 	appCtx         context.Context
-	overseerrUsers     *overseerrUserCache
-	overseerrPlexCache *overseerrPlexTokenCache
-	thumbProxyHTTP     *http.Client
-	sonarrPosterHTTP   *http.Client
-	warnHTTPOnce       sync.Once
+	overseerrUsers   *overseerrUserCache
+	thumbProxyHTTP   *http.Client
+	sonarrPosterHTTP *http.Client
 }
 
 func NewServer(s *store.Store, opts ...Option) *Server {
@@ -59,10 +54,6 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 		librarySync: &librarySyncManager{active: make(map[string]*librarySyncJob)},
 		appCtx:     context.Background(),
 		overseerrUsers: &overseerrUserCache{},
-		overseerrPlexCache: &overseerrPlexTokenCache{
-			userIDMap:   make(map[int64]int),
-			entryExpiry: make(map[int64]time.Time),
-		},
 		thumbProxyHTTP:   httputil.NewClient(),
 		sonarrPosterHTTP: httputil.NewClient(),
 	}

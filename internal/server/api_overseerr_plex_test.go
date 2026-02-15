@@ -11,14 +11,19 @@ import (
 
 	"streammon/internal/auth"
 	"streammon/internal/models"
+	"streammon/internal/store"
 )
 
-// mockOverseerrWithPlexAuth creates a mock Overseerr server that handles both
-// Plex auth (POST /api/v1/auth/plex) and request creation (POST /api/v1/request).
-func mockOverseerrWithPlexAuth(t *testing.T, plexAuthID int, captured *map[string]any) *httptest.Server {
+// mockOverseerrWithPlexSession creates a mock Overseerr that:
+//   - POST /auth/plex: validates authToken, sets a session cookie, returns user ID
+//   - POST /request with session cookie: accepts the request (user-level auth)
+//   - POST /request with API key: accepts the request (admin-level auth)
+//   - GET /user with API key: returns user list for email matching
+func mockOverseerrWithPlexSession(t *testing.T, plexAuthID int, users []map[string]any, captured *map[string]any) *httptest.Server {
 	t.Helper()
+	const sessionValue = "mock-session-token"
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// auth/plex is called without API key (like a normal user login)
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/plex" {
 			var body struct {
 				AuthToken string `json:"authToken"`
@@ -28,19 +33,31 @@ func mockOverseerrWithPlexAuth(t *testing.T, plexAuthID int, captured *map[strin
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
+			http.SetCookie(w, &http.Cookie{
+				Name:  "connect.sid",
+				Value: sessionValue,
+				Path:  "/",
+			})
 			json.NewEncoder(w).Encode(map[string]any{"id": plexAuthID, "email": "user@plex.tv"})
 			return
 		}
-		// All other endpoints require API key
-		if r.Header.Get("X-Api-Key") != "test-api-key" {
+
+		hasAPIKey := r.Header.Get("X-Api-Key") == "test-api-key"
+		hasSession := false
+		if c, err := r.Cookie("connect.sid"); err == nil && c.Value == sessionValue {
+			hasSession = true
+		}
+
+		if !hasAPIKey && !hasSession {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
 			json.NewEncoder(w).Encode(map[string]any{
-				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 0},
-				"results":  []any{},
+				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": len(users)},
+				"results":  users,
 			})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/request":
 			if captured != nil {
@@ -56,14 +73,51 @@ func mockOverseerrWithPlexAuth(t *testing.T, plexAuthID int, captured *map[strin
 	return ts
 }
 
+func TestIsOverseerrURLSafeForTokens(t *testing.T) {
+	tests := []struct {
+		url  string
+		safe bool
+	}{
+		{"https://overseerr.example.com", true},
+		{"https://127.0.0.1", true},
+		{"http://127.0.0.1", true},
+		{"http://127.0.0.1:5055", true},
+		{"http://localhost", true},
+		{"http://localhost:5055", true},
+		{"http://[::1]", true},
+		{"http://[::1]:5055", true},
+		{"http://192.168.1.50:5055", true},
+		{"http://10.0.0.5:5055", true},
+		{"http://172.16.0.10:5055", true},
+		{"http://overseerr:5055", true},
+		{"http://overseerr.example.com", false},
+		{"http://127.0.0.1.evil.com", false},
+		{"http://localhost.evil.com", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			srv, st := newTestServer(t)
+			if tt.url != "" {
+				st.SetOverseerrConfig(store.OverseerrConfig{
+					URL: tt.url, APIKey: "k", Enabled: true,
+				})
+			}
+			got := srv.isOverseerrURLSafeForTokens()
+			if got != tt.safe {
+				t.Errorf("isOverseerrURLSafeForTokens(%q) = %v, want %v", tt.url, got, tt.safe)
+			}
+		})
+	}
+}
+
 func TestOverseerrCreateRequest_PlexTokenAuth(t *testing.T) {
 	var receivedBody map[string]any
-	mock := mockOverseerrWithPlexAuth(t, 77, &receivedBody)
+	mock := mockOverseerrWithPlexSession(t, 77, nil, &receivedBody)
 
 	srv, st := newTestServerWithEncryptor(t)
 	configureOverseerr(t, st, mock.URL)
-
-	// Enable Plex token storage and store a token for a viewer
 	st.SetStorePlexTokens(true)
 
 	user, err := st.CreateLocalUser("plex-user", "", "", models.RoleViewer)
@@ -88,17 +142,56 @@ func TestOverseerrCreateRequest_PlexTokenAuth(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	userID, ok := receivedBody["userId"]
-	if !ok {
-		t.Fatal("expected userId in request body via Plex token auth")
+	// With session-based auth, no userId should be in the body
+	if _, ok := receivedBody["userId"]; ok {
+		t.Fatal("expected no userId in body when using Plex session auth")
 	}
-	if int(userID.(float64)) != 77 {
-		t.Fatalf("expected userId=77, got %v", userID)
+}
+
+func TestOverseerrCreateRequest_PlexAuthFailure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/plex" {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"message":"Invalid Plex token"}`))
+			return
+		}
+		if r.Header.Get("X-Api-Key") == "test-api-key" {
+			if r.Method == http.MethodGet && r.URL.Path == "/api/v1/status" {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{}`))
+				return
+			}
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(ts.Close)
+
+	srv, st := newTestServerWithEncryptor(t)
+	configureOverseerr(t, st, ts.URL)
+	st.SetStorePlexTokens(true)
+
+	user, err := st.CreateLocalUser("plex-bad", "", "", models.RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.StoreProviderToken(user.ID, "plex", "expired-token")
+	token, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"mediaType":"movie","mediaId":27205}`
+	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: token})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
 func TestOverseerrCreateRequest_PlexTokenFallbackToEmail(t *testing.T) {
-	// User has no Plex token but has email that matches Overseerr
 	var receivedBody map[string]any
 	mock := mockOverseerrCaptureRequest(t, []map[string]any{
 		{"id": 42, "email": "viewer-fb@test.local"},
@@ -107,7 +200,7 @@ func TestOverseerrCreateRequest_PlexTokenFallbackToEmail(t *testing.T) {
 	srv, st := newTestServerWithEncryptor(t)
 	configureOverseerr(t, st, mock.URL)
 
-	// Plex tokens feature is enabled but no token stored for this user
+	// Plex tokens enabled but no token stored for this user → email fallback
 	st.SetStorePlexTokens(true)
 
 	user, err := st.CreateLocalUser("viewer-fb", "viewer-fb@test.local", "", models.RoleViewer)
@@ -139,7 +232,6 @@ func TestOverseerrCreateRequest_PlexTokenFallbackToEmail(t *testing.T) {
 }
 
 func TestOverseerrCreateRequest_PlexTokenDisabledFallsBack(t *testing.T) {
-	// Plex token feature disabled but user has email → should use email matching
 	var receivedBody map[string]any
 	mock := mockOverseerrCaptureRequest(t, []map[string]any{
 		{"id": 55, "email": "viewer-dis@test.local"},
@@ -148,15 +240,13 @@ func TestOverseerrCreateRequest_PlexTokenDisabledFallsBack(t *testing.T) {
 	srv, st := newTestServerWithEncryptor(t)
 	configureOverseerr(t, st, mock.URL)
 
-	// Token stored but feature disabled
 	user, err := st.CreateLocalUser("viewer-dis", "viewer-dis@test.local", "", models.RoleViewer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	st.StoreProviderToken(user.ID, "plex", "ignored-token")
-	// Note: SetStorePlexTokens(false) would delete tokens, so we store AFTER enabling
 	st.SetStorePlexTokens(true)
-	st.SetStorePlexTokens(false) // This deletes all tokens
+	st.SetStorePlexTokens(false) // deletes all tokens
 
 	token, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
 	if err != nil {
@@ -184,12 +274,11 @@ func TestOverseerrCreateRequest_PlexTokenDisabledFallsBack(t *testing.T) {
 
 func TestOverseerrCreateRequest_NoTokenNoEmail(t *testing.T) {
 	var receivedBody map[string]any
-	mock := mockOverseerrWithPlexAuth(t, 99, &receivedBody)
+	mock := mockOverseerrWithPlexSession(t, 99, nil, &receivedBody)
 
 	srv, st := newTestServerWithEncryptor(t)
 	configureOverseerr(t, st, mock.URL)
 
-	// User has no plex token and no email → no attribution
 	user, err := st.CreateLocalUser("viewer-none", "", "", models.RoleViewer)
 	if err != nil {
 		t.Fatal(err)
@@ -214,97 +303,24 @@ func TestOverseerrCreateRequest_NoTokenNoEmail(t *testing.T) {
 	}
 }
 
-func TestOverseerrCreateRequest_PlexTokenCached(t *testing.T) {
-	plexAuthCalls := 0
-	var receivedBody map[string]any
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/plex" {
-			plexAuthCalls++
-			json.NewEncoder(w).Encode(map[string]any{"id": 77, "email": "user@plex.tv"})
-			return
-		}
-		if r.Header.Get("X-Api-Key") != "test-api-key" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
-			json.NewEncoder(w).Encode(map[string]any{
-				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 0},
-				"results":  []any{},
-			})
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/request":
-			json.NewDecoder(r.Body).Decode(&receivedBody)
-			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(map[string]any{"id": 10, "status": 2})
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	t.Cleanup(ts.Close)
-
-	srv, st := newTestServerWithEncryptor(t)
-	configureOverseerr(t, st, ts.URL)
-	st.SetStorePlexTokens(true)
-
-	user, err := st.CreateLocalUser("plex-cached", "", "", models.RoleViewer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	st.StoreProviderToken(user.ID, "plex", "test-plex-token")
-	sessionToken, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// First request: should call Plex auth
-	for i := 0; i < 3; i++ {
-		receivedBody = nil
-		body := `{"mediaType":"movie","mediaId":27205}`
-		req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
-		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sessionToken})
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, req)
-		if w.Code != http.StatusCreated {
-			t.Fatalf("request %d: expected 201, got %d", i, w.Code)
-		}
-	}
-
-	// Plex auth should only be called once (cached for the other two)
-	if plexAuthCalls != 1 {
-		t.Fatalf("expected 1 Plex auth call (cached), got %d", plexAuthCalls)
-	}
-}
-
 func TestOverseerrCreateRequest_PlexTokenConcurrent(t *testing.T) {
 	var mu sync.Mutex
-	var capturedBodies []map[string]any
+	successCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/plex" {
+			http.SetCookie(w, &http.Cookie{Name: "connect.sid", Value: "sess", Path: "/"})
 			json.NewEncoder(w).Encode(map[string]any{"id": 77, "email": "user@plex.tv"})
 			return
 		}
-		if r.Header.Get("X-Api-Key") != "test-api-key" {
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		switch {
-		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
-			json.NewEncoder(w).Encode(map[string]any{
-				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 0},
-				"results":  []any{},
-			})
-		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/request":
-			var body map[string]any
-			json.NewDecoder(r.Body).Decode(&body)
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/request" {
 			mu.Lock()
-			capturedBodies = append(capturedBodies, body)
+			successCount++
 			mu.Unlock()
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(map[string]any{"id": 10, "status": 2})
-		default:
-			w.WriteHeader(http.StatusNotFound)
+			return
 		}
+		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(ts.Close)
 
@@ -339,20 +355,14 @@ func TestOverseerrCreateRequest_PlexTokenConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	// Verify no request was sent with userId: 0 (the concurrency bug)
 	mu.Lock()
 	defer mu.Unlock()
-	for i, body := range capturedBodies {
-		if uid, ok := body["userId"]; ok {
-			if int(uid.(float64)) == 0 {
-				t.Errorf("request %d: userId was 0 (concurrency bug)", i)
-			}
-		}
+	if successCount != 10 {
+		t.Fatalf("expected 10 successful requests, got %d", successCount)
 	}
 }
 
 func TestOverseerrCreateRequest_ExistingTests_StillPass(t *testing.T) {
-	// Verify that existing email-based tests still work when no encryptor is present
 	var receivedBody map[string]any
 	mock := mockOverseerrCaptureRequest(t, []map[string]any{
 		{"id": 42, "email": "viewer@test.local"},

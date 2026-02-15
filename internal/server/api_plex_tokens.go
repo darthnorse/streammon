@@ -43,10 +43,6 @@ func (s *Server) handleUpdatePlexTokensSetting(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if !req.Enabled {
-		s.invalidatePlexTokenCache()
-	}
-
 	writeJSON(w, http.StatusOK, plexTokensSettingPayload{
 		Enabled:   req.Enabled,
 		Available: true,

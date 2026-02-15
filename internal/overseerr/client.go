@@ -1,11 +1,13 @@
 package overseerr
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strconv"
 	"strings"
@@ -97,7 +99,7 @@ func (c *Client) doGet(ctx context.Context, path string, query url.Values) (json
 func (c *Client) doPost(ctx context.Context, path string, payload json.RawMessage) (json.RawMessage, error) {
 	var body io.Reader
 	if payload != nil {
-		body = strings.NewReader(string(payload))
+		body = bytes.NewReader(payload)
 	}
 	return c.do(ctx, http.MethodPost, path, nil, body)
 }
@@ -217,6 +219,64 @@ func (c *Client) CreateRequest(ctx context.Context, reqBody json.RawMessage) (js
 	return c.doPost(ctx, "/request", reqBody)
 }
 
+// CreateRequestAsUser authenticates to Overseerr as the given Plex user,
+// then creates the request using that session. This ensures Overseerr
+// applies the user's auto-approval settings rather than the admin's.
+func (c *Client) CreateRequestAsUser(ctx context.Context, plexToken string, reqBody json.RawMessage) (json.RawMessage, error) {
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating cookie jar: %w", err)
+	}
+	userClient := &http.Client{Timeout: 30 * time.Second, Jar: jar}
+
+	authPayload, err := json.Marshal(map[string]string{"authToken": plexToken})
+	if err != nil {
+		return nil, fmt.Errorf("marshalling auth payload: %w", err)
+	}
+
+	authReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/auth/plex", bytes.NewReader(authPayload))
+	if err != nil {
+		return nil, fmt.Errorf("creating auth request: %w", err)
+	}
+	authReq.Header.Set("Content-Type", "application/json")
+
+	authResp, err := userClient.Do(authReq)
+	if err != nil {
+		return nil, fmt.Errorf("plex auth failed: %w", err)
+	}
+
+	if authResp.StatusCode < 200 || authResp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(authResp.Body, maxResponseBody))
+		authResp.Body.Close()
+		return nil, fmt.Errorf("plex auth returned status %d: %s", authResp.StatusCode, truncate(body, 200))
+	}
+	// Drain body so the connection can be reused for the next request.
+	httputil.DrainBody(authResp)
+
+	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/request", bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	createReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := userClient.Do(createReq)
+	if err != nil {
+		return nil, fmt.Errorf("create request failed: %w", err)
+	}
+	defer httputil.DrainBody(resp)
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
+	if err != nil {
+		return nil, fmt.Errorf("reading response: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, truncate(respBody, 200))
+	}
+
+	return json.RawMessage(respBody), nil
+}
+
 func (c *Client) UpdateRequestStatus(ctx context.Context, requestID int, status string) (json.RawMessage, error) {
 	if status != "approve" && status != "decline" {
 		return nil, fmt.Errorf("invalid status: must be 'approve' or 'decline'")
@@ -226,34 +286,6 @@ func (c *Client) UpdateRequestStatus(ctx context.Context, requestID int, status 
 
 func (c *Client) DeleteRequest(ctx context.Context, requestID int) error {
 	return c.doDelete(ctx, fmt.Sprintf("/request/%d", requestID))
-}
-
-// AuthenticateWithPlex authenticates to Overseerr using a Plex auth token.
-// Overseerr auto-creates the user if they don't exist.
-// Returns the Overseerr user ID.
-func (c *Client) AuthenticateWithPlex(ctx context.Context, plexToken string) (int, error) {
-	payload, err := json.Marshal(map[string]string{"authToken": plexToken})
-	if err != nil {
-		return 0, fmt.Errorf("marshalling auth payload: %w", err)
-	}
-
-	// Call auth/plex WITHOUT the admin API key so Overseerr processes this
-	// as a normal user login, fully initializing the user's service defaults.
-	raw, err := c.doWithOpts(ctx, http.MethodPost, "/auth/plex", nil, strings.NewReader(string(payload)), false)
-	if err != nil {
-		return 0, fmt.Errorf("plex auth: %w", err)
-	}
-
-	var resp struct {
-		ID int `json:"id"`
-	}
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		return 0, fmt.Errorf("parsing auth response: %w", err)
-	}
-	if resp.ID == 0 {
-		return 0, fmt.Errorf("plex auth returned no user ID")
-	}
-	return resp.ID, nil
 }
 
 func truncate(b []byte, max int) string {

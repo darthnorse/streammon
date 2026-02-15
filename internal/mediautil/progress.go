@@ -52,5 +52,6 @@ func CloseProgress(ctx context.Context) {
 	if !ok || ch == nil {
 		return
 	}
+	defer func() { recover() }()
 	close(ch)
 }

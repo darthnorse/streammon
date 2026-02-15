@@ -1503,7 +1503,16 @@ export function Libraries() {
           }
         }
 
-        setSyncStates(activeStates)
+        setSyncStates(prev => {
+          const next: Record<string, SyncProgress> = { ...activeStates }
+          // Preserve optimistic entries not yet reported by backend
+          for (const key of Object.keys(prev)) {
+            if (!(key in next) && !(key in status)) {
+              next[key] = prev[key]
+            }
+          }
+          return next
+        })
         if (needRefresh) refetchMaintenance()
       } catch { /* ignore polling errors */ }
     }

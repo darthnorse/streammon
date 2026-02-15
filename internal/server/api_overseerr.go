@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -47,18 +49,7 @@ type overseerrUserCache struct {
 	expiresAt time.Time
 }
 
-type overseerrPlexTokenCache struct {
-	mu          sync.RWMutex
-	userIDMap   map[int64]int       // StreamMon user ID → Overseerr user ID
-	entryExpiry map[int64]time.Time // per-user cache expiry
-}
-
-const (
-	overseerrUserCacheTTL      = 15 * time.Minute
-	overseerrPlexTokenCacheTTL = 15 * time.Minute
-	overseerrUserResolveTimeout = 15 * time.Second
-	overseerrPlexClaimTTL      = 30 * time.Second
-)
+const overseerrUserCacheTTL = 15 * time.Minute
 
 func (s *Server) overseerrDeps() integrationDeps {
 	return integrationDeps{
@@ -127,7 +118,7 @@ var allowedDiscoverCategories = map[string]bool{
 
 func (s *Server) handleOverseerrDiscover(w http.ResponseWriter, r *http.Request) {
 	category := chi.URLParam(r, "*")
-	if strings.Contains(category, "..") || !allowedDiscoverCategories[category] {
+	if !allowedDiscoverCategories[category] {
 		writeError(w, http.StatusNotFound, "unknown discover category")
 		return
 	}
@@ -300,7 +291,7 @@ func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int,
 		return 0, false
 	}
 
-	resolveCtx, cancel := context.WithTimeout(ctx, overseerrUserResolveTimeout)
+	resolveCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 
 	users, err := client.ListUsers(resolveCtx)
@@ -326,127 +317,33 @@ func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int,
 	return id, ok
 }
 
-// invalidateOverseerrUserCache clears both the email-based and Plex-token-based
-// user ID caches. Both are cleared together because changing the Overseerr
-// instance (URL/key) invalidates all previously resolved user IDs.
+func (s *Server) isOverseerrURLSafeForTokens() bool {
+	cfg, err := s.store.GetOverseerrConfig()
+	if err != nil || cfg.URL == "" {
+		return false
+	}
+	u, err := url.Parse(cfg.URL)
+	if err != nil {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	host := u.Hostname()
+	ip := net.ParseIP(host)
+	if ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate()
+	}
+	// Non-IP hostnames (e.g. Docker service names like "overseerr") are
+	// considered safe — they resolve within the private network.
+	return !strings.Contains(host, ".")
+}
+
 func (s *Server) invalidateOverseerrUserCache() {
 	s.overseerrUsers.mu.Lock()
 	s.overseerrUsers.emailToID = nil
 	s.overseerrUsers.expiresAt = time.Time{}
 	s.overseerrUsers.mu.Unlock()
-
-	s.invalidatePlexTokenCache()
-}
-
-func (s *Server) invalidatePlexTokenCache() {
-	s.overseerrPlexCache.mu.Lock()
-	s.overseerrPlexCache.userIDMap = make(map[int64]int)
-	s.overseerrPlexCache.entryExpiry = make(map[int64]time.Time)
-	s.overseerrPlexCache.mu.Unlock()
-}
-
-// resolveOverseerrUserWithPlex attempts to resolve a StreamMon user's Overseerr
-// user ID by authenticating with their stored Plex token. This auto-creates
-// the user in Overseerr if they don't exist yet.
-func (s *Server) resolveOverseerrUserWithPlex(ctx context.Context, userID int64) (int, bool) {
-	s.overseerrPlexCache.mu.RLock()
-	if expiry, ok := s.overseerrPlexCache.entryExpiry[userID]; ok && time.Now().UTC().Before(expiry) {
-		if id, exists := s.overseerrPlexCache.userIDMap[userID]; exists {
-			s.overseerrPlexCache.mu.RUnlock()
-			return id, true
-		}
-		// Claim in progress by another goroutine — skip attribution
-		s.overseerrPlexCache.mu.RUnlock()
-		return 0, false
-	}
-	s.overseerrPlexCache.mu.RUnlock()
-
-	// Write lock, re-check, claim with short expiry to prevent thundering herd
-	s.overseerrPlexCache.mu.Lock()
-	if expiry, ok := s.overseerrPlexCache.entryExpiry[userID]; ok && time.Now().UTC().Before(expiry) {
-		if id, exists := s.overseerrPlexCache.userIDMap[userID]; exists {
-			s.overseerrPlexCache.mu.Unlock()
-			return id, true
-		}
-		// Claim in progress by another goroutine — skip attribution
-		s.overseerrPlexCache.mu.Unlock()
-		return 0, false
-	}
-	claimedExpiry := time.Now().UTC().Add(overseerrPlexClaimTTL)
-	s.overseerrPlexCache.entryExpiry[userID] = claimedExpiry
-	s.overseerrPlexCache.mu.Unlock()
-
-	// clearClaim removes the short-lived claim so a future call can retry,
-	// but only if the expiry still matches ours (avoids clobbering a later claim).
-	clearClaim := func() {
-		s.overseerrPlexCache.mu.Lock()
-		if exp, ok := s.overseerrPlexCache.entryExpiry[userID]; ok && exp.Equal(claimedExpiry) {
-			delete(s.overseerrPlexCache.userIDMap, userID)
-			delete(s.overseerrPlexCache.entryExpiry, userID)
-		}
-		s.overseerrPlexCache.mu.Unlock()
-	}
-
-	enabled, _ := s.store.GetStorePlexTokens()
-	if !enabled {
-		clearClaim()
-		return 0, false
-	}
-
-	plexToken, err := s.store.GetProviderToken(userID, store.ProviderPlex)
-	if err != nil || plexToken == "" {
-		clearClaim()
-		return 0, false
-	}
-
-	cfg, err := s.store.GetOverseerrConfig()
-	if err != nil || cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
-		clearClaim()
-		return 0, false
-	}
-
-	if strings.HasPrefix(cfg.URL, "http://") &&
-		!strings.HasPrefix(cfg.URL, "http://127.0.0.1") &&
-		!strings.HasPrefix(cfg.URL, "http://localhost") &&
-		!strings.HasPrefix(cfg.URL, "http://[::1]") {
-		s.warnHTTPOnce.Do(func() {
-			log.Printf("WARNING: Overseerr URL uses plain HTTP (%s); skipping Plex token auth to protect credentials. Use HTTPS or localhost to enable Plex token attribution.", cfg.URL)
-		})
-		clearClaim()
-		return 0, false
-	}
-
-	client, err := s.newOverseerrClient()
-	if err != nil {
-		log.Printf("overseerr plex auth: client error: %v", err)
-		clearClaim()
-		return 0, false
-	}
-
-	resolveCtx, cancel := context.WithTimeout(ctx, overseerrUserResolveTimeout)
-	defer cancel()
-
-	overseerrID, err := client.AuthenticateWithPlex(resolveCtx, plexToken)
-	if err != nil {
-		log.Printf("overseerr plex auth for user %d: %v", userID, err)
-		clearClaim()
-		return 0, false
-	}
-
-	// Cache the result with full TTL and sweep expired entries
-	now := time.Now().UTC()
-	s.overseerrPlexCache.mu.Lock()
-	s.overseerrPlexCache.userIDMap[userID] = overseerrID
-	s.overseerrPlexCache.entryExpiry[userID] = now.Add(overseerrPlexTokenCacheTTL)
-	for uid, exp := range s.overseerrPlexCache.entryExpiry {
-		if now.After(exp) {
-			delete(s.overseerrPlexCache.userIDMap, uid)
-			delete(s.overseerrPlexCache.entryExpiry, uid)
-		}
-	}
-	s.overseerrPlexCache.mu.Unlock()
-
-	return overseerrID, true
 }
 
 func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Request) {
@@ -466,17 +363,47 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
+	if !ok {
+		return
+	}
+	defer cancel()
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+
+	// Try to create the request as the actual user via their Plex token.
+	// This ensures Overseerr applies the user's auto-approval settings
+	// rather than auto-approving everything as admin.
+	user := UserFromContext(r.Context())
+	if user != nil {
+		enabled, _ := s.store.GetStorePlexTokens()
+		if enabled && s.isOverseerrURLSafeForTokens() {
+			plexToken, tokenErr := s.store.GetProviderToken(user.ID, store.ProviderPlex)
+			if tokenErr == nil && plexToken != "" {
+				data, createErr := client.CreateRequestAsUser(ctx, plexToken, reqBody)
+				if createErr != nil {
+					log.Printf("overseerr: create request as user %d failed: %v", user.ID, createErr)
+					writeError(w, http.StatusBadGateway, "upstream service error")
+					return
+				}
+				writeRawJSON(w, http.StatusCreated, data)
+				return
+			}
+		}
+	}
+
+	// Fallback: use admin API key with userId attribution.
+	// Auto-approval settings may not be respected in this path.
 	payload := overseerrCreateRequestPayload{
 		overseerrCreateRequestBody: req,
 	}
-
-	if user := UserFromContext(r.Context()); user != nil {
-		if overseerrID, ok := s.resolveOverseerrUserWithPlex(r.Context(), user.ID); ok {
+	if user != nil && user.Email != "" {
+		if overseerrID, ok := s.resolveOverseerrUserID(r.Context(), user.Email); ok {
 			payload.UserID = &overseerrID
-		} else if user.Email != "" {
-			if overseerrID, ok := s.resolveOverseerrUserID(r.Context(), user.Email); ok {
-				payload.UserID = &overseerrID
-			}
 		}
 	}
 
@@ -485,12 +412,6 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-
-	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
-	if !ok {
-		return
-	}
-	defer cancel()
 
 	data, err := client.CreateRequest(ctx, sanitized)
 	if err != nil {

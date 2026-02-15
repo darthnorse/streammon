@@ -38,12 +38,10 @@ func toAdminUserResponse(u *store.AdminUser) adminUserResponse {
 	}
 }
 
-// parseUserID extracts and parses the user ID from the URL
 func parseUserID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 }
 
-// writeUserError handles common user operation errors
 func writeUserError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, models.ErrNotFound):
@@ -157,7 +155,6 @@ func (s *Server) handleAdminUnlinkUser(w http.ResponseWriter, r *http.Request) {
 		writeUserError(w, err)
 		return
 	}
-	s.invalidatePlexTokenCache()
 
 	user, err := s.store.GetAdminUserByID(id)
 	if err != nil {
