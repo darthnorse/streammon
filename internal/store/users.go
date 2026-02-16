@@ -242,7 +242,7 @@ func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*
 
 		cur, exists := existingByName[u.Name]
 		avatarChanged := thumbURL != "" && cur.ThumbURL != thumbURL
-		emailChanged := exists && u.Email != "" && cur.Email == ""
+		emailChanged := u.Email != "" && cur.Email == ""
 
 		if !avatarChanged && !emailChanged {
 			continue

@@ -249,8 +249,7 @@ func (c *Client) CreateRequestAsUser(ctx context.Context, plexToken string, reqB
 		return nil, fmt.Errorf("plex auth failed: %w", err)
 	}
 
-	// Drain body so the connection can be reused for the next request.
-	httputil.DrainBody(authResp)
+	httputil.DrainBody(authResp) // free connection for the subsequent POST
 
 	if authResp.StatusCode < 200 || authResp.StatusCode >= 300 {
 		return nil, fmt.Errorf("plex auth returned status %d", authResp.StatusCode)

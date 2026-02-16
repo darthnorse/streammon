@@ -195,7 +195,9 @@ func (s *Store) ListExclusionsForRule(ctx context.Context, ruleID int64, page, p
 	}
 
 	offset := (page - 1) * perPage
-	listArgs := append(args, perPage, offset)
+	listArgs := make([]any, len(args), len(args)+2)
+	copy(listArgs, args)
+	listArgs = append(listArgs, perPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+exclusionSelectColumns+`
 		FROM maintenance_exclusions e

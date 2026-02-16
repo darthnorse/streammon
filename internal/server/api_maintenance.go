@@ -52,7 +52,6 @@ func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, del
 
 	result.ServerDeleted = true
 
-	// Best-effort cascade: delete from Radarr/Sonarr/Overseerr (each op has its own 15s timeout)
 	cascadeResults := s.cascadeDeleter.DeleteExternalReferences(context.Background(), candidate.Item)
 	for _, cr := range cascadeResults {
 		if cr.Error != "" {
