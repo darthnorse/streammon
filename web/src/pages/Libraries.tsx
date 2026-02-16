@@ -124,7 +124,7 @@ function LibraryRow({ library, maintenance, syncState, onSync, onRules, onViolat
         {isMaintenanceSupported && violationCount > 0 ? (
           <button
             onClick={onViolations}
-            className="text-sm text-amber-500 hover:underline font-medium"
+            className="text-sm font-medium hover:text-accent hover:underline"
           >
             {formatCount(violationCount)}
           </button>

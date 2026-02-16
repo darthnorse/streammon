@@ -236,8 +236,6 @@ func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverNam
 	syncCtx, cancel := context.WithTimeout(ctx, sch.syncTimeout)
 	defer cancel()
 
-	syncStart := time.Now().UTC()
-
 	items, err := ms.GetLibraryItems(syncCtx, libraryID)
 	if err != nil {
 		return 0, err
@@ -255,15 +253,11 @@ func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverNam
 		return 0, nil
 	}
 
-	count, err := sch.store.UpsertLibraryItems(syncCtx, items)
+	count, deleted, err := sch.store.SyncLibraryItems(syncCtx, serverID, libraryID, items)
 	if err != nil {
 		return 0, err
 	}
-
-	deleted, err := sch.store.DeleteStaleLibraryItems(syncCtx, serverID, libraryID, syncStart)
-	if err != nil {
-		log.Printf("scheduler: warning: delete stale items for %s/%s failed: %v", serverName, libraryName, err)
-	} else if deleted > 0 {
+	if deleted > 0 {
 		log.Printf("scheduler: removed %d stale items from %s/%s", deleted, serverName, libraryName)
 	}
 

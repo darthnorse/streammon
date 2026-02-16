@@ -73,14 +73,20 @@ var validCandidateSortColumns = map[string]string{
 	"added_at":   "i.added_at",
 }
 
-// ListCandidatesForRule returns candidates with their library items, excluding excluded items
-func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int, search, sortBy, sortOrder string) (*models.CandidatesResponse, error) {
+// ListCandidatesForRule returns candidates with their library items, excluding excluded items.
+// Optional serverID/libraryID filters scope results to a single library.
+func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int, search, sortBy, sortOrder string, serverID int64, libraryID string) (*models.CandidatesResponse, error) {
 	var total int
 	var totalSize int64
 	var args []any
 
 	baseWhere := `c.rule_id = ? AND e.id IS NULL`
 	args = append(args, ruleID)
+
+	if serverID > 0 && libraryID != "" {
+		baseWhere += ` AND i.server_id = ? AND i.library_id = ?`
+		args = append(args, serverID, libraryID)
+	}
 
 	if search != "" {
 		searchPattern := "%" + escapeLikePattern(search) + "%"

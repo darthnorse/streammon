@@ -6,7 +6,7 @@ import type { LibraryItemCache, LibrariesResponse } from '../types'
 interface CrossServerDeleteDialogProps {
   candidateId: number
   item: LibraryItemCache
-  onConfirm: (itemIds: number[]) => void
+  onConfirm: (candidateId: number, sourceItemId: number, crossServerItemIds: number[]) => void
   onCancel: () => void
 }
 
@@ -47,15 +47,8 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
 
   const hasMatches = otherItems.length > 0
 
-  // Track selected item IDs; the original item is always included
+  // Track selected cross-server item IDs (start unchecked — user must opt in)
   const [selectedOtherIds, setSelectedOtherIds] = useState<Set<number>>(new Set())
-
-  // Pre-check cross-server items once loaded
-  const [initialized, setInitialized] = useState(false)
-  if (!initialized && otherItems.length > 0) {
-    setSelectedOtherIds(new Set(otherItems.map(i => i.id)))
-    setInitialized(true)
-  }
 
   const toggleItem = (id: number) => {
     setSelectedOtherIds(prev => {
@@ -70,8 +63,7 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
   }
 
   const handleConfirm = () => {
-    const ids = [item.id, ...Array.from(selectedOtherIds)]
-    onConfirm(ids)
+    onConfirm(candidateId, item.id, Array.from(selectedOtherIds))
   }
 
   const getServerName = (serverId: number): string => {
@@ -109,7 +101,7 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
               Cancel
             </button>
             <button
-              onClick={() => onConfirm([item.id])}
+              onClick={() => onConfirm(candidateId, item.id, [])}
               className="px-4 py-2 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
             >
               Delete
@@ -141,7 +133,7 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
               Cancel
             </button>
             <button
-              onClick={() => onConfirm([item.id])}
+              onClick={() => onConfirm(candidateId, item.id, [])}
               className="px-4 py-2 text-sm font-medium rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
             >
               Delete
@@ -152,7 +144,6 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
     )
   }
 
-  // Cross-server dialog with checkboxes
   const selectedCount = 1 + selectedOtherIds.size
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -180,7 +171,6 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
             </div>
           </label>
 
-          {/* Cross-server items */}
           {otherItems.map(ci => (
             <label
               key={ci.id}

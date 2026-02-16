@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -241,7 +242,7 @@ func TestCandidatesExcludeExcludedItems(t *testing.T) {
 	}
 
 	// Verify we have 3 candidates
-	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "")
+	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "", 0, "")
 	if result.Total != 3 {
 		t.Fatalf("setup: expected 3 candidates, got %d", result.Total)
 	}
@@ -252,7 +253,7 @@ func TestCandidatesExcludeExcludedItems(t *testing.T) {
 	}
 
 	// Now list should return only 2
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "")
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,6 +337,77 @@ func TestListExclusionsForRuleSearch(t *testing.T) {
 	}
 	if result.Total != 0 {
 		t.Errorf("search non-existent: total = %d, want 0", result.Total)
+	}
+}
+
+func TestIsItemExcludedFromAnyRule(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	// Not excluded from any rule yet
+	excluded, err := s.IsItemExcludedFromAnyRule(ctx, itemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if excluded {
+		t.Error("item should not be excluded from any rule yet")
+	}
+
+	// Exclude from rule 1
+	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	excluded, err = s.IsItemExcludedFromAnyRule(ctx, itemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !excluded {
+		t.Error("item should be excluded (rule 1)")
+	}
+
+	// Create a second rule and exclude from it too
+	rule2, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		Name:          "Rule 2",
+		CriterionType: "large_files",
+		MediaType:     models.MediaTypeMovie,
+		Parameters:    json.RawMessage(`{"min_size_gb": 50}`),
+		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: serverID, LibraryID: "lib1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateExclusions(ctx, rule2.ID, []int64{itemID}, "admin@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Remove exclusion from rule 1 only — should still be excluded via rule 2
+	if err := s.DeleteExclusion(ctx, ruleID, itemID); err != nil {
+		t.Fatal(err)
+	}
+
+	excluded, err = s.IsItemExcludedFromAnyRule(ctx, itemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !excluded {
+		t.Error("item should still be excluded (rule 2)")
+	}
+
+	// Remove exclusion from rule 2 — now truly not excluded
+	if err := s.DeleteExclusion(ctx, rule2.ID, itemID); err != nil {
+		t.Fatal(err)
+	}
+
+	excluded, err = s.IsItemExcludedFromAnyRule(ctx, itemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if excluded {
+		t.Error("item should no longer be excluded from any rule")
 	}
 }
 

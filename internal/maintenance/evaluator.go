@@ -141,6 +141,9 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		if item.MediaType != rule.MediaType {
+			continue
+		}
 		if item.VideoResolution == "" {
 			continue
 		}
@@ -176,6 +179,9 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
+		}
+		if item.MediaType != rule.MediaType {
+			continue
 		}
 		if item.FileSize <= 0 {
 			continue

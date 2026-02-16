@@ -132,6 +132,7 @@ func TestMaintenanceRuleInputValidate(t *testing.T) {
 }
 
 func TestMaintenanceRuleUpdateInputValidate(t *testing.T) {
+	libs := []RuleLibrary{{ServerID: 1, LibraryID: "lib1"}}
 	tests := []struct {
 		name    string
 		input   MaintenanceRuleUpdateInput
@@ -144,6 +145,7 @@ func TestMaintenanceRuleUpdateInputValidate(t *testing.T) {
 				CriterionType: CriterionUnwatchedMovie,
 				Parameters:    json.RawMessage(`{"days": 30}`),
 				Enabled:       true,
+				Libraries:     libs,
 			},
 			wantErr: "",
 		},
@@ -151,6 +153,7 @@ func TestMaintenanceRuleUpdateInputValidate(t *testing.T) {
 			name: "missing name",
 			input: MaintenanceRuleUpdateInput{
 				CriterionType: CriterionUnwatchedMovie,
+				Libraries:     libs,
 			},
 			wantErr: "name is required",
 		},
@@ -159,8 +162,26 @@ func TestMaintenanceRuleUpdateInputValidate(t *testing.T) {
 			input: MaintenanceRuleUpdateInput{
 				Name:          "Test Rule",
 				CriterionType: "invalid_type",
+				Libraries:     libs,
 			},
 			wantErr: "invalid criterion type",
+		},
+		{
+			name: "missing libraries",
+			input: MaintenanceRuleUpdateInput{
+				Name:          "Test Rule",
+				CriterionType: CriterionUnwatchedMovie,
+			},
+			wantErr: "at least one library is required",
+		},
+		{
+			name: "invalid library",
+			input: MaintenanceRuleUpdateInput{
+				Name:          "Test Rule",
+				CriterionType: CriterionUnwatchedMovie,
+				Libraries:     []RuleLibrary{{ServerID: 0, LibraryID: ""}},
+			},
+			wantErr: "each library must have a valid server_id and library_id",
 		},
 	}
 

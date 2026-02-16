@@ -329,19 +329,13 @@ func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (
 		}
 	}
 
-	// Now compare cross-server max with each item's own last_watched_at
-	// We need to fetch the items' own watch times
-	idsToCheck := make([]int64, 0, len(itemIDs))
-	for _, id := range itemIDs {
-		idsToCheck = append(idsToCheck, id)
-	}
-
-	for i := 0; i < len(idsToCheck); i += batchSize {
+	// Fetch each item's own last_watched_at to merge with cross-server results
+	for i := 0; i < len(itemIDs); i += batchSize {
 		end := i + batchSize
-		if end > len(idsToCheck) {
-			end = len(idsToCheck)
+		if end > len(itemIDs) {
+			end = len(itemIDs)
 		}
-		batch := idsToCheck[i:end]
+		batch := itemIDs[i:end]
 
 		placeholders := make([]string, len(batch))
 		args := make([]any, len(batch))
@@ -404,9 +398,9 @@ func (s *Store) FindMatchingItems(ctx context.Context, item *models.LibraryItemC
 		return []models.LibraryItemCache{}, nil
 	}
 
-	query := `SELECT ` + libraryItemColumns + ` FROM library_items WHERE id != ? AND server_id != ? AND (` +
+	query := `SELECT ` + libraryItemColumns + ` FROM library_items WHERE id != ? AND server_id != ? AND media_type = ? AND (` +
 		strings.Join(clauses, " OR ") + `)`
-	fullArgs := append([]any{item.ID, item.ServerID}, args...)
+	fullArgs := append([]any{item.ID, item.ServerID, item.MediaType}, args...)
 
 	rows, err := s.db.QueryContext(ctx, query, fullArgs...)
 	if err != nil {

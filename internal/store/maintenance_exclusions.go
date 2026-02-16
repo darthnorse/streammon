@@ -239,6 +239,18 @@ func (s *Store) IsItemExcluded(ctx context.Context, ruleID, libraryItemID int64)
 	return count > 0, nil
 }
 
+// IsItemExcludedFromAnyRule checks if a library item is excluded from any maintenance rule
+func (s *Store) IsItemExcludedFromAnyRule(ctx context.Context, libraryItemID int64) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM maintenance_exclusions
+		WHERE library_item_id = ?`, libraryItemID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("check any-rule exclusion: %w", err)
+	}
+	return count > 0, nil
+}
+
 // GetExcludedItemIDs returns all excluded library item IDs for a rule
 func (s *Store) GetExcludedItemIDs(ctx context.Context, ruleID int64) ([]int64, error) {
 	rows, err := s.db.QueryContext(ctx, `

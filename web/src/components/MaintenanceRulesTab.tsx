@@ -132,6 +132,7 @@ type ViewState =
 interface MaintenanceRulesTabProps {
   filterServerID?: number
   filterLibraryID?: string
+  onClearFilter?: () => void
 }
 
 // --- Library lookup ---
@@ -187,10 +188,16 @@ function CandidatesView({
   rule,
   onBack,
   onManageExclusions,
+  lookup,
+  filterServerID,
+  filterLibraryID,
 }: {
   rule: MaintenanceRuleWithCount
   onBack: () => void
   onManageExclusions: () => void
+  lookup: LibraryLookup
+  filterServerID?: number
+  filterLibraryID?: string
 }) {
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = usePersistedPerPage()
@@ -217,8 +224,11 @@ function CandidatesView({
 
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
   const sortParam = sortField ? `&sort_by=${sortField}&sort_order=${sortDir}` : ''
+  const libraryFilterParam = filterServerID && filterLibraryID
+    ? `&server_id=${filterServerID}&library_id=${encodeURIComponent(filterLibraryID)}`
+    : ''
   const { data, loading, refetch } = useFetch<MaintenanceCandidatesResponse>(
-    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}${sortParam}`
+    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}${sortParam}${libraryFilterParam}`
   )
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
@@ -410,24 +420,52 @@ function CandidatesView({
     }
   }
 
-  const handleCrossServerConfirm = async (itemIds: number[]) => {
+  const handleCrossServerConfirm = async (candidateId: number, sourceItemId: number, crossServerItemIds: number[]) => {
     setCrossServerCandidate(null)
     setOperating(true)
     setOperationResult(null)
-    try {
-      for (const id of itemIds) {
-        await api.del(`/api/maintenance/candidates/${id}`)
+
+    // Delete cross-server items FIRST while the source item still exists in DB.
+    // handleDeleteLibraryItem needs the source to verify the cross-server match.
+    // If we deleted the candidate first, its library_item CASCADE would destroy the source row.
+    // Continue on error so one failure doesn't leave the operation half-done.
+    let crossDeleted = 0
+    let crossFailed = 0
+    for (const id of crossServerItemIds) {
+      try {
+        await api.del(`/api/maintenance/library-items/${id}?source_item_id=${sourceItemId}`)
+        crossDeleted++
+      } catch (err) {
+        crossFailed++
+        console.error(`Cross-server delete item ${id} failed:`, err)
       }
-      if (!mountedRef.current) return
-      setOperationResult({ type: 'success', message: `Deleted ${itemIds.length} item${itemIds.length > 1 ? 's' : ''}` })
-      clearSelection()
-      refetch()
-    } catch (err) {
-      console.error('Cross-server delete failed:', err)
-      if (mountedRef.current) setOperationResult({ type: 'error', message: 'Failed to delete items' })
-    } finally {
-      if (mountedRef.current) setOperating(false)
     }
+
+    // Always attempt the source candidate delete — it was the primary target.
+    let sourceDeleted = false
+    try {
+      await api.del(`/api/maintenance/candidates/${candidateId}`)
+      sourceDeleted = true
+    } catch (err) {
+      console.error('Source candidate delete failed:', err)
+    }
+
+    if (!mountedRef.current) return
+
+    const totalDeleted = (sourceDeleted ? 1 : 0) + crossDeleted
+    const totalFailed = (sourceDeleted ? 0 : 1) + crossFailed
+    const totalRequested = 1 + crossServerItemIds.length
+
+    if (totalFailed === 0) {
+      setOperationResult({ type: 'success', message: `Deleted ${totalDeleted} item${totalDeleted > 1 ? 's' : ''}` })
+    } else if (totalDeleted > 0) {
+      setOperationResult({ type: 'partial', message: `Deleted ${totalDeleted} of ${totalRequested} items. ${totalFailed} failed — please refresh and retry.` })
+    } else {
+      setOperationResult({ type: 'error', message: 'Failed to delete items. Please refresh and retry.' })
+    }
+    clearSelection()
+    refetch()
+    if (mountedRef.current) setOperating(false)
   }
 
   const handleSingleExclude = (candidate: MaintenanceCandidate) => {
@@ -550,6 +588,7 @@ function CandidatesView({
                       />
                     </th>
                     <SortHeader field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Title</SortHeader>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">Library</th>
                     <SortHeader field="year" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Year</SortHeader>
                     <SortHeader field="resolution" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Resolution</SortHeader>
                     <SortHeader field="size" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Size</SortHeader>
@@ -574,6 +613,11 @@ function CandidatesView({
                       </td>
                       <td className="px-4 py-3 font-medium">
                         <ItemTitleButton item={candidate.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
+                      </td>
+                      <td className="px-4 py-3 text-sm text-muted dark:text-muted-dark whitespace-nowrap">
+                        {candidate.item
+                          ? <>{lookup.getServerName(candidate.item.server_id)} <span className="text-muted/60 dark:text-muted-dark/60">/</span> {lookup.getLibraryName(candidate.item.server_id, candidate.item.library_id)}</>
+                          : '-'}
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {candidate.item?.year || '-'}
@@ -666,7 +710,7 @@ function CandidatesView({
         >
           <button
             onClick={() => setShowDetails(!showDetails)}
-            className="text-sm text-accent hover:underline mb-3 flex items-center gap-1"
+            className="text-sm hover:text-accent hover:underline mb-3 flex items-center gap-1"
           >
             {showDetails ? '\u25BC Hide details' : '\u25B6 Show details'}
           </button>
@@ -905,7 +949,7 @@ function ExclusionsView({
 
 // --- Main component ---
 
-export function MaintenanceRulesTab({ filterServerID, filterLibraryID }: MaintenanceRulesTabProps) {
+export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFilter }: MaintenanceRulesTabProps) {
   const [view, setView] = useState<ViewState>({ type: 'list' })
   const [editingRule, setEditingRule] = useState<MaintenanceRuleWithCount | null>(null)
   const [showRuleForm, setShowRuleForm] = useState(false)
@@ -997,16 +1041,6 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID }: Mainten
     refetchRules()
   }
 
-  const handleClearFilter = useCallback(() => {
-    // Remove filter search params by replacing the URL
-    const url = new URL(window.location.href)
-    url.searchParams.delete('server_id')
-    url.searchParams.delete('library_id')
-    window.history.replaceState({}, '', url.toString())
-    // Force re-render by navigating
-    window.location.reload()
-  }, [])
-
   // Sub-views
   if (view.type === 'candidates') {
     return (
@@ -1014,6 +1048,9 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID }: Mainten
         rule={view.rule}
         onBack={() => setView({ type: 'list' })}
         onManageExclusions={() => setView({ type: 'exclusions', rule: view.rule })}
+        lookup={lookup}
+        filterServerID={filterServerID}
+        filterLibraryID={filterLibraryID}
       />
     )
   }
@@ -1035,12 +1072,14 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID }: Mainten
           <span className="text-sm text-muted dark:text-muted-dark">
             Showing rules for <span className="font-medium text-gray-900 dark:text-gray-100">{filterLibraryName}</span>
           </span>
-          <button
-            onClick={handleClearFilter}
-            className="text-sm hover:text-accent hover:underline"
-          >
-            Clear filter
-          </button>
+          {onClearFilter && (
+            <button
+              onClick={() => onClearFilter()}
+              className="text-sm hover:text-accent hover:underline"
+            >
+              Clear filter
+            </button>
+          )}
         </div>
       )}
 
@@ -1116,13 +1155,13 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID }: Mainten
                     {rule.candidate_count > 0 ? (
                       <button
                         onClick={() => setView({ type: 'candidates', rule })}
-                        className="text-amber-500 font-medium text-sm hover:underline whitespace-nowrap"
+                        className="font-medium text-sm hover:text-accent hover:underline whitespace-nowrap"
                         aria-label={`View ${rule.candidate_count} candidates for rule ${rule.name}`}
                       >
                         {formatCount(rule.candidate_count)} candidates
                       </button>
                     ) : (
-                      <span className="text-amber-500 font-medium text-sm whitespace-nowrap">
+                      <span className="text-muted dark:text-muted-dark font-medium text-sm whitespace-nowrap">
                         0 candidates
                       </span>
                     )}

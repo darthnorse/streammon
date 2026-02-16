@@ -10,7 +10,7 @@ import (
 	"streammon/internal/models"
 )
 
-func createTestRuleInput(srvID int64, libs ...models.RuleLibrary) *models.MaintenanceRuleInput {
+func createTestRuleInput(libs ...models.RuleLibrary) *models.MaintenanceRuleInput {
 	return &models.MaintenanceRuleInput{
 		Name:          "Test Rule",
 		MediaType:     models.MediaTypeMovie,
@@ -35,8 +35,7 @@ func TestMaintenanceRuleCRUD(t *testing.T) {
 		{ServerID: srv.ID, LibraryID: "lib2"},
 	}
 
-	// Create rule with multiple libraries
-	input := createTestRuleInput(srv.ID, libs...)
+	input := createTestRuleInput(libs...)
 	rule, err := s.CreateMaintenanceRule(ctx, input)
 	if err != nil {
 		t.Fatalf("CreateMaintenanceRule: %v", err)
@@ -54,7 +53,6 @@ func TestMaintenanceRuleCRUD(t *testing.T) {
 		t.Fatalf("got %d libraries, want 2", len(rule.Libraries))
 	}
 
-	// Get rule - verify libraries are loaded
 	got, err := s.GetMaintenanceRule(ctx, rule.ID)
 	if err != nil {
 		t.Fatalf("GetMaintenanceRule: %v", err)
@@ -69,7 +67,6 @@ func TestMaintenanceRuleCRUD(t *testing.T) {
 		t.Errorf("unexpected library IDs: %v", got.Libraries)
 	}
 
-	// Update rule with new libraries
 	update := &models.MaintenanceRuleUpdateInput{
 		Name:          "Updated Rule",
 		CriterionType: models.CriterionUnwatchedMovie,
@@ -96,31 +93,31 @@ func TestMaintenanceRuleCRUD(t *testing.T) {
 		t.Errorf("library_id = %q, want %q", updated.Libraries[0].LibraryID, "lib3")
 	}
 
-	// Update without changing libraries (empty Libraries slice)
+	// Re-send the same library — libraries are always rewritten on update
 	update2 := &models.MaintenanceRuleUpdateInput{
 		Name:          "Updated Again",
 		CriterionType: models.CriterionUnwatchedMovie,
 		Parameters:    json.RawMessage(`{"days": 90}`),
 		Enabled:       true,
+		Libraries: []models.RuleLibrary{
+			{ServerID: srv.ID, LibraryID: "lib3"},
+		},
 	}
 	updated2, err := s.UpdateMaintenanceRule(ctx, rule.ID, update2)
 	if err != nil {
-		t.Fatalf("UpdateMaintenanceRule (no lib change): %v", err)
+		t.Fatalf("UpdateMaintenanceRule (same libs): %v", err)
 	}
 	if updated2.Name != "Updated Again" {
 		t.Errorf("name = %q, want %q", updated2.Name, "Updated Again")
 	}
-	// Libraries should remain unchanged
 	if len(updated2.Libraries) != 1 {
 		t.Fatalf("libraries changed unexpectedly: got %d, want 1", len(updated2.Libraries))
 	}
 
-	// Delete rule
 	if err := s.DeleteMaintenanceRule(ctx, rule.ID); err != nil {
 		t.Fatalf("DeleteMaintenanceRule: %v", err)
 	}
 
-	// Verify deleted
 	_, err = s.GetMaintenanceRule(ctx, rule.ID)
 	if err != models.ErrNotFound {
 		t.Errorf("expected ErrNotFound after delete, got %v", err)
@@ -140,12 +137,11 @@ func TestDeleteMaintenanceRuleCascadesJunction(t *testing.T) {
 		{ServerID: srv.ID, LibraryID: "lib1"},
 		{ServerID: srv.ID, LibraryID: "lib2"},
 	}
-	rule, err := s.CreateMaintenanceRule(ctx, createTestRuleInput(srv.ID, libs...))
+	rule, err := s.CreateMaintenanceRule(ctx, createTestRuleInput(libs...))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify junction rows exist
 	count, err := s.CountRulesForLibrary(ctx, srv.ID, "lib1")
 	if err != nil {
 		t.Fatal(err)
@@ -154,12 +150,10 @@ func TestDeleteMaintenanceRuleCascadesJunction(t *testing.T) {
 		t.Fatalf("expected 1 rule for lib1 before delete, got %d", count)
 	}
 
-	// Delete rule
 	if err := s.DeleteMaintenanceRule(ctx, rule.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	// Verify junction rows are gone
 	count, err = s.CountRulesForLibrary(ctx, srv.ID, "lib1")
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +174,7 @@ func TestListMaintenanceRules(t *testing.T) {
 
 	// Create 3 rules all targeting lib1
 	for i := 0; i < 3; i++ {
-		input := createTestRuleInput(srv.ID, models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
+		input := createTestRuleInput(models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
 		input.Name = fmt.Sprintf("Rule %d", i)
 		if _, err := s.CreateMaintenanceRule(ctx, input); err != nil {
 			t.Fatal(err)
@@ -216,7 +210,7 @@ func TestListMaintenanceRulesFilteredByJunction(t *testing.T) {
 	}
 
 	// Rule 1: targets srv1/lib1 and srv1/lib2
-	r1Input := createTestRuleInput(srv1.ID,
+	r1Input := createTestRuleInput(
 		models.RuleLibrary{ServerID: srv1.ID, LibraryID: "lib1"},
 		models.RuleLibrary{ServerID: srv1.ID, LibraryID: "lib2"},
 	)
@@ -226,7 +220,7 @@ func TestListMaintenanceRulesFilteredByJunction(t *testing.T) {
 	}
 
 	// Rule 2: targets srv2/lib1 only
-	r2Input := createTestRuleInput(srv2.ID,
+	r2Input := createTestRuleInput(
 		models.RuleLibrary{ServerID: srv2.ID, LibraryID: "lib1"},
 	)
 	r2Input.Name = "Rule2"
@@ -235,7 +229,7 @@ func TestListMaintenanceRulesFilteredByJunction(t *testing.T) {
 	}
 
 	// Rule 3: targets both srv1/lib1 and srv2/lib1 (cross-server)
-	r3Input := createTestRuleInput(srv1.ID,
+	r3Input := createTestRuleInput(
 		models.RuleLibrary{ServerID: srv1.ID, LibraryID: "lib1"},
 		models.RuleLibrary{ServerID: srv2.ID, LibraryID: "lib1"},
 	)
@@ -290,10 +284,39 @@ func TestUpdateMaintenanceRuleNotFound(t *testing.T) {
 		CriterionType: models.CriterionUnwatchedMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: 1, LibraryID: "lib1"}},
 	}
 	_, err := s.UpdateMaintenanceRule(ctx, 999, update)
 	if err == nil {
 		t.Error("expected error for not found")
+	}
+}
+
+func TestUpdateMaintenanceRuleEmptyLibrariesRejected(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	input := createTestRuleInput(models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
+	rule, err := s.CreateMaintenanceRule(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	update := &models.MaintenanceRuleUpdateInput{
+		Name:          "Updated",
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{}`),
+		Enabled:       true,
+		Libraries:     []models.RuleLibrary{}, // explicitly empty
+	}
+	_, err = s.UpdateMaintenanceRule(ctx, rule.ID, update)
+	if err == nil {
+		t.Error("expected validation error for empty libraries")
 	}
 }
 
@@ -316,7 +339,7 @@ func TestListMaintenanceRulesWithCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	input := createTestRuleInput(srv.ID, models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
+	input := createTestRuleInput(models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
 	rule, err := s.CreateMaintenanceRule(ctx, input)
 	if err != nil {
 		t.Fatal(err)
@@ -354,7 +377,7 @@ func TestListMaintenanceRulesWithCountsExclusions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rule, err := s.CreateMaintenanceRule(ctx, createTestRuleInput(srv.ID,
+	rule, err := s.CreateMaintenanceRule(ctx, createTestRuleInput(
 		models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"},
 	))
 	if err != nil {
@@ -498,14 +521,14 @@ func TestListAllMaintenanceRules(t *testing.T) {
 
 	// Create 2 enabled rules and 1 disabled rule
 	for i := 0; i < 2; i++ {
-		input := createTestRuleInput(srv.ID, models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
+		input := createTestRuleInput(models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
 		input.Name = fmt.Sprintf("Enabled Rule %d", i)
 		input.Enabled = true
 		if _, err := s.CreateMaintenanceRule(ctx, input); err != nil {
 			t.Fatal(err)
 		}
 	}
-	disabledInput := createTestRuleInput(srv.ID, models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
+	disabledInput := createTestRuleInput(models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
 	disabledInput.Name = "Disabled Rule"
 	disabledInput.Enabled = false
 	if _, err := s.CreateMaintenanceRule(ctx, disabledInput); err != nil {
@@ -541,13 +564,13 @@ func TestCountRulesForLibrary(t *testing.T) {
 
 	// Create 2 rules targeting lib1, 1 rule targeting lib2
 	for i := 0; i < 2; i++ {
-		input := createTestRuleInput(srv.ID, models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
+		input := createTestRuleInput(models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
 		input.Name = fmt.Sprintf("Lib1 Rule %d", i)
 		if _, err := s.CreateMaintenanceRule(ctx, input); err != nil {
 			t.Fatal(err)
 		}
 	}
-	lib2Input := createTestRuleInput(srv.ID, models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib2"})
+	lib2Input := createTestRuleInput(models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib2"})
 	lib2Input.Name = "Lib2 Rule"
 	if _, err := s.CreateMaintenanceRule(ctx, lib2Input); err != nil {
 		t.Fatal(err)

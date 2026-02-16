@@ -240,6 +240,7 @@ func (s *Server) routes() {
 			mr.Delete("/rules/{id}/exclusions/{itemId}", s.handleDeleteExclusion)
 			mr.Post("/rules/{id}/exclusions/bulk-remove", s.handleBulkRemoveExclusions)
 			mr.Delete("/candidates/{id}", s.handleDeleteCandidate)
+			mr.Delete("/library-items/{id}", s.handleDeleteLibraryItem)
 			mr.Get("/candidates/{id}/cross-server", s.handleCrossServerItems)
 			mr.Post("/candidates/bulk-delete", s.handleBulkDeleteCandidates)
 		})

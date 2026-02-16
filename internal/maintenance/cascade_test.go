@@ -401,7 +401,7 @@ func TestDeleteExternalReferences_DBRoundTrip(t *testing.T) {
 	}
 
 	// Fetch candidates back and verify external IDs survived the round trip
-	candidates, err := s.ListCandidatesForRule(ctx, created.ID, 1, 100, "", "", "")
+	candidates, err := s.ListCandidatesForRule(ctx, created.ID, 1, 100, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}

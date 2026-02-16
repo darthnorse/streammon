@@ -413,6 +413,7 @@ func TestEvaluateLowResolution(t *testing.T) {
 	rule := &models.MaintenanceRule{
 		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionLowResolution,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{"max_height": 720}`),
 	}
 
@@ -443,6 +444,7 @@ func TestEvaluateLargeFiles(t *testing.T) {
 	rule := &models.MaintenanceRule{
 		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionLargeFiles,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{"min_size_gb": 10}`),
 	}
 
@@ -489,6 +491,7 @@ func TestEvaluateLowResolutionDefaultParams(t *testing.T) {
 	rule := &models.MaintenanceRule{
 		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionLowResolution,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 	}
 
@@ -518,6 +521,7 @@ func TestEvaluateLargeFilesDefaultParams(t *testing.T) {
 	rule := &models.MaintenanceRule{
 		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionLargeFiles,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 	}
 
@@ -725,6 +729,7 @@ func TestEvaluateLowResolutionMultiLibrary(t *testing.T) {
 			{ServerID: srv.ID, LibraryID: "lib2"},
 		},
 		CriterionType: models.CriterionLowResolution,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{"max_height": 720}`),
 	}
 

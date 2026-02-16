@@ -202,10 +202,10 @@ func (s *Store) UpdateMaintenanceRule(ctx context.Context, id int64, input *mode
 		return nil, fmt.Errorf("maintenance rule %d: %w", id, models.ErrNotFound)
 	}
 
-	if len(input.Libraries) > 0 {
-		if err := setRuleLibraries(ctx, tx, id, input.Libraries); err != nil {
-			return nil, err
-		}
+	// Always rewrite library associations — the client must send the full list.
+	// Validation ensures at least one library is present.
+	if err := setRuleLibraries(ctx, tx, id, input.Libraries); err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(); err != nil {

@@ -40,6 +40,36 @@ func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, del
 		return result
 	}
 
+	// Final exclusion safety check as close to the irreversible media server
+	// delete as possible, minimising the TOCTOU window to microseconds.
+	if candidate.RuleID > 0 {
+		// Regular candidate — check the specific rule's exclusion list.
+		checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		excluded, err := s.store.IsItemExcluded(checkCtx, candidate.RuleID, candidate.LibraryItemID)
+		checkCancel()
+		if err != nil {
+			result.Error = "failed to verify exclusion status"
+			return result
+		}
+		if excluded {
+			result.Error = "item was excluded since operation began"
+			return result
+		}
+	} else {
+		// Synthetic candidate (cross-server delete) — check all rules.
+		checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		excluded, err := s.store.IsItemExcludedFromAnyRule(checkCtx, candidate.LibraryItemID)
+		checkCancel()
+		if err != nil {
+			result.Error = "failed to verify exclusion status"
+			return result
+		}
+		if excluded {
+			result.Error = "item is excluded from a maintenance rule"
+			return result
+		}
+	}
+
 	deleteCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	deleteErr := ms.DeleteItem(deleteCtx, candidate.Item.ItemID)
 	cancel()
@@ -549,7 +579,15 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 		sortOrder = ""
 	}
 
-	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, page, perPage, search, sortBy, sortOrder)
+	var filterServerID int64
+	if sid := r.URL.Query().Get("server_id"); sid != "" {
+		if v, err := strconv.ParseInt(sid, 10, 64); err == nil {
+			filterServerID = v
+		}
+	}
+	filterLibraryID := r.URL.Query().Get("library_id")
+
+	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, page, perPage, search, sortBy, sortOrder, filterServerID, filterLibraryID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list candidates")
 		return
@@ -595,6 +633,100 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result := s.deleteItemFromServer(*candidate, getUserEmail(r))
+
+	if !result.ServerDeleted {
+		writeError(w, http.StatusInternalServerError, "failed to delete from media server")
+		return
+	}
+	if !result.DBCleaned {
+		writeError(w, http.StatusInternalServerError, result.Error)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DELETE /api/maintenance/library-items/{id}?source_item_id=N — delete a cross-server library item.
+// Requires source_item_id to verify the target is a genuine cross-server match of the source.
+func (s *Server) handleDeleteLibraryItem(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
+
+	sourceIDStr := r.URL.Query().Get("source_item_id")
+	if sourceIDStr == "" {
+		writeError(w, http.StatusBadRequest, "source_item_id is required")
+		return
+	}
+	sourceID, err := strconv.ParseInt(sourceIDStr, 10, 64)
+	if err != nil || sourceID <= 0 {
+		writeError(w, http.StatusBadRequest, "invalid source_item_id")
+		return
+	}
+
+	if s.poller == nil {
+		writeError(w, http.StatusInternalServerError, "poller not configured")
+		return
+	}
+
+	// Fetch the source item and verify the target is a cross-server match
+	sourceItem, err := s.store.GetLibraryItem(r.Context(), sourceID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "source item not found")
+		return
+	}
+
+	matches, err := s.store.FindMatchingItems(r.Context(), sourceItem)
+	if err != nil {
+		log.Printf("find matching items for source %d: %v", sourceID, err)
+		writeError(w, http.StatusInternalServerError, "failed to verify cross-server match")
+		return
+	}
+
+	matched := false
+	for _, m := range matches {
+		if m.ID == id {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		writeError(w, http.StatusForbidden, "target item is not a cross-server match of the source")
+		return
+	}
+
+	// Check if the target item is excluded from any maintenance rule.
+	// Exclusions are per-rule, but a cross-server delete has no rule context —
+	// honour any exclusion as a signal the user wants to protect this item.
+	excluded, err := s.store.IsItemExcludedFromAnyRule(r.Context(), id)
+	if err != nil {
+		log.Printf("check any-rule exclusion for item %d: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to verify exclusion status")
+		return
+	}
+	if excluded {
+		writeError(w, http.StatusConflict, "item is excluded from a maintenance rule and cannot be deleted")
+		return
+	}
+
+	item, err := s.store.GetLibraryItem(r.Context(), id)
+	if errors.Is(err, models.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "library item not found")
+		return
+	}
+	if err != nil {
+		log.Printf("get library item %d: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to get library item")
+		return
+	}
+
+	synthetic := models.MaintenanceCandidate{
+		LibraryItemID: item.ID,
+		Item:          item,
+	}
+	result := s.deleteItemFromServer(synthetic, getUserEmail(r))
 
 	if !result.ServerDeleted {
 		writeError(w, http.StatusInternalServerError, "failed to delete from media server")
@@ -916,6 +1048,10 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 
 	total := len(candidateIDs)
 
+	// Track library item IDs already deleted so that two candidates pointing
+	// at the same library item don't attempt a redundant media-server delete.
+	deletedItemIDs := make(map[int64]bool)
+
 	for i, candidateID := range candidateIDs {
 		if ctx.Err() != nil {
 			log.Printf("bulk delete cancelled: %v", ctx.Err())
@@ -961,6 +1097,14 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 			continue
 		}
 
+		// If another candidate already deleted this library item (e.g. same item
+		// flagged by two rules), count it as deleted without hitting the media server.
+		if deletedItemIDs[candidate.LibraryItemID] {
+			result.Deleted++
+			result.TotalSize += candidate.Item.FileSize
+			continue
+		}
+
 		// Re-check exclusions at delete time to prevent TOCTOU race condition
 		// (item may have been excluded since user loaded the candidates list)
 		excluded, err := s.store.IsItemExcluded(ctx, candidate.RuleID, candidate.LibraryItemID)
@@ -989,6 +1133,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 
 		if delResult.ServerDeleted && delResult.DBCleaned {
 			result.Deleted++
+			deletedItemIDs[candidate.LibraryItemID] = true
 		} else {
 			result.Failed++
 			result.Errors = append(result.Errors, models.BulkDeleteError{

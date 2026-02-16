@@ -14,6 +14,12 @@ import { api } from '../lib/api'
 
 type Tab = 'rules' | 'violations' | 'notifications' | 'maintenance'
 
+const TABS: Tab[] = ['rules', 'violations', 'maintenance', 'notifications']
+
+function isValidTab(value: string | null): value is Tab {
+  return value !== null && (TABS as string[]).includes(value)
+}
+
 const TAB_LABELS: Record<Tab, string> = {
   rules: 'Streaming',
   violations: 'Violations',
@@ -23,12 +29,8 @@ const TAB_LABELS: Record<Tab, string> = {
 
 export function Rules() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const initialTab = (searchParams.get('tab') as Tab) || 'rules'
-  const [tab, setTab] = useState<Tab>(
-    (['rules', 'violations', 'notifications', 'maintenance'] as Tab[]).includes(initialTab)
-      ? initialTab
-      : 'rules'
-  )
+  const initialTab = searchParams.get('tab')
+  const [tab, setTab] = useState<Tab>(isValidTab(initialTab) ? initialTab : 'rules')
   const [editingRule, setEditingRule] = useState<Rule | null>(null)
   const [showRuleForm, setShowRuleForm] = useState(false)
   const [editingChannel, setEditingChannel] = useState<NotificationChannel | null>(null)
@@ -38,8 +40,8 @@ export function Rules() {
 
   // Sync tab from URL on initial load and back/forward navigation
   useEffect(() => {
-    const urlTab = searchParams.get('tab') as Tab | null
-    if (urlTab && (['rules', 'violations', 'notifications', 'maintenance'] as Tab[]).includes(urlTab)) {
+    const urlTab = searchParams.get('tab')
+    if (isValidTab(urlTab)) {
       setTab(urlTab)
     }
   }, [searchParams])
@@ -58,6 +60,15 @@ export function Rules() {
         next.delete('server_id')
         next.delete('library_id')
       }
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
+
+  const handleClearFilter = useCallback(() => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('server_id')
+      next.delete('library_id')
       return next
     }, { replace: true })
   }, [setSearchParams])
@@ -126,12 +137,12 @@ export function Rules() {
         <h1 className="text-2xl font-bold">Rules</h1>
       </div>
 
-      <div className="flex gap-1 border-b border-border dark:border-border-dark">
-        {(['rules', 'violations', 'notifications', 'maintenance'] as Tab[]).map((t) => (
+      <div className="flex gap-1 border-b border-border dark:border-border-dark overflow-x-auto scrollbar-hide">
+        {TABS.map((t) => (
           <button
             key={t}
             onClick={() => handleTabChange(t)}
-            className={`px-4 py-2 text-sm font-medium transition-colors
+            className={`px-4 py-2 text-sm font-medium transition-colors whitespace-nowrap shrink-0
               ${tab === t
                 ? 'border-b-2 border-accent text-accent'
                 : 'text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
@@ -306,6 +317,7 @@ export function Rules() {
         <MaintenanceRulesTab
           filterServerID={searchParams.get('server_id') ? Number(searchParams.get('server_id')) : undefined}
           filterLibraryID={searchParams.get('library_id') ?? undefined}
+          onClearFilter={handleClearFilter}
         />
       )}
 

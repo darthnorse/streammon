@@ -207,7 +207,7 @@ func TestSyncAllTwoPhases(t *testing.T) {
 	}
 
 	// Verify candidates were produced by rule evaluation
-	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "")
+	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestSyncAllLibrariesBeforeRuleEvaluation(t *testing.T) {
 	}
 
 	// Verify rule evaluation found candidates from both libraries
-	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "")
+	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestSyncAllDisabledRulesSkipped(t *testing.T) {
 	}
 
 	// Disabled rules should not produce candidates (ListAllMaintenanceRules only returns enabled)
-	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "")
+	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +524,7 @@ func TestSyncAllMultipleServers(t *testing.T) {
 	}
 
 	// Verify candidates from both servers
-	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "")
+	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,8 +605,8 @@ func TestEvaluateAllRulesIndependently(t *testing.T) {
 	}
 
 	// Verify each rule has candidates
-	r1, _ := s.ListCandidatesForRule(ctx, rule1.ID, 1, 100, "", "", "")
-	r2, _ := s.ListCandidatesForRule(ctx, rule2.ID, 1, 100, "", "", "")
+	r1, _ := s.ListCandidatesForRule(ctx, rule1.ID, 1, 100, "", "", "", 0, "")
+	r2, _ := s.ListCandidatesForRule(ctx, rule2.ID, 1, 100, "", "", "", 0, "")
 
 	if r1.Total != 2 {
 		t.Errorf("rule1: expected 2 candidates, got %d", r1.Total)

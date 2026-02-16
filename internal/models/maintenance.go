@@ -123,6 +123,11 @@ func (in *MaintenanceRuleInput) Validate() error {
 	if len(in.Libraries) == 0 {
 		return errors.New("at least one library is required")
 	}
+	for _, lib := range in.Libraries {
+		if lib.ServerID <= 0 || lib.LibraryID == "" {
+			return errors.New("each library must have a valid server_id and library_id")
+		}
+	}
 	if len(in.Parameters) == 0 {
 		in.Parameters = json.RawMessage("{}")
 	}
@@ -135,13 +140,21 @@ type MaintenanceRuleUpdateInput struct {
 	CriterionType CriterionType   `json:"criterion_type"`
 	Parameters    json.RawMessage `json:"parameters"`
 	Enabled       bool            `json:"enabled"`
-	Libraries     []RuleLibrary   `json:"libraries,omitempty"`
+	Libraries     []RuleLibrary   `json:"libraries"`
 }
 
 // Validate checks that the update input has valid fields
 func (in *MaintenanceRuleUpdateInput) Validate() error {
 	if err := validateRuleFields(in.Name, in.CriterionType); err != nil {
 		return err
+	}
+	if len(in.Libraries) == 0 {
+		return errors.New("at least one library is required")
+	}
+	for _, lib := range in.Libraries {
+		if lib.ServerID <= 0 || lib.LibraryID == "" {
+			return errors.New("each library must have a valid server_id and library_id")
+		}
 	}
 	if len(in.Parameters) == 0 {
 		in.Parameters = json.RawMessage("{}")
