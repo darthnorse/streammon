@@ -129,7 +129,7 @@ export function Sidebar({ onOpenProfile, integrations }: SidebarProps) {
             )}
           </div>
         )}
-        {versionInfo && (
+        {versionInfo && user?.role === 'admin' && (
           <div className="mt-2 text-center">
             <span className="text-xs font-mono text-muted dark:text-muted-dark">
               {versionInfo.version === 'dev' ? 'dev' : `v${versionInfo.version}`}
