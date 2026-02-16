@@ -225,28 +225,36 @@ func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*
 	if err != nil {
 		return nil, fmt.Errorf("listing users: %w", err)
 	}
-	existingByName := make(map[string]string, len(existingUsers))
+	type existing struct {
+		ThumbURL string
+		Email    string
+	}
+	existingByName := make(map[string]existing, len(existingUsers))
 	for _, u := range existingUsers {
-		existingByName[u.Name] = u.ThumbURL
+		existingByName[u.Name] = existing{ThumbURL: u.ThumbURL, Email: u.Email}
 	}
 
 	for _, u := range users {
-		if u.ThumbURL == "" {
-			continue
-		}
-
 		thumbURL := u.ThumbURL
-		if !isFullURL(thumbURL) {
+		if thumbURL != "" && !isFullURL(thumbURL) {
 			thumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, u.ThumbURL)
 		}
 
-		existingThumb, exists := existingByName[u.Name]
-		if exists && existingThumb == thumbURL {
+		cur, exists := existingByName[u.Name]
+		avatarChanged := thumbURL != "" && cur.ThumbURL != thumbURL
+		emailChanged := u.Email != "" && cur.Email == ""
+
+		if !avatarChanged && !emailChanged {
 			continue
 		}
 
-		if err := s.UpdateUserAvatar(u.Name, thumbURL); err != nil {
-			return nil, fmt.Errorf("updating avatar for %q: %w", u.Name, err)
+		if avatarChanged {
+			if err := s.UpdateUserAvatar(u.Name, thumbURL); err != nil {
+				return nil, fmt.Errorf("updating avatar for %q: %w", u.Name, err)
+			}
+		}
+		if emailChanged {
+			s.updateUserEmail(u.Name, u.Email)
 		}
 
 		if exists {
@@ -257,6 +265,16 @@ func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*
 	}
 
 	return result, nil
+}
+
+func (s *Store) updateUserEmail(name, email string) {
+	_, err := s.db.Exec(
+		`UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ? AND (email IS NULL OR email = '')`,
+		email, name,
+	)
+	if err != nil {
+		log.Printf("warning: failed to update email for user %s: %v", name, err)
+	}
 }
 
 func isFullURL(url string) bool {

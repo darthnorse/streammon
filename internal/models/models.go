@@ -46,6 +46,7 @@ const (
 // (e.g., "/api/servers/{serverID}/thumb/user/{userID}").
 type MediaUser struct {
 	Name     string
+	Email    string
 	ThumbURL string
 }
 

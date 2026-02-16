@@ -256,16 +256,10 @@ export function Requests() {
       {tab === 'discover' && (
         <>
           <div className="mb-6">
-            <input
-              type="text"
+            <SearchInput
               value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
+              onChange={setSearchInput}
               placeholder="Search movies & TV shows..."
-              className="w-full px-4 py-3 rounded-lg text-sm
-                bg-surface dark:bg-surface-dark
-                border border-border dark:border-border-dark
-                focus:outline-none focus:border-accent/50 focus:ring-2 focus:ring-accent/20
-                transition-colors placeholder:text-muted/40 dark:placeholder:text-muted-dark/40"
             />
           </div>
 

@@ -209,6 +209,10 @@ func (s *Store) GetOrLinkUser(email string, namesToTry []string, displayName, pr
 		user, err := s.GetUserByProvider(provider, providerID)
 		if err == nil {
 			s.maybeUpdateAvatar(user, thumbURL)
+			if email != "" && user.Email == "" {
+				s.updateUserEmail(user.Name, email)
+				user.Email = email
+			}
 			return user, nil
 		}
 	}

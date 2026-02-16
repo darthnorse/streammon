@@ -34,6 +34,7 @@ type plexTVUserXML struct {
 	ID       string `xml:"id,attr"`
 	Username string `xml:"username,attr"`
 	Title    string `xml:"title,attr"`
+	Email    string `xml:"email,attr"`
 	Thumb    string `xml:"thumb,attr"`
 }
 
@@ -85,6 +86,7 @@ func (s *Server) getPlexTVOwner(ctx context.Context) (*models.MediaUser, error) 
 
 	return &models.MediaUser{
 		Name:     plexUsername(account.Username, account.Title),
+		Email:    account.Email,
 		ThumbURL: account.Thumb,
 	}, nil
 }
@@ -121,6 +123,7 @@ func (s *Server) getPlexTVFriends(ctx context.Context) ([]models.MediaUser, erro
 	for _, u := range usersResp.Users {
 		users = append(users, models.MediaUser{
 			Name:     plexUsername(u.Username, u.Title),
+			Email:    u.Email,
 			ThumbURL: u.Thumb,
 		})
 	}
