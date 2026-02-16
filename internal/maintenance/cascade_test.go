@@ -374,10 +374,10 @@ func TestDeleteExternalReferences_DBRoundTrip(t *testing.T) {
 
 	// Create a maintenance rule + candidate
 	rule := &models.MaintenanceRuleInput{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     []models.RuleLibrary{{ServerID: srv.ID, LibraryID: "lib1"}},
 		Name:          "test rule",
 		CriterionType: models.CriterionUnwatchedMovie,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{"days": 30}`),
 		Enabled:       true,
 	}

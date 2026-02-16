@@ -70,7 +70,6 @@ func TestParseResolutionHeight(t *testing.T) {
 }
 
 func TestDefaultConstants(t *testing.T) {
-	// Verify defaults are sensible
 	if DefaultDays != 365 {
 		t.Errorf("DefaultDays = %d, want 365", DefaultDays)
 	}
@@ -121,6 +120,10 @@ func seedTestServer(t *testing.T, s *store.Store) *models.Server {
 	return srv
 }
 
+func libs(serverID int64, libraryID string) []models.RuleLibrary {
+	return []models.RuleLibrary{{ServerID: serverID, LibraryID: libraryID}}
+}
+
 // Integration tests
 
 func TestEvaluateUnwatchedMovie(t *testing.T) {
@@ -128,7 +131,6 @@ func TestEvaluateUnwatchedMovie(t *testing.T) {
 	ctx := context.Background()
 	srv := seedTestServer(t, s)
 
-	// Add a movie that's 100 days old and never watched
 	now := time.Now().UTC()
 	items := []models.LibraryItemCache{{
 		ServerID:  srv.ID,
@@ -145,8 +147,7 @@ func TestEvaluateUnwatchedMovie(t *testing.T) {
 	}
 
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionUnwatchedMovie,
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
@@ -172,7 +173,6 @@ func TestEvaluateUnwatchedMovieRecentNotFlagged(t *testing.T) {
 	ctx := context.Background()
 	srv := seedTestServer(t, s)
 
-	// Add a movie that's only 10 days old (should not be flagged with 30 day threshold)
 	now := time.Now().UTC()
 	items := []models.LibraryItemCache{{
 		ServerID:  srv.ID,
@@ -189,8 +189,7 @@ func TestEvaluateUnwatchedMovieRecentNotFlagged(t *testing.T) {
 	}
 
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionUnwatchedMovie,
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
@@ -228,8 +227,7 @@ func TestEvaluateMovieWatchedLongAgoFlagged(t *testing.T) {
 	}
 
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionUnwatchedMovie,
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
@@ -270,8 +268,7 @@ func TestEvaluateMovieWatchedRecentlyNotFlagged(t *testing.T) {
 	}
 
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionUnwatchedMovie,
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
@@ -306,8 +303,7 @@ func TestEvaluateUnwatchedTVNoneNeverWatched(t *testing.T) {
 	}
 
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionUnwatchedTVNone,
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
@@ -345,8 +341,7 @@ func TestEvaluateUnwatchedTVNoneRecentNotFlagged(t *testing.T) {
 	}
 
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionUnwatchedTVNone,
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
@@ -383,8 +378,7 @@ func TestEvaluateUnwatchedTVNoneWatchedLongAgoFlagged(t *testing.T) {
 	}
 
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionUnwatchedTVNone,
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
@@ -417,8 +411,7 @@ func TestEvaluateLowResolution(t *testing.T) {
 	}
 
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionLowResolution,
 		Parameters:    json.RawMessage(`{"max_height": 720}`),
 	}
@@ -448,8 +441,7 @@ func TestEvaluateLargeFiles(t *testing.T) {
 	}
 
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionLargeFiles,
 		Parameters:    json.RawMessage(`{"min_size_gb": 10}`),
 	}
@@ -469,8 +461,7 @@ func TestEvaluateRuleUnknownCriterion(t *testing.T) {
 	ctx := context.Background()
 
 	rule := &models.MaintenanceRule{
-		ServerID:      1,
-		LibraryID:     "lib1",
+		Libraries:     libs(1, "lib1"),
 		CriterionType: "unknown_criterion",
 		Parameters:    json.RawMessage(`{}`),
 	}
@@ -495,10 +486,8 @@ func TestEvaluateLowResolutionDefaultParams(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Use empty parameters - should use default max_height of 720
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionLowResolution,
 		Parameters:    json.RawMessage(`{}`),
 	}
@@ -526,10 +515,8 @@ func TestEvaluateLargeFilesDefaultParams(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Use empty parameters - should use default min_size_gb of 10
 	rule := &models.MaintenanceRule{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
+		Libraries:     libs(srv.ID, "lib1"),
 		CriterionType: models.CriterionLargeFiles,
 		Parameters:    json.RawMessage(`{}`),
 	}
@@ -541,5 +528,213 @@ func TestEvaluateLargeFilesDefaultParams(t *testing.T) {
 	}
 	if len(results) != 1 {
 		t.Fatalf("got %d results, want 1 (15GB should be flagged with default 10GB threshold)", len(results))
+	}
+}
+
+// New multi-library and cross-server tests
+
+func TestEvaluateMultiLibraryRule(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Movie in Lib1", Year: 2020, AddedAt: now.AddDate(0, 0, -100), SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib2", ItemID: "movie2", MediaType: models.MediaTypeMovie, Title: "Movie in Lib2", Year: 2021, AddedAt: now.AddDate(0, 0, -90), SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := &models.MaintenanceRule{
+		Libraries: []models.RuleLibrary{
+			{ServerID: srv.ID, LibraryID: "lib1"},
+			{ServerID: srv.ID, LibraryID: "lib2"},
+		},
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{"days": 30}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2 (items from both libraries)", len(results))
+	}
+}
+
+func TestEvaluateCrossServerWatch(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	// Create two servers
+	srvA := &models.Server{Name: "Server A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "keyA", Enabled: true}
+	if err := s.CreateServer(srvA); err != nil {
+		t.Fatal(err)
+	}
+	srvB := &models.Server{Name: "Server B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "keyB", Enabled: true}
+	if err := s.CreateServer(srvB); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	watchedRecently := now.AddDate(0, 0, -5)
+
+	// Same movie (same TMDB ID) on both servers.
+	// Server A: watched 5 days ago. Server B: never watched locally.
+	itemsA := []models.LibraryItemCache{{
+		ServerID:      srvA.ID,
+		LibraryID:     "lib1",
+		ItemID:        "movieA",
+		MediaType:     models.MediaTypeMovie,
+		Title:         "Shared Movie",
+		Year:          2020,
+		TMDBID:        "tmdb123",
+		AddedAt:       now.AddDate(-1, 0, 0),
+		LastWatchedAt: &watchedRecently,
+		SyncedAt:      now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, itemsA); err != nil {
+		t.Fatal(err)
+	}
+
+	itemsB := []models.LibraryItemCache{{
+		ServerID:  srvB.ID,
+		LibraryID: "lib2",
+		ItemID:    "movieB",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Shared Movie",
+		Year:      2020,
+		TMDBID:    "tmdb123",
+		AddedAt:   now.AddDate(-1, 0, 0),
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, itemsB); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rule targets Server B's library only
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srvB.ID, "lib2"),
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{"days": 30}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	// Item on Server B should NOT be flagged because the cross-server watch from
+	// Server A (5 days ago) is within the 30-day threshold
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (cross-server watch should prevent flagging)", len(results))
+	}
+}
+
+func TestEvaluateCrossServerWatchNoExternalIDs(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srvA := &models.Server{Name: "Server A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "keyA", Enabled: true}
+	if err := s.CreateServer(srvA); err != nil {
+		t.Fatal(err)
+	}
+	srvB := &models.Server{Name: "Server B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "keyB", Enabled: true}
+	if err := s.CreateServer(srvB); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	watchedRecently := now.AddDate(0, 0, -5)
+
+	// Same title on both servers but NO external IDs -- no cross-server matching.
+	// Server A: watched recently
+	itemsA := []models.LibraryItemCache{{
+		ServerID:      srvA.ID,
+		LibraryID:     "lib1",
+		ItemID:        "movieA",
+		MediaType:     models.MediaTypeMovie,
+		Title:         "No External IDs Movie",
+		Year:          2020,
+		AddedAt:       now.AddDate(-1, 0, 0),
+		LastWatchedAt: &watchedRecently,
+		SyncedAt:      now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, itemsA); err != nil {
+		t.Fatal(err)
+	}
+
+	// Server B: never watched, no external IDs, added 100 days ago
+	itemsB := []models.LibraryItemCache{{
+		ServerID:  srvB.ID,
+		LibraryID: "lib2",
+		ItemID:    "movieB",
+		MediaType: models.MediaTypeMovie,
+		Title:     "No External IDs Movie",
+		Year:      2020,
+		AddedAt:   now.AddDate(0, 0, -100),
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, itemsB); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srvB.ID, "lib2"),
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{"days": 30}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	// Without external IDs, cross-server matching cannot work.
+	// Item on Server B should be flagged (never watched, added 100 days ago).
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (no external IDs means no cross-server match)", len(results))
+	}
+	if !strings.Contains(results[0].Reason, "Never watched") {
+		t.Errorf("expected 'Never watched' in reason, got %q", results[0].Reason)
+	}
+}
+
+func TestEvaluateLowResolutionMultiLibrary(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "SD Movie Lib1", VideoResolution: "480p", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib2", ItemID: "movie2", MediaType: models.MediaTypeMovie, Title: "SD Movie Lib2", VideoResolution: "576p", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib2", ItemID: "movie3", MediaType: models.MediaTypeMovie, Title: "HD Movie Lib2", VideoResolution: "1080p", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := &models.MaintenanceRule{
+		Libraries: []models.RuleLibrary{
+			{ServerID: srv.ID, LibraryID: "lib1"},
+			{ServerID: srv.ID, LibraryID: "lib2"},
+		},
+		CriterionType: models.CriterionLowResolution,
+		Parameters:    json.RawMessage(`{"max_height": 720}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	// 480p from lib1 and 576p from lib2 should be flagged; 1080p should not
+	if len(results) != 2 {
+		t.Fatalf("got %d results, want 2 (480p + 576p across two libraries)", len(results))
 	}
 }

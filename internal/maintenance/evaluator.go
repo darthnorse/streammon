@@ -67,9 +67,29 @@ func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.Maintena
 
 	now := time.Now().UTC()
 	cutoff := now.AddDate(0, 0, -params.Days)
-	items, err := e.store.ListLibraryItems(ctx, rule.ServerID, rule.LibraryID)
+	items, err := e.store.ListItemsForLibraries(ctx, rule.Libraries)
 	if err != nil {
 		return nil, err
+	}
+
+	// Collect item IDs for cross-server watch lookup
+	itemIDs := make([]int64, len(items))
+	for i, item := range items {
+		itemIDs[i] = item.ID
+	}
+
+	watchTimes, err := e.store.GetCrossServerWatchTimes(ctx, itemIDs)
+	if err != nil {
+		return nil, fmt.Errorf("cross-server watch times: %w", err)
+	}
+
+	// Merge cross-server watch times into items
+	for i := range items {
+		if t, ok := watchTimes[items[i].ID]; ok && t != nil {
+			if items[i].LastWatchedAt == nil || t.After(*items[i].LastWatchedAt) {
+				items[i].LastWatchedAt = t
+			}
+		}
 	}
 
 	var results []models.BatchCandidate
@@ -111,7 +131,7 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 		params.MaxHeight = DefaultMaxHeight
 	}
 
-	items, err := e.store.ListLibraryItems(ctx, rule.ServerID, rule.LibraryID)
+	items, err := e.store.ListItemsForLibraries(ctx, rule.Libraries)
 	if err != nil {
 		return nil, err
 	}
@@ -147,7 +167,7 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 
 	minSizeBytes := int64(params.MinSizeGB * 1024 * 1024 * 1024)
 
-	items, err := e.store.ListLibraryItems(ctx, rule.ServerID, rule.LibraryID)
+	items, err := e.store.ListItemsForLibraries(ctx, rule.Libraries)
 	if err != nil {
 		return nil, err
 	}
