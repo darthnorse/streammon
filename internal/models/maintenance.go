@@ -66,29 +66,35 @@ type LibraryItemCache struct {
 	SyncedAt        time.Time  `json:"synced_at"`
 }
 
+// RuleLibrary represents a server/library association for a maintenance rule
+type RuleLibrary struct {
+	ServerID  int64  `json:"server_id"`
+	LibraryID string `json:"library_id"`
+}
+
 // MaintenanceRule represents a user-defined maintenance rule
 type MaintenanceRule struct {
 	ID            int64           `json:"id"`
-	ServerID      int64           `json:"server_id"`
-	LibraryID     string          `json:"library_id"`
 	Name          string          `json:"name"`
 	CriterionType CriterionType   `json:"criterion_type"`
+	MediaType     MediaType       `json:"media_type"`
 	Parameters    json.RawMessage `json:"parameters"`
 	Enabled       bool            `json:"enabled"`
+	Libraries     []RuleLibrary   `json:"libraries"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
 // Validate checks that the maintenance rule has valid fields
 func (mr *MaintenanceRule) Validate() error {
-	if mr.ServerID == 0 {
-		return errors.New("server_id is required")
-	}
-	if mr.LibraryID == "" {
-		return errors.New("library_id is required")
-	}
 	if err := validateRuleFields(mr.Name, mr.CriterionType); err != nil {
 		return err
+	}
+	if mr.MediaType != MediaTypeMovie && mr.MediaType != MediaTypeTV {
+		return errors.New("media_type must be movie or episode")
+	}
+	if len(mr.Libraries) == 0 {
+		return errors.New("at least one library is required")
 	}
 	if len(mr.Parameters) == 0 {
 		mr.Parameters = json.RawMessage("{}")
@@ -98,24 +104,24 @@ func (mr *MaintenanceRule) Validate() error {
 
 // MaintenanceRuleInput is used for creating rules
 type MaintenanceRuleInput struct {
-	ServerID      int64           `json:"server_id"`
-	LibraryID     string          `json:"library_id"`
 	Name          string          `json:"name"`
 	CriterionType CriterionType   `json:"criterion_type"`
+	MediaType     MediaType       `json:"media_type"`
 	Parameters    json.RawMessage `json:"parameters"`
 	Enabled       bool            `json:"enabled"`
+	Libraries     []RuleLibrary   `json:"libraries"`
 }
 
 // Validate checks that the input has valid fields
 func (in *MaintenanceRuleInput) Validate() error {
-	if in.ServerID == 0 {
-		return errors.New("server_id is required")
-	}
-	if in.LibraryID == "" {
-		return errors.New("library_id is required")
-	}
 	if err := validateRuleFields(in.Name, in.CriterionType); err != nil {
 		return err
+	}
+	if in.MediaType != MediaTypeMovie && in.MediaType != MediaTypeTV {
+		return errors.New("media_type must be movie or episode")
+	}
+	if len(in.Libraries) == 0 {
+		return errors.New("at least one library is required")
 	}
 	if len(in.Parameters) == 0 {
 		in.Parameters = json.RawMessage("{}")
@@ -123,12 +129,13 @@ func (in *MaintenanceRuleInput) Validate() error {
 	return nil
 }
 
-// MaintenanceRuleUpdateInput is used for updating rules (excludes server_id/library_id)
+// MaintenanceRuleUpdateInput is used for updating rules
 type MaintenanceRuleUpdateInput struct {
 	Name          string          `json:"name"`
 	CriterionType CriterionType   `json:"criterion_type"`
 	Parameters    json.RawMessage `json:"parameters"`
 	Enabled       bool            `json:"enabled"`
+	Libraries     []RuleLibrary   `json:"libraries,omitempty"`
 }
 
 // Validate checks that the update input has valid fields
