@@ -538,8 +538,18 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "search term too long")
 		return
 	}
+	sortBy := r.URL.Query().Get("sort_by")
+	switch sortBy {
+	case "title", "year", "resolution", "size", "reason", "added_at":
+	default:
+		sortBy = ""
+	}
+	sortOrder := r.URL.Query().Get("sort_order")
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = ""
+	}
 
-	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, page, perPage, search)
+	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, page, perPage, search, sortBy, sortOrder)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list candidates")
 		return

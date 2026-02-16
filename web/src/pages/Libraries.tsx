@@ -88,6 +88,42 @@ const libraryTypeLabel: Record<LibraryType, string> = {
   other: 'Other',
 }
 
+type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at'
+type SortDir = 'asc' | 'desc'
+
+function SortHeader({
+  field,
+  sortField,
+  sortDir,
+  onSort,
+  children,
+}: {
+  field: SortField
+  sortField: SortField | null
+  sortDir: SortDir
+  onSort: (field: SortField) => void
+  children: React.ReactNode
+}) {
+  const isActive = sortField === field
+  const ariaSort: 'ascending' | 'descending' | undefined = isActive
+    ? (sortDir === 'asc' ? 'ascending' : 'descending')
+    : undefined
+  return (
+    <th
+      onClick={() => onSort(field)}
+      aria-sort={ariaSort}
+      className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider cursor-pointer hover:text-accent transition-colors select-none"
+    >
+      <span className="inline-flex items-center gap-1">
+        {children}
+        {isActive && (
+          <span className="text-accent">{sortDir === 'asc' ? '▲' : '▼'}</span>
+        )}
+      </span>
+    </th>
+  )
+}
+
 type ViewState =
   | { type: 'list' }
   | { type: 'rules'; library: Library; maintenance: LibraryMaintenance | null }
@@ -561,6 +597,8 @@ function CandidatesView({
 }) {
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = usePersistedPerPage()
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [deleteConfirm, setDeleteConfirm] = useState<MaintenanceCandidate[] | null>(null)
   const [excludeConfirm, setExcludeConfirm] = useState<MaintenanceCandidate[] | null>(null)
   const [showDetails, setShowDetails] = useState(false)
@@ -580,8 +618,9 @@ function CandidatesView({
   const { searchInput, setSearchInput, search, resetSearch } = useDebouncedSearch(() => setPage(1))
 
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
+  const sortParam = sortField ? `&sort_by=${sortField}&sort_order=${sortDir}` : ''
   const { data, loading, refetch } = useFetch<MaintenanceCandidatesResponse>(
-    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}`
+    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}${sortParam}`
   )
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
@@ -605,10 +644,28 @@ function CandidatesView({
     : 0
   const menuCandidate = rowMenuOpen !== null ? filteredItems.find(c => c.id === rowMenuOpen) ?? null : null
 
+  // Three-state cycle: click → sort default dir → toggle dir → clear
+  function handleSort(field: SortField) {
+    if (sortField === field) {
+      const defaultDir = field === 'title' ? 'asc' : 'desc'
+      if (sortDir !== defaultDir) {
+        setSortField(null)
+        setSortDir('desc')
+      } else {
+        setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+      }
+    } else {
+      setSortField(field)
+      setSortDir(field === 'title' ? 'asc' : 'desc')
+    }
+    setPage(1)
+  }
+
   useEffect(() => {
     setPage(1)
     clearSelection()
     resetSearch()
+    setSortField(null)
   }, [rule.id, clearSelection, resetSearch])
 
   // Close row menu when data changes (page/search navigations)
@@ -872,21 +929,11 @@ function CandidatesView({
                         className="rounded border-border dark:border-border-dark"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Title
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Year
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Resolution
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Size
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Reason
-                    </th>
+                    <SortHeader field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Title</SortHeader>
+                    <SortHeader field="year" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Year</SortHeader>
+                    <SortHeader field="resolution" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Resolution</SortHeader>
+                    <SortHeader field="size" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Size</SortHeader>
+                    <SortHeader field="reason" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Reason</SortHeader>
                     <th className="px-4 py-3 w-10"></th>
                   </tr>
                 </thead>

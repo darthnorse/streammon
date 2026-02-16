@@ -70,7 +70,7 @@ func TestBatchUpsertCandidates(t *testing.T) {
 		t.Fatalf("BatchUpsertCandidates: %v", err)
 	}
 
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "")
 	if err != nil {
 		t.Fatalf("ListCandidatesForRule: %v", err)
 	}
@@ -99,12 +99,30 @@ func TestBatchUpsertCandidatesReplacesExisting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Total != 0 {
 		t.Errorf("total = %d, want 0 (candidates should be cleared)", result.Total)
+	}
+}
+
+func seedCandidatesFromItems(t *testing.T, s *Store, ctx context.Context, serverID, ruleID int64) {
+	t.Helper()
+	libItems, err := s.ListLibraryItems(ctx, serverID, "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var candidates []models.BatchCandidate
+	for _, item := range libItems {
+		candidates = append(candidates, models.BatchCandidate{
+			LibraryItemID: item.ID,
+			Reason:        "Test",
+		})
+	}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -131,20 +149,9 @@ func TestListCandidatesForRulePagination(t *testing.T) {
 		}
 	}
 
-	libItems, _ := s.ListLibraryItems(ctx, serverID, "lib1")
+	seedCandidatesFromItems(t, s, ctx, serverID, ruleID)
 
-	var candidates []models.BatchCandidate
-	for _, item := range libItems {
-		candidates = append(candidates, models.BatchCandidate{
-			LibraryItemID: item.ID,
-			Reason:        "Test",
-		})
-	}
-	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
-		t.Fatal(err)
-	}
-
-	page1, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 2, "")
+	page1, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 2, "", "", "")
 	if len(page1.Items) != 2 {
 		t.Errorf("page 1 items = %d, want 2", len(page1.Items))
 	}
@@ -152,12 +159,12 @@ func TestListCandidatesForRulePagination(t *testing.T) {
 		t.Errorf("total = %d, want 5", page1.Total)
 	}
 
-	page2, _ := s.ListCandidatesForRule(ctx, ruleID, 2, 2, "")
+	page2, _ := s.ListCandidatesForRule(ctx, ruleID, 2, 2, "", "", "")
 	if len(page2.Items) != 2 {
 		t.Errorf("page 2 items = %d, want 2", len(page2.Items))
 	}
 
-	page3, _ := s.ListCandidatesForRule(ctx, ruleID, 3, 2, "")
+	page3, _ := s.ListCandidatesForRule(ctx, ruleID, 3, 2, "", "", "")
 	if len(page3.Items) != 1 {
 		t.Errorf("page 3 items = %d, want 1", len(page3.Items))
 	}
@@ -227,7 +234,7 @@ func TestUpsertMaintenanceCandidate(t *testing.T) {
 		t.Fatalf("UpsertMaintenanceCandidate: %v", err)
 	}
 
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +249,7 @@ func TestUpsertMaintenanceCandidate(t *testing.T) {
 		t.Fatalf("UpsertMaintenanceCandidate update: %v", err)
 	}
 
-	result, _ = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
+	result, _ = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "")
 	if result.Total != 1 {
 		t.Errorf("total = %d, want 1 (should update, not insert)", result.Total)
 	}
@@ -262,7 +269,7 @@ func TestListCandidatesForRuleItemPopulated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +298,7 @@ func TestGetMaintenanceCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
+	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "")
 	candidateID := result.Items[0].ID
 
 	got, err := s.GetMaintenanceCandidate(ctx, candidateID)
@@ -327,7 +334,7 @@ func TestDeleteMaintenanceCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "")
+	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "")
 	candidateID := result.Items[0].ID
 
 	if err := s.DeleteMaintenanceCandidate(ctx, candidateID); err != nil {
@@ -431,6 +438,128 @@ func TestListAllCandidatesForRuleEmpty(t *testing.T) {
 	}
 }
 
+func TestListCandidatesForRuleSortByTitle(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
+
+	now := time.Now().UTC()
+	titles := []string{"Alpha", "Charlie", "Bravo"}
+	for i, title := range titles {
+		items := []models.LibraryItemCache{{
+			ServerID:  serverID,
+			LibraryID: "lib1",
+			ItemID:    fmt.Sprintf("sort_item_%d", i),
+			MediaType: models.MediaTypeMovie,
+			Title:     title,
+			Year:      2024,
+			AddedAt:   now.AddDate(0, 0, -50+i),
+			SyncedAt:  now,
+		}}
+		if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seedCandidatesFromItems(t, s, ctx, serverID, ruleID)
+
+	// Sort by title ascending
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "title", "asc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) < 3 {
+		t.Fatalf("expected at least 3 items, got %d", len(result.Items))
+	}
+	if result.Items[0].Item.Title != "Alpha" {
+		t.Errorf("first item = %q, want %q", result.Items[0].Item.Title, "Alpha")
+	}
+	if result.Items[1].Item.Title != "Bravo" {
+		t.Errorf("second item = %q, want %q", result.Items[1].Item.Title, "Bravo")
+	}
+
+	// Sort by title descending
+	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "title", "desc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := result.Items[len(result.Items)-1]
+	if last.Item.Title != "Alpha" {
+		t.Errorf("last item = %q, want %q", last.Item.Title, "Alpha")
+	}
+}
+
+func TestListCandidatesForRuleSortBySize(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
+
+	now := time.Now().UTC()
+	sizes := []int64{3 * 1024 * 1024 * 1024, 1 * 1024 * 1024 * 1024, 5 * 1024 * 1024 * 1024}
+	for i, sz := range sizes {
+		items := []models.LibraryItemCache{{
+			ServerID:  serverID,
+			LibraryID: "lib1",
+			ItemID:    fmt.Sprintf("size_item_%d", i),
+			MediaType: models.MediaTypeMovie,
+			Title:     fmt.Sprintf("Movie Size %d", i),
+			Year:      2024,
+			AddedAt:   now.AddDate(0, 0, -50),
+			FileSize:  sz,
+			SyncedAt:  now,
+		}}
+		if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seedCandidatesFromItems(t, s, ctx, serverID, ruleID)
+
+	// Sort by size descending — largest first
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "size", "desc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) < 2 {
+		t.Fatalf("expected at least 2 items, got %d", len(result.Items))
+	}
+	if result.Items[0].Item.FileSize < result.Items[1].Item.FileSize {
+		t.Errorf("descending: first (%d) should be >= second (%d)", result.Items[0].Item.FileSize, result.Items[1].Item.FileSize)
+	}
+
+	// Sort by size ascending — smallest first
+	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "size", "asc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Items[0].Item.FileSize > result.Items[1].Item.FileSize {
+		t.Errorf("ascending: first (%d) should be <= second (%d)", result.Items[0].Item.FileSize, result.Items[1].Item.FileSize)
+	}
+}
+
+func TestListCandidatesForRuleSortInvalidColumn(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	// Invalid sort column should fall back to default (added_at DESC), not error
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "bogus; DROP TABLE", "asc")
+	if err != nil {
+		t.Fatalf("invalid sort column should not error: %v", err)
+	}
+	if result.Total != 1 {
+		t.Errorf("total = %d, want 1", result.Total)
+	}
+}
+
 func TestListCandidatesForRuleSearch(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
@@ -443,7 +572,7 @@ func TestListCandidatesForRuleSearch(t *testing.T) {
 	}
 
 	// Search by title should find the item
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "Test Movie")
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "Test Movie", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,7 +581,7 @@ func TestListCandidatesForRuleSearch(t *testing.T) {
 	}
 
 	// Search by year should find the item
-	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "2024")
+	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "2024", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +590,7 @@ func TestListCandidatesForRuleSearch(t *testing.T) {
 	}
 
 	// Search for non-existent term should return empty
-	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "nonexistent")
+	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "nonexistent", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +611,7 @@ func TestListCandidatesForRuleSearchEscapesWildcards(t *testing.T) {
 	}
 
 	// Search with SQL wildcard characters should be escaped and not match everything
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "%")
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "%", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +619,7 @@ func TestListCandidatesForRuleSearchEscapesWildcards(t *testing.T) {
 		t.Errorf("search with %%: total = %d, want 0 (should not match everything)", result.Total)
 	}
 
-	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "_")
+	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "_", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

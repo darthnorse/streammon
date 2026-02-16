@@ -64,8 +64,17 @@ func (s *Store) DeleteCandidatesForRule(ctx context.Context, ruleID int64) error
 	return nil
 }
 
+var validCandidateSortColumns = map[string]string{
+	"title":      "i.title",
+	"year":       "i.year",
+	"resolution": "i.video_resolution",
+	"size":       "i.file_size",
+	"reason":     "c.reason",
+	"added_at":   "i.added_at",
+}
+
 // ListCandidatesForRule returns candidates with their library items, excluding excluded items
-func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int, search string) (*models.CandidatesResponse, error) {
+func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int, search, sortBy, sortOrder string) (*models.CandidatesResponse, error) {
 	var total int
 	var totalSize int64
 	var args []any
@@ -95,6 +104,15 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 		return nil, fmt.Errorf("count exclusions: %w", err)
 	}
 
+	orderBy := "i.added_at DESC"
+	if col, ok := validCandidateSortColumns[sortBy]; ok {
+		dir := "DESC"
+		if sortOrder == "asc" {
+			dir = "ASC"
+		}
+		orderBy = col + " " + dir
+	}
+
 	offset := (page - 1) * perPage
 	listArgs := make([]any, len(args), len(args)+2)
 	copy(listArgs, args)
@@ -105,7 +123,7 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 		JOIN library_items i ON c.library_item_id = i.id
 		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
 		WHERE `+baseWhere+`
-		ORDER BY i.added_at DESC
+		ORDER BY `+orderBy+`
 		LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("list candidates: %w", err)
