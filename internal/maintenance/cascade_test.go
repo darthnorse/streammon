@@ -171,6 +171,89 @@ func TestDeleteExternalReferences_TVWithSonarrAndOverseerr(t *testing.T) {
 	}
 }
 
+func TestDeleteExternalReferences_MediaOnlyNoRequest(t *testing.T) {
+	var mediaCleared atomic.Bool
+	overseerrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/movie/27205" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": 27205,
+				"mediaInfo": map[string]any{
+					"id":       42,
+					"requests": []map[string]any{},
+				},
+			})
+		case r.URL.Path == "/api/v1/media/42" && r.Method == http.MethodDelete:
+			mediaCleared.Store(true)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer overseerrSrv.Close()
+
+	s := newTestStoreWithMigrations(t)
+	configureIntegration(t, s, "overseerr", overseerrSrv.URL)
+
+	cd := NewCascadeDeleter(s)
+	item := &models.LibraryItemCache{
+		Title:     "Inception",
+		MediaType: models.MediaTypeMovie,
+		TMDBID:    "27205",
+	}
+
+	results := cd.DeleteExternalReferences(context.Background(), item)
+
+	if !mediaCleared.Load() {
+		t.Error("expected Overseerr media data to be cleared")
+	}
+	overseerrResult := findResult(results, "overseerr")
+	if overseerrResult == nil || !overseerrResult.Success {
+		t.Errorf("expected overseerr success, got %+v", overseerrResult)
+	}
+}
+
+func TestDeleteExternalReferences_RequestOnlyNoMediaID(t *testing.T) {
+	var requestDeleted atomic.Bool
+	overseerrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/movie/27205" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": 27205,
+				"mediaInfo": map[string]any{
+					"requests": []map[string]any{{"id": 10}},
+				},
+			})
+		case r.URL.Path == "/api/v1/request/10" && r.Method == http.MethodDelete:
+			requestDeleted.Store(true)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer overseerrSrv.Close()
+
+	s := newTestStoreWithMigrations(t)
+	configureIntegration(t, s, "overseerr", overseerrSrv.URL)
+
+	cd := NewCascadeDeleter(s)
+	item := &models.LibraryItemCache{
+		Title:     "Inception",
+		MediaType: models.MediaTypeMovie,
+		TMDBID:    "27205",
+	}
+
+	results := cd.DeleteExternalReferences(context.Background(), item)
+
+	if !requestDeleted.Load() {
+		t.Error("expected Overseerr request to be deleted")
+	}
+	overseerrResult := findResult(results, "overseerr")
+	if overseerrResult == nil || !overseerrResult.Success {
+		t.Errorf("expected overseerr success, got %+v", overseerrResult)
+	}
+}
+
 func TestDeleteExternalReferences_NoExternalIDs(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	cd := NewCascadeDeleter(s)

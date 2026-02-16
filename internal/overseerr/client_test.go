@@ -246,6 +246,24 @@ func TestDeleteRequest(t *testing.T) {
 	}
 }
 
+func TestDeleteMedia(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			t.Errorf("expected DELETE, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v1/media/42" {
+			t.Errorf("expected path /api/v1/media/42, got %s", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	if err := c.DeleteMedia(context.Background(), 42); err != nil {
+		t.Fatalf("DeleteMedia: %v", err)
+	}
+}
+
 func TestListUsers_SinglePage(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/user" {

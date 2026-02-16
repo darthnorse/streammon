@@ -298,9 +298,9 @@ type MediaLookupResult struct {
 	MediaID   int // Media entry ID, or 0 if none
 }
 
-// FindRequestByTMDB looks up the Overseerr request for a given TMDB ID and media type.
+// FindRequestByTMDB looks up the Overseerr media entry for a given TMDB ID and media type.
 // Uses the movie/tv detail endpoint for an O(1) lookup instead of scanning all requests.
-// mediaType should be "movie" or "tv".
+// mediaType must be "movie" or "tv"; any other value defaults to "movie".
 func (c *Client) FindRequestByTMDB(ctx context.Context, tmdbID int, mediaType string) (MediaLookupResult, error) {
 	path := fmt.Sprintf("/movie/%d", tmdbID)
 	if mediaType == "tv" {

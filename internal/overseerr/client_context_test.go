@@ -41,6 +41,9 @@ func TestClientRespectsContextCancellation(t *testing.T) {
 		{"DeleteRequest", func(ctx context.Context) error {
 			return c.DeleteRequest(ctx, 1)
 		}},
+		{"DeleteMedia", func(ctx context.Context) error {
+			return c.DeleteMedia(ctx, 1)
+		}},
 	}
 
 	for _, tt := range tests {

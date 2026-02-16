@@ -183,11 +183,16 @@ func (cd *CascadeDeleter) deleteFromOverseerr(ctx context.Context, tmdbID, media
 			log.Printf("cascade overseerr %q: deleted request %d (TMDB %s)", title, lookup.RequestID, tmdbID)
 		}
 
+		// Clear media data to immediately reset the "Available" status.
+		// Best-effort: if this fails after the request was already deleted,
+		// log a warning but still report success — the next library sync
+		// will clean it up automatically.
 		if lookup.MediaID != 0 {
 			if err := client.DeleteMedia(opCtx, lookup.MediaID); err != nil {
-				return false, fmt.Sprintf("clear media data %d: %v", lookup.MediaID, err)
+				log.Printf("cascade overseerr %q: warning: failed to clear media data %d: %v", title, lookup.MediaID, err)
+			} else {
+				log.Printf("cascade overseerr %q: cleared media data %d (TMDB %s)", title, lookup.MediaID, tmdbID)
 			}
-			log.Printf("cascade overseerr %q: cleared media data %d (TMDB %s)", title, lookup.MediaID, tmdbID)
 		}
 
 		return true, ""
