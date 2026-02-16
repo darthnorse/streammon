@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"streammon/internal/models"
@@ -226,6 +227,208 @@ func (s *Store) GetLibraryTotalSize(ctx context.Context, serverID int64, library
 		return 0, nil
 	}
 	return total.Int64, nil
+}
+
+func (s *Store) ListItemsForLibraries(ctx context.Context, libraries []models.RuleLibrary) ([]models.LibraryItemCache, error) {
+	if len(libraries) == 0 {
+		return []models.LibraryItemCache{}, nil
+	}
+
+	var clauses []string
+	var args []any
+	for _, lib := range libraries {
+		clauses = append(clauses, "(server_id = ? AND library_id = ?)")
+		args = append(args, lib.ServerID, lib.LibraryID)
+	}
+
+	query := `SELECT ` + libraryItemColumns + ` FROM library_items WHERE ` +
+		strings.Join(clauses, " OR ") + ` ORDER BY added_at DESC`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list items for libraries: %w", err)
+	}
+	defer rows.Close()
+
+	var items []models.LibraryItemCache
+	for rows.Next() {
+		item, err := scanLibraryItem(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan library item: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if items == nil {
+		return []models.LibraryItemCache{}, nil
+	}
+	return items, nil
+}
+
+func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (map[int64]*time.Time, error) {
+	result := make(map[int64]*time.Time)
+	if len(itemIDs) == 0 {
+		return result, nil
+	}
+
+	const batchSize = 200
+	for i := 0; i < len(itemIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(itemIDs) {
+			end = len(itemIDs)
+		}
+		batch := itemIDs[i:end]
+
+		placeholders := make([]string, len(batch))
+		args := make([]any, len(batch))
+		for j, id := range batch {
+			placeholders[j] = "?"
+			args[j] = id
+		}
+
+		query := `SELECT t.id,
+			MAX(CASE
+				WHEN other.last_watched_at IS NOT NULL THEN other.last_watched_at
+				ELSE NULL
+			END) as max_watched
+		FROM library_items t
+		LEFT JOIN library_items other ON other.id != t.id
+			AND other.last_watched_at IS NOT NULL
+			AND (
+				(t.tmdb_id != '' AND other.tmdb_id = t.tmdb_id) OR
+				(t.tvdb_id != '' AND other.tvdb_id = t.tvdb_id) OR
+				(t.imdb_id != '' AND other.imdb_id = t.imdb_id)
+			)
+		WHERE t.id IN (` + strings.Join(placeholders, ",") + `)
+		GROUP BY t.id`
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("get cross-server watch times: %w", err)
+		}
+
+		for rows.Next() {
+			var id int64
+			var maxWatched sql.NullString
+			if err := rows.Scan(&id, &maxWatched); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan cross-server watch time: %w", err)
+			}
+			if maxWatched.Valid && maxWatched.String != "" {
+				t, parseErr := parseSQLiteTime(maxWatched.String)
+				if parseErr == nil {
+					result[id] = &t
+				}
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	// Now compare cross-server max with each item's own last_watched_at
+	// We need to fetch the items' own watch times
+	idsToCheck := make([]int64, 0, len(itemIDs))
+	for _, id := range itemIDs {
+		idsToCheck = append(idsToCheck, id)
+	}
+
+	for i := 0; i < len(idsToCheck); i += batchSize {
+		end := i + batchSize
+		if end > len(idsToCheck) {
+			end = len(idsToCheck)
+		}
+		batch := idsToCheck[i:end]
+
+		placeholders := make([]string, len(batch))
+		args := make([]any, len(batch))
+		for j, id := range batch {
+			placeholders[j] = "?"
+			args[j] = id
+		}
+
+		query := `SELECT id, last_watched_at FROM library_items WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("get own watch times: %w", err)
+		}
+
+		for rows.Next() {
+			var id int64
+			var ownWatched sql.NullString
+			if err := rows.Scan(&id, &ownWatched); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan own watch time: %w", err)
+			}
+			if ownWatched.Valid && ownWatched.String != "" {
+				ownTime, parseErr := parseSQLiteTime(ownWatched.String)
+				if parseErr == nil {
+					crossTime := result[id]
+					if crossTime == nil || ownTime.After(*crossTime) {
+						t := ownTime
+						result[id] = &t
+					}
+				}
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
+}
+
+func (s *Store) FindMatchingItems(ctx context.Context, item *models.LibraryItemCache) ([]models.LibraryItemCache, error) {
+	var clauses []string
+	var args []any
+
+	if item.TMDBID != "" {
+		clauses = append(clauses, "tmdb_id = ?")
+		args = append(args, item.TMDBID)
+	}
+	if item.TVDBID != "" {
+		clauses = append(clauses, "tvdb_id = ?")
+		args = append(args, item.TVDBID)
+	}
+	if item.IMDBID != "" {
+		clauses = append(clauses, "imdb_id = ?")
+		args = append(args, item.IMDBID)
+	}
+
+	if len(clauses) == 0 {
+		return []models.LibraryItemCache{}, nil
+	}
+
+	query := `SELECT ` + libraryItemColumns + ` FROM library_items WHERE id != ? AND server_id != ? AND (` +
+		strings.Join(clauses, " OR ") + `)`
+	fullArgs := append([]any{item.ID, item.ServerID}, args...)
+
+	rows, err := s.db.QueryContext(ctx, query, fullArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("find matching items: %w", err)
+	}
+	defer rows.Close()
+
+	var items []models.LibraryItemCache
+	for rows.Next() {
+		matched, err := scanLibraryItem(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan matching item: %w", err)
+		}
+		items = append(items, matched)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if items == nil {
+		return []models.LibraryItemCache{}, nil
+	}
+	return items, nil
 }
 
 // GetAllLibraryTotalSizes returns total sizes for all libraries, keyed by "serverID-libraryID"

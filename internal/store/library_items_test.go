@@ -476,6 +476,315 @@ func TestUpsertLibraryItemsLastWatchedAt(t *testing.T) {
 	}
 }
 
+func seedMultiServerItems(t *testing.T, s *Store) (srvPlex, srvJelly *models.Server) {
+	t.Helper()
+
+	srvPlex = &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "key1", Enabled: true}
+	if err := s.CreateServer(srvPlex); err != nil {
+		t.Fatal(err)
+	}
+	srvJelly = &models.Server{Name: "Jellyfin", Type: models.ServerTypeJellyfin, URL: "http://jelly", APIKey: "key2", Enabled: true}
+	if err := s.CreateServer(srvJelly); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	watchedRecently := now.AddDate(0, 0, -5).Truncate(time.Second)
+	watchedLongAgo := now.AddDate(0, -6, 0).Truncate(time.Second)
+
+	items := []models.LibraryItemCache{
+		// Plex lib1: Inception (tmdb=27205), watched recently
+		{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-1", MediaType: models.MediaTypeMovie, Title: "Inception", Year: 2010, AddedAt: now.AddDate(0, 0, -90), LastWatchedAt: &watchedRecently, TMDBID: "27205", SyncedAt: now},
+		// Plex lib1: The Matrix (tmdb=603), never watched
+		{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-2", MediaType: models.MediaTypeMovie, Title: "The Matrix", Year: 1999, AddedAt: now.AddDate(0, 0, -60), TMDBID: "603", SyncedAt: now},
+		// Plex lib2: Breaking Bad (tvdb=81189), watched long ago
+		{ServerID: srvPlex.ID, LibraryID: "lib2", ItemID: "plex-3", MediaType: models.MediaTypeTV, Title: "Breaking Bad", Year: 2008, AddedAt: now.AddDate(0, 0, -120), LastWatchedAt: &watchedLongAgo, TVDBID: "81189", SyncedAt: now},
+		// Jellyfin lib1: Inception (same tmdb=27205), watched long ago
+		{ServerID: srvJelly.ID, LibraryID: "lib1", ItemID: "jelly-1", MediaType: models.MediaTypeMovie, Title: "Inception", Year: 2010, AddedAt: now.AddDate(0, 0, -80), LastWatchedAt: &watchedLongAgo, TMDBID: "27205", SyncedAt: now},
+		// Jellyfin lib1: Interstellar (tmdb=157336), no external match on other server
+		{ServerID: srvJelly.ID, LibraryID: "lib1", ItemID: "jelly-2", MediaType: models.MediaTypeMovie, Title: "Interstellar", Year: 2014, AddedAt: now.AddDate(0, 0, -50), TMDBID: "157336", SyncedAt: now},
+		// Jellyfin lib2: Breaking Bad (same tvdb=81189), never watched on this server
+		{ServerID: srvJelly.ID, LibraryID: "lib2", ItemID: "jelly-3", MediaType: models.MediaTypeTV, Title: "Breaking Bad", Year: 2008, AddedAt: now.AddDate(0, 0, -100), TVDBID: "81189", SyncedAt: now},
+		// Plex lib1: No external IDs at all
+		{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-4", MediaType: models.MediaTypeMovie, Title: "Home Video", Year: 2023, AddedAt: now.AddDate(0, 0, -10), SyncedAt: now},
+		// Jellyfin lib1: No external IDs at all (should NOT match plex-4)
+		{ServerID: srvJelly.ID, LibraryID: "lib1", ItemID: "jelly-4", MediaType: models.MediaTypeMovie, Title: "Another Home Video", Year: 2023, AddedAt: now.AddDate(0, 0, -10), SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(context.Background(), items); err != nil {
+		t.Fatal(err)
+	}
+
+	return srvPlex, srvJelly
+}
+
+func TestListItemsForLibraries(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srvPlex, srvJelly := seedMultiServerItems(t, s)
+
+	t.Run("multiple libraries", func(t *testing.T) {
+		libs := []models.RuleLibrary{
+			{ServerID: srvPlex.ID, LibraryID: "lib1"},
+			{ServerID: srvJelly.ID, LibraryID: "lib1"},
+		}
+		got, err := s.ListItemsForLibraries(ctx, libs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Plex lib1 has 3 items (plex-1, plex-2, plex-4), Jellyfin lib1 has 3 items (jelly-1, jelly-2, jelly-4)
+		if len(got) != 6 {
+			t.Errorf("got %d items, want 6", len(got))
+		}
+		// Verify ordered by added_at DESC
+		for i := 1; i < len(got); i++ {
+			if got[i].AddedAt.After(got[i-1].AddedAt) {
+				t.Errorf("items not sorted by added_at DESC: %v after %v", got[i].AddedAt, got[i-1].AddedAt)
+			}
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		got, err := s.ListItemsForLibraries(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got == nil {
+			t.Error("expected non-nil empty slice, got nil")
+		}
+		if len(got) != 0 {
+			t.Errorf("got %d items, want 0", len(got))
+		}
+	})
+
+	t.Run("single library", func(t *testing.T) {
+		libs := []models.RuleLibrary{
+			{ServerID: srvPlex.ID, LibraryID: "lib2"},
+		}
+		got, err := s.ListItemsForLibraries(ctx, libs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 {
+			t.Errorf("got %d items, want 1", len(got))
+		}
+		if len(got) > 0 && got[0].Title != "Breaking Bad" {
+			t.Errorf("title = %q, want %q", got[0].Title, "Breaking Bad")
+		}
+	})
+
+	t.Run("nonexistent library", func(t *testing.T) {
+		libs := []models.RuleLibrary{
+			{ServerID: 9999, LibraryID: "nope"},
+		}
+		got, err := s.ListItemsForLibraries(ctx, libs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 0 {
+			t.Errorf("got %d items, want 0", len(got))
+		}
+	})
+
+	_ = srvJelly // used above
+}
+
+func TestGetCrossServerWatchTimes(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srvPlex, srvJelly := seedMultiServerItems(t, s)
+
+	// Get all items so we have their IDs
+	plexLib1, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
+	jellyLib1, _ := s.ListLibraryItems(ctx, srvJelly.ID, "lib1")
+	jellyLib2, _ := s.ListLibraryItems(ctx, srvJelly.ID, "lib2")
+
+	findByItemID := func(items []models.LibraryItemCache, itemID string) models.LibraryItemCache {
+		for _, it := range items {
+			if it.ItemID == itemID {
+				return it
+			}
+		}
+		t.Fatalf("item %s not found", itemID)
+		return models.LibraryItemCache{}
+	}
+
+	plexInception := findByItemID(plexLib1, "plex-1")
+	jellyInception := findByItemID(jellyLib1, "jelly-1")
+	jellyInterstellar := findByItemID(jellyLib1, "jelly-2")
+	jellyBB := findByItemID(jellyLib2, "jelly-3")
+	plexNoIDs := findByItemID(plexLib1, "plex-4")
+	jellyNoIDs := findByItemID(jellyLib1, "jelly-4")
+
+	t.Run("cross-server propagation via tmdb_id", func(t *testing.T) {
+		// Jellyfin Inception should get Plex's more recent watch time
+		result, err := s.GetCrossServerWatchTimes(ctx, []int64{jellyInception.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		watchTime, ok := result[jellyInception.ID]
+		if !ok {
+			t.Fatal("expected result for jellyInception")
+		}
+		if watchTime == nil {
+			t.Fatal("expected non-nil watch time")
+		}
+		// Plex Inception was watched more recently, so cross-server should return that time
+		if plexInception.LastWatchedAt == nil {
+			t.Fatal("plexInception should have LastWatchedAt")
+		}
+		if watchTime.Sub(*plexInception.LastWatchedAt).Abs() > time.Second {
+			t.Errorf("cross-server watch time = %v, want ~%v (from Plex)", *watchTime, *plexInception.LastWatchedAt)
+		}
+	})
+
+	t.Run("item watched on both servers returns later time", func(t *testing.T) {
+		// Plex Inception (watched recently) + Jellyfin Inception (watched long ago)
+		// For plexInception, cross-server check should still return its own time (the later one)
+		result, err := s.GetCrossServerWatchTimes(ctx, []int64{plexInception.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		watchTime := result[plexInception.ID]
+		if watchTime == nil {
+			t.Fatal("expected non-nil watch time for plexInception")
+		}
+		// The effective time should be the Plex one since it's more recent
+		if watchTime.Sub(*plexInception.LastWatchedAt).Abs() > time.Second {
+			t.Errorf("effective time = %v, want ~%v", *watchTime, *plexInception.LastWatchedAt)
+		}
+	})
+
+	t.Run("no external IDs returns nil", func(t *testing.T) {
+		result, err := s.GetCrossServerWatchTimes(ctx, []int64{plexNoIDs.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result[plexNoIDs.ID] != nil {
+			t.Errorf("expected nil for item with no external IDs, got %v", result[plexNoIDs.ID])
+		}
+	})
+
+	t.Run("empty external IDs do not false match", func(t *testing.T) {
+		// plex-4 and jelly-4 both have empty external IDs; they should NOT match
+		result, err := s.GetCrossServerWatchTimes(ctx, []int64{plexNoIDs.ID, jellyNoIDs.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result[plexNoIDs.ID] != nil {
+			t.Errorf("expected nil for plexNoIDs, got %v", result[plexNoIDs.ID])
+		}
+		if result[jellyNoIDs.ID] != nil {
+			t.Errorf("expected nil for jellyNoIDs, got %v", result[jellyNoIDs.ID])
+		}
+	})
+
+	t.Run("cross-server propagation via tvdb_id", func(t *testing.T) {
+		// Jellyfin Breaking Bad should get Plex's watch time via tvdb_id
+		result, err := s.GetCrossServerWatchTimes(ctx, []int64{jellyBB.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		watchTime := result[jellyBB.ID]
+		if watchTime == nil {
+			t.Fatal("expected non-nil watch time for jellyBB via tvdb_id cross-server")
+		}
+	})
+
+	t.Run("no match returns nil", func(t *testing.T) {
+		// Interstellar only exists on Jellyfin, no cross-server match, and never watched
+		result, err := s.GetCrossServerWatchTimes(ctx, []int64{jellyInterstellar.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result[jellyInterstellar.ID] != nil {
+			t.Errorf("expected nil for jellyInterstellar, got %v", result[jellyInterstellar.ID])
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		result, err := s.GetCrossServerWatchTimes(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result) != 0 {
+			t.Errorf("expected empty map, got %d entries", len(result))
+		}
+	})
+}
+
+func TestFindMatchingItems(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srvPlex, srvJelly := seedMultiServerItems(t, s)
+
+	plexLib1, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
+	jellyLib1, _ := s.ListLibraryItems(ctx, srvJelly.ID, "lib1")
+
+	findByItemID := func(items []models.LibraryItemCache, itemID string) models.LibraryItemCache {
+		for _, it := range items {
+			if it.ItemID == itemID {
+				return it
+			}
+		}
+		t.Fatalf("item %s not found", itemID)
+		return models.LibraryItemCache{}
+	}
+
+	t.Run("finds match on other server", func(t *testing.T) {
+		plexInception := findByItemID(plexLib1, "plex-1")
+		matches, err := s.FindMatchingItems(ctx, &plexInception)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 1 {
+			t.Fatalf("got %d matches, want 1", len(matches))
+		}
+		if matches[0].ServerID != srvJelly.ID {
+			t.Errorf("match server_id = %d, want %d", matches[0].ServerID, srvJelly.ID)
+		}
+		if matches[0].TMDBID != "27205" {
+			t.Errorf("match tmdb_id = %q, want %q", matches[0].TMDBID, "27205")
+		}
+	})
+
+	t.Run("excludes self", func(t *testing.T) {
+		plexInception := findByItemID(plexLib1, "plex-1")
+		matches, err := s.FindMatchingItems(ctx, &plexInception)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range matches {
+			if m.ID == plexInception.ID {
+				t.Error("result should not include the input item itself")
+			}
+		}
+	})
+
+	t.Run("no external IDs returns empty", func(t *testing.T) {
+		plexNoIDs := findByItemID(plexLib1, "plex-4")
+		matches, err := s.FindMatchingItems(ctx, &plexNoIDs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 0 {
+			t.Errorf("got %d matches, want 0 for item with no external IDs", len(matches))
+		}
+	})
+
+	t.Run("unique item returns empty", func(t *testing.T) {
+		jellyInterstellar := findByItemID(jellyLib1, "jelly-2")
+		matches, err := s.FindMatchingItems(ctx, &jellyInterstellar)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(matches) != 0 {
+			t.Errorf("got %d matches, want 0 for unique item", len(matches))
+		}
+	})
+
+	_ = srvJelly // used via seedMultiServerItems
+}
+
 func TestGetAllLibraryTotalSizes(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
