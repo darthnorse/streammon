@@ -45,7 +45,7 @@ func TestCreateMaintenanceRuleAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	body := `{"server_id":1,"library_id":"lib1","name":"Test Rule","criterion_type":"unwatched_movie","parameters":{},"enabled":true}`
+	body := `{"name":"Test Rule","criterion_type":"unwatched_movie","media_type":"movie","parameters":{},"enabled":true,"libraries":[{"server_id":1,"library_id":"lib1"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/rules", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -79,8 +79,8 @@ func TestCreateMaintenanceRuleAPIValidation(t *testing.T) {
 		name string
 		body string
 	}{
-		{"missing name", `{"server_id":1,"library_id":"lib1","criterion_type":"unwatched_movie"}`},
-		{"invalid criterion", `{"server_id":1,"library_id":"lib1","name":"X","criterion_type":"invalid"}`},
+		{"missing name", `{"criterion_type":"unwatched_movie","media_type":"movie","libraries":[{"server_id":1,"library_id":"lib1"}]}`},
+		{"invalid criterion", `{"name":"X","criterion_type":"invalid","media_type":"movie","libraries":[{"server_id":1,"library_id":"lib1"}]}`},
 	}
 
 	for _, tt := range tests {
@@ -107,12 +107,12 @@ func TestGetMaintenanceRuleAPI(t *testing.T) {
 	}
 
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
 		Name:          "Test Rule",
 		CriterionType: models.CriterionUnwatchedMovie,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: server.ID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -157,12 +157,12 @@ func TestListMaintenanceRulesAPI(t *testing.T) {
 	}
 
 	_, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
 		Name:          "Test Rule",
 		CriterionType: models.CriterionUnwatchedMovie,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: server.ID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -196,12 +196,12 @@ func TestDeleteMaintenanceRuleAPI(t *testing.T) {
 	}
 
 	_, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
 		Name:          "Test Rule",
 		CriterionType: models.CriterionUnwatchedMovie,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: server.ID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -234,12 +234,12 @@ func TestExportCandidatesCSVAPI(t *testing.T) {
 	}
 
 	_, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
 		Name:          "Test",
 		CriterionType: models.CriterionUnwatchedMovie,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: server.ID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -279,12 +279,12 @@ func TestExportCandidatesJSONAPI(t *testing.T) {
 	}
 
 	_, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
 		Name:          "Test",
 		CriterionType: models.CriterionUnwatchedMovie,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: server.ID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -340,12 +340,12 @@ func TestListCandidatesAPI(t *testing.T) {
 	}
 
 	_, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
 		Name:          "Test",
 		CriterionType: models.CriterionUnwatchedMovie,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: server.ID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -431,12 +431,12 @@ func setupDeleteCandidateTest(t *testing.T, s interface {
 	}
 
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      server.ID,
-		LibraryID:     "lib1",
 		Name:          "Test Rule",
 		CriterionType: models.CriterionUnwatchedMovie,
+		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: server.ID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)

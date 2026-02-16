@@ -107,60 +107,15 @@ func (sch *Scheduler) cleanupSessions() {
 }
 
 func (sch *Scheduler) SyncAll(ctx context.Context) error {
-	log.Println("scheduler: starting library sync and rule evaluation")
+	log.Println("scheduler: starting library sync")
 	startTime := time.Now().UTC()
 
-	servers, err := sch.store.ListServers()
-	if err != nil {
-		return err
-	}
+	// Phase 1: Sync all libraries
+	totalLibs, totalItems, syncErrors := sch.syncAllLibraries(ctx)
 
-	var totalLibs, totalItems, totalCandidates, totalErrors int
-
-	for _, srv := range servers {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !srv.Enabled {
-			continue
-		}
-
-		ms, ok := sch.poller.GetServer(srv.ID)
-		if !ok {
-			log.Printf("scheduler: server %s (ID:%d) not in poller, skipping", srv.Name, srv.ID)
-			continue
-		}
-
-		// Capture server identity at sync start - used to detect changes during sync
-		identity := serverIdentity{URL: srv.URL, Type: srv.Type, MachineID: srv.MachineID}
-
-		libs, err := ms.GetLibraries(ctx)
-		if err != nil {
-			log.Printf("scheduler: get libraries for %s: %v", srv.Name, err)
-			totalErrors++
-			continue
-		}
-
-		for _, lib := range libs {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if lib.Type != models.LibraryTypeMovie && lib.Type != models.LibraryTypeShow {
-				continue
-			}
-
-			itemCount, candidateCount, syncErr := sch.syncLibrary(ctx, srv.ID, srv.Name, lib.ID, lib.Name, ms, identity)
-			if syncErr != nil {
-				log.Printf("scheduler: sync %s/%s: %v", srv.Name, lib.Name, syncErr)
-				totalErrors++
-				continue
-			}
-
-			totalLibs++
-			totalItems += itemCount
-			totalCandidates += candidateCount
-		}
-	}
+	// Phase 2: Evaluate all rules now that all libraries are synced
+	totalCandidates, evalErrors := sch.evaluateAllRules(ctx)
+	totalErrors := syncErrors + evalErrors
 
 	elapsed := time.Since(startTime)
 	if totalErrors > 0 {
@@ -174,71 +129,88 @@ func (sch *Scheduler) SyncAll(ctx context.Context) error {
 	return nil
 }
 
-// serverIdentity captures the fields that define a server's "identity" for sync purposes.
-// If any of these change during a sync, the sync should abort to avoid writing stale data.
-type serverIdentity struct {
-	URL       string
-	Type      models.ServerType
-	MachineID string
+func (sch *Scheduler) syncAllLibraries(ctx context.Context) (totalLibs, totalItems, totalErrors int) {
+	servers, err := sch.store.ListServers()
+	if err != nil {
+		log.Printf("scheduler: list servers: %v", err)
+		return 0, 0, 1
+	}
+
+	for _, srv := range servers {
+		if ctx.Err() != nil {
+			return totalLibs, totalItems, totalErrors
+		}
+		if !srv.Enabled {
+			continue
+		}
+
+		ms, ok := sch.poller.GetServer(srv.ID)
+		if !ok {
+			log.Printf("scheduler: server %s (ID:%d) not in poller, skipping", srv.Name, srv.ID)
+			continue
+		}
+
+		identity := serverIdentity{URL: srv.URL, Type: srv.Type, MachineID: srv.MachineID}
+
+		libs, err := ms.GetLibraries(ctx)
+		if err != nil {
+			log.Printf("scheduler: get libraries for %s: %v", srv.Name, err)
+			totalErrors++
+			continue
+		}
+
+		for _, lib := range libs {
+			if ctx.Err() != nil {
+				return totalLibs, totalItems, totalErrors
+			}
+			if lib.Type != models.LibraryTypeMovie && lib.Type != models.LibraryTypeShow {
+				continue
+			}
+
+			itemCount, syncErr := sch.syncLibrary(ctx, srv.ID, srv.Name, lib.ID, lib.Name, ms, identity)
+			if syncErr != nil {
+				log.Printf("scheduler: sync %s/%s: %v", srv.Name, lib.Name, syncErr)
+				totalErrors++
+				continue
+			}
+
+			totalLibs++
+			totalItems += itemCount
+		}
+	}
+
+	log.Printf("scheduler: phase 1 complete - synced %d libraries, %d items", totalLibs, totalItems)
+	return totalLibs, totalItems, totalErrors
 }
 
-func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverName, libraryID, libraryName string, ms media.MediaServer, originalIdentity serverIdentity) (int, int, error) {
-	syncCtx, cancel := context.WithTimeout(ctx, sch.syncTimeout)
-	defer cancel()
-
-	syncStart := time.Now().UTC()
-
-	items, err := ms.GetLibraryItems(syncCtx, libraryID)
+func (sch *Scheduler) evaluateAllRules(ctx context.Context) (totalCandidates, totalErrors int) {
+	rules, err := sch.store.ListAllMaintenanceRules(ctx)
 	if err != nil {
-		return 0, 0, err
+		log.Printf("scheduler: list all maintenance rules: %v", err)
+		return 0, 1
 	}
 
-	// Check if server identity changed during fetch - abort if so to avoid writing stale data
-	currentServer, err := sch.store.GetServer(serverID)
-	if err != nil {
-		return 0, 0, err
-	}
-	if currentServer.URL != originalIdentity.URL ||
-		currentServer.Type != originalIdentity.Type ||
-		currentServer.MachineID != originalIdentity.MachineID {
-		log.Printf("scheduler: server %s identity changed during sync, aborting to prevent stale data", serverName)
-		return 0, 0, nil
+	if len(rules) == 0 {
+		return 0, 0
 	}
 
-	count, err := sch.store.UpsertLibraryItems(syncCtx, items)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	deleted, err := sch.store.DeleteStaleLibraryItems(syncCtx, serverID, libraryID, syncStart)
-	if err != nil {
-		log.Printf("scheduler: warning: delete stale items for %s/%s failed: %v", serverName, libraryName, err)
-	} else if deleted > 0 {
-		log.Printf("scheduler: removed %d stale items from %s/%s", deleted, serverName, libraryName)
-	}
-
-	rules, err := sch.store.ListMaintenanceRules(syncCtx, serverID, libraryID)
-	if err != nil {
-		log.Printf("scheduler: list rules for %s/%s: %v", serverName, libraryName, err)
-		return count, 0, nil
-	}
-
-	var totalCandidates int
 	evaluator := maintenance.NewEvaluator(sch.store)
 
 	for _, rule := range rules {
-		if !rule.Enabled {
-			continue
+		if ctx.Err() != nil {
+			return totalCandidates, totalErrors
 		}
 
-		candidates, evalErr := evaluator.EvaluateRule(syncCtx, &rule)
+		candidates, evalErr := evaluator.EvaluateRule(ctx, &rule)
 		if evalErr != nil {
-			log.Printf("scheduler: evaluate rule %d (%s) for %s/%s: %v", rule.ID, rule.Name, serverName, libraryName, evalErr)
+			log.Printf("scheduler: evaluate rule %d (%s): %v", rule.ID, rule.Name, evalErr)
+			totalErrors++
 			continue
 		}
 
-		if err := sch.store.BatchUpsertCandidates(syncCtx, rule.ID, candidates); err != nil {
+		if err := sch.store.BatchUpsertCandidates(ctx, rule.ID, candidates); err != nil {
 			log.Printf("scheduler: upsert candidates for rule %d: %v", rule.ID, err)
+			totalErrors++
 			continue
 		}
 
@@ -248,7 +220,54 @@ func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverNam
 		totalCandidates += len(candidates)
 	}
 
-	return count, totalCandidates, nil
+	log.Printf("scheduler: phase 2 complete - evaluated %d rules, %d candidates found", len(rules), totalCandidates)
+	return totalCandidates, totalErrors
+}
+
+// serverIdentity captures the fields that define a server's "identity" for sync purposes.
+// If any of these change during a sync, the sync should abort to avoid writing stale data.
+type serverIdentity struct {
+	URL       string
+	Type      models.ServerType
+	MachineID string
+}
+
+func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverName, libraryID, libraryName string, ms media.MediaServer, originalIdentity serverIdentity) (int, error) {
+	syncCtx, cancel := context.WithTimeout(ctx, sch.syncTimeout)
+	defer cancel()
+
+	syncStart := time.Now().UTC()
+
+	items, err := ms.GetLibraryItems(syncCtx, libraryID)
+	if err != nil {
+		return 0, err
+	}
+
+	// Check if server identity changed during fetch - abort if so to avoid writing stale data
+	currentServer, err := sch.store.GetServer(serverID)
+	if err != nil {
+		return 0, err
+	}
+	if currentServer.URL != originalIdentity.URL ||
+		currentServer.Type != originalIdentity.Type ||
+		currentServer.MachineID != originalIdentity.MachineID {
+		log.Printf("scheduler: server %s identity changed during sync, aborting to prevent stale data", serverName)
+		return 0, nil
+	}
+
+	count, err := sch.store.UpsertLibraryItems(syncCtx, items)
+	if err != nil {
+		return 0, err
+	}
+
+	deleted, err := sch.store.DeleteStaleLibraryItems(syncCtx, serverID, libraryID, syncStart)
+	if err != nil {
+		log.Printf("scheduler: warning: delete stale items for %s/%s failed: %v", serverName, libraryName, err)
+	} else if deleted > 0 {
+		log.Printf("scheduler: removed %d stale items from %s/%s", deleted, serverName, libraryName)
+	}
+
+	return count, nil
 }
 
 // durationUntil3AM uses local time so the job runs at 3 AM in the server's timezone.
