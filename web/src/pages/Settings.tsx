@@ -141,7 +141,7 @@ export function Settings() {
   }
 
   const handleOverseerrSaved = makeIntegrationSaved(setShowOverseerrForm, refetchOverseerr)
-  const handleDeleteOverseerr = makeIntegrationDelete('/api/settings/overseerr', 'Overseerr', refetchOverseerr)
+  const handleDeleteOverseerr = makeIntegrationDelete('/api/settings/overseerr', 'Overseerr / Seerr', refetchOverseerr)
   const handleSonarrSaved = makeIntegrationSaved(setShowSonarrForm, refetchSonarr)
   const handleDeleteSonarr = makeIntegrationDelete('/api/settings/sonarr', 'Sonarr', refetchSonarr)
   const handleRadarrSaved = makeIntegrationSaved(setShowRadarrForm, refetchRadarr)
@@ -402,9 +402,9 @@ export function Settings() {
       {tab === 'integrations' && (
         <div className="space-y-4">
           <IntegrationCard
-            name="Overseerr"
+            name="Overseerr / Seerr"
             icon="&#127916;"
-            description="Connect to Overseerr to enable media requests directly from StreamMon."
+            description="Connect to Overseerr / Seerr to enable media requests for Plex, Jellyfin, and Emby directly from StreamMon."
             settings={overseerr}
             loading={overseerrLoading}
             error={overseerrFetchError}

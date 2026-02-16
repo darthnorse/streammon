@@ -69,10 +69,10 @@ func (s *Server) overseerrDeps() integrationDeps {
 func (s *Server) newOverseerrClient() (*overseerr.Client, error) {
 	cfg, err := s.store.GetOverseerrConfig()
 	if err != nil {
-		return nil, errors.New("overseerr not available")
+		return nil, errors.New("overseerr/seerr not available")
 	}
 	if cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
-		return nil, errors.New("overseerr not configured")
+		return nil, errors.New("overseerr/seerr not configured")
 	}
 	return overseerr.NewClient(cfg.URL, cfg.APIKey)
 }

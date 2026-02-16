@@ -19,7 +19,7 @@ describe('visibleNavLinks', () => {
       expect(labels).toContain('Requests')
     })
 
-    it('hides Requests when Overseerr unconfigured', () => {
+    it('hides Requests when Seerr unconfigured', () => {
       const labels = visibleNavLinks('admin', { sonarr: true, overseerr: false }).map(l => l.label)
       expect(labels).toContain('Calendar')
       expect(labels).not.toContain('Requests')
@@ -44,7 +44,7 @@ describe('visibleNavLinks', () => {
       expect(labels).not.toContain('Calendar')
     })
 
-    it('hides Requests when Overseerr unconfigured', () => {
+    it('hides Requests when Seerr unconfigured', () => {
       const labels = visibleNavLinks('viewer', { sonarr: true, overseerr: false }).map(l => l.label)
       expect(labels).not.toContain('Requests')
     })

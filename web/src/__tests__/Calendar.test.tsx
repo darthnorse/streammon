@@ -100,7 +100,7 @@ describe('Calendar', () => {
   })
 
   describe('series detail modal', () => {
-    it('cards are always clickable even when Overseerr is not configured', async () => {
+    it('cards are always clickable even when Seerr is not configured', async () => {
       const ep = makeEpisode()
       mockApiGet({
         '/api/sonarr/configured': { configured: true },
@@ -115,7 +115,7 @@ describe('Calendar', () => {
       expect(screen.getByRole('button', { name: /view details for test series/i })).toBeDefined()
     })
 
-    it('cards are clickable when Overseerr is configured and tmdbId present', async () => {
+    it('cards are clickable when Seerr is configured and tmdbId present', async () => {
       const ep = makeEpisode()
       mockApiGet({
         '/api/sonarr/configured': { configured: true },

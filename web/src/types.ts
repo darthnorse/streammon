@@ -657,7 +657,7 @@ export interface BulkDeleteResult {
   errors?: BulkDeleteError[]
 }
 
-// Overseerr types
+// Overseerr / Seerr types
 
 export interface IntegrationSettings {
   url: string

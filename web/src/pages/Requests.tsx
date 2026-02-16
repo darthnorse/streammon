@@ -214,10 +214,10 @@ export function Requests() {
         <h1 className="text-2xl font-semibold mb-6">Requests</h1>
         <EmptyState
           icon="&#127916;"
-          title="Overseerr Not Configured"
+          title="Overseerr / Seerr Not Configured"
           description={isAdmin
-            ? 'To enable media requests, configure Overseerr in Settings \u2192 Integrations.'
-            : 'Media requests are not available yet. Ask an admin to configure the Overseerr integration.'}
+            ? 'To enable media requests, configure Overseerr / Seerr in Settings \u2192 Integrations.'
+            : 'Media requests are not available yet. Ask an admin to configure the Overseerr / Seerr integration.'}
         />
       </div>
     )

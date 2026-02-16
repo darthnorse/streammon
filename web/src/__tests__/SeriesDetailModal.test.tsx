@@ -86,7 +86,7 @@ function mockSonarrOnly() {
 }
 
 describe('SeriesDetailModal', () => {
-  it('shows Overseerr data with backdrop, cast, and request button on success', async () => {
+  it('shows Seerr data with backdrop, cast, and request button on success', async () => {
     mockOverseerrSuccess()
 
     renderWithRouter(
@@ -110,7 +110,7 @@ describe('SeriesDetailModal', () => {
     expect(screen.getByText('Sci-Fi')).toBeDefined()
   })
 
-  it('falls back to Sonarr when Overseerr fails', async () => {
+  it('falls back to Sonarr when Seerr fails', async () => {
     mockApi.get.mockImplementation((url: string) => {
       if (url.includes('/api/overseerr/tv/')) return Promise.reject(new Error('upstream error'))
       if (url.includes('/api/sonarr/series/')) return Promise.resolve(sonarrSeriesData)
@@ -137,7 +137,7 @@ describe('SeriesDetailModal', () => {
     expect(screen.queryByText('Request TV Show')).toBeNull()
   })
 
-  it('goes straight to Sonarr when Overseerr is unavailable', async () => {
+  it('goes straight to Sonarr when Seerr is unavailable', async () => {
     mockSonarrOnly()
 
     renderWithRouter(
@@ -176,7 +176,7 @@ describe('SeriesDetailModal', () => {
     expect(calls.some(u => u.includes('/api/overseerr/'))).toBe(false)
   })
 
-  it('shows error when both Overseerr and Sonarr fail', async () => {
+  it('shows error when both Seerr and Sonarr fail', async () => {
     mockApi.get.mockRejectedValue(new Error('network error'))
 
     renderWithRouter(

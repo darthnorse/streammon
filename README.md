@@ -1,6 +1,6 @@
 # StreamMon
 
-StreamMon is a self-hosted media server management and monitoring platform for Plex, Emby, and Jellyfin. It provides real-time stream monitoring, watch history analytics, account sharing detection, library maintenance automation, and Overseerr integration -- all packaged as a single Go binary with an embedded React frontend, deployed via Docker Compose.
+StreamMon is a self-hosted media server management and monitoring platform for Plex, Emby, and Jellyfin. It provides real-time stream monitoring, watch history analytics, account sharing detection, library maintenance automation, and Overseerr / Seerr integration -- all packaged as a single Go binary with an embedded React frontend, deployed via Docker Compose.
 
 Typical memory footprint is around 15 MB. No runtime dependencies, no separate database process -- just a compiled Go binary with embedded SQLite and static frontend assets.
 
@@ -11,7 +11,7 @@ Typical memory footprint is around 15 MB. No runtime dependencies, no separate d
 - [Configuration](#configuration)
 - [Media Server Setup](#media-server-setup)
 - [Authentication](#authentication)
-- [Overseerr Integration](#overseerr-integration)
+- [Overseerr / Seerr Integration](#overseerr--seerr-integration)
 - [GeoIP Geolocation](#geoip-geolocation)
 - [Sharing Detection Rules](#sharing-detection-rules)
 - [Notifications](#notifications)
@@ -42,7 +42,7 @@ services:
 
 ### 2. Generate an encryption key
 
-This key is used to encrypt stored Plex tokens for [Overseerr user attribution](#overseerr-integration). Run this command and copy the output:
+This key is used to encrypt stored Plex tokens for [Overseerr / Seerr user attribution](#overseerr--seerr-integration). Run this command and copy the output:
 
 ```bash
 openssl rand -base64 32
@@ -92,8 +92,8 @@ Open `http://localhost:7935` in your browser. On first launch you will be prompt
 - Daily evaluation with candidate review before deletion
 - Per-item exclusion lists
 
-**Overseerr Integration**
-- Search and discover movies and TV shows
+**Overseerr / Seerr Integration**
+- Search and discover movies and TV shows via Overseerr / Seerr (supports Plex, Jellyfin, and Emby)
 - Submit and manage media requests with per-user attribution
 - Admin approval and rejection workflow
 
@@ -123,7 +123,7 @@ Most settings (media servers, auth providers, GeoIP license key, integrations) a
 |----------|---------|-------------|
 | `LISTEN_ADDR` | `:7935` | HTTP listen address |
 | `POLL_INTERVAL` | `5s` | Media server polling interval (minimum `2s`) |
-| `TOKEN_ENCRYPTION_KEY` | | Base64-encoded 32-byte key for encrypting stored Plex tokens (see [Overseerr Integration](#overseerr-integration)) |
+| `TOKEN_ENCRYPTION_KEY` | | Base64-encoded 32-byte key for encrypting stored Plex tokens (see [Overseerr / Seerr Integration](#overseerr--seerr-integration)) |
 | `CORS_ORIGIN` | | Allowed CORS origin for reverse proxy setups (see [Reverse Proxy](#reverse-proxy)) |
 | `HOUSEHOLD_AUTOLEARN_MIN_SESSIONS` | `10` | Minimum sessions from an IP before auto-detecting it as a household location (set to `0` to disable) |
 
@@ -152,18 +152,18 @@ StreamMon supports multiple authentication providers, all configured from the Se
 
 Accounts from different providers can be linked to a single StreamMon user. Guest access can be toggled in Settings > Users to allow unauthenticated browsing of the Requests page.
 
-## Overseerr Integration
+## Overseerr / Seerr Integration
 
-StreamMon proxies media requests through Overseerr and attributes them to the correct user.
+StreamMon proxies media requests through [Overseerr](https://overseerr.dev/) or [Seerr](https://github.com/seerr-team/seerr) and attributes them to the correct user. Seerr is the successor to Overseerr and Jellyseerr, supporting Plex, Jellyfin, and Emby media servers.
 
 ### Basic Setup
 
-1. In **Settings > Integrations**, add your Overseerr URL and API key
-2. Requests are attributed to users by matching their email address against Overseerr accounts
+1. In **Settings > Integrations**, add your Overseerr / Seerr URL and API key
+2. Requests are attributed to users by matching their email address against Overseerr / Seerr accounts
 
 ### Plex Token Attribution (Optional)
 
-For more reliable user attribution, StreamMon can store each user's Plex authentication token (encrypted at rest) and use it to authenticate directly with Overseerr's Plex auth endpoint. This ensures requests are attributed to the correct Overseerr user even when email addresses don't match.
+For more reliable user attribution, StreamMon can store each user's Plex authentication token (encrypted at rest) and use it to authenticate directly with Overseerr / Seerr's Plex auth endpoint. This ensures requests are attributed to the correct user even when email addresses don't match.
 
 1. Generate a 32-byte encryption key:
    ```bash
@@ -181,17 +181,17 @@ For more reliable user attribution, StreamMon can store each user's Plex authent
    docker compose up -d --build
    ```
 
-4. Enable **Store Plex tokens for Overseerr** in Settings > Users
+4. Enable **Store Plex tokens for Overseerr / Seerr** in Settings > Users
 5. Users must log out and log back in via Plex for their token to be stored
 
 **Security notes:**
 - Tokens are encrypted with AES-256-GCM before storage
 - Without `TOKEN_ENCRYPTION_KEY`, the feature is unavailable and the toggle is hidden
-- Plex token auth requires HTTPS (or localhost) for the Overseerr URL to avoid sending tokens over unencrypted connections; plain HTTP falls back to email matching
-- If using HTTP, import your Plex users into Overseerr (Users > Import Plex Users) to ensure email matching works
+- Plex token auth requires HTTPS (or localhost) for the Overseerr / Seerr URL to avoid sending tokens over unencrypted connections; plain HTTP falls back to email matching
+- If using HTTP, import your Plex users into Overseerr / Seerr (Users > Import Plex Users) to ensure email matching works
 - Disabling the toggle deletes all stored tokens immediately
 
-**Known issue:** A [bug in Overseerr](https://github.com/sct/overseerr/issues/4306) causes per-user tag creation to fail with newer versions of Radarr and Sonarr. If you use per-user tagging, disable "Tag Requests" in Overseerr Settings > Services > Radarr/Sonarr until the fix is available.
+**Known issue:** A [bug in Overseerr](https://github.com/sct/overseerr/issues/4306) causes per-user tag creation to fail with newer versions of Radarr and Sonarr. If you use per-user tagging, disable "Tag Requests" in Overseerr / Seerr Settings > Services > Radarr/Sonarr until the fix is available.
 
 ## GeoIP Geolocation
 
@@ -291,4 +291,4 @@ The frontend dev server proxies API requests to the backend on port 7935.
 
 This project has been developed with vibe coding and AI assistance using [Claude Code](https://claude.ai/claude-code). The codebase includes clean, well-documented code with proper error handling, comprehensive testing considerations, modern async/await patterns, robust database design, and production-ready deployment configurations.
 
-Thanks to [Tautulli](https://tautulli.com/), [Overseerr](https://overseerr.dev/), and [Tracearr](https://www.tracearr.com/) for their amazing work and inspiration.
+Thanks to [Tautulli](https://tautulli.com/), [Overseerr](https://overseerr.dev/) / [Seerr](https://docs.seerr.dev/), and [Tracearr](https://www.tracearr.com/) for their amazing work and inspiration.

@@ -210,8 +210,8 @@ export function UserManagement() {
       />
       <SettingsToggle
         endpoint="/api/settings/plex-tokens"
-        title="Store Plex Tokens for Overseerr"
-        description="Store encrypted Plex tokens to attribute Overseerr requests to the correct user. Requires TOKEN_ENCRYPTION_KEY."
+        title="Store Plex Tokens for Overseerr / Seerr"
+        description="Store encrypted Plex tokens to attribute Overseerr / Seerr requests to the correct user. Requires TOKEN_ENCRYPTION_KEY."
         hideWhenUnavailable
       />
 

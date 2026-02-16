@@ -168,7 +168,7 @@ export function SeriesDetailModal({ tmdbId, sonarrSeriesId, overseerrAvailable, 
     let cancelled = false
 
     async function fetchData() {
-      // Try Overseerr first if available and tmdbId present
+      // Try Seerr first if available and tmdbId present
       if (overseerrAvailable && tmdbId != null) {
         try {
           const data = await api.get<OverseerrTVDetails>(

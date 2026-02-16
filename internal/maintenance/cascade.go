@@ -25,7 +25,7 @@ type CascadeResult struct {
 }
 
 // CascadeDeleter coordinates deletion of items from external services
-// (Radarr, Sonarr, Overseerr) after a media server delete.
+// (Radarr, Sonarr, Overseerr/Seerr) after a media server delete.
 type CascadeDeleter struct {
 	store *store.Store
 }

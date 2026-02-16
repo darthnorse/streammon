@@ -32,7 +32,7 @@ afterEach(() => {
 })
 
 describe('Requests', () => {
-  describe('when Overseerr is not configured', () => {
+  describe('when Seerr is not configured', () => {
     it('shows not-configured message for admin with settings hint', async () => {
       mockUseAuth.mockReturnValue(makeAuthContext('admin'))
       mockApiGet({ '/api/overseerr/configured': { configured: false } })
@@ -40,9 +40,9 @@ describe('Requests', () => {
       renderWithRouter(<Requests />)
 
       await waitFor(() => {
-        expect(screen.getByText('Overseerr Not Configured')).toBeDefined()
+        expect(screen.getByText('Overseerr / Seerr Not Configured')).toBeDefined()
       })
-      expect(screen.getByText(/configure overseerr in settings/i)).toBeDefined()
+      expect(screen.getByText(/configure overseerr/i)).toBeDefined()
     })
 
     it('shows not-configured message for viewer with ask-admin hint', async () => {
@@ -52,13 +52,13 @@ describe('Requests', () => {
       renderWithRouter(<Requests />)
 
       await waitFor(() => {
-        expect(screen.getByText('Overseerr Not Configured')).toBeDefined()
+        expect(screen.getByText('Overseerr / Seerr Not Configured')).toBeDefined()
       })
       expect(screen.getByText(/ask an admin/i)).toBeDefined()
     })
   })
 
-  describe('when Overseerr is configured', () => {
+  describe('when Seerr is configured', () => {
     const trendingResponse = {
       page: 1,
       totalPages: 1,
@@ -81,7 +81,7 @@ describe('Requests', () => {
       await waitFor(() => {
         expect(screen.getByPlaceholderText(/search movies/i)).toBeDefined()
       })
-      expect(screen.queryByText('Overseerr Not Configured')).toBeNull()
+      expect(screen.queryByText('Overseerr / Seerr Not Configured')).toBeNull()
     })
 
     it('shows discover tab with search input for viewer', async () => {
@@ -96,7 +96,7 @@ describe('Requests', () => {
       await waitFor(() => {
         expect(screen.getByPlaceholderText(/search movies/i)).toBeDefined()
       })
-      expect(screen.queryByText('Overseerr Not Configured')).toBeNull()
+      expect(screen.queryByText('Overseerr / Seerr Not Configured')).toBeNull()
     })
 
     it('shows trending results when configured', async () => {
