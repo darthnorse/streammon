@@ -318,27 +318,17 @@ function EpisodeCard({ episode, onSeriesClick }: EpisodeCardProps) {
             target.style.display = 'none'
           }}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent hidden sm:block" />
         <div className="absolute top-2 right-2">
           <span className={`inline-flex px-1.5 py-0.5 rounded text-[10px] font-semibold ${status.className}`}>
             {status.label}
           </span>
         </div>
-        <div className="absolute bottom-0 left-0 right-0 p-2.5 hidden sm:block">
-          <p className="text-white text-xs font-semibold truncate drop-shadow-lg">
-            {episode.series.title}
-          </p>
-          <p className="text-white/70 text-[10px] font-mono drop-shadow-lg">
-            {epCode}
-          </p>
-        </div>
       </div>
       <div className="p-2 sm:p-2.5 space-y-0.5 sm:space-y-1">
-        <p className="text-[11px] sm:text-xs font-semibold sm:font-medium truncate" title={episode.series.title}>
-          <span className="sm:hidden">{episode.series.title}</span>
-          <span className="hidden sm:inline">{episode.title}</span>
+        <p className="text-[11px] sm:text-xs font-semibold truncate" title={episode.series.title}>
+          {episode.series.title}
         </p>
-        <p className="text-[10px] text-muted dark:text-muted-dark truncate sm:hidden">
+        <p className="text-[10px] text-muted dark:text-muted-dark truncate">
           {epCode} &middot; {episode.title}
         </p>
         <div className="flex items-center justify-between text-[10px] text-muted dark:text-muted-dark">
