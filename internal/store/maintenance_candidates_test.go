@@ -43,12 +43,12 @@ func seedMaintenanceTestData(t *testing.T, s *Store) (serverID int64, ruleID int
 	}
 
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		ServerID:      srv.ID,
-		LibraryID:     "lib1",
 		Name:          "Test Rule",
+		MediaType:     models.MediaTypeMovie,
 		CriterionType: models.CriterionUnwatchedMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: srv.ID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
