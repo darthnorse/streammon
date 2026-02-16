@@ -242,7 +242,7 @@ func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*
 
 		cur, exists := existingByName[u.Name]
 		avatarChanged := thumbURL != "" && cur.ThumbURL != thumbURL
-		emailChanged := u.Email != "" && cur.Email == ""
+		emailChanged := exists && u.Email != "" && cur.Email == ""
 
 		if !avatarChanged && !emailChanged {
 			continue
@@ -254,7 +254,9 @@ func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*
 			}
 		}
 		if emailChanged {
-			s.updateUserEmail(u.Name, u.Email)
+			if err := s.updateUserEmailErr(u.Name, u.Email); err != nil {
+				return nil, fmt.Errorf("updating email for %q: %w", u.Name, err)
+			}
 		}
 
 		if exists {
@@ -267,14 +269,16 @@ func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*
 	return result, nil
 }
 
-func (s *Store) updateUserEmail(name, email string) {
+func (s *Store) updateUserEmailErr(name, email string) error {
 	_, err := s.db.Exec(
 		`UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE name = ? AND (email IS NULL OR email = '')`,
 		email, name,
 	)
-	if err != nil {
-		log.Printf("warning: failed to update email for user %s: %v", name, err)
-	}
+	return err
+}
+
+func (s *Store) updateUserEmail(name, email string) bool {
+	return s.updateUserEmailErr(name, email) == nil
 }
 
 func isFullURL(url string) bool {

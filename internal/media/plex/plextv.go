@@ -63,6 +63,7 @@ func (s *Server) getPlexTVOwner(ctx context.Context) (*models.MediaUser, error) 
 		return nil, err
 	}
 	s.setPlexTVHeaders(req)
+	req.Header.Set("Accept", "application/json")
 
 	resp, err := plexTVClient.Do(req)
 	if err != nil {
@@ -136,7 +137,6 @@ func (s *Server) setPlexTVHeaders(req *http.Request) {
 	req.Header.Set("X-Plex-Client-Identifier", "streammon")
 	req.Header.Set("X-Plex-Product", "StreamMon")
 	req.Header.Set("X-Plex-Version", "1.0.0")
-	req.Header.Set("Accept", "application/json")
 }
 
 // plexUsername falls back to title if username is empty (some Plex accounts only have title)
