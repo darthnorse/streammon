@@ -150,7 +150,8 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
       <div className="card p-6 max-w-md mx-4">
         <h3 className="text-lg font-semibold mb-2">Delete {item.title}?</h3>
         <div className="text-muted dark:text-muted-dark mb-4">
-          This item exists on multiple servers:
+          <p>This item exists on multiple servers. Select which copies to delete.</p>
+          <p className="text-xs mt-1">Each server is contacted independently. If a server is unreachable, other deletions will still proceed and you can retry the failed ones.</p>
         </div>
 
         <div className="space-y-2 mb-4">
