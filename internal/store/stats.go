@@ -65,23 +65,29 @@ func (s *Store) topMedia(limit int, days int, cfg topMediaConfig) ([]models.Medi
 		itemIDCol = "item_id"
 	}
 
+	// Subqueries prefer the most frequently watched copy of a title, then most recent.
+	// This avoids showing a wrong poster when duplicate items exist (e.g. 4K + 1080p).
+	thumbOrder := fmt.Sprintf(
+		`ORDER BY (SELECT COUNT(*) FROM watch_history h3 WHERE h3.%s = h2.%s) DESC, h2.started_at DESC LIMIT 1`,
+		itemIDCol, itemIDCol)
+
 	query := fmt.Sprintf(`SELECT %s, %s, COUNT(*) as play_count,
 		SUM(watched_ms) / 3600000.0 as total_hours,
 		(SELECT thumb_url FROM watch_history h2
-		 WHERE %s AND h2.thumb_url != ''%s ORDER BY h2.started_at DESC LIMIT 1) as thumb_url,
+		 WHERE %s AND h2.thumb_url != ''%s %s) as thumb_url,
 		(SELECT server_id FROM watch_history h2
-		 WHERE %s AND h2.thumb_url != ''%s ORDER BY h2.started_at DESC LIMIT 1) as server_id,
+		 WHERE %s AND h2.thumb_url != ''%s %s) as server_id,
 		(SELECT %s FROM watch_history h2
-		 WHERE %s AND h2.%s != ''%s ORDER BY h2.started_at DESC LIMIT 1) as item_id
+		 WHERE %s AND h2.%s != ''%s %s) as item_id
 	FROM watch_history
 	WHERE media_type = ?%s%s
 	GROUP BY %s
 	ORDER BY play_count DESC
 	LIMIT ?`,
 		cfg.selectCol, cfg.yearExpr,
-		cfg.thumbMatch, subqueryTimeClause,
-		cfg.thumbMatch, subqueryTimeClause,
-		itemIDCol, cfg.thumbMatch, itemIDCol, subqueryTimeClause,
+		cfg.thumbMatch, subqueryTimeClause, thumbOrder,
+		cfg.thumbMatch, subqueryTimeClause, thumbOrder,
+		itemIDCol, cfg.thumbMatch, itemIDCol, subqueryTimeClause, thumbOrder,
 		cfg.extraWhere, timeClause,
 		cfg.groupBy)
 
