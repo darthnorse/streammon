@@ -54,9 +54,7 @@ func (cd *CascadeDeleter) DeleteExternalReferences(ctx context.Context, item *mo
 		if item.MediaType == models.MediaTypeTV {
 			mediaType = "tv"
 		}
-		tmdbID := item.TMDBID
-		title := item.Title
-		tasks = append(tasks, func() CascadeResult { return cd.deleteFromOverseerr(ctx, tmdbID, mediaType, title) })
+		tasks = append(tasks, func() CascadeResult { return cd.deleteFromOverseerr(ctx, item.TMDBID, mediaType, item.Title) })
 	}
 
 	if len(tasks) == 0 {
@@ -89,7 +87,11 @@ func (cd *CascadeDeleter) DeleteExternalReferences(ctx context.Context, item *mo
 func (cd *CascadeDeleter) runCascade(ctx context.Context, service, title string, cfg store.IntegrationConfig, err error, fn func(ctx context.Context) (bool, string)) CascadeResult {
 	result := CascadeResult{Service: service}
 
-	if err != nil || cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
+	if err != nil {
+		log.Printf("cascade %s %q: config fetch error: %v", service, title, err)
+		return result
+	}
+	if cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
 		return result
 	}
 

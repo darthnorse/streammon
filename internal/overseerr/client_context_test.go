@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-func slowHandler(w http.ResponseWriter, r *http.Request) {
-	select {
-	case <-time.After(10 * time.Second):
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{}`))
-	case <-r.Context().Done():
-	}
-}
-
 func TestClientRespectsContextCancellation(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(slowHandler))
+	slowHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(10 * time.Second):
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{}`))
+		case <-r.Context().Done():
+		}
+	})
+
+	ts := httptest.NewServer(slowHandler)
 	defer ts.Close()
 
 	c, err := NewClient(ts.URL, "test-key")
@@ -36,6 +36,10 @@ func TestClientRespectsContextCancellation(t *testing.T) {
 		}},
 		{"CreateRequest", func(ctx context.Context) error {
 			_, err := c.CreateRequest(ctx, []byte(`{"mediaType":"movie","mediaId":1}`))
+			return err
+		}},
+		{"CreateRequestAsUser", func(ctx context.Context) error {
+			_, err := c.CreateRequestAsUser(ctx, "fake-plex-token", []byte(`{"mediaType":"movie","mediaId":1}`))
 			return err
 		}},
 		{"DeleteRequest", func(ctx context.Context) error {

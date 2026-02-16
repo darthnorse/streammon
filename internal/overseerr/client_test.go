@@ -6,8 +6,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
+
+func newTestClient(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.Server) {
+	t.Helper()
+	ts := httptest.NewServer(handler)
+	c, err := NewClient(ts.URL, "test-key")
+	if err != nil {
+		ts.Close()
+		t.Fatalf("NewClient: %v", err)
+	}
+	return c, ts
+}
 
 func TestValidateURL(t *testing.T) {
 	tests := []struct {
@@ -56,7 +68,7 @@ func TestNewClientInvalidURL(t *testing.T) {
 }
 
 func TestTestConnection(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/status" {
 			t.Errorf("expected path /api/v1/status, got %s", r.URL.Path)
 		}
@@ -65,30 +77,28 @@ func TestTestConnection(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"version":"1.33.2"}`))
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	if err := c.TestConnection(context.Background()); err != nil {
 		t.Fatalf("TestConnection: %v", err)
 	}
 }
 
 func TestTestConnectionFailure(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte(`{"message":"Invalid API key"}`))
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "bad-key")
 	if err := c.TestConnection(context.Background()); err == nil {
 		t.Fatal("expected error for 401 response")
 	}
 }
 
 func TestSearch(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/search" {
 			t.Errorf("expected path /api/v1/search, got %s", r.URL.Path)
 		}
@@ -101,10 +111,9 @@ func TestSearch(t *testing.T) {
 			"totalResults": 1,
 			"results":      []map[string]any{{"id": 27205, "mediaType": "movie", "title": "Inception"}},
 		})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	data, err := c.Search(context.Background(), "Inception", 1)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
@@ -122,15 +131,14 @@ func TestSearch(t *testing.T) {
 }
 
 func TestGetMovie(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/movie/27205" {
 			t.Errorf("expected path /api/v1/movie/27205, got %s", r.URL.Path)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"id": 27205, "title": "Inception"})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	data, err := c.GetMovie(context.Background(), 27205)
 	if err != nil {
 		t.Fatalf("GetMovie: %v", err)
@@ -148,15 +156,14 @@ func TestGetMovie(t *testing.T) {
 }
 
 func TestGetTV(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/tv/1399" {
 			t.Errorf("expected path /api/v1/tv/1399, got %s", r.URL.Path)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"id": 1399, "name": "Breaking Bad"})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	data, err := c.GetTV(context.Background(), 1399)
 	if err != nil {
 		t.Fatalf("GetTV: %v", err)
@@ -174,7 +181,7 @@ func TestGetTV(t *testing.T) {
 }
 
 func TestCreateRequest(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
@@ -183,10 +190,9 @@ func TestCreateRequest(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]any{"id": 1, "status": 2})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	reqBody, _ := json.Marshal(map[string]any{"mediaType": "movie", "mediaId": 27205})
 	data, err := c.CreateRequest(context.Background(), reqBody)
 	if err != nil {
@@ -205,7 +211,7 @@ func TestCreateRequest(t *testing.T) {
 }
 
 func TestUpdateRequestStatus(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			t.Errorf("expected POST, got %s", r.Method)
 		}
@@ -213,10 +219,9 @@ func TestUpdateRequestStatus(t *testing.T) {
 			t.Errorf("expected path /api/v1/request/5/approve, got %s", r.URL.Path)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"id": 5, "status": 2})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	_, err := c.UpdateRequestStatus(context.Background(), 5, "approve")
 	if err != nil {
 		t.Fatalf("UpdateRequestStatus: %v", err)
@@ -232,22 +237,21 @@ func TestUpdateRequestStatusInvalid(t *testing.T) {
 }
 
 func TestDeleteRequest(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE, got %s", r.Method)
 		}
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	if err := c.DeleteRequest(context.Background(), 1); err != nil {
 		t.Fatalf("DeleteRequest: %v", err)
 	}
 }
 
 func TestDeleteMedia(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE, got %s", r.Method)
 		}
@@ -255,17 +259,16 @@ func TestDeleteMedia(t *testing.T) {
 			t.Errorf("expected path /api/v1/media/42, got %s", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusNoContent)
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	if err := c.DeleteMedia(context.Background(), 42); err != nil {
 		t.Fatalf("DeleteMedia: %v", err)
 	}
 }
 
 func TestListUsers_SinglePage(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/user" {
 			t.Errorf("expected path /api/v1/user, got %s", r.URL.Path)
 		}
@@ -276,10 +279,9 @@ func TestListUsers_SinglePage(t *testing.T) {
 				{"id": 2, "email": "bob@example.com"},
 			},
 		})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	users, err := c.ListUsers(context.Background())
 	if err != nil {
 		t.Fatalf("ListUsers: %v", err)
@@ -296,9 +298,9 @@ func TestListUsers_SinglePage(t *testing.T) {
 }
 
 func TestListUsers_Paginated(t *testing.T) {
-	callCount := 0
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		callCount++
+	var callCount atomic.Int32
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		callCount.Add(1)
 		skip := r.URL.Query().Get("skip")
 		switch skip {
 		case "", "0":
@@ -326,10 +328,9 @@ func TestListUsers_Paginated(t *testing.T) {
 		default:
 			t.Errorf("unexpected skip value: %s", skip)
 		}
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	users, err := c.ListUsers(context.Background())
 	if err != nil {
 		t.Fatalf("ListUsers: %v", err)
@@ -337,19 +338,18 @@ func TestListUsers_Paginated(t *testing.T) {
 	if len(users) != 60 {
 		t.Fatalf("expected 60 users, got %d", len(users))
 	}
-	if callCount != 2 {
-		t.Fatalf("expected 2 API calls, got %d", callCount)
+	if got := callCount.Load(); got != 2 {
+		t.Fatalf("expected 2 API calls, got %d", got)
 	}
 }
 
 func TestListUsers_APIError(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(`{"message":"server error"}`))
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	_, err := c.ListUsers(context.Background())
 	if err == nil {
 		t.Fatal("expected error for 500 response")
@@ -357,7 +357,7 @@ func TestListUsers_APIError(t *testing.T) {
 }
 
 func TestFindRequestByTMDB_Found(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/movie/27205" {
 			t.Errorf("expected path /api/v1/movie/27205, got %s", r.URL.Path)
 		}
@@ -370,10 +370,9 @@ func TestFindRequestByTMDB_Found(t *testing.T) {
 				},
 			},
 		})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	result, err := c.FindRequestByTMDB(context.Background(), 27205, "movie")
 	if err != nil {
 		t.Fatalf("FindRequestByTMDB: %v", err)
@@ -387,14 +386,13 @@ func TestFindRequestByTMDB_Found(t *testing.T) {
 }
 
 func TestFindRequestByTMDB_NotFound(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"id": 99999,
 		})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	result, err := c.FindRequestByTMDB(context.Background(), 99999, "movie")
 	if err != nil {
 		t.Fatalf("FindRequestByTMDB: %v", err)
@@ -408,7 +406,7 @@ func TestFindRequestByTMDB_NotFound(t *testing.T) {
 }
 
 func TestFindRequestByTMDB_UsesCorrectPath(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/tv/12345" {
 			t.Errorf("expected path /api/v1/tv/12345, got %s", r.URL.Path)
 		}
@@ -421,10 +419,9 @@ func TestFindRequestByTMDB_UsesCorrectPath(t *testing.T) {
 				},
 			},
 		})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	result, err := c.FindRequestByTMDB(context.Background(), 12345, "tv")
 	if err != nil {
 		t.Fatalf("FindRequestByTMDB: %v", err)
@@ -435,14 +432,13 @@ func TestFindRequestByTMDB_UsesCorrectPath(t *testing.T) {
 }
 
 func TestRequestCount(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"total": 10, "pending": 3, "approved": 5, "available": 2,
 		})
-	}))
+	})
 	defer ts.Close()
 
-	c, _ := NewClient(ts.URL, "test-key")
 	data, err := c.RequestCount(context.Background())
 	if err != nil {
 		t.Fatalf("RequestCount: %v", err)
@@ -456,5 +452,74 @@ func TestRequestCount(t *testing.T) {
 	}
 	if counts.Total != 10 {
 		t.Fatalf("expected 10 total, got %d", counts.Total)
+	}
+}
+
+func TestDiscover(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/discover/movies" {
+			t.Errorf("expected path /api/v1/discover/movies, got %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("page") != "2" {
+			t.Errorf("expected page=2, got %s", r.URL.Query().Get("page"))
+		}
+		json.NewEncoder(w).Encode(map[string]any{"page": 2, "totalPages": 5})
+	})
+	defer ts.Close()
+
+	_, err := c.Discover(context.Background(), "movies", 2)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+}
+
+func TestGetTVSeason(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/tv/1399/season/3" {
+			t.Errorf("expected path /api/v1/tv/1399/season/3, got %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"seasonNumber": 3})
+	})
+	defer ts.Close()
+
+	_, err := c.GetTVSeason(context.Background(), 1399, 3)
+	if err != nil {
+		t.Fatalf("GetTVSeason: %v", err)
+	}
+}
+
+func TestListRequests(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/request" {
+			t.Errorf("expected path /api/v1/request, got %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("take") != "10" {
+			t.Errorf("expected take=10, got %s", r.URL.Query().Get("take"))
+		}
+		if r.URL.Query().Get("filter") != "approved" {
+			t.Errorf("expected filter=approved, got %s", r.URL.Query().Get("filter"))
+		}
+		json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{}})
+	})
+	defer ts.Close()
+
+	_, err := c.ListRequests(context.Background(), 10, 0, 0, "approved", "")
+	if err != nil {
+		t.Fatalf("ListRequests: %v", err)
+	}
+}
+
+func TestGetRequest(t *testing.T) {
+	c, ts := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/request/42" {
+			t.Errorf("expected path /api/v1/request/42, got %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"id": 42, "status": 2})
+	})
+	defer ts.Close()
+
+	_, err := c.GetRequest(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("GetRequest: %v", err)
 	}
 }

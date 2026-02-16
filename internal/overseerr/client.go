@@ -43,6 +43,8 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 func (c *Client) doWithOpts(ctx context.Context, method, path string, query url.Values, body io.Reader, includeAPIKey bool) (json.RawMessage, error) {
 	u := c.baseURL + "/api/v1" + path
 	if len(query) > 0 {
+		// url.Values.Encode() uses + for spaces per x-www-form-urlencoded;
+		// Overseerr expects %20 in query parameters.
 		u += "?" + strings.ReplaceAll(query.Encode(), "+", "%20")
 	}
 
@@ -63,16 +65,22 @@ func (c *Client) doWithOpts(ctx context.Context, method, path string, query url.
 	}
 	defer httputil.DrainBody(resp)
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httputil.MaxResponseBody))
+	return readResponse(resp)
+}
+
+// readResponse reads the body from an HTTP response, checks for non-2xx status,
+// and returns the raw JSON. The caller must still drain/close the response body.
+func readResponse(resp *http.Response) (json.RawMessage, error) {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, httputil.MaxResponseBody))
 	if err != nil {
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, httputil.Truncate(respBody, 200))
+		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, httputil.Truncate(body, 200))
 	}
 
-	return json.RawMessage(respBody), nil
+	return json.RawMessage(body), nil
 }
 
 func (c *Client) doGet(ctx context.Context, path string, query url.Values) (json.RawMessage, error) {
@@ -241,12 +249,12 @@ func (c *Client) CreateRequestAsUser(ctx context.Context, plexToken string, reqB
 		return nil, fmt.Errorf("plex auth failed: %w", err)
 	}
 
-	if authResp.StatusCode < 200 || authResp.StatusCode >= 300 {
-		authResp.Body.Close()
-		return nil, fmt.Errorf("plex auth returned status %d", authResp.StatusCode)
-	}
 	// Drain body so the connection can be reused for the next request.
 	httputil.DrainBody(authResp)
+
+	if authResp.StatusCode < 200 || authResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("plex auth returned status %d", authResp.StatusCode)
+	}
 
 	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/request", bytes.NewReader(reqBody))
 	if err != nil {
@@ -260,16 +268,7 @@ func (c *Client) CreateRequestAsUser(ctx context.Context, plexToken string, reqB
 	}
 	defer httputil.DrainBody(resp)
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, httputil.MaxResponseBody))
-	if err != nil {
-		return nil, fmt.Errorf("reading response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, httputil.Truncate(respBody, 200))
-	}
-
-	return json.RawMessage(respBody), nil
+	return readResponse(resp)
 }
 
 func (c *Client) UpdateRequestStatus(ctx context.Context, requestID int, status string) (json.RawMessage, error) {

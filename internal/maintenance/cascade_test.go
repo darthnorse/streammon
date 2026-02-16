@@ -3,6 +3,7 @@ package maintenance
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -12,6 +13,46 @@ import (
 	"streammon/internal/models"
 	"streammon/internal/store"
 )
+
+// overseerrMedia configures what the mock Overseerr server returns for a media lookup.
+type overseerrMedia struct {
+	lookupPath string // e.g. "/api/v1/movie/27205"
+	mediaID    int    // media entry ID (0 to omit)
+	requestID  int    // request ID (0 to omit)
+}
+
+// newOverseerrServer creates a mock Overseerr server that handles media lookup,
+// request deletion, and media clearing based on the given config.
+func newOverseerrServer(t *testing.T, m overseerrMedia, requestDeleted, mediaCleared *atomic.Bool) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == m.lookupPath && r.Method == http.MethodGet:
+			mi := map[string]any{}
+			if m.mediaID != 0 {
+				mi["id"] = m.mediaID
+			}
+			reqs := []map[string]any{}
+			if m.requestID != 0 {
+				reqs = append(reqs, map[string]any{"id": m.requestID})
+			}
+			mi["requests"] = reqs
+			json.NewEncoder(w).Encode(map[string]any{"mediaInfo": mi})
+		case m.requestID != 0 && r.URL.Path == fmt.Sprintf("/api/v1/request/%d", m.requestID) && r.Method == http.MethodDelete:
+			if requestDeleted != nil {
+				requestDeleted.Store(true)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case m.mediaID != 0 && r.URL.Path == fmt.Sprintf("/api/v1/media/%d", m.mediaID) && r.Method == http.MethodDelete:
+			if mediaCleared != nil {
+				mediaCleared.Store(true)
+			}
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+}
 
 func configureIntegration(t *testing.T, s *store.Store, prefix, url string) {
 	t.Helper()
@@ -45,28 +86,10 @@ func TestDeleteExternalReferences_MovieWithRadarrAndOverseerr(t *testing.T) {
 	}))
 	defer radarrSrv.Close()
 
-	var overseerrRequestDeleted atomic.Bool
-	var overseerrMediaCleared atomic.Bool
-	overseerrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/movie/27205" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 27205,
-				"mediaInfo": map[string]any{
-					"id":       42,
-					"requests": []map[string]any{{"id": 10}},
-				},
-			})
-		case r.URL.Path == "/api/v1/request/10" && r.Method == http.MethodDelete:
-			overseerrRequestDeleted.Store(true)
-			w.WriteHeader(http.StatusNoContent)
-		case r.URL.Path == "/api/v1/media/42" && r.Method == http.MethodDelete:
-			overseerrMediaCleared.Store(true)
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
+	var overseerrRequestDeleted, overseerrMediaCleared atomic.Bool
+	overseerrSrv := newOverseerrServer(t, overseerrMedia{
+		lookupPath: "/api/v1/movie/27205", mediaID: 42, requestID: 10,
+	}, &overseerrRequestDeleted, &overseerrMediaCleared)
 	defer overseerrSrv.Close()
 
 	s := newTestStoreWithMigrations(t)
@@ -117,28 +140,10 @@ func TestDeleteExternalReferences_TVWithSonarrAndOverseerr(t *testing.T) {
 	}))
 	defer sonarrSrv.Close()
 
-	var overseerrRequestDeleted atomic.Bool
-	var overseerrMediaCleared atomic.Bool
-	overseerrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/tv/12345" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 12345,
-				"mediaInfo": map[string]any{
-					"id":       55,
-					"requests": []map[string]any{{"id": 20}},
-				},
-			})
-		case r.URL.Path == "/api/v1/request/20" && r.Method == http.MethodDelete:
-			overseerrRequestDeleted.Store(true)
-			w.WriteHeader(http.StatusNoContent)
-		case r.URL.Path == "/api/v1/media/55" && r.Method == http.MethodDelete:
-			overseerrMediaCleared.Store(true)
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
+	var overseerrRequestDeleted, overseerrMediaCleared atomic.Bool
+	overseerrSrv := newOverseerrServer(t, overseerrMedia{
+		lookupPath: "/api/v1/tv/12345", mediaID: 55, requestID: 20,
+	}, &overseerrRequestDeleted, &overseerrMediaCleared)
 	defer overseerrSrv.Close()
 
 	s := newTestStoreWithMigrations(t)
@@ -173,23 +178,9 @@ func TestDeleteExternalReferences_TVWithSonarrAndOverseerr(t *testing.T) {
 
 func TestDeleteExternalReferences_MediaOnlyNoRequest(t *testing.T) {
 	var mediaCleared atomic.Bool
-	overseerrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/movie/27205" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 27205,
-				"mediaInfo": map[string]any{
-					"id":       42,
-					"requests": []map[string]any{},
-				},
-			})
-		case r.URL.Path == "/api/v1/media/42" && r.Method == http.MethodDelete:
-			mediaCleared.Store(true)
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
+	overseerrSrv := newOverseerrServer(t, overseerrMedia{
+		lookupPath: "/api/v1/movie/27205", mediaID: 42,
+	}, nil, &mediaCleared)
 	defer overseerrSrv.Close()
 
 	s := newTestStoreWithMigrations(t)
@@ -215,22 +206,9 @@ func TestDeleteExternalReferences_MediaOnlyNoRequest(t *testing.T) {
 
 func TestDeleteExternalReferences_RequestOnlyNoMediaID(t *testing.T) {
 	var requestDeleted atomic.Bool
-	overseerrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v1/movie/27205" && r.Method == http.MethodGet:
-			json.NewEncoder(w).Encode(map[string]any{
-				"id": 27205,
-				"mediaInfo": map[string]any{
-					"requests": []map[string]any{{"id": 10}},
-				},
-			})
-		case r.URL.Path == "/api/v1/request/10" && r.Method == http.MethodDelete:
-			requestDeleted.Store(true)
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
+	overseerrSrv := newOverseerrServer(t, overseerrMedia{
+		lookupPath: "/api/v1/movie/27205", requestID: 10,
+	}, &requestDeleted, nil)
 	defer overseerrSrv.Close()
 
 	s := newTestStoreWithMigrations(t)
