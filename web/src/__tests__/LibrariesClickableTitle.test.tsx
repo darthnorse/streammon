@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { BrowserRouter } from 'react-router-dom'
 
 vi.mock('../hooks/useFetch', () => ({
   useFetch: vi.fn(),
@@ -15,13 +16,13 @@ vi.mock('../hooks/useItemDetails', () => ({
 
 import { useFetch } from '../hooks/useFetch'
 import { useItemDetails } from '../hooks/useItemDetails'
-import { Libraries } from '../pages/Libraries'
+import { MaintenanceRulesTab } from '../components/MaintenanceRulesTab'
 import type {
-  LibrariesResponse,
-  MaintenanceDashboard,
+  MaintenanceRuleWithCount,
   MaintenanceCandidatesResponse,
   MaintenanceExclusionsResponse,
   LibraryItemCache,
+  LibrariesResponse,
 } from '../types'
 
 const mockUseFetch = vi.mocked(useFetch)
@@ -39,6 +40,20 @@ const baseLibraryItem: LibraryItemCache = {
   synced_at: '2024-06-01T00:00:00Z',
 }
 
+const testRule: MaintenanceRuleWithCount = {
+  id: 1,
+  name: 'Unwatched',
+  media_type: 'movie',
+  criterion_type: 'unwatched_movie',
+  parameters: { days: 90 },
+  enabled: true,
+  libraries: [{ server_id: 1, library_id: 'lib1' }],
+  created_at: '2024-01-01T00:00:00Z',
+  updated_at: '2024-01-01T00:00:00Z',
+  candidate_count: 5,
+  exclusion_count: 2,
+}
+
 const librariesResponse: LibrariesResponse = {
   libraries: [{
     id: 'lib1',
@@ -51,31 +66,6 @@ const librariesResponse: LibrariesResponse = {
     child_count: 0,
     grandchild_count: 0,
     total_size: 500000000,
-  }],
-}
-
-const maintenanceDashboard: MaintenanceDashboard = {
-  libraries: [{
-    server_id: 1,
-    server_name: 'Plex',
-    library_id: 'lib1',
-    library_name: 'Movies',
-    library_type: 'movie',
-    total_items: 100,
-    last_synced_at: '2024-06-01T00:00:00Z',
-    rules: [{
-      id: 1,
-      name: 'Unwatched',
-      media_type: 'movie',
-      criterion_type: 'unwatched_movie',
-      parameters: { days: 90 },
-      enabled: true,
-      libraries: [{ server_id: 1, library_id: 'lib1' }],
-      created_at: '2024-01-01T00:00:00Z',
-      updated_at: '2024-01-01T00:00:00Z',
-      candidate_count: 5,
-      exclusion_count: 2,
-    }],
   }],
 }
 
@@ -117,23 +107,29 @@ function setupFetchMock(candidatesOverride?: MaintenanceCandidatesResponse) {
   mockUseFetch.mockImplementation((url: string | null) => {
     if (!url) return fetchResult(null)
     if (url === '/api/libraries') return fetchResult(librariesResponse)
-    if (url === '/api/maintenance/dashboard') return fetchResult(maintenanceDashboard)
+    if (url.startsWith('/api/maintenance/rules?') || url === '/api/maintenance/rules') {
+      return fetchResult({ rules: [testRule] })
+    }
     if (url.includes('/candidates')) return fetchResult(candidatesOverride ?? candidatesResponse)
     if (url.includes('/exclusions')) return fetchResult(exclusionsResponse)
     return fetchResult(null)
   })
 }
 
-// Navigate from list -> violations -> candidates view
-async function navigateToCandidates() {
-  fireEvent.click(screen.getByText('5'))
-  await waitFor(() => {
-    expect(screen.getByText('Unwatched')).toBeInTheDocument()
-  })
-  fireEvent.click(screen.getByText('Unwatched'))
+function renderWithRouter(ui: React.ReactElement) {
+  return render(<BrowserRouter>{ui}</BrowserRouter>)
 }
 
-// Navigate from list -> violations -> candidates -> exclusions view
+// Navigate from list -> candidates view by clicking the candidates button
+async function navigateToCandidates() {
+  // Click the "5 candidates" link or the eye icon to view candidates
+  await waitFor(() => {
+    expect(screen.getByText('5 candidates')).toBeInTheDocument()
+  })
+  fireEvent.click(screen.getByText('5 candidates'))
+}
+
+// Navigate from list -> candidates -> exclusions view
 async function navigateToExclusions() {
   await navigateToCandidates()
   await waitFor(() => {
@@ -142,7 +138,7 @@ async function navigateToExclusions() {
   fireEvent.click(screen.getByText('Manage Exclusions'))
 }
 
-describe('Libraries clickable titles', () => {
+describe('MaintenanceRulesTab clickable titles', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
     mockUseItemDetails.mockReturnValue({ data: null, loading: false, error: null })
@@ -151,7 +147,7 @@ describe('Libraries clickable titles', () => {
 
   describe('CandidatesView', () => {
     it('renders candidate title as a clickable button', async () => {
-      render(<Libraries />)
+      renderWithRouter(<MaintenanceRulesTab />)
       await navigateToCandidates()
 
       await waitFor(() => {
@@ -177,7 +173,7 @@ describe('Libraries clickable titles', () => {
         error: null,
       })
 
-      render(<Libraries />)
+      renderWithRouter(<MaintenanceRulesTab />)
       await navigateToCandidates()
 
       await waitFor(() => {
@@ -195,7 +191,7 @@ describe('Libraries clickable titles', () => {
     it('shows loading spinner in modal while fetching details', async () => {
       mockUseItemDetails.mockReturnValue({ data: null, loading: true, error: null })
 
-      render(<Libraries />)
+      renderWithRouter(<MaintenanceRulesTab />)
       await navigateToCandidates()
 
       await waitFor(() => {
@@ -214,7 +210,7 @@ describe('Libraries clickable titles', () => {
         items: [{ ...candidatesResponse.items[0], item: undefined }],
       })
 
-      render(<Libraries />)
+      renderWithRouter(<MaintenanceRulesTab />)
       await navigateToCandidates()
 
       await waitFor(() => {
@@ -226,7 +222,7 @@ describe('Libraries clickable titles', () => {
 
   describe('ExclusionsView', () => {
     it('renders exclusion title as a clickable button', async () => {
-      render(<Libraries />)
+      renderWithRouter(<MaintenanceRulesTab />)
       await navigateToExclusions()
 
       await waitFor(() => {
@@ -252,7 +248,7 @@ describe('Libraries clickable titles', () => {
         error: null,
       })
 
-      render(<Libraries />)
+      renderWithRouter(<MaintenanceRulesTab />)
       await navigateToExclusions()
 
       await waitFor(() => {

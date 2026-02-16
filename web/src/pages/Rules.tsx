@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
 import type { Rule, RuleViolation, NotificationChannel, PaginatedResult } from '../types'
@@ -8,18 +9,58 @@ import { RuleForm } from '../components/RuleForm'
 import { ViolationsTable } from '../components/ViolationsTable'
 import { NotificationChannelForm } from '../components/NotificationChannelForm'
 import { Pagination } from '../components/Pagination'
+import { MaintenanceRulesTab } from '../components/MaintenanceRulesTab'
 import { api } from '../lib/api'
 
-type Tab = 'rules' | 'violations' | 'notifications'
+type Tab = 'rules' | 'violations' | 'notifications' | 'maintenance'
+
+const TAB_LABELS: Record<Tab, string> = {
+  rules: 'Streaming',
+  violations: 'Violations',
+  notifications: 'Notifications',
+  maintenance: 'Maintenance',
+}
 
 export function Rules() {
-  const [tab, setTab] = useState<Tab>('rules')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialTab = (searchParams.get('tab') as Tab) || 'rules'
+  const [tab, setTab] = useState<Tab>(
+    (['rules', 'violations', 'notifications', 'maintenance'] as Tab[]).includes(initialTab)
+      ? initialTab
+      : 'rules'
+  )
   const [editingRule, setEditingRule] = useState<Rule | null>(null)
   const [showRuleForm, setShowRuleForm] = useState(false)
   const [editingChannel, setEditingChannel] = useState<NotificationChannel | null>(null)
   const [showChannelForm, setShowChannelForm] = useState(false)
   const [page, setPage] = useState(1)
   const units = useUnits()
+
+  // Sync tab from URL on initial load and back/forward navigation
+  useEffect(() => {
+    const urlTab = searchParams.get('tab') as Tab | null
+    if (urlTab && (['rules', 'violations', 'notifications', 'maintenance'] as Tab[]).includes(urlTab)) {
+      setTab(urlTab)
+    }
+  }, [searchParams])
+
+  const handleTabChange = useCallback((newTab: Tab) => {
+    setTab(newTab)
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      if (newTab === 'rules') {
+        next.delete('tab')
+      } else {
+        next.set('tab', newTab)
+      }
+      // Clear maintenance filters when switching away
+      if (newTab !== 'maintenance') {
+        next.delete('server_id')
+        next.delete('library_id')
+      }
+      return next
+    }, { replace: true })
+  }, [setSearchParams])
 
   const { data: rules, refetch: refetchRules } = useFetch<Rule[]>('/api/rules')
   const { data: violations } = useFetch<PaginatedResult<RuleViolation>>(
@@ -82,23 +123,21 @@ export function Rules() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Rules & Sharing Detection</h1>
+        <h1 className="text-2xl font-bold">Rules</h1>
       </div>
 
       <div className="flex gap-1 border-b border-border dark:border-border-dark">
-        {(['rules', 'violations', 'notifications'] as Tab[]).map((t) => (
+        {(['rules', 'violations', 'notifications', 'maintenance'] as Tab[]).map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => handleTabChange(t)}
             className={`px-4 py-2 text-sm font-medium transition-colors
               ${tab === t
                 ? 'border-b-2 border-accent text-accent'
                 : 'text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
               }`}
           >
-            {t === 'rules' && 'Rules'}
-            {t === 'violations' && 'Violations'}
-            {t === 'notifications' && 'Notifications'}
+            {TAB_LABELS[t]}
           </button>
         ))}
       </div>
@@ -261,6 +300,13 @@ export function Rules() {
             </div>
           )}
         </div>
+      )}
+
+      {tab === 'maintenance' && (
+        <MaintenanceRulesTab
+          filterServerID={searchParams.get('server_id') ? Number(searchParams.get('server_id')) : undefined}
+          filterLibraryID={searchParams.get('library_id') ?? undefined}
+        />
       )}
 
       {showRuleForm && (
