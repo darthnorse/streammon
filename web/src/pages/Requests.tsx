@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
@@ -11,6 +11,7 @@ import { EmptyState } from '../components/EmptyState'
 import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
 import { RequestCard } from '../components/RequestCard'
+import { SearchInput } from '../components/shared/SearchInput'
 import { OverseerrDetailModal } from '../components/OverseerrDetailModal'
 import type {
   OverseerrSearchResult,
@@ -38,19 +39,15 @@ function tabClass(active: boolean) {
   }`
 }
 
-function DiscoverSection({
-  path,
-  title,
-  data,
-  loading,
-  onSelect,
-}: {
+type DiscoverSectionProps = {
   path: string
   title: string
   data: OverseerrSearchResult | null
   loading: boolean
   onSelect: (item: SelectedItem) => void
-}) {
+}
+
+function DiscoverSection({ path, title, data, loading, onSelect }: DiscoverSectionProps) {
   const { canScrollLeft, canScrollRight, scrollBy, ...scrollHandlers } = useHorizontalScroll()
   const items = data?.results?.filter(isSelectableMedia)
   if (!loading && (!items || items.length === 0)) return null
@@ -65,7 +62,7 @@ function DiscoverSection({
           <div className="flex items-center gap-1">
             <Link
               to={`/requests/discover/${path}`}
-              className="text-xs text-muted dark:text-muted-dark hover:text-accent transition-colors mr-1"
+              className="text-xs text-muted dark:text-muted-dark hover:text-accent hover:underline transition-colors mr-1"
             >
               See All &rsaquo;
             </Link>
@@ -109,13 +106,18 @@ function DiscoverSection({
   )
 }
 
-function DiscoverFetchSection({ path, title, onSelect }: {
-  path: string
-  title: string
-  onSelect: (item: SelectedItem) => void
-}) {
+type DiscoverFetchSectionProps = Pick<DiscoverSectionProps, 'path' | 'title' | 'onSelect'>
+
+function DiscoverFetchSection({ path, title, onSelect }: DiscoverFetchSectionProps) {
   const { data, loading } = useFetch<OverseerrSearchResult>(`/api/overseerr/discover/${path}`)
   return <DiscoverSection path={path} title={title} data={data} loading={loading} onSelect={onSelect} />
+}
+
+function matchesRequester(req: OverseerrRequest, query: string): boolean {
+  const rb = req.requestedBy
+  if (!rb) return false
+  return [rb.username, rb.plexUsername, rb.email]
+    .some(f => f?.toLowerCase().includes(query))
 }
 
 export function Requests() {
@@ -134,10 +136,32 @@ export function Requests() {
   const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setSearchResults(null))
 
   const [requestFilter, setRequestFilter] = useState('all')
+  const {
+    searchInput: reqSearchInput,
+    setSearchInput: setReqSearchInput,
+    search: reqSearch,
+  } = useDebouncedSearch()
+
+  // Title map for client-side search: request ID → resolved media title.
+  // titleMapVersion drives re-renders when titles resolve asynchronously.
+  const titleMapRef = useRef(new Map<number, string>())
+  const [titleMapVersion, setTitleMapVersion] = useState(0)
+  const handleTitleResolved = (requestId: number, title: string) => {
+    if (titleMapRef.current.get(requestId) !== title) {
+      titleMapRef.current.set(requestId, title)
+      setTitleMapVersion(v => v + 1)
+    }
+  }
 
   const requestsBaseUrl = tab === 'requests' && configured
     ? `/api/overseerr/requests?filter=${requestFilter}&sort=added`
     : null
+
+  useEffect(() => {
+    titleMapRef.current.clear()
+    setTitleMapVersion(0)
+  }, [requestsBaseUrl])
+
   const {
     items: requestItems,
     loading: requestsLoading,
@@ -172,6 +196,17 @@ export function Requests() {
       })
     return () => controller.abort()
   }, [search, configured])
+
+  // titleMapVersion is read here so React re-renders when titles resolve
+  const filteredRequests = reqSearch
+    ? requestItems.filter(req => {
+        const q = reqSearch.toLowerCase()
+        const title = titleMapVersion >= 0 ? titleMapRef.current.get(req.id) : undefined
+        if (title && title.toLowerCase().includes(q)) return true
+        if (!title) return true // show items whose titles haven't resolved yet
+        return matchesRequester(req, q)
+      })
+    : requestItems
 
   if (!configured) {
     return (
@@ -278,8 +313,16 @@ export function Requests() {
 
       {tab === 'requests' && (
         <>
+          <div className="mb-4">
+            <SearchInput
+              value={reqSearchInput}
+              onChange={setReqSearchInput}
+              placeholder={isAdmin ? 'Search by title or requester...' : 'Search by title...'}
+            />
+          </div>
+
           <div className="flex gap-2 mb-4 flex-wrap">
-            {['all', 'pending', 'approved', 'processing', 'available'].map(f => (
+            {['all', 'pending', 'approved', 'declined', 'processing', 'available'].map(f => (
               <button
                 key={f}
                 onClick={() => setRequestFilter(f)}
@@ -299,24 +342,31 @@ export function Requests() {
           {!requestsLoading && requestsError && requestItems.length === 0 && (
             <div className="card p-4 text-center">
               <p className="text-red-500 dark:text-red-400 mb-2">{requestsError}</p>
-              <button onClick={retryRequests} className="text-sm text-accent hover:underline">
+              <button onClick={retryRequests} className="text-sm hover:text-accent hover:underline">
                 Try again
               </button>
             </div>
           )}
 
-          {!requestsLoading && !requestsError && requestItems.length === 0 && (
-            <EmptyState icon="&#128203;" title="No requests" description="No media requests found with this filter." />
+          {!requestsLoading && !requestsError && filteredRequests.length === 0 && (
+            <EmptyState
+              icon={reqSearch ? '&#128270;' : '&#128203;'}
+              title={reqSearch ? 'No matches' : 'No requests'}
+              description={reqSearch
+                ? `No requests matching "${reqSearch}"`
+                : 'No media requests found with this filter.'}
+            />
           )}
 
-          {!requestsLoading && requestItems.length > 0 && (
+          {!requestsLoading && filteredRequests.length > 0 && (
             <div className="space-y-3">
-              {requestItems.map(req => (
+              {filteredRequests.map(req => (
                 <RequestCard
                   key={req.id}
                   request={req}
                   isAdmin={isAdmin}
                   onAction={refetchRequests}
+                  onTitleResolved={handleTitleResolved}
                 />
               ))}
               <div ref={sentinelRef} />
@@ -328,7 +378,7 @@ export function Requests() {
               {requestsError && (
                 <div className="text-center py-4">
                   <p className="text-sm text-red-500 dark:text-red-400 mb-2">{requestsError}</p>
-                  <button onClick={retryRequests} className="text-sm text-accent hover:underline">
+                  <button onClick={retryRequests} className="text-sm hover:text-accent hover:underline">
                     Try again
                   </button>
                 </div>

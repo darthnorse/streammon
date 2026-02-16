@@ -14,6 +14,7 @@ import (
 
 type mockOverseerrOpts struct {
 	users           []map[string]any
+	requestOwnerID  int // Overseerr user ID that owns request ID 1
 	onGetRequests   func(w http.ResponseWriter, r *http.Request)
 	onCreateRequest func(w http.ResponseWriter, r *http.Request)
 }
@@ -82,7 +83,12 @@ func newMockOverseerr(t *testing.T, opts mockOverseerrOpts) *httptest.Server {
 			json.NewEncoder(w).Encode(map[string]any{"id": 1, "status": 2})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/request/1/decline":
 			json.NewEncoder(w).Encode(map[string]any{"id": 1, "status": 3})
-		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/request/1":
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/request/") && r.URL.Path != "/api/v1/request/count":
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": 1, "status": 1, "type": "movie",
+				"requestedBy": map[string]any{"id": opts.requestOwnerID},
+			})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v1/request/"):
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -795,10 +801,8 @@ func TestOverseerrListRequests_AdminUnfiltered(t *testing.T) {
 }
 
 func TestOverseerrRequestCount_ViewerForbidden(t *testing.T) {
-	mock := mockOverseerr(t)
-
 	srv, st := newTestServer(t)
-	configureOverseerr(t, st, mock.URL)
+	configureOverseerr(t, st, "http://unused.local")
 	viewerToken := createViewerSession(t, st, "viewer-count")
 
 	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/requests/count", nil)
@@ -825,7 +829,6 @@ func TestOverseerrAdminActions_ViewerForbidden(t *testing.T) {
 	}{
 		{"approve", http.MethodPost, "/api/overseerr/requests/1/approve"},
 		{"decline", http.MethodPost, "/api/overseerr/requests/1/decline"},
-		{"delete", http.MethodDelete, "/api/overseerr/requests/1"},
 	}
 
 	for _, tt := range tests {
@@ -839,5 +842,62 @@ func TestOverseerrAdminActions_ViewerForbidden(t *testing.T) {
 				t.Fatalf("expected 403 for viewer on %s, got %d: %s", tt.name, w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestOverseerrDeleteRequest_ViewerOwnsRequest(t *testing.T) {
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users:          []map[string]any{{"id": 42, "email": "viewer-del@test.local"}},
+		requestOwnerID: 42,
+	})
+
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer-del", "viewer-del@test.local")
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/overseerr/requests/1", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 for viewer deleting own request, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOverseerrDeleteRequest_ViewerNotOwner(t *testing.T) {
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users:          []map[string]any{{"id": 42, "email": "viewer-other@test.local"}},
+		requestOwnerID: 99,
+	})
+
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer-other", "viewer-other@test.local")
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/overseerr/requests/1", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer deleting another user's request, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOverseerrDeleteRequest_ViewerNoEmail(t *testing.T) {
+	mock := mockOverseerr(t)
+
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer-noemail-del", "")
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/overseerr/requests/1", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for viewer with no email, got %d: %s", w.Code, w.Body.String())
 	}
 }

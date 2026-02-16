@@ -201,6 +201,10 @@ func (c *Client) RequestCount(ctx context.Context) (json.RawMessage, error) {
 	return c.doGet(ctx, "/request/count", nil)
 }
 
+func (c *Client) GetRequest(ctx context.Context, requestID int) (json.RawMessage, error) {
+	return c.doGet(ctx, fmt.Sprintf("/request/%d", requestID), nil)
+}
+
 func (c *Client) CreateRequest(ctx context.Context, reqBody json.RawMessage) (json.RawMessage, error) {
 	return c.doPost(ctx, "/request", reqBody)
 }

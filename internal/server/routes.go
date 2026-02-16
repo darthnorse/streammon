@@ -159,7 +159,7 @@ func (s *Server) routes() {
 			sr.With(RequireRole(models.RoleAdmin)).Get("/requests/count", s.handleOverseerrRequestCount)
 			sr.Post("/requests", s.handleOverseerrCreateRequest)
 			sr.With(RequireRole(models.RoleAdmin)).Post("/requests/{id}/{action}", s.handleOverseerrRequestAction)
-			sr.With(RequireRole(models.RoleAdmin)).Delete("/requests/{id}", s.handleOverseerrDeleteRequest)
+			sr.Delete("/requests/{id}", s.handleOverseerrDeleteRequest)
 		})
 
 		r.Route("/settings/display", func(sr chi.Router) {

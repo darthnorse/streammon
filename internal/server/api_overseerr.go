@@ -95,6 +95,9 @@ func (s *Server) handleOverseerrSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 0 {
+		page = 0
+	}
 
 	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
 	if !ok {
@@ -127,6 +130,9 @@ func (s *Server) handleOverseerrDiscover(w http.ResponseWriter, r *http.Request)
 	}
 
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 0 {
+		page = 0
+	}
 
 	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
 	if !ok {
@@ -224,6 +230,9 @@ func (s *Server) handleOverseerrListRequests(w http.ResponseWriter, r *http.Requ
 		take = defaultRequestTake
 	} else if take > maxRequestTake {
 		take = maxRequestTake
+	}
+	if skip < 0 {
+		skip = 0
 	}
 	if filter != "" && !allowedRequestFilters[filter] {
 		writeError(w, http.StatusBadRequest, "invalid filter value")
@@ -480,11 +489,51 @@ func (s *Server) handleOverseerrDeleteRequest(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	user := UserFromContext(r.Context())
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+
 	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
 	if !ok {
 		return
 	}
 	defer cancel()
+
+	// TOCTOU: a concurrent re-assignment between GetRequest and DeleteRequest
+	// is theoretically possible but extremely unlikely in practice.
+	if user.Role != models.RoleAdmin {
+		if user.Email == "" {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		overseerrID, ok := s.resolveOverseerrUserID(ctx, user.Email)
+		if !ok || overseerrID == 0 {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+
+		raw, err := client.GetRequest(ctx, id)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "upstream service error")
+			return
+		}
+
+		var reqInfo struct {
+			RequestedBy struct {
+				ID int `json:"id"`
+			} `json:"requestedBy"`
+		}
+		if err := json.Unmarshal(raw, &reqInfo); err != nil {
+			writeError(w, http.StatusBadGateway, "upstream service error")
+			return
+		}
+		if reqInfo.RequestedBy.ID == 0 || reqInfo.RequestedBy.ID != overseerrID {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+	}
 
 	if err := client.DeleteRequest(ctx, id); err != nil {
 		writeError(w, http.StatusBadGateway, "upstream service error")
