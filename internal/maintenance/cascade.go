@@ -167,20 +167,29 @@ func (cd *CascadeDeleter) deleteFromOverseerr(ctx context.Context, tmdbID, media
 			return false, fmt.Sprintf("invalid TMDB ID %q: %v", tmdbID, err)
 		}
 
-		requestID, err := client.FindRequestByTMDB(opCtx, tmdbInt, mediaType)
+		lookup, err := client.FindRequestByTMDB(opCtx, tmdbInt, mediaType)
 		if err != nil {
 			return false, fmt.Sprintf("find request TMDB %s: %v", tmdbID, err)
 		}
-		if requestID == 0 {
-			log.Printf("cascade overseerr %q: no request found (TMDB %s)", title, tmdbID)
+		if lookup.RequestID == 0 && lookup.MediaID == 0 {
+			log.Printf("cascade overseerr %q: no request or media found (TMDB %s)", title, tmdbID)
 			return false, ""
 		}
 
-		if err := client.DeleteRequest(opCtx, requestID); err != nil {
-			return false, fmt.Sprintf("delete request %d: %v", requestID, err)
+		if lookup.RequestID != 0 {
+			if err := client.DeleteRequest(opCtx, lookup.RequestID); err != nil {
+				return false, fmt.Sprintf("delete request %d: %v", lookup.RequestID, err)
+			}
+			log.Printf("cascade overseerr %q: deleted request %d (TMDB %s)", title, lookup.RequestID, tmdbID)
 		}
 
-		log.Printf("cascade overseerr %q: deleted request %d (TMDB %s)", title, requestID, tmdbID)
+		if lookup.MediaID != 0 {
+			if err := client.DeleteMedia(opCtx, lookup.MediaID); err != nil {
+				return false, fmt.Sprintf("clear media data %d: %v", lookup.MediaID, err)
+			}
+			log.Printf("cascade overseerr %q: cleared media data %d (TMDB %s)", title, lookup.MediaID, tmdbID)
+		}
+
 		return true, ""
 	})
 }

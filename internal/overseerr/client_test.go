@@ -346,6 +346,7 @@ func TestFindRequestByTMDB_Found(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"id": 27205,
 			"mediaInfo": map[string]any{
+				"id": 42,
 				"requests": []map[string]any{
 					{"id": 10},
 				},
@@ -355,12 +356,15 @@ func TestFindRequestByTMDB_Found(t *testing.T) {
 	defer ts.Close()
 
 	c, _ := NewClient(ts.URL, "test-key")
-	id, err := c.FindRequestByTMDB(context.Background(), 27205, "movie")
+	result, err := c.FindRequestByTMDB(context.Background(), 27205, "movie")
 	if err != nil {
 		t.Fatalf("FindRequestByTMDB: %v", err)
 	}
-	if id != 10 {
-		t.Fatalf("expected request ID 10, got %d", id)
+	if result.RequestID != 10 {
+		t.Fatalf("expected request ID 10, got %d", result.RequestID)
+	}
+	if result.MediaID != 42 {
+		t.Fatalf("expected media ID 42, got %d", result.MediaID)
 	}
 }
 
@@ -373,12 +377,15 @@ func TestFindRequestByTMDB_NotFound(t *testing.T) {
 	defer ts.Close()
 
 	c, _ := NewClient(ts.URL, "test-key")
-	id, err := c.FindRequestByTMDB(context.Background(), 99999, "movie")
+	result, err := c.FindRequestByTMDB(context.Background(), 99999, "movie")
 	if err != nil {
 		t.Fatalf("FindRequestByTMDB: %v", err)
 	}
-	if id != 0 {
-		t.Fatalf("expected 0 for not found, got %d", id)
+	if result.RequestID != 0 {
+		t.Fatalf("expected request ID 0 for not found, got %d", result.RequestID)
+	}
+	if result.MediaID != 0 {
+		t.Fatalf("expected media ID 0 for not found, got %d", result.MediaID)
 	}
 }
 
@@ -390,6 +397,7 @@ func TestFindRequestByTMDB_UsesCorrectPath(t *testing.T) {
 		json.NewEncoder(w).Encode(map[string]any{
 			"id": 12345,
 			"mediaInfo": map[string]any{
+				"id": 55,
 				"requests": []map[string]any{
 					{"id": 20},
 				},
@@ -399,12 +407,12 @@ func TestFindRequestByTMDB_UsesCorrectPath(t *testing.T) {
 	defer ts.Close()
 
 	c, _ := NewClient(ts.URL, "test-key")
-	id, err := c.FindRequestByTMDB(context.Background(), 12345, "tv")
+	result, err := c.FindRequestByTMDB(context.Background(), 12345, "tv")
 	if err != nil {
 		t.Fatalf("FindRequestByTMDB: %v", err)
 	}
-	if id != 20 {
-		t.Fatalf("expected request ID 20, got %d", id)
+	if result.RequestID != 20 {
+		t.Fatalf("expected request ID 20, got %d", result.RequestID)
 	}
 }
 

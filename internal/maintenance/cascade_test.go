@@ -45,18 +45,23 @@ func TestDeleteExternalReferences_MovieWithRadarrAndOverseerr(t *testing.T) {
 	}))
 	defer radarrSrv.Close()
 
-	var overseerrDeleted atomic.Bool
+	var overseerrRequestDeleted atomic.Bool
+	var overseerrMediaCleared atomic.Bool
 	overseerrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v1/movie/27205" && r.Method == http.MethodGet:
 			json.NewEncoder(w).Encode(map[string]any{
 				"id": 27205,
 				"mediaInfo": map[string]any{
+					"id":       42,
 					"requests": []map[string]any{{"id": 10}},
 				},
 			})
 		case r.URL.Path == "/api/v1/request/10" && r.Method == http.MethodDelete:
-			overseerrDeleted.Store(true)
+			overseerrRequestDeleted.Store(true)
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/v1/media/42" && r.Method == http.MethodDelete:
+			overseerrMediaCleared.Store(true)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -80,8 +85,11 @@ func TestDeleteExternalReferences_MovieWithRadarrAndOverseerr(t *testing.T) {
 	if !radarrDeleted.Load() {
 		t.Error("expected Radarr movie to be deleted")
 	}
-	if !overseerrDeleted.Load() {
+	if !overseerrRequestDeleted.Load() {
 		t.Error("expected Overseerr request to be deleted")
+	}
+	if !overseerrMediaCleared.Load() {
+		t.Error("expected Overseerr media data to be cleared")
 	}
 
 	radarrResult := findResult(results, "radarr")
@@ -109,18 +117,23 @@ func TestDeleteExternalReferences_TVWithSonarrAndOverseerr(t *testing.T) {
 	}))
 	defer sonarrSrv.Close()
 
-	var overseerrDeleted atomic.Bool
+	var overseerrRequestDeleted atomic.Bool
+	var overseerrMediaCleared atomic.Bool
 	overseerrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v1/tv/12345" && r.Method == http.MethodGet:
 			json.NewEncoder(w).Encode(map[string]any{
 				"id": 12345,
 				"mediaInfo": map[string]any{
+					"id":       55,
 					"requests": []map[string]any{{"id": 20}},
 				},
 			})
 		case r.URL.Path == "/api/v1/request/20" && r.Method == http.MethodDelete:
-			overseerrDeleted.Store(true)
+			overseerrRequestDeleted.Store(true)
+			w.WriteHeader(http.StatusNoContent)
+		case r.URL.Path == "/api/v1/media/55" && r.Method == http.MethodDelete:
+			overseerrMediaCleared.Store(true)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			w.WriteHeader(http.StatusNotFound)
@@ -145,8 +158,11 @@ func TestDeleteExternalReferences_TVWithSonarrAndOverseerr(t *testing.T) {
 	if !sonarrDeleted.Load() {
 		t.Error("expected Sonarr series to be deleted")
 	}
-	if !overseerrDeleted.Load() {
+	if !overseerrRequestDeleted.Load() {
 		t.Error("expected Overseerr request to be deleted")
+	}
+	if !overseerrMediaCleared.Load() {
+		t.Error("expected Overseerr media data to be cleared")
 	}
 
 	sonarrResult := findResult(results, "sonarr")

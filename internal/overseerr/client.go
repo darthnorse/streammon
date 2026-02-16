@@ -285,16 +285,23 @@ func (c *Client) DeleteRequest(ctx context.Context, requestID int) error {
 
 type mediaInfoResponse struct {
 	MediaInfo *struct {
+		ID       int `json:"id"`
 		Requests []struct {
 			ID int `json:"id"`
 		} `json:"requests"`
 	} `json:"mediaInfo"`
 }
 
+// MediaLookupResult holds the IDs found when looking up media by TMDB ID.
+type MediaLookupResult struct {
+	RequestID int // First request ID, or 0 if none
+	MediaID   int // Media entry ID, or 0 if none
+}
+
 // FindRequestByTMDB looks up the Overseerr request for a given TMDB ID and media type.
 // Uses the movie/tv detail endpoint for an O(1) lookup instead of scanning all requests.
-// mediaType should be "movie" or "tv". Returns the request ID, or 0 if not found.
-func (c *Client) FindRequestByTMDB(ctx context.Context, tmdbID int, mediaType string) (int, error) {
+// mediaType should be "movie" or "tv".
+func (c *Client) FindRequestByTMDB(ctx context.Context, tmdbID int, mediaType string) (MediaLookupResult, error) {
 	path := fmt.Sprintf("/movie/%d", tmdbID)
 	if mediaType == "tv" {
 		path = fmt.Sprintf("/tv/%d", tmdbID)
@@ -302,18 +309,26 @@ func (c *Client) FindRequestByTMDB(ctx context.Context, tmdbID int, mediaType st
 
 	raw, err := c.doGet(ctx, path, nil)
 	if err != nil {
-		return 0, fmt.Errorf("fetching media info: %w", err)
+		return MediaLookupResult{}, fmt.Errorf("fetching media info: %w", err)
 	}
 
 	var resp mediaInfoResponse
 	if err := json.Unmarshal(raw, &resp); err != nil {
-		return 0, fmt.Errorf("parsing media info: %w", err)
+		return MediaLookupResult{}, fmt.Errorf("parsing media info: %w", err)
 	}
 
-	if resp.MediaInfo == nil || len(resp.MediaInfo.Requests) == 0 {
-		return 0, nil
+	var result MediaLookupResult
+	if resp.MediaInfo != nil {
+		result.MediaID = resp.MediaInfo.ID
+		if len(resp.MediaInfo.Requests) > 0 {
+			result.RequestID = resp.MediaInfo.Requests[0].ID
+		}
 	}
 
-	return resp.MediaInfo.Requests[0].ID, nil
+	return result, nil
+}
+
+func (c *Client) DeleteMedia(ctx context.Context, mediaID int) error {
+	return c.doDelete(ctx, fmt.Sprintf("/media/%d", mediaID))
 }
 
