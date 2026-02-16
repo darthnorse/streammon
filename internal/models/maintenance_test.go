@@ -29,6 +29,8 @@ func TestCriterionTypeValid(t *testing.T) {
 }
 
 func TestMaintenanceRuleInputValidate(t *testing.T) {
+	libs := []RuleLibrary{{ServerID: 1, LibraryID: "lib1"}}
+
 	tests := []struct {
 		name    string
 		input   MaintenanceRuleInput
@@ -37,70 +39,71 @@ func TestMaintenanceRuleInputValidate(t *testing.T) {
 		{
 			name: "valid input",
 			input: MaintenanceRuleInput{
-				ServerID:      1,
-				LibraryID:     "lib1",
 				Name:          "Test Rule",
+				MediaType:     MediaTypeMovie,
 				CriterionType: CriterionUnwatchedMovie,
 				Parameters:    json.RawMessage(`{"days": 30}`),
 				Enabled:       true,
+				Libraries:     libs,
 			},
 			wantErr: "",
 		},
 		{
-			name: "missing server_id",
+			name: "missing libraries",
 			input: MaintenanceRuleInput{
-				LibraryID:     "lib1",
 				Name:          "Test Rule",
+				MediaType:     MediaTypeMovie,
 				CriterionType: CriterionUnwatchedMovie,
 			},
-			wantErr: "server_id is required",
+			wantErr: "at least one library is required",
 		},
 		{
-			name: "missing library_id",
+			name: "invalid media type",
 			input: MaintenanceRuleInput{
-				ServerID:      1,
 				Name:          "Test Rule",
+				MediaType:     "invalid",
 				CriterionType: CriterionUnwatchedMovie,
+				Libraries:     libs,
 			},
-			wantErr: "library_id is required",
+			wantErr: "media_type must be movie or episode",
 		},
 		{
 			name: "missing name",
 			input: MaintenanceRuleInput{
-				ServerID:      1,
-				LibraryID:     "lib1",
+				MediaType:     MediaTypeMovie,
 				CriterionType: CriterionUnwatchedMovie,
+				Libraries:     libs,
 			},
 			wantErr: "name is required",
 		},
 		{
 			name: "name too long",
 			input: MaintenanceRuleInput{
-				ServerID:      1,
-				LibraryID:     "lib1",
 				Name:          strings.Repeat("a", 256),
+				MediaType:     MediaTypeMovie,
 				CriterionType: CriterionUnwatchedMovie,
+				Libraries:     libs,
 			},
 			wantErr: "name must be 255 characters or less",
 		},
 		{
 			name: "invalid criterion type",
 			input: MaintenanceRuleInput{
-				ServerID:      1,
-				LibraryID:     "lib1",
 				Name:          "Test Rule",
+				MediaType:     MediaTypeMovie,
 				CriterionType: "invalid_type",
+				Libraries:     libs,
 			},
 			wantErr: "invalid criterion type",
 		},
 		{
 			name: "empty parameters get default",
 			input: MaintenanceRuleInput{
-				ServerID:      1,
-				LibraryID:     "lib1",
 				Name:          "Test Rule",
+				MediaType:     MediaTypeMovie,
 				CriterionType: CriterionUnwatchedMovie,
 				Parameters:    nil,
+				Libraries:     libs,
 			},
 			wantErr: "",
 		},

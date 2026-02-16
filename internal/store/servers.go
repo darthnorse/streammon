@@ -95,8 +95,13 @@ func (s *Store) UpdateServerAtomic(existing, srv *models.Server) error {
 		if _, err := tx.Exec(`DELETE FROM library_items WHERE server_id = ?`, srv.ID); err != nil {
 			return fmt.Errorf("delete library items: %w", err)
 		}
-		if _, err := tx.Exec(`DELETE FROM maintenance_rules WHERE server_id = ?`, srv.ID); err != nil {
-			return fmt.Errorf("delete maintenance rules: %w", err)
+		// Remove this server's library associations from rules (junction table)
+		if _, err := tx.Exec(`DELETE FROM maintenance_rule_libraries WHERE server_id = ?`, srv.ID); err != nil {
+			return fmt.Errorf("delete rule library associations: %w", err)
+		}
+		// Clean up orphaned rules (rules with no remaining library associations)
+		if _, err := tx.Exec(`DELETE FROM maintenance_rules WHERE id NOT IN (SELECT DISTINCT rule_id FROM maintenance_rule_libraries)`); err != nil {
+			return fmt.Errorf("delete orphaned rules: %w", err)
 		}
 	}
 

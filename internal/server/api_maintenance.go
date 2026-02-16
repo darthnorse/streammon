@@ -1001,3 +1001,37 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 
 	return result
 }
+
+// GET /api/maintenance/candidates/{id}/cross-server
+func (s *Server) handleCrossServerItems(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
+		writeError(w, http.StatusBadRequest, "invalid id parameter")
+		return
+	}
+
+	candidate, err := s.store.GetMaintenanceCandidate(r.Context(), id)
+	if errors.Is(err, models.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "candidate not found")
+		return
+	}
+	if err != nil {
+		log.Printf("get candidate %d for cross-server: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to get candidate")
+		return
+	}
+
+	if candidate.Item == nil {
+		writeJSON(w, http.StatusOK, []models.LibraryItemCache{})
+		return
+	}
+
+	matches, err := s.store.FindMatchingItems(r.Context(), candidate.Item)
+	if err != nil {
+		log.Printf("find matching items for candidate %d: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to find matching items")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, matches)
+}
