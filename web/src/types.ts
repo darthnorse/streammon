@@ -530,6 +530,11 @@ export const RULE_TYPE_LABELS: Record<RuleType, string> = Object.fromEntries(
 // Maintenance types
 export type CriterionType = 'unwatched_movie' | 'unwatched_tv_none' | 'low_resolution' | 'large_files'
 
+export interface RuleLibrary {
+  server_id: number
+  library_id: string
+}
+
 export interface ParamSpec {
   name: string
   type: 'int' | 'string'
@@ -569,12 +574,12 @@ export interface LibraryItemCache {
 
 export interface MaintenanceRule {
   id: number
-  server_id: number
-  library_id: string
   name: string
+  media_type: MediaType
   criterion_type: CriterionType
   parameters: Record<string, unknown>
   enabled: boolean
+  libraries: RuleLibrary[]
   created_at: string
   updated_at: string
 }
