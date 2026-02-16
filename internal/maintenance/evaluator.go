@@ -129,7 +129,7 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 		if height > 0 && height <= params.MaxHeight {
 			results = append(results, models.BatchCandidate{
 				LibraryItemID: item.ID,
-				Reason:        fmt.Sprintf("Resolution %s below %dp", item.VideoResolution, params.MaxHeight),
+				Reason:        fmt.Sprintf("Resolution %dp (at or below %dp)", height, params.MaxHeight),
 			})
 		}
 	}
