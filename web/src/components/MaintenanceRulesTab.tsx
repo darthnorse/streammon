@@ -648,8 +648,8 @@ function CandidatesView({
                         {candidate.item ? (
                           <div className="space-y-0.5">
                             <div className="whitespace-nowrap">{lookup.getServerName(candidate.item.server_id)} <span className="text-muted/60 dark:text-muted-dark/60">/</span> {lookup.getLibraryName(candidate.item.server_id, candidate.item.library_id)}</div>
-                            {candidate.other_copies?.map((copy, i) => (
-                              <div key={i} className="whitespace-nowrap text-muted/70 dark:text-muted-dark/70 text-xs">
+                            {candidate.other_copies?.map(copy => (
+                              <div key={`${copy.server_id}-${copy.library_id}`} className="whitespace-nowrap text-muted/70 dark:text-muted-dark/70 text-xs">
                                 {lookup.getServerName(copy.server_id)} <span className="text-muted/40 dark:text-muted-dark/40">/</span> {lookup.getLibraryName(copy.server_id, copy.library_id)}
                               </div>
                             ))}

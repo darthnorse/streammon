@@ -201,30 +201,20 @@ func (s *Store) populateOtherCopies(ctx context.Context, candidates []models.Mai
 	var conditions []string
 	var args []any
 
-	if len(tmdbIDs) > 0 {
-		phs := make([]string, 0, len(tmdbIDs))
-		for id := range tmdbIDs {
+	addInClause := func(column string, ids map[string]struct{}) {
+		if len(ids) == 0 {
+			return
+		}
+		phs := make([]string, 0, len(ids))
+		for id := range ids {
 			phs = append(phs, "?")
 			args = append(args, id)
 		}
-		conditions = append(conditions, "tmdb_id IN ("+strings.Join(phs, ",")+")")
+		conditions = append(conditions, column+" IN ("+strings.Join(phs, ",")+")")
 	}
-	if len(tvdbIDs) > 0 {
-		phs := make([]string, 0, len(tvdbIDs))
-		for id := range tvdbIDs {
-			phs = append(phs, "?")
-			args = append(args, id)
-		}
-		conditions = append(conditions, "tvdb_id IN ("+strings.Join(phs, ",")+")")
-	}
-	if len(imdbIDs) > 0 {
-		phs := make([]string, 0, len(imdbIDs))
-		for id := range imdbIDs {
-			phs = append(phs, "?")
-			args = append(args, id)
-		}
-		conditions = append(conditions, "imdb_id IN ("+strings.Join(phs, ",")+")")
-	}
+	addInClause("tmdb_id", tmdbIDs)
+	addInClause("tvdb_id", tvdbIDs)
+	addInClause("imdb_id", imdbIDs)
 
 	// Exclude the candidate items themselves
 	itemPhs := make([]string, len(itemIDs))

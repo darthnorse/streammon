@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useLibraryLookup } from './MaintenanceRulesTab'
 import { formatSize } from '../lib/format'
@@ -66,14 +66,14 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
 
   const hasMatches = otherItems.length > 0
   const [selectedOtherIds, setSelectedOtherIds] = useState<Set<number>>(new Set())
-  const [initialized, setInitialized] = useState(false)
+  const initializedRef = useRef(false)
 
   useEffect(() => {
-    if (!initialized && otherItems.length > 0) {
+    if (!initializedRef.current && otherItems.length > 0) {
       setSelectedOtherIds(new Set(otherItems.map(ci => ci.id)))
-      setInitialized(true)
+      initializedRef.current = true
     }
-  }, [initialized, otherItems])
+  }, [otherItems])
 
   const toggleItem = (id: number) => {
     setSelectedOtherIds(prev => {

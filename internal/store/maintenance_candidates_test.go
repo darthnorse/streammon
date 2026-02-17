@@ -684,53 +684,64 @@ func TestListCandidatesForRuleOtherCopies(t *testing.T) {
 	}
 }
 
-func TestOtherCopiesIMDBMatch(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
+// seedOtherCopiesTest upserts items, creates a rule on firstServerID's lib1,
+// batch-inserts candidates for that library, and returns the paginated result.
+// Callers must create servers before calling this (so items can reference assigned IDs).
+func seedOtherCopiesTest(t *testing.T, s *Store, firstServerID int64, items []models.LibraryItemCache) *models.CandidatesResponse {
+	t.Helper()
 	ctx := context.Background()
 
-	srvA := &models.Server{Name: "Server A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "keyA", Enabled: true}
-	if err := s.CreateServer(srvA); err != nil {
-		t.Fatal(err)
-	}
-	srvB := &models.Server{Name: "Server B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "keyB", Enabled: true}
-	if err := s.CreateServer(srvB); err != nil {
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
 		t.Fatal(err)
 	}
 
-	now := time.Now().UTC()
-	// Items share IMDB but have different TMDB IDs
-	if _, err := s.UpsertLibraryItems(ctx, []models.LibraryItemCache{{
-		ServerID: srvA.ID, LibraryID: "lib1", ItemID: "m1",
-		MediaType: models.MediaTypeMovie, Title: "IMDB Match", Year: 2020,
-		TMDBID: "tmdb_a", IMDBID: "tt1234", AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
-	}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.UpsertLibraryItems(ctx, []models.LibraryItemCache{{
-		ServerID: srvB.ID, LibraryID: "lib2", ItemID: "m2",
-		MediaType: models.MediaTypeMovie, Title: "IMDB Match", Year: 2020,
-		TMDBID: "tmdb_b", IMDBID: "tt1234", AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
-	}}); err != nil {
-		t.Fatal(err)
+	libItems, err := s.ListLibraryItems(ctx, firstServerID, "lib1")
+	if err != nil {
+		t.Fatalf("ListLibraryItems: %v", err)
 	}
 
-	libItems, _ := s.ListLibraryItems(ctx, srvA.ID, "lib1")
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
 		Name: "Rule", MediaType: models.MediaTypeMovie, CriterionType: models.CriterionUnwatchedMovie,
 		Parameters: json.RawMessage(`{}`), Enabled: true,
-		Libraries: []models.RuleLibrary{{ServerID: srvA.ID, LibraryID: "lib1"}},
+		Libraries: []models.RuleLibrary{{ServerID: firstServerID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.BatchUpsertCandidates(ctx, rule.ID, []models.BatchCandidate{{LibraryItemID: libItems[0].ID, Reason: "Test"}}); err != nil {
+
+	var candidates []models.BatchCandidate
+	for _, item := range libItems {
+		candidates = append(candidates, models.BatchCandidate{LibraryItemID: item.ID, Reason: "Test"})
+	}
+	if err := s.BatchUpsertCandidates(ctx, rule.ID, candidates); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 10, "", "", "", 0, "")
+	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 10, "", "title", "asc", 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	return result
+}
+
+func TestOtherCopiesIMDBMatch(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	now := time.Now().UTC()
+
+	srvA := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
+	srvB := &models.Server{Name: "B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "b", Enabled: true}
+	if err := s.CreateServer(srvA); err != nil { t.Fatal(err) }
+	if err := s.CreateServer(srvB); err != nil { t.Fatal(err) }
+
+	result := seedOtherCopiesTest(t, s, srvA.ID, []models.LibraryItemCache{
+		{ServerID: srvA.ID, LibraryID: "lib1", ItemID: "m1", MediaType: models.MediaTypeMovie,
+			Title: "IMDB Match", Year: 2020, TMDBID: "tmdb_a", IMDBID: "tt1234",
+			AddedAt: now.AddDate(0, 0, -100), SyncedAt: now},
+		{ServerID: srvB.ID, LibraryID: "lib2", ItemID: "m2", MediaType: models.MediaTypeMovie,
+			Title: "IMDB Match", Year: 2020, TMDBID: "tmdb_b", IMDBID: "tt1234",
+			AddedAt: now.AddDate(0, 0, -100), SyncedAt: now},
+	})
+
 	if len(result.Items) != 1 {
 		t.Fatalf("expected 1 candidate, got %d", len(result.Items))
 	}
@@ -741,39 +752,16 @@ func TestOtherCopiesIMDBMatch(t *testing.T) {
 
 func TestOtherCopiesNoExternalIDs(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
-	ctx := context.Background()
-
-	srvA := &models.Server{Name: "Server A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "keyA", Enabled: true}
-	if err := s.CreateServer(srvA); err != nil {
-		t.Fatal(err)
-	}
-
 	now := time.Now().UTC()
-	if _, err := s.UpsertLibraryItems(ctx, []models.LibraryItemCache{{
-		ServerID: srvA.ID, LibraryID: "lib1", ItemID: "no_ids",
-		MediaType: models.MediaTypeMovie, Title: "No External IDs", Year: 2020,
-		AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
-	}}); err != nil {
-		t.Fatal(err)
-	}
 
-	libItems, _ := s.ListLibraryItems(ctx, srvA.ID, "lib1")
-	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		Name: "Rule", MediaType: models.MediaTypeMovie, CriterionType: models.CriterionUnwatchedMovie,
-		Parameters: json.RawMessage(`{}`), Enabled: true,
-		Libraries: []models.RuleLibrary{{ServerID: srvA.ID, LibraryID: "lib1"}},
+	srv := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
+	if err := s.CreateServer(srv); err != nil { t.Fatal(err) }
+
+	result := seedOtherCopiesTest(t, s, srv.ID, []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "no_ids", MediaType: models.MediaTypeMovie,
+			Title: "No External IDs", Year: 2020, AddedAt: now.AddDate(0, 0, -100), SyncedAt: now},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.BatchUpsertCandidates(ctx, rule.ID, []models.BatchCandidate{{LibraryItemID: libItems[0].ID, Reason: "Test"}}); err != nil {
-		t.Fatal(err)
-	}
 
-	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 10, "", "", "", 0, "")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(result.Items) != 1 {
 		t.Fatalf("expected 1 candidate, got %d", len(result.Items))
 	}
@@ -784,46 +772,26 @@ func TestOtherCopiesNoExternalIDs(t *testing.T) {
 
 func TestOtherCopiesThreeServersDeduped(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
-	ctx := context.Background()
+	now := time.Now().UTC()
 
 	srvA := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
 	srvB := &models.Server{Name: "B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "b", Enabled: true}
 	srvC := &models.Server{Name: "C", Type: models.ServerTypePlex, URL: "http://c", APIKey: "c", Enabled: true}
 	for _, srv := range []*models.Server{srvA, srvB, srvC} {
-		if err := s.CreateServer(srv); err != nil {
-			t.Fatal(err)
-		}
+		if err := s.CreateServer(srv); err != nil { t.Fatal(err) }
 	}
 
-	now := time.Now().UTC()
-	tmdb := "tmdb_shared"
-	for _, srv := range []*models.Server{srvA, srvB, srvC} {
-		if _, err := s.UpsertLibraryItems(ctx, []models.LibraryItemCache{{
-			ServerID: srv.ID, LibraryID: "lib1", ItemID: fmt.Sprintf("m_%d", srv.ID),
+	var items []models.LibraryItemCache
+	for i, srv := range []*models.Server{srvA, srvB, srvC} {
+		items = append(items, models.LibraryItemCache{
+			ServerID: srv.ID, LibraryID: "lib1", ItemID: fmt.Sprintf("m_%d", i),
 			MediaType: models.MediaTypeMovie, Title: "Three Way", Year: 2020,
-			TMDBID: tmdb, AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
-		}}); err != nil {
-			t.Fatal(err)
-		}
+			TMDBID: "tmdb_shared", AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
+		})
 	}
 
-	libItems, _ := s.ListLibraryItems(ctx, srvA.ID, "lib1")
-	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		Name: "Rule", MediaType: models.MediaTypeMovie, CriterionType: models.CriterionUnwatchedMovie,
-		Parameters: json.RawMessage(`{}`), Enabled: true,
-		Libraries: []models.RuleLibrary{{ServerID: srvA.ID, LibraryID: "lib1"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.BatchUpsertCandidates(ctx, rule.ID, []models.BatchCandidate{{LibraryItemID: libItems[0].ID, Reason: "Test"}}); err != nil {
-		t.Fatal(err)
-	}
+	result := seedOtherCopiesTest(t, s, srvA.ID, items)
 
-	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 10, "", "", "", 0, "")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if len(result.Items) != 1 {
 		t.Fatalf("expected 1 candidate, got %d", len(result.Items))
 	}
@@ -831,7 +799,6 @@ func TestOtherCopiesThreeServersDeduped(t *testing.T) {
 		t.Errorf("3-server: other_copies = %d, want 2", len(result.Items[0].OtherCopies))
 	}
 
-	// Verify no duplicate (server_id, library_id) entries
 	seen := make(map[string]bool)
 	for _, cp := range result.Items[0].OtherCopies {
 		key := fmt.Sprintf("%d:%s", cp.ServerID, cp.LibraryID)
@@ -844,49 +811,20 @@ func TestOtherCopiesThreeServersDeduped(t *testing.T) {
 
 func TestOtherCopiesSameServerExcluded(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
-	ctx := context.Background()
-
-	srv := &models.Server{Name: "Server", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
-	if err := s.CreateServer(srv); err != nil {
-		t.Fatal(err)
-	}
-
 	now := time.Now().UTC()
-	// Two items on the same server/library with the same TMDB ID (different editions)
-	if _, err := s.UpsertLibraryItems(ctx, []models.LibraryItemCache{
-		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "edition1",
-			MediaType: models.MediaTypeMovie, Title: "Movie Edition 1", Year: 2020,
-			TMDBID: "tmdb_same", AddedAt: now.AddDate(0, 0, -100), SyncedAt: now},
-		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "edition2",
-			MediaType: models.MediaTypeMovie, Title: "Movie Edition 2", Year: 2020,
-			TMDBID: "tmdb_same", AddedAt: now.AddDate(0, 0, -99), SyncedAt: now},
-	}); err != nil {
-		t.Fatal(err)
-	}
 
-	libItems, _ := s.ListLibraryItems(ctx, srv.ID, "lib1")
-	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		Name: "Rule", MediaType: models.MediaTypeMovie, CriterionType: models.CriterionUnwatchedMovie,
-		Parameters: json.RawMessage(`{}`), Enabled: true,
-		Libraries: []models.RuleLibrary{{ServerID: srv.ID, LibraryID: "lib1"}},
+	srv := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
+	if err := s.CreateServer(srv); err != nil { t.Fatal(err) }
+
+	result := seedOtherCopiesTest(t, s, srv.ID, []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "edition1", MediaType: models.MediaTypeMovie,
+			Title: "Movie Edition 1", Year: 2020, TMDBID: "tmdb_same",
+			AddedAt: now.AddDate(0, 0, -100), SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "edition2", MediaType: models.MediaTypeMovie,
+			Title: "Movie Edition 2", Year: 2020, TMDBID: "tmdb_same",
+			AddedAt: now.AddDate(0, 0, -99), SyncedAt: now},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var candidates []models.BatchCandidate
-	for _, item := range libItems {
-		candidates = append(candidates, models.BatchCandidate{LibraryItemID: item.ID, Reason: "Test"})
-	}
-	if err := s.BatchUpsertCandidates(ctx, rule.ID, candidates); err != nil {
-		t.Fatal(err)
-	}
 
-	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 10, "", "", "", 0, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Neither item should show the other as an "other copy" since they're on the same server/library
 	for _, c := range result.Items {
 		if len(c.OtherCopies) != 0 {
 			t.Errorf("%s: other_copies = %d, want 0 (same server/library should be excluded)", c.Item.Title, len(c.OtherCopies))
