@@ -440,7 +440,7 @@ function CandidatesView({
     if (item && (item.tmdb_id || item.tvdb_id || item.imdb_id)) {
       setCrossServerCandidate(candidate)
     } else {
-      setDeleteDialog({ candidates: [candidate], showDetails: false, includeCrossServer: false })
+      setDeleteDialog({ candidates: [candidate], showDetails: false, includeCrossServer: true })
     }
   }
 
@@ -497,7 +497,7 @@ function CandidatesView({
   }
 
   const handleBulkDeleteClick = () => {
-    setDeleteDialog({ candidates: selectedItems, showDetails: false, includeCrossServer: false })
+    setDeleteDialog({ candidates: selectedItems, showDetails: false, includeCrossServer: true })
   }
 
   return (
