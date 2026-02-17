@@ -36,30 +36,38 @@ func getItemRefTime(item models.LibraryItemCache) (time.Time, bool) {
 }
 
 func (e *Evaluator) EvaluateRule(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, error) {
+	var candidates []models.BatchCandidate
+	var items []models.LibraryItemCache
+	var err error
+
 	switch rule.CriterionType {
 	case models.CriterionUnwatchedMovie:
-		return e.evaluateUnwatched(ctx, rule, models.MediaTypeMovie,
+		candidates, items, err = e.evaluateUnwatched(ctx, rule, models.MediaTypeMovie,
 			"Not watched in %d days", "Never watched (added %d days ago)")
 	case models.CriterionUnwatchedTVNone:
-		return e.evaluateUnwatched(ctx, rule, models.MediaTypeTV,
+		candidates, items, err = e.evaluateUnwatched(ctx, rule, models.MediaTypeTV,
 			"Last watched %d days ago", "Never watched (%d days inactive)")
 	case models.CriterionLowResolution:
-		return e.evaluateLowResolution(ctx, rule)
+		candidates, items, err = e.evaluateLowResolution(ctx, rule)
 	case models.CriterionLargeFiles:
-		return e.evaluateLargeFiles(ctx, rule)
+		candidates, items, err = e.evaluateLargeFiles(ctx, rule)
 	default:
 		return nil, fmt.Errorf("unknown criterion type: %s", rule.CriterionType)
 	}
+	if err != nil {
+		return nil, err
+	}
+	return deduplicateCandidates(candidates, items), nil
 }
 
 type unwatchedParams struct {
 	Days int `json:"days"`
 }
 
-func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.MaintenanceRule, mediaType models.MediaType, watchedFmt, neverFmt string) ([]models.BatchCandidate, error) {
+func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.MaintenanceRule, mediaType models.MediaType, watchedFmt, neverFmt string) ([]models.BatchCandidate, []models.LibraryItemCache, error) {
 	var params unwatchedParams
 	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
-		return nil, fmt.Errorf("parse params: %w", err)
+		return nil, nil, fmt.Errorf("parse params: %w", err)
 	}
 	if params.Days <= 0 {
 		params.Days = DefaultDays
@@ -69,10 +77,9 @@ func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.Maintena
 	cutoff := now.AddDate(0, 0, -params.Days)
 	items, err := e.store.ListItemsForLibraries(ctx, rule.Libraries)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	// Collect item IDs for cross-server watch lookup
 	itemIDs := make([]int64, len(items))
 	for i, item := range items {
 		itemIDs[i] = item.ID
@@ -80,10 +87,9 @@ func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.Maintena
 
 	watchTimes, err := e.store.GetCrossServerWatchTimes(ctx, itemIDs)
 	if err != nil {
-		return nil, fmt.Errorf("cross-server watch times: %w", err)
+		return nil, nil, fmt.Errorf("cross-server watch times: %w", err)
 	}
 
-	// Merge cross-server watch times into items
 	for i := range items {
 		if t, ok := watchTimes[items[i].ID]; ok && t != nil {
 			if items[i].LastWatchedAt == nil || t.After(*items[i].LastWatchedAt) {
@@ -95,7 +101,7 @@ func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.Maintena
 	var results []models.BatchCandidate
 	for _, item := range items {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		}
 		if item.MediaType != mediaType {
 			continue
@@ -119,13 +125,13 @@ func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.Maintena
 			})
 		}
 	}
-	return results, nil
+	return results, items, nil
 }
 
-func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, error) {
+func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, []models.LibraryItemCache, error) {
 	var params models.LowResolutionParams
 	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
-		return nil, fmt.Errorf("parse params: %w", err)
+		return nil, nil, fmt.Errorf("parse params: %w", err)
 	}
 	if params.MaxHeight <= 0 {
 		params.MaxHeight = DefaultMaxHeight
@@ -133,13 +139,13 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 
 	items, err := e.store.ListItemsForLibraries(ctx, rule.Libraries)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var results []models.BatchCandidate
 	for _, item := range items {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		}
 		if item.MediaType != rule.MediaType {
 			continue
@@ -156,13 +162,13 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 			})
 		}
 	}
-	return results, nil
+	return results, items, nil
 }
 
-func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, error) {
+func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, []models.LibraryItemCache, error) {
 	var params models.LargeFilesParams
 	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
-		return nil, fmt.Errorf("parse params: %w", err)
+		return nil, nil, fmt.Errorf("parse params: %w", err)
 	}
 	if params.MinSizeGB <= 0 {
 		params.MinSizeGB = DefaultMinSizeGB
@@ -172,13 +178,13 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 
 	items, err := e.store.ListItemsForLibraries(ctx, rule.Libraries)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var results []models.BatchCandidate
 	for _, item := range items {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		}
 		if item.MediaType != rule.MediaType {
 			continue
@@ -195,7 +201,63 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 			})
 		}
 	}
-	return results, nil
+	return results, items, nil
+}
+
+// externalIDKeys returns all dedup keys for an item's external IDs.
+// Items sharing any key represent the same movie/show.
+func externalIDKeys(item *models.LibraryItemCache) []string {
+	var keys []string
+	if item.TMDBID != "" {
+		keys = append(keys, "tmdb:"+item.TMDBID)
+	}
+	if item.IMDBID != "" {
+		keys = append(keys, "imdb:"+item.IMDBID)
+	}
+	if item.TVDBID != "" {
+		keys = append(keys, "tvdb:"+item.TVDBID)
+	}
+	return keys
+}
+
+// deduplicateCandidates removes duplicate candidates that share any external ID,
+// keeping the first occurrence. Items without external IDs are never deduped.
+// Ordering depends on ListItemsForLibraries (added_at DESC), so which copy
+// survives is determined by the most recently added item.
+func deduplicateCandidates(candidates []models.BatchCandidate, items []models.LibraryItemCache) []models.BatchCandidate {
+	itemMap := make(map[int64]*models.LibraryItemCache, len(items))
+	for i := range items {
+		itemMap[items[i].ID] = &items[i]
+	}
+
+	seen := make(map[string]bool)
+	result := make([]models.BatchCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		item := itemMap[c.LibraryItemID]
+		if item == nil {
+			result = append(result, c)
+			continue
+		}
+		keys := externalIDKeys(item)
+		if len(keys) == 0 {
+			result = append(result, c)
+			continue
+		}
+		duplicate := false
+		for _, k := range keys {
+			if seen[k] {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			for _, k := range keys {
+				seen[k] = true
+			}
+			result = append(result, c)
+		}
+	}
+	return result
 }
 
 // resolutionRegex matches resolution strings like "576p", "1080p", "720"

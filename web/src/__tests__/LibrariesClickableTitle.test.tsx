@@ -76,6 +76,7 @@ const candidatesResponse: MaintenanceCandidatesResponse = {
     library_item_id: 1,
     reason: 'Not watched in 90+ days',
     computed_at: '2024-06-01T00:00:00Z',
+    cross_server_count: 0,
     item: baseLibraryItem,
   }],
   total: 1,

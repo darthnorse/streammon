@@ -11,21 +11,39 @@ import (
 	"streammon/internal/models"
 )
 
+// candidateSelectColumns is the base column list for candidate queries.
+// CrossServerCount is not populated by queries using this constant (defaults to 0);
+// only ListCandidatesForRule (paginated) uses candidateSelectColumnsWithCrossCount.
 const candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
 	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url,
 	i.tmdb_id, i.tvdb_id, i.imdb_id, i.synced_at`
 
-func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
+// candidateSelectColumnsWithCrossCount appends a correlated subquery that counts
+// other library_items sharing any external ID. The subquery runs per result row
+// but only for paginated results (25 per page), so performance is acceptable.
+const candidateSelectColumnsWithCrossCount = candidateSelectColumns + `,
+	(SELECT COUNT(*) FROM library_items other
+	 WHERE other.id != i.id
+	 AND ((i.tmdb_id != '' AND other.tmdb_id = i.tmdb_id)
+	   OR (i.tvdb_id != '' AND other.tvdb_id = i.tvdb_id)
+	   OR (i.imdb_id != '' AND other.imdb_id = i.imdb_id))
+	) as cross_server_count`
+
+func scanCandidateCore(scanner interface{ Scan(...any) error }, extra ...any) (models.MaintenanceCandidate, error) {
 	var c models.MaintenanceCandidate
 	var item models.LibraryItemCache
 	var lastWatchedAt sql.NullString
-	err := scanner.Scan(&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
+	dest := []any{
+		&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
 		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
 		&item.Title, &item.Year, &item.AddedAt, &lastWatchedAt, &item.VideoResolution, &item.FileSize,
 		&item.EpisodeCount, &item.ThumbURL,
-		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.SyncedAt)
+		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.SyncedAt,
+	}
+	dest = append(dest, extra...)
+	err := scanner.Scan(dest...)
 	if err != nil {
 		return c, err
 	}
@@ -36,6 +54,20 @@ func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceC
 		}
 	}
 	c.Item = &item
+	return c, nil
+}
+
+func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
+	return scanCandidateCore(scanner)
+}
+
+func scanCandidateWithCrossCount(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
+	var crossCount int
+	c, err := scanCandidateCore(scanner, &crossCount)
+	if err != nil {
+		return c, err
+	}
+	c.CrossServerCount = crossCount
 	return c, nil
 }
 
@@ -124,7 +156,7 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 	copy(listArgs, args)
 	listArgs = append(listArgs, perPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+candidateSelectColumns+`
+		SELECT `+candidateSelectColumnsWithCrossCount+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
 		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
@@ -138,7 +170,7 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 
 	candidates := []models.MaintenanceCandidate{}
 	for rows.Next() {
-		c, err := scanCandidate(rows)
+		c, err := scanCandidateWithCrossCount(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
 		}

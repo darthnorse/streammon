@@ -596,6 +596,7 @@ export interface MaintenanceCandidate {
   reason: string
   computed_at: string
   item?: LibraryItemCache
+  cross_server_count: number
 }
 
 export interface LibraryMaintenance {

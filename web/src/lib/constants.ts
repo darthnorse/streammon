@@ -10,7 +10,7 @@ import {
   Film,
   CalendarDays,
 } from 'lucide-react'
-import type { MediaType, Role, Severity } from '../types'
+import type { MediaType, Role, Severity, ServerType } from '../types'
 
 export const mediaTypeLabels: Record<MediaType, string> = {
   movie: 'Movie',
@@ -84,6 +84,12 @@ export function visibleNavLinks(role: Role | undefined, integrations?: Integrati
     if (link.requires && integrations && !integrations[link.requires]) return false
     return true
   })
+}
+
+export const SERVER_ACCENT: Record<ServerType, string> = {
+  plex: 'bg-warn/10 text-warn',
+  emby: 'bg-emby/10 text-emby',
+  jellyfin: 'bg-jellyfin/10 text-jellyfin',
 }
 
 export const SEVERITY_COLORS: Record<Severity, string> = {

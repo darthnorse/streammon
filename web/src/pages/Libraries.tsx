@@ -1,23 +1,15 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useFetch } from '../hooks/useFetch'
-import { api, ApiError } from '../lib/api'
 import { formatCount, formatSize } from '../lib/format'
+import { SERVER_ACCENT } from '../lib/constants'
 import type {
   LibrariesResponse,
   Library,
   LibraryType,
-  ServerType,
   MaintenanceDashboard,
   LibraryMaintenance,
-  SyncProgress,
 } from '../types'
-
-const serverAccent: Record<ServerType, string> = {
-  plex: 'bg-warn/10 text-warn',
-  emby: 'bg-emby/10 text-emby',
-  jellyfin: 'bg-jellyfin/10 text-jellyfin',
-}
 
 const libraryTypeIcon: Record<LibraryType, string> = {
   movie: '\u25C9',
@@ -33,10 +25,6 @@ const libraryTypeLabel: Record<LibraryType, string> = {
   other: 'Other',
 }
 
-function syncKey(lib: Library): string {
-  return `${lib.server_id}-${lib.id}`
-}
-
 function getUniqueServers(libraries: Library[]): { id: number; name: string }[] {
   const seen = new Map<number, string>()
   for (const lib of libraries) {
@@ -47,33 +35,15 @@ function getUniqueServers(libraries: Library[]): { id: number; name: string }[] 
   return Array.from(seen, ([id, name]) => ({ id, name }))
 }
 
-function formatSyncStatus(state: SyncProgress): string {
-  if (state.phase === 'items') {
-    if (state.total) {
-      return `Scanning ${state.current ?? 0}/${state.total}`
-    }
-    return 'Scanning...'
-  }
-  if (state.phase === 'history') {
-    if (state.total) {
-      return `History ${state.current ?? 0}/${state.total}`
-    }
-    return 'Fetching history...'
-  }
-  return 'Syncing...'
-}
-
 interface LibraryRowProps {
   library: Library
   maintenance: LibraryMaintenance | null
-  syncState: SyncProgress | null
-  onSync: () => void
   onRules: () => void
   onViolations: () => void
 }
 
-function LibraryRow({ library, maintenance, syncState, onSync, onRules, onViolations }: LibraryRowProps) {
-  const accent = serverAccent[library.server_type] || 'bg-gray-100 text-gray-600'
+function LibraryRow({ library, maintenance, onRules, onViolations }: LibraryRowProps) {
+  const accent = SERVER_ACCENT[library.server_type] || 'bg-gray-100 text-gray-600'
   const icon = libraryTypeIcon[library.type]
   const rules = maintenance?.rules || []
   const ruleCount = rules.length
@@ -134,27 +104,7 @@ function LibraryRow({ library, maintenance, syncState, onSync, onRules, onViolat
       </td>
       <td className="px-4 py-3">
         {isMaintenanceSupported && (
-          <div className="flex items-center justify-end gap-2">
-            <span className="relative group/sync">
-              <button
-                onClick={onSync}
-                disabled={!!syncState}
-                className="px-2 py-1 text-xs font-medium rounded border border-border dark:border-border-dark
-                         hover:bg-surface dark:hover:bg-surface-dark transition-colors disabled:opacity-50"
-              >
-                {syncState ? formatSyncStatus(syncState) : 'Sync'}
-                {syncState?.phase === 'history' && syncState.total && (
-                  <span className="ml-0.5 opacity-60">&#9432;</span>
-                )}
-              </button>
-              {syncState?.phase === 'history' && syncState.total && (
-                <div className="absolute bottom-full right-0 mb-1 px-2 py-1 text-xs rounded w-48
-                              bg-gray-900 text-white dark:bg-gray-700
-                              opacity-0 group-hover/sync:opacity-100 pointer-events-none transition-opacity z-50">
-                  This is total watch history, not episode count — includes rewatches
-                </div>
-              )}
-            </span>
+          <div className="flex items-center justify-end">
             <button
               onClick={onRules}
               className="px-2 py-1 text-xs font-medium rounded border border-border dark:border-border-dark
@@ -172,12 +122,9 @@ function LibraryRow({ library, maintenance, syncState, onSync, onRules, onViolat
 export function Libraries() {
   const navigate = useNavigate()
   const [selectedServer, setSelectedServer] = useState<number | 'all'>('all')
-  const [syncStates, setSyncStates] = useState<Record<string, SyncProgress>>({})
-  const handledKeysRef = useRef(new Set<string>())
-  const [syncError, setSyncError] = useState<string | null>(null)
 
-  const { data, loading, error, refetch } = useFetch<LibrariesResponse>('/api/libraries')
-  const { data: maintenanceData, refetch: refetchMaintenance } = useFetch<MaintenanceDashboard>('/api/maintenance/dashboard')
+  const { data, loading, error } = useFetch<LibrariesResponse>('/api/libraries')
+  const { data: maintenanceData } = useFetch<MaintenanceDashboard>('/api/maintenance/dashboard')
 
   const libraries = data?.libraries || []
   const servers = useMemo(() => getUniqueServers(libraries), [libraries])
@@ -189,83 +136,10 @@ export function Libraries() {
     [libraries, selectedServer]
   )
 
-  const getMaintenanceForLibrary = useCallback((lib: Library): LibraryMaintenance | null => {
+  const getMaintenanceForLibrary = (lib: Library): LibraryMaintenance | null => {
     return maintenanceData?.libraries.find(
       m => m.server_id === lib.server_id && m.library_id === lib.id
     ) || null
-  }, [maintenanceData])
-
-  // Poll for sync progress
-  const hasSyncsRunning = Object.keys(syncStates).length > 0
-  useEffect(() => {
-    if (!hasSyncsRunning) return
-
-    let active = true
-
-    const poll = async () => {
-      if (!active) return
-      try {
-        const status = await api.get<Record<string, SyncProgress>>('/api/maintenance/sync/status')
-        if (!active) return
-
-        let needRefresh = false
-        const activeStates: Record<string, SyncProgress> = {}
-
-        for (const [key, progress] of Object.entries(status)) {
-          if (progress.phase === 'done') {
-            if (!handledKeysRef.current.has(key)) {
-              handledKeysRef.current.add(key)
-              needRefresh = true
-            }
-          } else if (progress.phase === 'error') {
-            if (!handledKeysRef.current.has(key)) {
-              handledKeysRef.current.add(key)
-              setSyncError(`Sync failed: ${progress.error}`)
-              needRefresh = true
-            }
-          } else {
-            activeStates[key] = progress
-            handledKeysRef.current.delete(key)
-          }
-        }
-
-        setSyncStates(prev => {
-          const next: Record<string, SyncProgress> = { ...activeStates }
-          for (const key of Object.keys(prev)) {
-            if (!(key in next) && !(key in status)) {
-              next[key] = prev[key]
-            }
-          }
-          return next
-        })
-        if (needRefresh) {
-          refetch()
-          refetchMaintenance()
-        }
-      } catch { /* ignore polling errors */ }
-    }
-
-    poll()
-    const interval = setInterval(poll, 1500)
-    return () => { active = false; clearInterval(interval) }
-  }, [hasSyncsRunning, refetch, refetchMaintenance])
-
-  const handleSync = async (library: Library) => {
-    setSyncError(null)
-    try {
-      await api.post('/api/maintenance/sync', {
-        server_id: library.server_id,
-        library_id: library.id,
-      })
-      setSyncStates(prev => ({
-        ...prev,
-        [syncKey(library)]: { phase: 'items', library: library.id },
-      }))
-    } catch (err) {
-      if ((err as ApiError).status !== 409) {
-        setSyncError(`Failed to start sync for "${library.name}"`)
-      }
-    }
   }
 
   const navigateToRules = useCallback((library: Library) => {
@@ -316,19 +190,6 @@ export function Libraries() {
           </div>
         )}
       </div>
-
-      {syncError && (
-        <div className="mb-4 p-3 rounded-lg bg-red-500/10 text-red-500 text-sm flex items-center justify-between">
-          <span>{syncError}</span>
-          <button
-            onClick={() => setSyncError(null)}
-            className="ml-4 text-red-400 hover:text-red-300"
-            aria-label="Dismiss error"
-          >
-            {'\u2715'}
-          </button>
-        </div>
-      )}
 
       {error && (
         <div className="card p-6 text-center text-red-500 dark:text-red-400">
@@ -381,21 +242,15 @@ export function Libraries() {
                 </tr>
               </thead>
               <tbody>
-                {displayedLibraries.map(library => {
-                  const maintenance = getMaintenanceForLibrary(library)
-                  const key = syncKey(library)
-                  return (
-                    <LibraryRow
-                      key={key}
-                      library={library}
-                      maintenance={maintenance}
-                      syncState={syncStates[key] || null}
-                      onSync={() => handleSync(library)}
-                      onRules={() => navigateToRules(library)}
-                      onViolations={() => navigateToRules(library)}
-                    />
-                  )
-                })}
+                {displayedLibraries.map(library => (
+                  <LibraryRow
+                    key={`${library.server_id}-${library.id}`}
+                    library={library}
+                    maintenance={getMaintenanceForLibrary(library)}
+                    onRules={() => navigateToRules(library)}
+                    onViolations={() => navigateToRules(library)}
+                  />
+                ))}
                 {displayedLibraries.length === 0 && (
                   <tr>
                     <td colSpan={10} className="px-4 py-12 text-center">

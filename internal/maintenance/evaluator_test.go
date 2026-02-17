@@ -124,6 +124,19 @@ func libs(serverID int64, libraryID string) []models.RuleLibrary {
 	return []models.RuleLibrary{{ServerID: serverID, LibraryID: libraryID}}
 }
 
+func seedTwoTestServers(t *testing.T, s *store.Store) (*models.Server, *models.Server) {
+	t.Helper()
+	srvA := &models.Server{Name: "Server A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "keyA", Enabled: true}
+	if err := s.CreateServer(srvA); err != nil {
+		t.Fatal(err)
+	}
+	srvB := &models.Server{Name: "Server B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "keyB", Enabled: true}
+	if err := s.CreateServer(srvB); err != nil {
+		t.Fatal(err)
+	}
+	return srvA, srvB
+}
+
 // Integration tests
 
 func TestEvaluateUnwatchedMovie(t *testing.T) {
@@ -573,16 +586,7 @@ func TestEvaluateMultiLibraryRule(t *testing.T) {
 func TestEvaluateCrossServerWatch(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
-
-	// Create two servers
-	srvA := &models.Server{Name: "Server A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "keyA", Enabled: true}
-	if err := s.CreateServer(srvA); err != nil {
-		t.Fatal(err)
-	}
-	srvB := &models.Server{Name: "Server B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "keyB", Enabled: true}
-	if err := s.CreateServer(srvB); err != nil {
-		t.Fatal(err)
-	}
+	srvA, srvB := seedTwoTestServers(t, s)
 
 	now := time.Now().UTC()
 	watchedRecently := now.AddDate(0, 0, -5)
@@ -642,15 +646,7 @@ func TestEvaluateCrossServerWatch(t *testing.T) {
 func TestEvaluateCrossServerWatchNoExternalIDs(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
-
-	srvA := &models.Server{Name: "Server A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "keyA", Enabled: true}
-	if err := s.CreateServer(srvA); err != nil {
-		t.Fatal(err)
-	}
-	srvB := &models.Server{Name: "Server B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "keyB", Enabled: true}
-	if err := s.CreateServer(srvB); err != nil {
-		t.Fatal(err)
-	}
+	srvA, srvB := seedTwoTestServers(t, s)
 
 	now := time.Now().UTC()
 	watchedRecently := now.AddDate(0, 0, -5)
@@ -705,6 +701,183 @@ func TestEvaluateCrossServerWatchNoExternalIDs(t *testing.T) {
 	}
 	if !strings.Contains(results[0].Reason, "Never watched") {
 		t.Errorf("expected 'Never watched' in reason, got %q", results[0].Reason)
+	}
+}
+
+func TestExternalIDKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		item models.LibraryItemCache
+		want []string
+	}{
+		{"tmdb only", models.LibraryItemCache{TMDBID: "123"}, []string{"tmdb:123"}},
+		{"imdb only", models.LibraryItemCache{IMDBID: "tt999"}, []string{"imdb:tt999"}},
+		{"tvdb only", models.LibraryItemCache{TVDBID: "456"}, []string{"tvdb:456"}},
+		{"tmdb and imdb", models.LibraryItemCache{TMDBID: "1", IMDBID: "tt2"}, []string{"tmdb:1", "imdb:tt2"}},
+		{"all three", models.LibraryItemCache{TMDBID: "1", IMDBID: "tt2", TVDBID: "3"}, []string{"tmdb:1", "imdb:tt2", "tvdb:3"}},
+		{"no external IDs", models.LibraryItemCache{}, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := externalIDKeys(&tt.item)
+			if len(got) != len(tt.want) {
+				t.Fatalf("externalIDKeys() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Errorf("externalIDKeys()[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestDeduplicateCandidates(t *testing.T) {
+	t.Run("empty input", func(t *testing.T) {
+		result := deduplicateCandidates(nil, nil)
+		if len(result) != 0 {
+			t.Errorf("got %d, want 0", len(result))
+		}
+	})
+
+	t.Run("all unique external IDs", func(t *testing.T) {
+		items := []models.LibraryItemCache{
+			{ID: 1, TMDBID: "100"},
+			{ID: 2, TMDBID: "200"},
+		}
+		candidates := []models.BatchCandidate{
+			{LibraryItemID: 1, Reason: "r1"},
+			{LibraryItemID: 2, Reason: "r2"},
+		}
+		result := deduplicateCandidates(candidates, items)
+		if len(result) != 2 {
+			t.Errorf("got %d, want 2", len(result))
+		}
+	})
+
+	t.Run("duplicate TMDB ID keeps first", func(t *testing.T) {
+		items := []models.LibraryItemCache{
+			{ID: 1, TMDBID: "100", ServerID: 1},
+			{ID: 2, TMDBID: "100", ServerID: 2},
+		}
+		candidates := []models.BatchCandidate{
+			{LibraryItemID: 1, Reason: "server1"},
+			{LibraryItemID: 2, Reason: "server2"},
+		}
+		result := deduplicateCandidates(candidates, items)
+		if len(result) != 1 {
+			t.Fatalf("got %d, want 1", len(result))
+		}
+		if result[0].LibraryItemID != 1 {
+			t.Errorf("kept item %d, want 1 (first)", result[0].LibraryItemID)
+		}
+	})
+
+	t.Run("items without external IDs not deduped", func(t *testing.T) {
+		items := []models.LibraryItemCache{
+			{ID: 1},
+			{ID: 2},
+		}
+		candidates := []models.BatchCandidate{
+			{LibraryItemID: 1, Reason: "r1"},
+			{LibraryItemID: 2, Reason: "r2"},
+		}
+		result := deduplicateCandidates(candidates, items)
+		if len(result) != 2 {
+			t.Errorf("got %d, want 2 (no external IDs = no dedup)", len(result))
+		}
+	})
+
+	t.Run("mixed scenario", func(t *testing.T) {
+		items := []models.LibraryItemCache{
+			{ID: 1, TMDBID: "100"},         // dup group A
+			{ID: 2, TMDBID: "100"},         // dup group A (removed)
+			{ID: 3, IMDBID: "tt200"},       // unique
+			{ID: 4},                         // no external ID
+			{ID: 5, TVDBID: "300"},         // dup group B
+			{ID: 6, TVDBID: "300"},         // dup group B (removed)
+		}
+		candidates := []models.BatchCandidate{
+			{LibraryItemID: 1}, {LibraryItemID: 2}, {LibraryItemID: 3},
+			{LibraryItemID: 4}, {LibraryItemID: 5}, {LibraryItemID: 6},
+		}
+		result := deduplicateCandidates(candidates, items)
+		// Expected: item 1 (tmdb:100), item 3 (imdb:tt200), item 4 (no ID), item 5 (tvdb:300) = 4
+		if len(result) != 4 {
+			t.Errorf("got %d, want 4", len(result))
+		}
+	})
+
+	t.Run("mixed external ID types deduped via shared IMDB", func(t *testing.T) {
+		// Item A has TMDB + IMDB, item B only has IMDB. They share IMDB so should dedup.
+		items := []models.LibraryItemCache{
+			{ID: 1, TMDBID: "100", IMDBID: "tt999"},
+			{ID: 2, IMDBID: "tt999"},
+		}
+		candidates := []models.BatchCandidate{
+			{LibraryItemID: 1, Reason: "r1"},
+			{LibraryItemID: 2, Reason: "r2"},
+		}
+		result := deduplicateCandidates(candidates, items)
+		if len(result) != 1 {
+			t.Fatalf("got %d, want 1 (shared IMDB should dedup)", len(result))
+		}
+		if result[0].LibraryItemID != 1 {
+			t.Errorf("kept item %d, want 1 (first)", result[0].LibraryItemID)
+		}
+	})
+
+	t.Run("candidate with missing item not deduped", func(t *testing.T) {
+		candidates := []models.BatchCandidate{
+			{LibraryItemID: 999, Reason: "orphan"},
+		}
+		result := deduplicateCandidates(candidates, nil)
+		if len(result) != 1 {
+			t.Errorf("got %d, want 1", len(result))
+		}
+	})
+}
+
+func TestEvaluateRuleDeduplicatesCrossServer(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srvA, srvB := seedTwoTestServers(t, s)
+
+	now := time.Now().UTC()
+	// Same movie on both servers, same TMDB ID, both old enough to be flagged
+	itemsA := []models.LibraryItemCache{{
+		ServerID: srvA.ID, LibraryID: "lib1", ItemID: "movieA",
+		MediaType: models.MediaTypeMovie, Title: "Inception", Year: 2010,
+		TMDBID: "27205", AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
+	}}
+	itemsB := []models.LibraryItemCache{{
+		ServerID: srvB.ID, LibraryID: "lib2", ItemID: "movieB",
+		MediaType: models.MediaTypeMovie, Title: "Inception", Year: 2010,
+		TMDBID: "27205", AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, itemsA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLibraryItems(ctx, itemsB); err != nil {
+		t.Fatal(err)
+	}
+
+	rule := &models.MaintenanceRule{
+		Libraries: []models.RuleLibrary{
+			{ServerID: srvA.ID, LibraryID: "lib1"},
+			{ServerID: srvB.ID, LibraryID: "lib2"},
+		},
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{"days": 30}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("got %d results, want 1 (same TMDB ID should dedup)", len(results))
 	}
 }
 

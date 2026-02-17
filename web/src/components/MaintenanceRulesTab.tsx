@@ -6,7 +6,7 @@ import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
 import { useItemDetails } from '../hooks/useItemDetails'
 import { api, ApiError } from '../lib/api'
-import { PER_PAGE_OPTIONS } from '../lib/constants'
+import { PER_PAGE_OPTIONS, SERVER_ACCENT } from '../lib/constants'
 import { readSSEStream } from '../lib/sse'
 import { formatCount, formatSize } from '../lib/format'
 import { Pagination } from './Pagination'
@@ -32,7 +32,6 @@ import type {
   Library,
   LibraryItemCache,
   CriterionType,
-  ServerType,
   SyncProgress,
 } from '../types'
 
@@ -86,28 +85,34 @@ function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
   return criterionFormatters[rule.criterion_type]?.(params) ?? JSON.stringify(params)
 }
 
-const serverAccent: Record<ServerType, string> = {
-  plex: 'bg-warn/10 text-warn',
-  emby: 'bg-emby/10 text-emby',
-  jellyfin: 'bg-jellyfin/10 text-jellyfin',
+
+interface RuleOpState {
+  syncKeys: string[]
+  message: string
 }
 
-type RuleOpState =
-  | { phase: 'syncing'; syncKeys: string[]; message: string }
-  | { phase: 'evaluating'; message: string }
+function makeSyncKey(serverId: number, libraryId: string): string {
+  return `${serverId}-${libraryId}`
+}
 
-function formatSyncProgress(state: SyncProgress): string {
+function parseSyncKey(key: string): { serverId: number; libraryId: string } {
+  const i = key.indexOf('-')
+  return { serverId: Number(key.slice(0, i)), libraryId: key.slice(i + 1) }
+}
+
+function formatSyncProgress(state: SyncProgress, libraryName?: string): string {
+  const prefix = libraryName ? `${libraryName}: ` : ''
   switch (state.phase) {
     case 'items':
-      return state.total ? `Scanning ${state.current ?? 0}/${state.total}` : 'Scanning...'
+      return state.total ? `${prefix}Scanning ${state.current ?? 0}/${state.total}` : `${prefix}Scanning...`
     case 'history':
-      return state.total ? `History ${state.current ?? 0}/${state.total}` : 'Fetching history...'
+      return state.total ? `${prefix}History ${state.current ?? 0}/${state.total}` : `${prefix}Fetching history...`
     case 'error':
-      return state.error ? `Error: ${state.error}` : 'Sync error'
+      return state.error ? `${prefix}Error: ${state.error}` : `${prefix}Sync error`
     case 'done':
-      return 'Sync complete'
+      return `${prefix}Sync complete`
     default:
-      return 'Syncing...'
+      return `${prefix}Syncing...`
   }
 }
 
@@ -181,7 +186,7 @@ export function useLibraryLookup(): LibraryLookup {
         if (!serverMap.has(lib.server_id)) {
           serverMap.set(lib.server_id, lib.server_name)
         }
-        libraryMap.set(`${lib.server_id}-${lib.id}`, lib)
+        libraryMap.set(makeSyncKey(lib.server_id, lib.id), lib)
       }
     }
     return { serverMap, libraryMap }
@@ -192,11 +197,11 @@ export function useLibraryLookup(): LibraryLookup {
     [maps.serverMap]
   )
   const getLibraryName = useCallback(
-    (serverId: number, libraryId: string) => maps.libraryMap.get(`${serverId}-${libraryId}`)?.name ?? libraryId,
+    (serverId: number, libraryId: string) => maps.libraryMap.get(makeSyncKey(serverId, libraryId))?.name ?? libraryId,
     [maps.libraryMap]
   )
   const getLibrary = useCallback(
-    (serverId: number, libraryId: string) => maps.libraryMap.get(`${serverId}-${libraryId}`),
+    (serverId: number, libraryId: string) => maps.libraryMap.get(makeSyncKey(serverId, libraryId)),
     [maps.libraryMap]
   )
 
@@ -641,7 +646,16 @@ function CandidatesView({
                       </td>
                       <td className="px-4 py-3 text-sm text-muted dark:text-muted-dark whitespace-nowrap">
                         {candidate.item
-                          ? <>{lookup.getServerName(candidate.item.server_id)} <span className="text-muted/60 dark:text-muted-dark/60">/</span> {lookup.getLibraryName(candidate.item.server_id, candidate.item.library_id)}</>
+                          ? <>{lookup.getServerName(candidate.item.server_id)} <span className="text-muted/60 dark:text-muted-dark/60">/</span> {lookup.getLibraryName(candidate.item.server_id, candidate.item.library_id)}
+                            {candidate.cross_server_count > 0 && (
+                              <span
+                                className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full bg-accent/10 text-accent font-medium"
+                                title={`Exists on ${candidate.cross_server_count} other server${candidate.cross_server_count > 1 ? 's' : ''}`}
+                              >
+                                +{candidate.cross_server_count}
+                              </span>
+                            )}
+                          </>
                           : '-'}
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
@@ -1005,34 +1019,11 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
   }, [filterServerID, filterLibraryID, lookup])
 
   const hasActiveOps = Object.keys(ruleOps).length > 0
-  const evaluatingRef = useRef(new Set<number>())
+
   useEffect(() => {
     if (!hasActiveOps) return
     let active = true
     const controller = new AbortController()
-
-    const triggerEvaluate = async (ruleId: number) => {
-      if (evaluatingRef.current.has(ruleId)) return
-      evaluatingRef.current.add(ruleId)
-
-      try {
-        await api.post(`/api/maintenance/rules/${ruleId}/evaluate`)
-      } catch (err) {
-        if (!active) return
-        console.error(`Failed to evaluate rule ${ruleId}:`, err)
-        if (mountedRef.current) setOperationError(`Failed to evaluate rule after sync`)
-      } finally {
-        evaluatingRef.current.delete(ruleId)
-        if (active && mountedRef.current) {
-          setRuleOps(prev => {
-            const next = { ...prev }
-            delete next[ruleId]
-            return next
-          })
-          refetchRules()
-        }
-      }
-    }
 
     const poll = async () => {
       if (!active) return
@@ -1040,32 +1031,43 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
         const status = await api.get<Record<string, SyncProgress>>('/api/maintenance/sync/status', controller.signal)
         if (!active) return
 
-        const rulesToEvaluate: number[] = []
+        const errors: string[] = []
         setRuleOps(prev => {
           const next = { ...prev }
+          let changed = false
           for (const [ruleId, op] of Object.entries(next)) {
-            if (op.phase !== 'syncing') continue
-
             const activeKey = op.syncKeys.find(k => status[k] && status[k].phase !== 'done' && status[k].phase !== 'error')
+
             if (activeKey) {
-              next[Number(ruleId)] = { ...op, message: formatSyncProgress(status[activeKey]) }
+              const { serverId, libraryId } = parseSyncKey(activeKey)
+              const libName = lookup.getLibraryName(serverId, libraryId)
+              next[Number(ruleId)] = { ...op, message: formatSyncProgress(status[activeKey], libName) }
+              changed = true
             } else {
-              next[Number(ruleId)] = { ...op, phase: 'evaluating', message: 'Evaluating...' }
-              rulesToEvaluate.push(Number(ruleId))
+              const errorKeys = op.syncKeys.filter(k => status[k]?.phase === 'error')
+              for (const ek of errorKeys) {
+                const errMsg = status[ek]?.error
+                const { serverId, libraryId } = parseSyncKey(ek)
+                const libName = lookup.getLibraryName(serverId, libraryId)
+                errors.push(errMsg ? `${libName}: ${errMsg}` : `${libName}: Sync error`)
+              }
+              delete next[Number(ruleId)]
+              changed = true
             }
           }
-          return next
+          return changed ? next : prev
         })
-        for (const ruleId of rulesToEvaluate) {
-          triggerEvaluate(ruleId)
+        if (errors.length > 0 && mountedRef.current) {
+          setOperationError(errors.join('; '))
         }
+        if (active) refetchRules()
       } catch { /* ignore polling errors */ }
     }
 
     poll()
     const interval = setInterval(poll, 1500)
     return () => { active = false; clearInterval(interval); controller.abort() }
-  }, [hasActiveOps, mountedRef, refetchRules])
+  }, [hasActiveOps, refetchRules, lookup.getLibraryName])
 
   const handleToggleRule = async (rule: MaintenanceRuleWithCount) => {
     setOperationError(null)
@@ -1107,7 +1109,7 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
 
     const uniqueLibs = new Map<string, { serverID: number; libraryID: string }>()
     for (const rl of rule.libraries) {
-      const key = `${rl.server_id}-${rl.library_id}`
+      const key = makeSyncKey(rl.server_id, rl.library_id)
       uniqueLibs.set(key, { serverID: rl.server_id, libraryID: rl.library_id })
     }
 
@@ -1134,30 +1136,10 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
     if (syncKeys.length > 0) {
       setRuleOps(prev => ({
         ...prev,
-        [rule.id]: { phase: 'syncing', syncKeys, message: 'Syncing...' },
+        [rule.id]: { syncKeys, message: 'Syncing...' },
       }))
     } else {
-      setRuleOps(prev => ({
-        ...prev,
-        [rule.id]: { phase: 'evaluating', message: 'Evaluating...' },
-      }))
-      evaluatingRef.current.add(rule.id)
-      api.post(`/api/maintenance/rules/${rule.id}/evaluate`)
-        .catch(err => {
-          console.error(`Failed to evaluate rule ${rule.id}:`, err)
-          if (mountedRef.current) setOperationError(`Failed to evaluate rule "${rule.name}"`)
-        })
-        .finally(() => {
-          evaluatingRef.current.delete(rule.id)
-          if (mountedRef.current) {
-            setRuleOps(prev => {
-              const next = { ...prev }
-              delete next[rule.id]
-              return next
-            })
-            refetchRules()
-          }
-        })
+      setOperationError('Failed to start sync for any library')
     }
   }
 
@@ -1264,7 +1246,7 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {rule.libraries.map((rl) => {
                         const lib = lookup.getLibrary(rl.server_id, rl.library_id)
-                        const accent = lib ? serverAccent[lib.server_type] : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                        const accent = lib ? SERVER_ACCENT[lib.server_type] : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
                         return (
                           <span
                             key={`${rl.server_id}-${rl.library_id}`}

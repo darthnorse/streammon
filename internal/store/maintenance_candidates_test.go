@@ -599,6 +599,92 @@ func TestListCandidatesForRuleSearch(t *testing.T) {
 	}
 }
 
+func TestListCandidatesForRuleCrossServerCount(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	// Create two servers
+	srvA := &models.Server{Name: "Server A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "keyA", Enabled: true}
+	if err := s.CreateServer(srvA); err != nil {
+		t.Fatal(err)
+	}
+	srvB := &models.Server{Name: "Server B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "keyB", Enabled: true}
+	if err := s.CreateServer(srvB); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+
+	// Movie exists on both servers with same TMDB ID
+	itemsA := []models.LibraryItemCache{{
+		ServerID: srvA.ID, LibraryID: "lib1", ItemID: "movieA",
+		MediaType: models.MediaTypeMovie, Title: "Shared Movie", Year: 2020,
+		TMDBID: "tmdb999", AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
+	}}
+	itemsB := []models.LibraryItemCache{{
+		ServerID: srvB.ID, LibraryID: "lib2", ItemID: "movieB",
+		MediaType: models.MediaTypeMovie, Title: "Shared Movie", Year: 2020,
+		TMDBID: "tmdb999", AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
+	}}
+	// Unique movie only on server A
+	itemsUnique := []models.LibraryItemCache{{
+		ServerID: srvA.ID, LibraryID: "lib1", ItemID: "unique1",
+		MediaType: models.MediaTypeMovie, Title: "Unique Movie", Year: 2021,
+		TMDBID: "tmdb111", AddedAt: now.AddDate(0, 0, -100), SyncedAt: now,
+	}}
+
+	if _, err := s.UpsertLibraryItems(ctx, itemsA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLibraryItems(ctx, itemsB); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpsertLibraryItems(ctx, itemsUnique); err != nil {
+		t.Fatal(err)
+	}
+
+	// Get the library item IDs
+	libItemsA, _ := s.ListLibraryItems(ctx, srvA.ID, "lib1")
+
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		Name:          "Test Rule",
+		MediaType:     models.MediaTypeMovie,
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{}`),
+		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: srvA.ID, LibraryID: "lib1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create candidates for items on server A
+	var candidates []models.BatchCandidate
+	for _, item := range libItemsA {
+		candidates = append(candidates, models.BatchCandidate{LibraryItemID: item.ID, Reason: "Test"})
+	}
+	if err := s.BatchUpsertCandidates(ctx, rule.ID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 10, "", "title", "asc", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, c := range result.Items {
+		if c.Item.Title == "Shared Movie" {
+			if c.CrossServerCount != 1 {
+				t.Errorf("Shared Movie: cross_server_count = %d, want 1", c.CrossServerCount)
+			}
+		} else if c.Item.Title == "Unique Movie" {
+			if c.CrossServerCount != 0 {
+				t.Errorf("Unique Movie: cross_server_count = %d, want 0", c.CrossServerCount)
+			}
+		}
+	}
+}
+
 func TestListCandidatesForRuleSearchEscapesWildcards(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

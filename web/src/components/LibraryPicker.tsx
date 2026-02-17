@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useFetch } from '../hooks/useFetch'
+import { SERVER_ACCENT } from '../lib/constants'
 import type { LibrariesResponse, Library, MediaType, RuleLibrary, ServerType } from '../types'
 
 interface LibraryPickerProps {
@@ -7,12 +8,6 @@ interface LibraryPickerProps {
   onChange: (libraries: RuleLibrary[]) => void
   mediaType: MediaType | null
   disabled?: boolean
-}
-
-const serverBadgeColors: Record<ServerType, string> = {
-  plex: 'bg-warn/10 text-warn',
-  emby: 'bg-emby/10 text-emby',
-  jellyfin: 'bg-jellyfin/10 text-jellyfin',
 }
 
 const serverTypeLabel: Record<ServerType, string> = {
@@ -102,7 +97,7 @@ export function LibraryPicker({ selected, onChange, mediaType, disabled }: Libra
         <div key={group.serverId}>
           <div className="flex items-center gap-2 mb-2">
             <span className="font-medium text-sm">{group.serverName}</span>
-            <span className={`px-2 py-0.5 text-xs rounded-full ${serverBadgeColors[group.serverType]}`}>
+            <span className={`px-2 py-0.5 text-xs rounded-full ${SERVER_ACCENT[group.serverType]}`}>
               {serverTypeLabel[group.serverType]}
             </span>
           </div>

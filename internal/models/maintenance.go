@@ -12,7 +12,7 @@ type CriterionType string
 const (
 	CriterionUnwatchedMovie  CriterionType = "unwatched_movie"
 	CriterionUnwatchedTVNone CriterionType = "unwatched_tv_none"
-	CriterionLowResolution CriterionType = "low_resolution"
+	CriterionLowResolution   CriterionType = "low_resolution"
 	CriterionLargeFiles      CriterionType = "large_files"
 )
 
@@ -178,12 +178,13 @@ func validateRuleFields(name string, criterionType CriterionType) error {
 
 // MaintenanceCandidate represents an item flagged by a rule
 type MaintenanceCandidate struct {
-	ID            int64             `json:"id"`
-	RuleID        int64             `json:"rule_id"`
-	LibraryItemID int64             `json:"library_item_id"`
-	Reason        string            `json:"reason"`
-	ComputedAt    time.Time         `json:"computed_at"`
-	Item          *LibraryItemCache `json:"item,omitempty"`
+	ID               int64             `json:"id"`
+	RuleID           int64             `json:"rule_id"`
+	LibraryItemID    int64             `json:"library_item_id"`
+	Reason           string            `json:"reason"`
+	ComputedAt       time.Time         `json:"computed_at"`
+	Item             *LibraryItemCache `json:"item,omitempty"`
+	CrossServerCount int               `json:"cross_server_count"`
 }
 
 // BatchCandidate is used for batch upsert operations
