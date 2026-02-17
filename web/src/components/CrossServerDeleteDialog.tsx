@@ -66,12 +66,14 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
 
   const hasMatches = otherItems.length > 0
   const [selectedOtherIds, setSelectedOtherIds] = useState<Set<number>>(new Set())
+  const [initialized, setInitialized] = useState(false)
 
   useEffect(() => {
-    if (otherItems.length > 0) {
+    if (!initialized && otherItems.length > 0) {
       setSelectedOtherIds(new Set(otherItems.map(ci => ci.id)))
+      setInitialized(true)
     }
-  }, [otherItems])
+  }, [initialized, otherItems])
 
   const toggleItem = (id: number) => {
     setSelectedOtherIds(prev => {

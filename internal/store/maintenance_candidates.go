@@ -264,16 +264,25 @@ func (s *Store) populateOtherCopies(ctx context.Context, candidates []models.Mai
 		return err
 	}
 
-	// Match copies to candidates by shared external IDs
+	// Match copies to candidates by shared external IDs, deduplicated by (server_id, library_id)
 	for i := range candidates {
 		item := candidates[i].Item
 		if item == nil {
 			continue
 		}
+		seen := make(map[string]bool)
 		for _, cp := range copies {
+			if cp.serverID == item.ServerID && cp.libraryID == item.LibraryID {
+				continue
+			}
 			if (item.TMDBID != "" && item.TMDBID == cp.tmdbID) ||
 				(item.TVDBID != "" && item.TVDBID == cp.tvdbID) ||
 				(item.IMDBID != "" && item.IMDBID == cp.imdbID) {
+				key := fmt.Sprintf("%d:%s", cp.serverID, cp.libraryID)
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
 				candidates[i].OtherCopies = append(candidates[i].OtherCopies, models.RuleLibrary{
 					ServerID:  cp.serverID,
 					LibraryID: cp.libraryID,
