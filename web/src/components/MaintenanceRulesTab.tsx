@@ -442,6 +442,7 @@ function CandidatesView({
     if (item && (item.tmdb_id || item.tvdb_id || item.imdb_id)) {
       setCrossServerCandidate(candidate)
     } else {
+      setIncludeCrossServer(false)
       setDeleteConfirm([candidate])
     }
   }
@@ -750,7 +751,7 @@ function CandidatesView({
               onChange={e => setIncludeCrossServer(e.target.checked)}
               className="rounded border-border dark:border-border-dark"
             />
-            <span className="text-sm">Also delete matching copies on other servers</span>
+            <span className="text-sm">Also delete matching copies of each item on other servers</span>
           </label>
           <button
             onClick={() => setShowDetails(!showDetails)}

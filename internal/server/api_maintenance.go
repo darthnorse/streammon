@@ -1134,7 +1134,19 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 			deletedItemIDs[candidate.LibraryItemID] = true
 
 			if includeCrossServer {
-				s.deleteCrossServerCopies(ctx, candidate, deletedBy, deletedItemIDs, &result)
+				s.deleteCrossServerCopies(candidate, deletedBy, deletedItemIDs, &result)
+				if onProgress != nil {
+					onProgress(BulkDeleteProgress{
+						Current:   i + 1,
+						Total:     total,
+						Title:     title,
+						Status:    "deleted",
+						Deleted:   result.Deleted,
+						Failed:    result.Failed,
+						Skipped:   result.Skipped,
+						TotalSize: result.TotalSize,
+					})
+				}
 			}
 		} else {
 			result.Failed++
@@ -1149,8 +1161,8 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 	return result
 }
 
-func (s *Server) deleteCrossServerCopies(ctx context.Context, candidate models.MaintenanceCandidate, deletedBy string, deletedItemIDs map[int64]bool, result *models.BulkDeleteResult) {
-	findCtx, findCancel := context.WithTimeout(ctx, 10*time.Second)
+func (s *Server) deleteCrossServerCopies(candidate models.MaintenanceCandidate, deletedBy string, deletedItemIDs map[int64]bool, result *models.BulkDeleteResult) {
+	findCtx, findCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	matches, err := s.store.FindMatchingItems(findCtx, candidate.Item)
 	findCancel()
 	if err != nil {
