@@ -360,17 +360,13 @@ function CandidatesView({
         onData(raw) {
           try {
             if (mountedRef.current) setDeleteProgress(JSON.parse(raw) as DeleteProgress)
-          } catch {
-            // Skip malformed SSE data
-          }
+          } catch { /* malformed */ }
         },
         onEvent(event, raw) {
           if (event === 'complete') {
             try {
               ref.result = JSON.parse(raw) as BulkDeleteResult
-            } catch {
-              // Skip malformed SSE data
-            }
+            } catch { /* malformed */ }
           }
         },
       })

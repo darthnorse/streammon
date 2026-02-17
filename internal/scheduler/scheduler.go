@@ -92,7 +92,6 @@ func (sch *Scheduler) run(ctx context.Context) {
 	}
 }
 
-// cleanupSessions removes expired sessions from the database
 func (sch *Scheduler) cleanupSessions() {
 	deleted, err := sch.store.DeleteExpiredSessions()
 	if err != nil {
@@ -222,7 +221,6 @@ func (sch *Scheduler) evaluateAllRules(ctx context.Context) (totalCandidates, to
 	return totalCandidates, totalErrors
 }
 
-// serverIdentity captures the fields that define a server's "identity" for sync purposes.
 // If any of these change during a sync, the sync should abort to avoid writing stale data.
 type serverIdentity struct {
 	URL       string
@@ -239,7 +237,6 @@ func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverNam
 		return 0, err
 	}
 
-	// Check if server identity changed during fetch - abort if so to avoid writing stale data
 	currentServer, err := sch.store.GetServer(serverID)
 	if err != nil {
 		return 0, err

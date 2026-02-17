@@ -759,7 +759,6 @@ func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Limit export size to prevent OOM
 	if len(candidates) > maxExportSize {
 		writeError(w, http.StatusRequestEntityTooLarge,
 			fmt.Sprintf("too many candidates to export (%d). Maximum is %d. Please filter or paginate.", len(candidates), maxExportSize))
@@ -1001,7 +1000,6 @@ func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Reque
 	writeJSON(w, http.StatusOK, result)
 }
 
-// BulkDeleteProgress represents a progress update during bulk delete
 type BulkDeleteProgress struct {
 	Current   int    `json:"current"`
 	Total     int    `json:"total"`
@@ -1013,7 +1011,6 @@ type BulkDeleteProgress struct {
 	TotalSize int64  `json:"total_size"`
 }
 
-// streamBulkDelete streams progress via SSE
 func (s *Server) streamBulkDelete(w http.ResponseWriter, r *http.Request, candidateIDs []int64, candidateMap map[int64]models.MaintenanceCandidate, deletedBy string, includeCrossServer bool) {
 	flusher, ok := sseFlusher(w)
 	if !ok {

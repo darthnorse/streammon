@@ -48,7 +48,6 @@ func (s *Store) CreateExclusions(ctx context.Context, ruleID int64, libraryItemI
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Count existing exclusions before insert (within transaction for consistency)
 	var beforeCount int
 	err = tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM maintenance_exclusions WHERE rule_id = ?`, ruleID).Scan(&beforeCount)
@@ -75,7 +74,6 @@ func (s *Store) CreateExclusions(ctx context.Context, ruleID int64, libraryItemI
 		}
 	}
 
-	// Count after insert (within same transaction for accurate diff)
 	var afterCount int
 	err = tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM maintenance_exclusions WHERE rule_id = ?`, ruleID).Scan(&afterCount)
@@ -90,7 +88,6 @@ func (s *Store) CreateExclusions(ctx context.Context, ruleID int64, libraryItemI
 	return afterCount - beforeCount, nil
 }
 
-// DeleteExclusion removes a single exclusion
 func (s *Store) DeleteExclusion(ctx context.Context, ruleID, libraryItemID int64) error {
 	result, err := s.db.ExecContext(ctx, `
 		DELETE FROM maintenance_exclusions
@@ -121,7 +118,6 @@ func (s *Store) DeleteExclusions(ctx context.Context, ruleID int64, libraryItemI
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	// Count existing exclusions before delete (within transaction for consistency)
 	var beforeCount int
 	err = tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM maintenance_exclusions WHERE rule_id = ?`, ruleID).Scan(&beforeCount)
@@ -146,7 +142,6 @@ func (s *Store) DeleteExclusions(ctx context.Context, ruleID int64, libraryItemI
 		}
 	}
 
-	// Count after delete (within same transaction for accurate diff)
 	var afterCount int
 	err = tx.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM maintenance_exclusions WHERE rule_id = ?`, ruleID).Scan(&afterCount)
@@ -161,7 +156,6 @@ func (s *Store) DeleteExclusions(ctx context.Context, ruleID int64, libraryItemI
 	return beforeCount - afterCount, nil
 }
 
-// CountExclusionsForRule returns the count of exclusions for a rule
 func (s *Store) CountExclusionsForRule(ctx context.Context, ruleID int64) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
@@ -227,7 +221,6 @@ func (s *Store) ListExclusionsForRule(ctx context.Context, ruleID int64, page, p
 	}, rows.Err()
 }
 
-// IsItemExcluded checks if a library item is excluded from a rule
 func (s *Store) IsItemExcluded(ctx context.Context, ruleID, libraryItemID int64) (bool, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
@@ -239,7 +232,6 @@ func (s *Store) IsItemExcluded(ctx context.Context, ruleID, libraryItemID int64)
 	return count > 0, nil
 }
 
-// IsItemExcludedFromAnyRule checks if a library item is excluded from any maintenance rule
 func (s *Store) IsItemExcludedFromAnyRule(ctx context.Context, libraryItemID int64) (bool, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `
@@ -251,7 +243,6 @@ func (s *Store) IsItemExcludedFromAnyRule(ctx context.Context, libraryItemID int
 	return count > 0, nil
 }
 
-// GetExcludedItemIDs returns all excluded library item IDs for a rule
 func (s *Store) GetExcludedItemIDs(ctx context.Context, ruleID int64) ([]int64, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT library_item_id FROM maintenance_exclusions WHERE rule_id = ?`, ruleID)

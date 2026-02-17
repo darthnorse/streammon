@@ -27,7 +27,6 @@ func NewEvaluator(s *store.Store) *Evaluator {
 	return &Evaluator{store: s}
 }
 
-// getItemRefTime returns the last-watched time for an item, or AddedAt if never watched.
 func getItemRefTime(item models.LibraryItemCache) (time.Time, bool) {
 	if item.LastWatchedAt != nil {
 		return *item.LastWatchedAt, true
@@ -204,7 +203,6 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 	return results, items, nil
 }
 
-// externalIDKeys returns all dedup keys for an item's external IDs.
 // Items sharing any key represent the same movie/show.
 func externalIDKeys(item *models.LibraryItemCache) []string {
 	var keys []string
@@ -220,8 +218,6 @@ func externalIDKeys(item *models.LibraryItemCache) []string {
 	return keys
 }
 
-// deduplicateCandidates removes duplicate candidates that share any external ID,
-// keeping the first occurrence. Items without external IDs are never deduped.
 // Ordering depends on ListItemsForLibraries (added_at DESC), so which copy
 // survives is determined by the most recently added item.
 func deduplicateCandidates(candidates []models.BatchCandidate, items []models.LibraryItemCache) []models.BatchCandidate {
@@ -262,7 +258,6 @@ func deduplicateCandidates(candidates []models.BatchCandidate, items []models.Li
 
 var resolutionRegex = regexp.MustCompile(`^(\d+)p?$`)
 
-// parseResolutionHeight extracts height from resolution strings like "1080p", "720p", "4K", "480", "576p"
 func parseResolutionHeight(res string) int {
 	lower := strings.ToLower(res)
 

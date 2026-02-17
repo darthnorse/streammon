@@ -41,7 +41,6 @@ func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceC
 	return c, nil
 }
 
-// UpsertMaintenanceCandidate inserts or updates a candidate
 func (s *Store) UpsertMaintenanceCandidate(ctx context.Context, ruleID, libraryItemID int64, reason string) error {
 	now := time.Now().UTC()
 	_, err := s.db.ExecContext(ctx, `
@@ -57,7 +56,6 @@ func (s *Store) UpsertMaintenanceCandidate(ctx context.Context, ruleID, libraryI
 	return nil
 }
 
-// DeleteCandidatesForRule removes all candidates for a rule
 func (s *Store) DeleteCandidatesForRule(ctx context.Context, ruleID int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM maintenance_candidates WHERE rule_id = ?`, ruleID)
 	if err != nil {
@@ -171,7 +169,6 @@ func (s *Store) populateOtherCopies(ctx context.Context, candidates []models.Mai
 		return nil
 	}
 
-	// Collect external IDs and item IDs from candidates
 	var itemIDs []int64
 	tmdbIDs := make(map[string]struct{})
 	tvdbIDs := make(map[string]struct{})
@@ -197,7 +194,6 @@ func (s *Store) populateOtherCopies(ctx context.Context, candidates []models.Mai
 		return nil
 	}
 
-	// Build query to find other items sharing any external ID
 	var conditions []string
 	var args []any
 
@@ -216,7 +212,6 @@ func (s *Store) populateOtherCopies(ctx context.Context, candidates []models.Mai
 	addInClause("tvdb_id", tvdbIDs)
 	addInClause("imdb_id", imdbIDs)
 
-	// Exclude the candidate items themselves
 	itemPhs := make([]string, len(itemIDs))
 	for i, id := range itemIDs {
 		itemPhs[i] = "?"
@@ -305,7 +300,6 @@ func (s *Store) BatchUpsertCandidates(ctx context.Context, ruleID int64, candida
 	}
 	defer tx.Rollback()
 
-	// Always clear existing candidates for this rule
 	if _, err := tx.ExecContext(ctx, `DELETE FROM maintenance_candidates WHERE rule_id = ?`, ruleID); err != nil {
 		return fmt.Errorf("clear candidates: %w", err)
 	}
@@ -335,7 +329,6 @@ func (s *Store) BatchUpsertCandidates(ctx context.Context, ruleID int64, candida
 	return tx.Commit()
 }
 
-// GetMaintenanceCandidate returns a candidate by ID with its library item
 func (s *Store) GetMaintenanceCandidate(ctx context.Context, id int64) (*models.MaintenanceCandidate, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT `+candidateSelectColumns+`
@@ -353,7 +346,6 @@ func (s *Store) GetMaintenanceCandidate(ctx context.Context, id int64) (*models.
 	return &c, nil
 }
 
-// DeleteMaintenanceCandidate deletes a single candidate by ID
 func (s *Store) DeleteMaintenanceCandidate(ctx context.Context, id int64) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM maintenance_candidates WHERE id = ?`, id)
 	if err != nil {
@@ -369,7 +361,6 @@ func (s *Store) DeleteMaintenanceCandidate(ctx context.Context, id int64) error 
 	return nil
 }
 
-// DeleteLibraryItem deletes a library item by ID
 func (s *Store) DeleteLibraryItem(ctx context.Context, id int64) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM library_items WHERE id = ?`, id)
 	if err != nil {
@@ -385,13 +376,11 @@ func (s *Store) DeleteLibraryItem(ctx context.Context, id int64) error {
 	return nil
 }
 
-// GetMaintenanceCandidates returns multiple candidates by IDs with their library items
 func (s *Store) GetMaintenanceCandidates(ctx context.Context, ids []int64) ([]models.MaintenanceCandidate, error) {
 	if len(ids) == 0 {
 		return []models.MaintenanceCandidate{}, nil
 	}
 
-	// Build query with placeholders
 	placeholders := make([]string, len(ids))
 	args := make([]any, len(ids))
 	for i, id := range ids {
@@ -422,7 +411,6 @@ func (s *Store) GetMaintenanceCandidates(ctx context.Context, ids []int64) ([]mo
 	return candidates, rows.Err()
 }
 
-// RecordDeleteAction records a deletion in the audit log
 func (s *Store) RecordDeleteAction(ctx context.Context, serverID int64, itemID, title, mediaType string, fileSize int64, deletedBy string, serverDeleted bool, errMsg string) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO maintenance_delete_log (server_id, item_id, title, media_type, file_size, deleted_by, deleted_at, server_deleted, error_message)

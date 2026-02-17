@@ -32,7 +32,6 @@ func scanMaintenanceRule(scanner interface{ Scan(...any) error }) (models.Mainte
 	return rule, nil
 }
 
-// loadRuleLibraries fetches junction rows for the given rule IDs and returns a map of ruleID -> []RuleLibrary.
 func loadRuleLibraries(ctx context.Context, db querier, ruleIDs ...int64) (map[int64][]models.RuleLibrary, error) {
 	if len(ruleIDs) == 0 {
 		return nil, nil
@@ -67,7 +66,6 @@ func loadRuleLibraries(ctx context.Context, db querier, ruleIDs ...int64) (map[i
 	return result, rows.Err()
 }
 
-// setRuleLibraries replaces all junction rows for a rule within a transaction.
 func setRuleLibraries(ctx context.Context, tx *sql.Tx, ruleID int64, libs []models.RuleLibrary) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM maintenance_rule_libraries WHERE rule_id = ?`, ruleID); err != nil {
 		return fmt.Errorf("clear rule libraries: %w", err)
@@ -93,7 +91,6 @@ func setRuleLibraries(ctx context.Context, tx *sql.Tx, ruleID int64, libs []mode
 	return nil
 }
 
-// CreateMaintenanceRule creates a new maintenance rule with its library associations.
 func (s *Store) CreateMaintenanceRule(ctx context.Context, input *models.MaintenanceRuleInput) (*models.MaintenanceRule, error) {
 	if err := input.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid maintenance rule: %w", err)
@@ -145,7 +142,6 @@ func (s *Store) CreateMaintenanceRule(ctx context.Context, input *models.Mainten
 	}, nil
 }
 
-// GetMaintenanceRule returns a rule by ID with its library associations.
 func (s *Store) GetMaintenanceRule(ctx context.Context, id int64) (*models.MaintenanceRule, error) {
 	rule, err := scanMaintenanceRule(s.db.QueryRowContext(ctx,
 		`SELECT `+maintenanceRuleColumns+` FROM maintenance_rules WHERE id = ?`, id))
@@ -230,9 +226,8 @@ func (s *Store) DeleteMaintenanceRule(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ListMaintenanceRules returns all rules, optionally filtered by server/library via junction table.
 func (s *Store) ListMaintenanceRules(ctx context.Context, serverID int64, libraryID string) ([]models.MaintenanceRule, error) {
-	query := `SELECT DISTINCT r.` + maintenanceRuleColumns + ` FROM maintenance_rules r`
+	query := `SELECT DISTINCT r.id, r.name, r.media_type, r.criterion_type, r.parameters, r.enabled, r.created_at, r.updated_at FROM maintenance_rules r`
 	var args []any
 
 	if serverID > 0 || libraryID != "" {
@@ -284,7 +279,6 @@ func (s *Store) ListMaintenanceRules(ctx context.Context, serverID int64, librar
 	return rules, nil
 }
 
-// ListMaintenanceRulesWithCounts returns rules with candidate counts, optionally filtered by server/library.
 func (s *Store) ListMaintenanceRulesWithCounts(ctx context.Context, serverID int64, libraryID string) ([]models.MaintenanceRuleWithCount, error) {
 	query := `SELECT r.id, r.name, r.media_type, r.criterion_type, r.parameters,
 		r.enabled, r.created_at, r.updated_at, COUNT(DISTINCT c.id) as candidate_count,
