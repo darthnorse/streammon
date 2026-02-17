@@ -38,7 +38,6 @@ export function Rules() {
   const [page, setPage] = useState(1)
   const units = useUnits()
 
-  // Sync tab from URL on initial load and back/forward navigation
   useEffect(() => {
     const urlTab = searchParams.get('tab')
     if (isValidTab(urlTab)) {
@@ -55,7 +54,6 @@ export function Rules() {
       } else {
         next.set('tab', newTab)
       }
-      // Clear maintenance filters when switching away
       if (newTab !== 'maintenance') {
         next.delete('server_id')
         next.delete('library_id')

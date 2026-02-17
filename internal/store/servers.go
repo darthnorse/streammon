@@ -90,22 +90,18 @@ func (s *Store) UpdateServerAtomic(existing, srv *models.Server) error {
 	}
 	defer tx.Rollback()
 
-	// Clear maintenance data first if identity changed
 	if identityChanged {
 		if _, err := tx.Exec(`DELETE FROM library_items WHERE server_id = ?`, srv.ID); err != nil {
 			return fmt.Errorf("delete library items: %w", err)
 		}
-		// Remove this server's library associations from rules (junction table)
 		if _, err := tx.Exec(`DELETE FROM maintenance_rule_libraries WHERE server_id = ?`, srv.ID); err != nil {
 			return fmt.Errorf("delete rule library associations: %w", err)
 		}
-		// Clean up orphaned rules (rules with no remaining library associations)
 		if _, err := tx.Exec(`DELETE FROM maintenance_rules WHERE id NOT IN (SELECT DISTINCT rule_id FROM maintenance_rule_libraries)`); err != nil {
 			return fmt.Errorf("delete orphaned rules: %w", err)
 		}
 	}
 
-	// Update the server
 	updated, err := scanServer(tx.QueryRow(
 		`UPDATE servers SET name = ?, type = ?, url = ?, api_key = ?, machine_id = ?, enabled = ?, show_recent_media = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? RETURNING `+serverColumns,
@@ -147,5 +143,10 @@ func (s *Store) DeleteServer(id int64) error {
 	if n == 0 {
 		return fmt.Errorf("server %d: %w", id, models.ErrNotFound)
 	}
+
+	if _, err := tx.Exec(`DELETE FROM maintenance_rules WHERE id NOT IN (SELECT DISTINCT rule_id FROM maintenance_rule_libraries)`); err != nil {
+		return fmt.Errorf("delete orphaned rules: %w", err)
+	}
+
 	return tx.Commit()
 }

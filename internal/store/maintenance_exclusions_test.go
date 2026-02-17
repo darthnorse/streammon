@@ -215,26 +215,6 @@ func TestCandidatesExcludeExcludedItems(t *testing.T) {
 	items := createAdditionalItems(t, s, ctx, serverID, 2)
 	allItemIDs := append([]int64{itemID}, items...)
 
-	// Create candidates for all items
-	var candidates []struct {
-		LibraryItemID int64
-		Reason        string
-	}
-	for _, id := range allItemIDs {
-		candidates = append(candidates, struct {
-			LibraryItemID int64
-			Reason        string
-		}{id, "Test reason"})
-	}
-
-	// Use BatchUpsertCandidates
-	batchCandidates := make([]struct{ LibraryItemID int64; Reason string }, len(allItemIDs))
-	for i, id := range allItemIDs {
-		batchCandidates[i] = struct{ LibraryItemID int64; Reason string }{id, "Test reason"}
-	}
-
-	// Actually we need to import the models.BatchCandidate
-	// Let me just use the store method directly
 	for _, id := range allItemIDs {
 		if err := s.UpsertMaintenanceCandidate(ctx, ruleID, id, "Test reason"); err != nil {
 			t.Fatal(err)

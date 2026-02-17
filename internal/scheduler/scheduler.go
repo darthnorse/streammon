@@ -68,13 +68,11 @@ func (sch *Scheduler) run(ctx context.Context) {
 		log.Printf("scheduler: initial sync failed: %v", err)
 	}
 
-	// Clean expired sessions on startup
 	sch.cleanupSessions()
 
 	syncTicker := time.NewTicker(durationUntil3AM(time.Now()))
 	defer syncTicker.Stop()
 
-	// Session cleanup every hour
 	sessionTicker := time.NewTicker(1 * time.Hour)
 	defer sessionTicker.Stop()
 

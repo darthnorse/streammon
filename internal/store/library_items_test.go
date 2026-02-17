@@ -585,7 +585,6 @@ func TestListItemsForLibraries(t *testing.T) {
 		}
 	})
 
-	_ = srvJelly // used above
 }
 
 func TestGetCrossServerWatchTimes(t *testing.T) {
@@ -782,7 +781,6 @@ func TestFindMatchingItems(t *testing.T) {
 		}
 	})
 
-	_ = srvJelly // used via seedMultiServerItems
 }
 
 func TestGetAllLibraryTotalSizes(t *testing.T) {

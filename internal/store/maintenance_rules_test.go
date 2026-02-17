@@ -142,24 +142,24 @@ func TestDeleteMaintenanceRuleCascadesJunction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	count, err := s.CountRulesForLibrary(ctx, srv.ID, "lib1")
+	rules, err := s.ListMaintenanceRules(ctx, srv.ID, "lib1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 1 {
-		t.Fatalf("expected 1 rule for lib1 before delete, got %d", count)
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule for lib1 before delete, got %d", len(rules))
 	}
 
 	if err := s.DeleteMaintenanceRule(ctx, rule.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	count, err = s.CountRulesForLibrary(ctx, srv.ID, "lib1")
+	rules, err = s.ListMaintenanceRules(ctx, srv.ID, "lib1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Errorf("expected 0 rules for lib1 after delete, got %d", count)
+	if len(rules) != 0 {
+		t.Errorf("expected 0 rules for lib1 after delete, got %d", len(rules))
 	}
 }
 
@@ -550,54 +550,6 @@ func TestListAllMaintenanceRules(t *testing.T) {
 		if len(r.Libraries) != 1 {
 			t.Errorf("rule %d has %d libraries, want 1", r.ID, len(r.Libraries))
 		}
-	}
-}
-
-func TestCountRulesForLibrary(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-	ctx := context.Background()
-
-	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
-	if err := s.CreateServer(srv); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create 2 rules targeting lib1, 1 rule targeting lib2
-	for i := 0; i < 2; i++ {
-		input := createTestRuleInput(models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib1"})
-		input.Name = fmt.Sprintf("Lib1 Rule %d", i)
-		if _, err := s.CreateMaintenanceRule(ctx, input); err != nil {
-			t.Fatal(err)
-		}
-	}
-	lib2Input := createTestRuleInput(models.RuleLibrary{ServerID: srv.ID, LibraryID: "lib2"})
-	lib2Input.Name = "Lib2 Rule"
-	if _, err := s.CreateMaintenanceRule(ctx, lib2Input); err != nil {
-		t.Fatal(err)
-	}
-
-	count, err := s.CountRulesForLibrary(ctx, srv.ID, "lib1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 2 {
-		t.Errorf("count for lib1 = %d, want 2", count)
-	}
-
-	count, err = s.CountRulesForLibrary(ctx, srv.ID, "lib2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 1 {
-		t.Errorf("count for lib2 = %d, want 1", count)
-	}
-
-	count, err = s.CountRulesForLibrary(ctx, srv.ID, "lib_nonexistent")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 0 {
-		t.Errorf("count for non-existent lib = %d, want 0", count)
 	}
 }
 

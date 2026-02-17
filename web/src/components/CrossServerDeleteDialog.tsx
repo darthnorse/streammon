@@ -134,7 +134,6 @@ export function CrossServerDeleteDialog({ candidateId, item, onConfirm, onCancel
       </div>
 
       <div className="space-y-2 mb-4">
-        {/* Original item - always checked, disabled */}
         <label className="flex items-center gap-3 py-1.5 px-2 rounded bg-surface dark:bg-surface-dark">
           <input
             type="checkbox"

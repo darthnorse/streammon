@@ -38,7 +38,6 @@ func loadRuleLibraries(ctx context.Context, db querier, ruleIDs ...int64) (map[i
 		return nil, nil
 	}
 
-	// Build query with placeholders
 	query := `SELECT rule_id, server_id, library_id FROM maintenance_rule_libraries WHERE rule_id IN (`
 	args := make([]any, len(ruleIDs))
 	for i, id := range ruleIDs {
@@ -288,7 +287,7 @@ func (s *Store) ListMaintenanceRules(ctx context.Context, serverID int64, librar
 // ListMaintenanceRulesWithCounts returns rules with candidate counts, optionally filtered by server/library.
 func (s *Store) ListMaintenanceRulesWithCounts(ctx context.Context, serverID int64, libraryID string) ([]models.MaintenanceRuleWithCount, error) {
 	query := `SELECT r.id, r.name, r.media_type, r.criterion_type, r.parameters,
-		r.enabled, r.created_at, r.updated_at, COUNT(c.id) as candidate_count,
+		r.enabled, r.created_at, r.updated_at, COUNT(DISTINCT c.id) as candidate_count,
 		(SELECT COUNT(*) FROM maintenance_exclusions e2 WHERE e2.rule_id = r.id) as exclusion_count
 		FROM maintenance_rules r
 		LEFT JOIN maintenance_candidates c ON r.id = c.rule_id
@@ -394,14 +393,3 @@ func (s *Store) ListAllMaintenanceRules(ctx context.Context) ([]models.Maintenan
 	return rules, nil
 }
 
-// CountRulesForLibrary returns the number of distinct rules that target a specific server/library pair.
-func (s *Store) CountRulesForLibrary(ctx context.Context, serverID int64, libraryID string) (int, error) {
-	var count int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(DISTINCT rule_id) FROM maintenance_rule_libraries WHERE server_id = ? AND library_id = ?`,
-		serverID, libraryID).Scan(&count)
-	if err != nil {
-		return 0, fmt.Errorf("count rules for library: %w", err)
-	}
-	return count, nil
-}

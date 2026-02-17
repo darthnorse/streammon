@@ -3,10 +3,10 @@ package models
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
-// CriterionType defines the type of maintenance criterion
 type CriterionType string
 
 const (
@@ -16,7 +16,6 @@ const (
 	CriterionLargeFiles      CriterionType = "large_files"
 )
 
-// Valid returns true if the criterion type is recognized
 func (ct CriterionType) Valid() bool {
 	switch ct {
 	case CriterionUnwatchedMovie, CriterionUnwatchedTVNone,
@@ -26,7 +25,6 @@ func (ct CriterionType) Valid() bool {
 	return false
 }
 
-// CriterionTypeInfo describes a criterion type for the API
 type CriterionTypeInfo struct {
 	Type        CriterionType `json:"type"`
 	Name        string        `json:"name"`
@@ -35,7 +33,6 @@ type CriterionTypeInfo struct {
 	Parameters  []ParamSpec   `json:"parameters"`
 }
 
-// ParamSpec describes a parameter for a criterion type
 type ParamSpec struct {
 	Name    string      `json:"name"`
 	Type    string      `json:"type"` // "int", "string"
@@ -45,7 +42,6 @@ type ParamSpec struct {
 	Max     *int        `json:"max,omitempty"`
 }
 
-// LibraryItemCache represents a cached library item from a media server
 type LibraryItemCache struct {
 	ID              int64     `json:"id"`
 	ServerID        int64     `json:"server_id"`
@@ -66,13 +62,11 @@ type LibraryItemCache struct {
 	SyncedAt        time.Time  `json:"synced_at"`
 }
 
-// RuleLibrary represents a server/library association for a maintenance rule
 type RuleLibrary struct {
 	ServerID  int64  `json:"server_id"`
 	LibraryID string `json:"library_id"`
 }
 
-// MaintenanceRule represents a user-defined maintenance rule
 type MaintenanceRule struct {
 	ID            int64           `json:"id"`
 	Name          string          `json:"name"`
@@ -85,24 +79,6 @@ type MaintenanceRule struct {
 	UpdatedAt     time.Time       `json:"updated_at"`
 }
 
-// Validate checks that the maintenance rule has valid fields
-func (mr *MaintenanceRule) Validate() error {
-	if err := validateRuleFields(mr.Name, mr.CriterionType); err != nil {
-		return err
-	}
-	if mr.MediaType != MediaTypeMovie && mr.MediaType != MediaTypeTV {
-		return errors.New("media_type must be movie or episode")
-	}
-	if len(mr.Libraries) == 0 {
-		return errors.New("at least one library is required")
-	}
-	if len(mr.Parameters) == 0 {
-		mr.Parameters = json.RawMessage("{}")
-	}
-	return nil
-}
-
-// MaintenanceRuleInput is used for creating rules
 type MaintenanceRuleInput struct {
 	Name          string          `json:"name"`
 	CriterionType CriterionType   `json:"criterion_type"`
@@ -112,7 +88,6 @@ type MaintenanceRuleInput struct {
 	Libraries     []RuleLibrary   `json:"libraries"`
 }
 
-// Validate checks that the input has valid fields
 func (in *MaintenanceRuleInput) Validate() error {
 	if err := validateRuleFields(in.Name, in.CriterionType); err != nil {
 		return err
@@ -120,13 +95,8 @@ func (in *MaintenanceRuleInput) Validate() error {
 	if in.MediaType != MediaTypeMovie && in.MediaType != MediaTypeTV {
 		return errors.New("media_type must be movie or episode")
 	}
-	if len(in.Libraries) == 0 {
-		return errors.New("at least one library is required")
-	}
-	for _, lib := range in.Libraries {
-		if lib.ServerID <= 0 || lib.LibraryID == "" {
-			return errors.New("each library must have a valid server_id and library_id")
-		}
+	if err := validateLibraries(in.Libraries); err != nil {
+		return err
 	}
 	if len(in.Parameters) == 0 {
 		in.Parameters = json.RawMessage("{}")
@@ -134,7 +104,6 @@ func (in *MaintenanceRuleInput) Validate() error {
 	return nil
 }
 
-// MaintenanceRuleUpdateInput is used for updating rules
 type MaintenanceRuleUpdateInput struct {
 	Name          string          `json:"name"`
 	CriterionType CriterionType   `json:"criterion_type"`
@@ -143,26 +112,18 @@ type MaintenanceRuleUpdateInput struct {
 	Libraries     []RuleLibrary   `json:"libraries"`
 }
 
-// Validate checks that the update input has valid fields
 func (in *MaintenanceRuleUpdateInput) Validate() error {
 	if err := validateRuleFields(in.Name, in.CriterionType); err != nil {
 		return err
 	}
-	if len(in.Libraries) == 0 {
-		return errors.New("at least one library is required")
-	}
-	for _, lib := range in.Libraries {
-		if lib.ServerID <= 0 || lib.LibraryID == "" {
-			return errors.New("each library must have a valid server_id and library_id")
-		}
+	if err := validateLibraries(in.Libraries); err != nil {
+		return err
 	}
 	if len(in.Parameters) == 0 {
 		in.Parameters = json.RawMessage("{}")
 	}
 	return nil
 }
-
-// validateRuleFields validates common rule fields (DRY helper)
 func validateRuleFields(name string, criterionType CriterionType) error {
 	if name == "" {
 		return errors.New("name is required")
@@ -176,7 +137,24 @@ func validateRuleFields(name string, criterionType CriterionType) error {
 	return nil
 }
 
-// MaintenanceCandidate represents an item flagged by a rule
+func validateLibraries(libs []RuleLibrary) error {
+	if len(libs) == 0 {
+		return errors.New("at least one library is required")
+	}
+	seen := make(map[string]bool, len(libs))
+	for _, lib := range libs {
+		if lib.ServerID <= 0 || lib.LibraryID == "" {
+			return errors.New("each library must have a valid server_id and library_id")
+		}
+		key := fmt.Sprintf("%d:%s", lib.ServerID, lib.LibraryID)
+		if seen[key] {
+			return errors.New("duplicate library in request")
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
 type MaintenanceCandidate struct {
 	ID            int64             `json:"id"`
 	RuleID        int64             `json:"rule_id"`
@@ -187,18 +165,15 @@ type MaintenanceCandidate struct {
 	OtherCopies   []RuleLibrary     `json:"other_copies,omitempty"`
 }
 
-// BatchCandidate is used for batch upsert operations
 type BatchCandidate struct {
 	LibraryItemID int64
 	Reason        string
 }
 
-// MaintenanceDashboard is the response for the dashboard endpoint
 type MaintenanceDashboard struct {
 	Libraries []LibraryMaintenance `json:"libraries"`
 }
 
-// LibraryMaintenance shows maintenance status for a library
 type LibraryMaintenance struct {
 	ServerID     int64                      `json:"server_id"`
 	ServerName   string                     `json:"server_name"`
@@ -216,17 +191,14 @@ type MaintenanceRuleWithCount struct {
 	ExclusionCount int `json:"exclusion_count"`
 }
 
-// LowResolutionParams for low_resolution criterion
 type LowResolutionParams struct {
 	MaxHeight int `json:"max_height"`
 }
 
-// LargeFilesParams for large_files criterion
 type LargeFilesParams struct {
 	MinSizeGB float64 `json:"min_size_gb"`
 }
 
-// BulkDeleteResult represents the result of a bulk delete operation
 type BulkDeleteResult struct {
 	Deleted   int               `json:"deleted"`
 	Failed    int               `json:"failed"`
@@ -235,14 +207,12 @@ type BulkDeleteResult struct {
 	Errors    []BulkDeleteError `json:"errors,omitempty"`
 }
 
-// BulkDeleteError represents a single deletion failure
 type BulkDeleteError struct {
 	CandidateID int64  `json:"candidate_id"`
 	Title       string `json:"title"`
 	Error       string `json:"error"`
 }
 
-// MaintenanceExclusion represents an excluded item for a rule
 type MaintenanceExclusion struct {
 	ID            int64             `json:"id"`
 	RuleID        int64             `json:"rule_id"`
@@ -252,7 +222,6 @@ type MaintenanceExclusion struct {
 	Item          *LibraryItemCache `json:"item,omitempty"`
 }
 
-// CandidatesResponse is the response for listing candidates with summary stats
 type CandidatesResponse struct {
 	Items          []MaintenanceCandidate `json:"items"`
 	Total          int                    `json:"total"`

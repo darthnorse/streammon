@@ -260,7 +260,6 @@ func deduplicateCandidates(candidates []models.BatchCandidate, items []models.Li
 	return result
 }
 
-// resolutionRegex matches resolution strings like "576p", "1080p", "720"
 var resolutionRegex = regexp.MustCompile(`^(\d+)p?$`)
 
 // parseResolutionHeight extracts height from resolution strings like "1080p", "720p", "4K", "480", "576p"

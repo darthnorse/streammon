@@ -81,8 +81,6 @@ func TestDefaultConstants(t *testing.T) {
 	}
 }
 
-// Test helpers for integration tests
-
 func migrationsDir() string {
 	_, f, _, _ := runtime.Caller(0)
 	return filepath.Join(filepath.Dir(f), "..", "..", "migrations")
@@ -136,8 +134,6 @@ func seedTwoTestServers(t *testing.T, s *store.Store) (*models.Server, *models.S
 	}
 	return srvA, srvB
 }
-
-// Integration tests
 
 func TestEvaluateUnwatchedMovie(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
@@ -547,8 +543,6 @@ func TestEvaluateLargeFilesDefaultParams(t *testing.T) {
 		t.Fatalf("got %d results, want 1 (15GB should be flagged with default 10GB threshold)", len(results))
 	}
 }
-
-// New multi-library and cross-server tests
 
 func TestEvaluateMultiLibraryRule(t *testing.T) {
 	s := newTestStoreWithMigrations(t)

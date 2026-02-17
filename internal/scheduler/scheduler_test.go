@@ -22,9 +22,8 @@ type fakeMediaServer struct {
 	libraries []models.Library
 	items     map[string][]models.LibraryItemCache
 
-	mu          sync.Mutex
-	syncOrder   *[]string // shared tracker for ordering verification
-	getItemsCh  chan struct{}
+	mu        sync.Mutex
+	syncOrder *[]string
 }
 
 func (f *fakeMediaServer) Name() string                    { return f.name }
@@ -54,9 +53,6 @@ func (f *fakeMediaServer) GetLibraryItems(ctx context.Context, libraryID string)
 		f.mu.Lock()
 		*f.syncOrder = append(*f.syncOrder, libraryID)
 		f.mu.Unlock()
-	}
-	if f.getItemsCh != nil {
-		f.getItemsCh <- struct{}{}
 	}
 	items := f.items[libraryID]
 	return items, nil
@@ -223,7 +219,6 @@ func TestSyncAllLibrariesBeforeRuleEvaluation(t *testing.T) {
 	srv := seedServer(t, s, "test-server")
 	now := time.Now().UTC()
 
-	// Track the order of operations using channels
 	var syncOrder []string
 
 	items1 := []models.LibraryItemCache{

@@ -120,16 +120,13 @@ function renderWithRouter(ui: React.ReactElement) {
   return render(<BrowserRouter>{ui}</BrowserRouter>)
 }
 
-// Navigate from list -> candidates view by clicking the candidates button
 async function navigateToCandidates() {
-  // Click the "5 candidates" link or the eye icon to view candidates
   await waitFor(() => {
     expect(screen.getByText('5 candidates')).toBeInTheDocument()
   })
   fireEvent.click(screen.getByText('5 candidates'))
 }
 
-// Navigate from list -> candidates -> exclusions view
 async function navigateToExclusions() {
   await navigateToCandidates()
   await waitFor(() => {

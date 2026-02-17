@@ -35,7 +35,6 @@ import type {
   SyncProgress,
 } from '../types'
 
-// --- Shared helpers ---
 
 function useMediaDetailModal() {
   const [selectedItem, setSelectedItem] = useState<{ serverId: number; itemId: string } | null>(null)
@@ -152,14 +151,12 @@ function SortHeader({
   )
 }
 
-// --- ViewState ---
 
 type ViewState =
   | { type: 'list' }
   | { type: 'candidates'; rule: MaintenanceRuleWithCount }
   | { type: 'exclusions'; rule: MaintenanceRuleWithCount }
 
-// --- Props ---
 
 interface MaintenanceRulesTabProps {
   filterServerID?: number
@@ -167,7 +164,6 @@ interface MaintenanceRulesTabProps {
   onClearFilter?: () => void
 }
 
-// --- Library lookup ---
 
 export interface LibraryLookup {
   getServerName: (serverId: number) => string
@@ -208,13 +204,11 @@ export function useLibraryLookup(): LibraryLookup {
   return { getServerName, getLibraryName, getLibrary }
 }
 
-// --- Rules API response ---
 
 interface RulesListResponse {
   rules: MaintenanceRuleWithCount[]
 }
 
-// --- CandidatesView ---
 
 function CandidatesView({
   rule,
@@ -792,7 +786,6 @@ function CandidatesView({
   )
 }
 
-// --- ExclusionsView ---
 
 function ExclusionsView({
   rule,
@@ -984,7 +977,6 @@ function ExclusionsView({
   )
 }
 
-// --- Main component ---
 
 export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFilter }: MaintenanceRulesTabProps) {
   const [view, setView] = useState<ViewState>({ type: 'list' })
@@ -1275,7 +1267,7 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
                     {rule.exclusion_count > 0 && (
                       <button
                         onClick={() => setView({ type: 'exclusions', rule })}
-                        className="text-muted dark:text-muted-dark font-medium hover:underline whitespace-nowrap"
+                        className="text-muted dark:text-muted-dark font-medium hover:text-accent hover:underline whitespace-nowrap"
                         aria-label={`View ${rule.exclusion_count} exclusions for rule ${rule.name}`}
                       >
                         {formatCount(rule.exclusion_count)} excluded

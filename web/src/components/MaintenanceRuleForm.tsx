@@ -49,7 +49,6 @@ export function MaintenanceRuleForm({ rule, onClose, onSaved }: MaintenanceRuleF
     [availableTypes, criterionType]
   )
 
-  // Reset criterion type when media type changes (only for new rules)
   useEffect(() => {
     if (!isEdit && mediaType) {
       setCriterionType('')
@@ -58,7 +57,6 @@ export function MaintenanceRuleForm({ rule, onClose, onSaved }: MaintenanceRuleF
     }
   }, [mediaType, isEdit])
 
-  // Auto-populate defaults when criterion type changes
   useEffect(() => {
     if (!isEdit || (isEdit && criterionType !== rule?.criterion_type)) {
       const currentSelectedType = availableTypes.find(ct => ct.type === criterionType)
@@ -260,7 +258,7 @@ export function MaintenanceRuleForm({ rule, onClose, onSaved }: MaintenanceRuleF
             </button>
             <button
               type="submit"
-              disabled={saving || !name || !criterionType || !mediaType}
+              disabled={saving || !name || !criterionType || !mediaType || libraries.length === 0}
               className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-accent text-gray-900 hover:bg-accent/90 disabled:opacity-50 transition-colors"
             >
               {saving ? (isEdit ? 'Saving...' : 'Creating...') : (isEdit ? 'Save Changes' : 'Create Rule')}
