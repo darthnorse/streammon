@@ -153,6 +153,7 @@ func (c *Client) fetchItemsPage(ctx context.Context, params url.Values, result a
 
 func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemType string) ([]models.LibraryItemCache, error) {
 	var allItems []models.LibraryItemCache
+	var total int
 	offset := 0
 
 	for {
@@ -160,9 +161,12 @@ func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemTyp
 			return nil, ctx.Err()
 		}
 
-		items, _, err := c.fetchLibraryBatch(ctx, libraryID, itemType, offset, itemBatchSize)
+		items, totalCount, err := c.fetchLibraryBatch(ctx, libraryID, itemType, offset, itemBatchSize)
 		if err != nil {
 			return nil, err
+		}
+		if total == 0 {
+			total = totalCount
 		}
 
 		if len(items) == 0 {
@@ -174,6 +178,7 @@ func (c *Client) fetchLibraryItemsByType(ctx context.Context, libraryID, itemTyp
 		mediautil.SendProgress(ctx, mediautil.SyncProgress{
 			Phase:   mediautil.PhaseItems,
 			Current: offset,
+			Total:   total,
 			Library: libraryID,
 		})
 

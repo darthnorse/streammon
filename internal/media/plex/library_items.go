@@ -88,6 +88,7 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 
 func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilter string) ([]models.LibraryItemCache, error) {
 	var allItems []models.LibraryItemCache
+	var total int
 	offset := 0
 
 	for {
@@ -95,9 +96,12 @@ func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilte
 			return nil, ctx.Err()
 		}
 
-		items, _, err := s.fetchLibraryBatch(ctx, libraryID, typeFilter, offset, itemBatchSize)
+		items, totalCount, err := s.fetchLibraryBatch(ctx, libraryID, typeFilter, offset, itemBatchSize)
 		if err != nil {
 			return nil, err
+		}
+		if total == 0 {
+			total = totalCount
 		}
 
 		if len(items) == 0 {
@@ -109,6 +113,7 @@ func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilte
 		mediautil.SendProgress(ctx, mediautil.SyncProgress{
 			Phase:   mediautil.PhaseItems,
 			Current: offset,
+			Total:   total,
 			Library: libraryID,
 		})
 
