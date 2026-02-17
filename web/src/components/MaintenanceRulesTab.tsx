@@ -379,7 +379,7 @@ function CandidatesView({
         const totalRequested = finalResult.deleted + finalResult.failed + finalResult.skipped
 
         if (finalResult.failed === 0 && finalResult.skipped === 0) {
-          setOperationResult({ type: 'success', message: `Deleted ${finalResult.deleted} items (${formatSize(finalResult.total_size)} reclaimed)` })
+          setOperationResult({ type: 'success', message: `Deleted ${finalResult.deleted} item${finalResult.deleted !== 1 ? 's' : ''}` })
         } else if (finalResult.deleted > 0) {
           let msg = `Deleted ${finalResult.deleted} of ${totalRequested} items.`
           if (finalResult.failed > 0) msg += ` ${finalResult.failed} failed.`
