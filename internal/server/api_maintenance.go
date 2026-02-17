@@ -951,7 +951,8 @@ func (s *Server) handleBulkRemoveExclusions(w http.ResponseWriter, r *http.Reque
 // Streams progress via SSE if Accept: text/event-stream, otherwise returns JSON
 func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		CandidateIDs []int64 `json:"candidate_ids"`
+		CandidateIDs       []int64 `json:"candidate_ids"`
+		IncludeCrossServer bool    `json:"include_cross_server"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -992,12 +993,11 @@ func (s *Server) handleBulkDeleteCandidates(w http.ResponseWriter, r *http.Reque
 	deletedBy := getUserEmail(r)
 
 	if r.Header.Get("Accept") == "text/event-stream" {
-		s.streamBulkDelete(w, r, req.CandidateIDs, candidateMap, deletedBy)
+		s.streamBulkDelete(w, r, req.CandidateIDs, candidateMap, deletedBy, req.IncludeCrossServer)
 		return
 	}
 
-	// Non-streaming JSON response (backwards compatible)
-	result := s.executeBulkDelete(r.Context(), req.CandidateIDs, candidateMap, deletedBy, nil)
+	result := s.executeBulkDelete(r.Context(), req.CandidateIDs, candidateMap, deletedBy, req.IncludeCrossServer, nil)
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -1014,7 +1014,7 @@ type BulkDeleteProgress struct {
 }
 
 // streamBulkDelete streams progress via SSE
-func (s *Server) streamBulkDelete(w http.ResponseWriter, r *http.Request, candidateIDs []int64, candidateMap map[int64]models.MaintenanceCandidate, deletedBy string) {
+func (s *Server) streamBulkDelete(w http.ResponseWriter, r *http.Request, candidateIDs []int64, candidateMap map[int64]models.MaintenanceCandidate, deletedBy string, includeCrossServer bool) {
 	flusher, ok := sseFlusher(w)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming not supported")
@@ -1030,7 +1030,7 @@ func (s *Server) streamBulkDelete(w http.ResponseWriter, r *http.Request, candid
 		flusher.Flush()
 	}
 
-	result := s.executeBulkDelete(r.Context(), candidateIDs, candidateMap, deletedBy, sendProgress)
+	result := s.executeBulkDelete(r.Context(), candidateIDs, candidateMap, deletedBy, includeCrossServer, sendProgress)
 
 	if finalData, err := json.Marshal(result); err == nil {
 		fmt.Fprintf(w, "event: complete\ndata: %s\n\n", finalData)
@@ -1039,7 +1039,7 @@ func (s *Server) streamBulkDelete(w http.ResponseWriter, r *http.Request, candid
 }
 
 // executeBulkDelete performs the bulk delete with optional progress callback
-func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, candidateMap map[int64]models.MaintenanceCandidate, deletedBy string, onProgress func(BulkDeleteProgress)) models.BulkDeleteResult {
+func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, candidateMap map[int64]models.MaintenanceCandidate, deletedBy string, includeCrossServer bool, onProgress func(BulkDeleteProgress)) models.BulkDeleteResult {
 	result := models.BulkDeleteResult{
 		Errors: []models.BulkDeleteError{},
 	}
@@ -1132,6 +1132,10 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 		if delResult.ServerDeleted && delResult.DBCleaned {
 			result.Deleted++
 			deletedItemIDs[candidate.LibraryItemID] = true
+
+			if includeCrossServer {
+				s.deleteCrossServerCopies(ctx, candidate, deletedBy, deletedItemIDs, &result)
+			}
 		} else {
 			result.Failed++
 			result.Errors = append(result.Errors, models.BulkDeleteError{
@@ -1143,6 +1147,44 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 	}
 
 	return result
+}
+
+func (s *Server) deleteCrossServerCopies(ctx context.Context, candidate models.MaintenanceCandidate, deletedBy string, deletedItemIDs map[int64]bool, result *models.BulkDeleteResult) {
+	findCtx, findCancel := context.WithTimeout(ctx, 10*time.Second)
+	matches, err := s.store.FindMatchingItems(findCtx, candidate.Item)
+	findCancel()
+	if err != nil {
+		log.Printf("bulk delete: find cross-server copies for %q: %v", candidate.Item.Title, err)
+		return
+	}
+
+	for _, match := range matches {
+		if deletedItemIDs[match.ID] {
+			continue
+		}
+
+		syntheticCandidate := models.MaintenanceCandidate{
+			LibraryItemID: match.ID,
+			Item:          &match,
+		}
+		crossResult := s.deleteItemFromServer(syntheticCandidate, deletedBy)
+
+		if crossResult.ServerDeleted {
+			result.TotalSize += crossResult.FileSize
+		}
+		if crossResult.ServerDeleted && crossResult.DBCleaned {
+			result.Deleted++
+			deletedItemIDs[match.ID] = true
+		} else if crossResult.Error != "" {
+			log.Printf("bulk delete: cross-server copy %q on server %d: %s", match.Title, match.ServerID, crossResult.Error)
+			result.Failed++
+			result.Errors = append(result.Errors, models.BulkDeleteError{
+				CandidateID: candidate.ID,
+				Title:       match.Title + " (cross-server)",
+				Error:       crossResult.Error,
+			})
+		}
+	}
 }
 
 // GET /api/maintenance/candidates/{id}/cross-server

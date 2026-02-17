@@ -233,6 +233,7 @@ function CandidatesView({
   const [excludeConfirm, setExcludeConfirm] = useState<MaintenanceCandidate[] | null>(null)
   const [crossServerCandidate, setCrossServerCandidate] = useState<MaintenanceCandidate | null>(null)
   const [showDetails, setShowDetails] = useState(false)
+  const [includeCrossServer, setIncludeCrossServer] = useState(false)
   const [operating, setOperating] = useState(false)
   const [deleteProgress, setDeleteProgress] = useState<DeleteProgress | null>(null)
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'partial' | 'error'; message: string; errors?: Array<{ title: string; error: string }> } | null>(null)
@@ -342,7 +343,7 @@ function CandidatesView({
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream',
         },
-        body: JSON.stringify({ candidate_ids: candidateIds }),
+        body: JSON.stringify({ candidate_ids: candidateIds, include_cross_server: includeCrossServer }),
         signal: abortController.signal,
       })
 
@@ -499,6 +500,7 @@ function CandidatesView({
 
   const handleBulkDeleteClick = () => {
     setShowDetails(false)
+    setIncludeCrossServer(false)
     setDeleteConfirm(selectedItems)
   }
 
@@ -726,7 +728,9 @@ function CandidatesView({
           message={
             <>
               <p className="mb-2">
-                This will permanently delete these files from your media server. Cannot be undone.
+                {includeCrossServer
+                  ? 'This will permanently delete these files and all matching copies on other servers. Cannot be undone.'
+                  : 'This will permanently delete these files from your media server. Cannot be undone.'}
               </p>
               <p className="text-sm font-medium">
                 Total size: {formatSize(deleteConfirm.reduce((sum, c) => sum + (c.item?.file_size || 0), 0))}
@@ -735,10 +739,19 @@ function CandidatesView({
           }
           confirmLabel={operating ? 'Deleting...' : `Delete ${deleteConfirm.length} Item${deleteConfirm.length > 1 ? 's' : ''}`}
           onConfirm={handleBulkDelete}
-          onCancel={() => { setDeleteConfirm(null); setShowDetails(false) }}
+          onCancel={() => { setDeleteConfirm(null); setShowDetails(false); setIncludeCrossServer(false) }}
           isDestructive
           disabled={operating}
         >
+          <label className="flex items-center gap-2 mb-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={includeCrossServer}
+              onChange={e => setIncludeCrossServer(e.target.checked)}
+              className="rounded border-border dark:border-border-dark"
+            />
+            <span className="text-sm">Also delete matching copies on other servers</span>
+          </label>
           <button
             onClick={() => setShowDetails(!showDetails)}
             className="text-sm hover:text-accent hover:underline mb-3 flex items-center gap-1"
