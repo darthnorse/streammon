@@ -243,13 +243,16 @@ export function Rules() {
 
       {tab === 'notifications' && (
         <div className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm text-muted dark:text-muted-dark">
+              Notifications are sent for streaming rule violations only, not maintenance rule matches.
+            </p>
             <button
               onClick={() => {
                 setEditingChannel(null)
                 setShowChannelForm(true)
               }}
-              className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-gray-900 hover:bg-accent/90"
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-gray-900 hover:bg-accent/90 whitespace-nowrap"
             >
               Add Channel
             </button>
@@ -313,13 +316,16 @@ export function Rules() {
         </div>
       )}
 
-      {tab === 'maintenance' && (
-        <MaintenanceRulesTab
-          filterServerID={searchParams.get('server_id') ? Number(searchParams.get('server_id')) : undefined}
-          filterLibraryID={searchParams.get('library_id') ?? undefined}
-          onClearFilter={handleClearFilter}
-        />
-      )}
+      {tab === 'maintenance' && (() => {
+        const serverIdParam = searchParams.get('server_id')
+        return (
+          <MaintenanceRulesTab
+            filterServerID={serverIdParam ? Number(serverIdParam) : undefined}
+            filterLibraryID={searchParams.get('library_id') ?? undefined}
+            onClearFilter={handleClearFilter}
+          />
+        )
+      })()}
 
       {showRuleForm && (
         <RuleForm

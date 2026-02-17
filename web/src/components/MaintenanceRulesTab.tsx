@@ -5,7 +5,7 @@ import { useMountedRef } from '../hooks/useMountedRef'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
 import { useItemDetails } from '../hooks/useItemDetails'
-import { api } from '../lib/api'
+import { api, ApiError } from '../lib/api'
 import { PER_PAGE_OPTIONS } from '../lib/constants'
 import { readSSEStream } from '../lib/sse'
 import { formatCount, formatSize } from '../lib/format'
@@ -33,6 +33,7 @@ import type {
   LibraryItemCache,
   CriterionType,
   ServerType,
+  SyncProgress,
 } from '../types'
 
 // --- Shared helpers ---
@@ -66,6 +67,13 @@ function ItemTitleButton({ item, onSelect }: { item?: LibraryItemCache; onSelect
   )
 }
 
+const criterionNames: Record<CriterionType, string> = {
+  unwatched_movie: 'Unwatched Movies',
+  unwatched_tv_none: 'Unwatched TV Shows',
+  low_resolution: 'Low Resolution',
+  large_files: 'Large Files',
+}
+
 const criterionFormatters: Record<CriterionType, (params: Record<string, unknown>) => string> = {
   unwatched_movie: (p) => `Movies not watched in ${p.days || 365} days`,
   unwatched_tv_none: (p) => `TV shows with no watch activity for ${p.days || 365}+ days`,
@@ -82,6 +90,25 @@ const serverAccent: Record<ServerType, string> = {
   plex: 'bg-warn/10 text-warn',
   emby: 'bg-emby/10 text-emby',
   jellyfin: 'bg-jellyfin/10 text-jellyfin',
+}
+
+type RuleOpState =
+  | { phase: 'syncing'; syncKeys: string[]; message: string }
+  | { phase: 'evaluating'; message: string }
+
+function formatSyncProgress(state: SyncProgress): string {
+  switch (state.phase) {
+    case 'items':
+      return state.total ? `Scanning ${state.current ?? 0}/${state.total}` : 'Scanning...'
+    case 'history':
+      return state.total ? `History ${state.current ?? 0}/${state.total}` : 'Fetching history...'
+    case 'error':
+      return state.error ? `Error: ${state.error}` : 'Sync error'
+    case 'done':
+      return 'Sync complete'
+    default:
+      return 'Syncing...'
+  }
 }
 
 type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at'
@@ -137,13 +164,13 @@ interface MaintenanceRulesTabProps {
 
 // --- Library lookup ---
 
-interface LibraryLookup {
+export interface LibraryLookup {
   getServerName: (serverId: number) => string
   getLibraryName: (serverId: number, libraryId: string) => string
   getLibrary: (serverId: number, libraryId: string) => Library | undefined
 }
 
-function useLibraryLookup(): LibraryLookup {
+export function useLibraryLookup(): LibraryLookup {
   const { data } = useFetch<LibrariesResponse>('/api/libraries')
 
   const maps = useMemo(() => {
@@ -411,7 +438,6 @@ function CandidatesView({
   const handleSingleDelete = (candidate: MaintenanceCandidate) => {
     closeRowMenu()
     setShowDetails(false)
-    // Check for cross-server if item has external IDs
     const item = candidate.item
     if (item && (item.tmdb_id || item.tvdb_id || item.imdb_id)) {
       setCrossServerCandidate(candidate)
@@ -441,7 +467,6 @@ function CandidatesView({
       }
     }
 
-    // Always attempt the source candidate delete — it was the primary target.
     let sourceDeleted = false
     try {
       await api.del(`/api/maintenance/candidates/${candidateId}`)
@@ -955,11 +980,10 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
   const [showRuleForm, setShowRuleForm] = useState(false)
   const [operationError, setOperationError] = useState<string | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<MaintenanceRuleWithCount | null>(null)
-  const [evaluatingIds, setEvaluatingIds] = useState<Set<number>>(new Set())
+  const [ruleOps, setRuleOps] = useState<Record<number, RuleOpState>>({})
   const mountedRef = useMountedRef()
   const lookup = useLibraryLookup()
 
-  // Build filter query string
   const filterParams = useMemo(() => {
     const parts: string[] = []
     if (filterServerID) parts.push(`server_id=${filterServerID}`)
@@ -973,13 +997,75 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
 
   const rules = rulesData?.rules ?? []
 
-  // Get filter library name for subtitle
   const filterLibraryName = useMemo(() => {
     if (filterServerID && filterLibraryID) {
       return `${lookup.getServerName(filterServerID)} - ${lookup.getLibraryName(filterServerID, filterLibraryID)}`
     }
     return null
   }, [filterServerID, filterLibraryID, lookup])
+
+  const hasActiveOps = Object.keys(ruleOps).length > 0
+  const evaluatingRef = useRef(new Set<number>())
+  useEffect(() => {
+    if (!hasActiveOps) return
+    let active = true
+    const controller = new AbortController()
+
+    const triggerEvaluate = async (ruleId: number) => {
+      if (evaluatingRef.current.has(ruleId)) return
+      evaluatingRef.current.add(ruleId)
+
+      try {
+        await api.post(`/api/maintenance/rules/${ruleId}/evaluate`)
+      } catch (err) {
+        if (!active) return
+        console.error(`Failed to evaluate rule ${ruleId}:`, err)
+        if (mountedRef.current) setOperationError(`Failed to evaluate rule after sync`)
+      } finally {
+        evaluatingRef.current.delete(ruleId)
+        if (active && mountedRef.current) {
+          setRuleOps(prev => {
+            const next = { ...prev }
+            delete next[ruleId]
+            return next
+          })
+          refetchRules()
+        }
+      }
+    }
+
+    const poll = async () => {
+      if (!active) return
+      try {
+        const status = await api.get<Record<string, SyncProgress>>('/api/maintenance/sync/status', controller.signal)
+        if (!active) return
+
+        const rulesToEvaluate: number[] = []
+        setRuleOps(prev => {
+          const next = { ...prev }
+          for (const [ruleId, op] of Object.entries(next)) {
+            if (op.phase !== 'syncing') continue
+
+            const activeKey = op.syncKeys.find(k => status[k] && status[k].phase !== 'done' && status[k].phase !== 'error')
+            if (activeKey) {
+              next[Number(ruleId)] = { ...op, message: formatSyncProgress(status[activeKey]) }
+            } else {
+              next[Number(ruleId)] = { ...op, phase: 'evaluating', message: 'Evaluating...' }
+              rulesToEvaluate.push(Number(ruleId))
+            }
+          }
+          return next
+        })
+        for (const ruleId of rulesToEvaluate) {
+          triggerEvaluate(ruleId)
+        }
+      } catch { /* ignore polling errors */ }
+    }
+
+    poll()
+    const interval = setInterval(poll, 1500)
+    return () => { active = false; clearInterval(interval); controller.abort() }
+  }, [hasActiveOps, mountedRef, refetchRules])
 
   const handleToggleRule = async (rule: MaintenanceRuleWithCount) => {
     setOperationError(null)
@@ -1015,23 +1101,63 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
     }
   }
 
-  const handleEvaluateRule = async (rule: MaintenanceRuleWithCount) => {
+  const handleSyncAndEvaluate = async (rule: MaintenanceRuleWithCount) => {
+    if (ruleOps[rule.id]) return
     setOperationError(null)
-    setEvaluatingIds(prev => new Set(prev).add(rule.id))
-    try {
-      await api.post(`/api/maintenance/rules/${rule.id}/evaluate`)
-      if (mountedRef.current) refetchRules()
-    } catch (err) {
-      console.error('Failed to evaluate rule:', err)
-      if (mountedRef.current) setOperationError(`Failed to evaluate rule "${rule.name}"`)
-    } finally {
-      if (mountedRef.current) {
-        setEvaluatingIds(prev => {
-          const next = new Set(prev)
-          next.delete(rule.id)
-          return next
-        })
+
+    const uniqueLibs = new Map<string, { serverID: number; libraryID: string }>()
+    for (const rl of rule.libraries) {
+      const key = `${rl.server_id}-${rl.library_id}`
+      uniqueLibs.set(key, { serverID: rl.server_id, libraryID: rl.library_id })
+    }
+
+    const syncEntries = Array.from(uniqueLibs.entries())
+    const results = await Promise.allSettled(
+      syncEntries.map(async ([key, lib]) => {
+        await api.post('/api/maintenance/sync', { server_id: lib.serverID, library_id: lib.libraryID })
+        return key
+      })
+    )
+
+    if (!mountedRef.current) return
+
+    const syncKeys: string[] = []
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i]
+      if (r.status === 'fulfilled' || (r.reason as ApiError)?.status === 409) {
+        syncKeys.push(syncEntries[i][0])
+      } else {
+        console.error(`Failed to start sync for ${syncEntries[i][0]}:`, r.reason)
       }
+    }
+
+    if (syncKeys.length > 0) {
+      setRuleOps(prev => ({
+        ...prev,
+        [rule.id]: { phase: 'syncing', syncKeys, message: 'Syncing...' },
+      }))
+    } else {
+      setRuleOps(prev => ({
+        ...prev,
+        [rule.id]: { phase: 'evaluating', message: 'Evaluating...' },
+      }))
+      evaluatingRef.current.add(rule.id)
+      api.post(`/api/maintenance/rules/${rule.id}/evaluate`)
+        .catch(err => {
+          console.error(`Failed to evaluate rule ${rule.id}:`, err)
+          if (mountedRef.current) setOperationError(`Failed to evaluate rule "${rule.name}"`)
+        })
+        .finally(() => {
+          evaluatingRef.current.delete(rule.id)
+          if (mountedRef.current) {
+            setRuleOps(prev => {
+              const next = { ...prev }
+              delete next[rule.id]
+              return next
+            })
+            refetchRules()
+          }
+        })
     }
   }
 
@@ -1041,7 +1167,6 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
     refetchRules()
   }
 
-  // Sub-views
   if (view.type === 'candidates') {
     return (
       <CandidatesView
@@ -1064,7 +1189,6 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
     )
   }
 
-  // List view
   return (
     <div className="space-y-4">
       {filterLibraryName && (
@@ -1102,13 +1226,16 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
         />
       )}
 
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-sm text-muted dark:text-muted-dark">
+          Libraries are automatically scanned daily at 3 AM to identify new candidates.
+        </p>
         <button
           onClick={() => {
             setEditingRule(null)
             setShowRuleForm(true)
           }}
-          className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-gray-900 hover:bg-accent/90"
+          className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-gray-900 hover:bg-accent/90 whitespace-nowrap"
         >
           Add Rule
         </button>
@@ -1127,7 +1254,7 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
                   <div className="flex items-center gap-3 flex-wrap">
                     <h3 className="font-semibold truncate">{rule.name}</h3>
                     <span className="px-2 py-0.5 text-xs rounded-full bg-surface dark:bg-surface-dark whitespace-nowrap">
-                      {rule.criterion_type.replace(/_/g, ' ')}
+                      {criterionNames[rule.criterion_type] ?? rule.criterion_type}
                     </span>
                   </div>
                   <p className="text-sm text-muted dark:text-muted-dark mt-1">
@@ -1150,32 +1277,29 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex flex-col items-end text-sm">
                     {rule.candidate_count > 0 ? (
                       <button
                         onClick={() => setView({ type: 'candidates', rule })}
-                        className="font-medium text-sm hover:text-accent hover:underline whitespace-nowrap"
+                        className="font-medium hover:text-accent hover:underline whitespace-nowrap"
                         aria-label={`View ${rule.candidate_count} candidates for rule ${rule.name}`}
                       >
                         {formatCount(rule.candidate_count)} candidates
                       </button>
                     ) : (
-                      <span className="text-muted dark:text-muted-dark font-medium text-sm whitespace-nowrap">
+                      <span className="text-muted dark:text-muted-dark font-medium whitespace-nowrap">
                         0 candidates
                       </span>
                     )}
                     {rule.exclusion_count > 0 && (
-                      <>
-                        <span className="text-muted dark:text-muted-dark text-sm" aria-hidden="true">{'\u00B7'}</span>
-                        <button
-                          onClick={() => setView({ type: 'exclusions', rule })}
-                          className="text-muted dark:text-muted-dark font-medium text-sm hover:underline whitespace-nowrap"
-                          aria-label={`View ${rule.exclusion_count} exclusions for rule ${rule.name}`}
-                        >
-                          {formatCount(rule.exclusion_count)} excluded
-                        </button>
-                      </>
+                      <button
+                        onClick={() => setView({ type: 'exclusions', rule })}
+                        className="text-muted dark:text-muted-dark font-medium hover:underline whitespace-nowrap"
+                        aria-label={`View ${rule.exclusion_count} exclusions for rule ${rule.name}`}
+                      >
+                        {formatCount(rule.exclusion_count)} excluded
+                      </button>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -1202,17 +1326,24 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                       </svg>
                     </button>
-                    <button
-                      onClick={() => handleEvaluateRule(rule)}
-                      disabled={evaluatingIds.has(rule.id)}
-                      className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors disabled:opacity-50"
-                      title="Re-evaluate"
-                      aria-label={`Re-evaluate rule ${rule.name}`}
-                    >
-                      <svg className={`w-4 h-4 ${evaluatingIds.has(rule.id) ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                    </button>
+                    <div className="relative">
+                      <button
+                        onClick={() => handleSyncAndEvaluate(rule)}
+                        disabled={!!ruleOps[rule.id]}
+                        className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors disabled:opacity-50"
+                        title="Sync & re-evaluate"
+                        aria-label={`Sync and re-evaluate rule ${rule.name}`}
+                      >
+                        <svg className={`w-4 h-4 ${ruleOps[rule.id] ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </button>
+                      {ruleOps[rule.id]?.message && (
+                        <div className="absolute top-full right-0 mt-1 text-xs text-muted dark:text-muted-dark whitespace-nowrap">
+                          {ruleOps[rule.id].message}
+                        </div>
+                      )}
+                    </div>
                     <button
                       onClick={() => setView({ type: 'candidates', rule })}
                       className="p-1.5 rounded hover:bg-surface dark:hover:bg-surface-dark transition-colors"

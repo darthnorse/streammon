@@ -620,22 +620,15 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Re-check exclusions at delete time to prevent TOCTOU race condition
-	excluded, err := s.store.IsItemExcluded(r.Context(), candidate.RuleID, candidate.LibraryItemID)
-	if err != nil {
-		log.Printf("check exclusion for candidate %d: %v", id, err)
-		writeError(w, http.StatusInternalServerError, "failed to verify exclusion status")
-		return
-	}
-	if excluded {
-		writeError(w, http.StatusConflict, "item was excluded and cannot be deleted")
-		return
-	}
-
 	result := s.deleteItemFromServer(*candidate, getUserEmail(r))
 
 	if !result.ServerDeleted {
-		writeError(w, http.StatusInternalServerError, "failed to delete from media server")
+		status := http.StatusInternalServerError
+		msg := "failed to delete from media server"
+		if result.Error != "" {
+			msg = result.Error
+		}
+		writeError(w, status, msg)
 		return
 	}
 	if !result.DBCleaned {
@@ -673,8 +666,13 @@ func (s *Server) handleDeleteLibraryItem(w http.ResponseWriter, r *http.Request)
 
 	// Fetch the source item and verify the target is a cross-server match
 	sourceItem, err := s.store.GetLibraryItem(r.Context(), sourceID)
+	if errors.Is(err, models.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "source item not found")
+		return
+	}
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "source item not found")
+		log.Printf("get source item %d: %v", sourceID, err)
+		writeError(w, http.StatusInternalServerError, "failed to get source item")
 		return
 	}
 
