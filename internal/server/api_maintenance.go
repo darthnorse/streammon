@@ -623,6 +623,7 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 	result := s.deleteItemFromServer(*candidate, getUserEmail(r))
 
 	if !result.ServerDeleted {
+		log.Printf("delete candidate %d (%q): %s", id, candidate.Item.Title, result.Error)
 		status := http.StatusInternalServerError
 		msg := "failed to delete from media server"
 		if result.Error != "" {
@@ -727,6 +728,7 @@ func (s *Server) handleDeleteLibraryItem(w http.ResponseWriter, r *http.Request)
 	result := s.deleteItemFromServer(synthetic, getUserEmail(r))
 
 	if !result.ServerDeleted {
+		log.Printf("delete library item %d (%q): %s", id, item.Title, result.Error)
 		writeError(w, http.StatusInternalServerError, "failed to delete from media server")
 		return
 	}
@@ -1048,9 +1050,15 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 	deletedItemIDs := make(map[int64]bool)
 
 	for i, candidateID := range candidateIDs {
-		if ctx.Err() != nil {
-			log.Printf("bulk delete cancelled: %v", ctx.Err())
-			break
+		// Pace requests to avoid overwhelming media servers or reverse proxies
+		// that rate-limit rapid DELETE requests (common with nginx/Caddy/Traefik).
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				log.Printf("bulk delete cancelled: %v", ctx.Err())
+				return result
+			case <-time.After(500 * time.Millisecond):
+			}
 		}
 
 		candidate, exists := candidateMap[candidateID]
@@ -1105,7 +1113,6 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 		excluded, err := s.store.IsItemExcluded(ctx, candidate.RuleID, candidate.LibraryItemID)
 		if err != nil {
 			log.Printf("check exclusion for candidate %d: %v", candidateID, err)
-			// On error, fail safe - don't delete
 			result.Failed++
 			result.Errors = append(result.Errors, models.BulkDeleteError{
 				CandidateID: candidateID,
@@ -1116,7 +1123,6 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 		}
 		if excluded {
 			result.Skipped++
-			// Don't add to Errors array - skipped items aren't errors, just protected
 			continue
 		}
 
@@ -1146,6 +1152,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 				}
 			}
 		} else {
+			log.Printf("bulk delete: %q (candidate %d): %s", candidate.Item.Title, candidateID, delResult.Error)
 			result.Failed++
 			result.Errors = append(result.Errors, models.BulkDeleteError{
 				CandidateID: candidateID,
@@ -1167,10 +1174,15 @@ func (s *Server) deleteCrossServerCopies(candidate models.MaintenanceCandidate, 
 		return
 	}
 
+	var didProcess bool
 	for _, match := range matches {
 		if deletedItemIDs[match.ID] {
 			continue
 		}
+		if didProcess {
+			time.Sleep(500 * time.Millisecond)
+		}
+		didProcess = true
 
 		syntheticCandidate := models.MaintenanceCandidate{
 			LibraryItemID: match.ID,

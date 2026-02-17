@@ -2,10 +2,12 @@ package plex
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"streammon/internal/models"
 )
@@ -473,6 +475,82 @@ func TestDeleteItemErrorIncludesBody(t *testing.T) {
 	want := "plex delete: status 500: Internal server error"
 	if err.Error() != want {
 		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+func TestDeleteItemRetryBehavior(t *testing.T) {
+	tests := []struct {
+		name         string
+		handler      func(attempt int) int
+		wantErr      bool
+		wantAttempts int
+	}{
+		{
+			name: "retries 400 then succeeds",
+			handler: func(a int) int {
+				if a <= 2 {
+					return http.StatusBadRequest
+				}
+				return http.StatusOK
+			},
+			wantErr:      false,
+			wantAttempts: 3,
+		},
+		{
+			name:         "retries 400 exhausted",
+			handler:      func(_ int) int { return http.StatusBadRequest },
+			wantErr:      true,
+			wantAttempts: 3,
+		},
+		{
+			name:         "no retry on 403",
+			handler:      func(_ int) int { return http.StatusForbidden },
+			wantErr:      true,
+			wantAttempts: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var attempts int
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				attempts++
+				w.WriteHeader(tt.handler(attempts))
+			}))
+			defer ts.Close()
+
+			srv := New(models.Server{URL: ts.URL, APIKey: "tok"})
+			err := srv.DeleteItem(context.Background(), "12345")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
+			}
+			if attempts != tt.wantAttempts {
+				t.Errorf("attempts = %d, want %d", attempts, tt.wantAttempts)
+			}
+		})
+	}
+}
+
+func TestDeleteItemRetryCancelledDuringBackoff(t *testing.T) {
+	var attempts int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{URL: ts.URL, APIKey: "tok"})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}()
+	err := srv.DeleteItem(ctx, "12345")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got: %v", err)
+	}
+	if attempts != 1 {
+		t.Errorf("expected 1 attempt before cancellation, got %d", attempts)
 	}
 }
 

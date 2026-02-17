@@ -3,6 +3,7 @@ package plex
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -184,9 +185,40 @@ func (s *Server) setHeaders(req *http.Request) {
 	req.Header.Set("Accept", "application/xml")
 }
 
-// DeleteItem deletes an item from the Plex library
+// Retries up to 2 times on transient 400 errors (e.g. reverse proxy rate limiting).
 func (s *Server) DeleteItem(ctx context.Context, itemID string) error {
+	const maxRetries = 2
 	reqURL := fmt.Sprintf("%s/library/metadata/%s", s.url, url.PathEscape(itemID))
+
+	var lastErr error
+	for attempt := range maxRetries + 1 {
+		if attempt > 0 {
+			delay := time.Duration(attempt) * time.Second
+			slog.Warn("plex: retrying DELETE", "url", reqURL, "attempt", attempt+1, "maxAttempts", maxRetries+1, "delay", delay)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+
+		lastErr = s.doDelete(ctx, reqURL)
+		if lastErr == nil {
+			return nil
+		}
+
+		if !errors.Is(lastErr, errPlexBadRequest) {
+			return lastErr
+		}
+		slog.Warn("plex: DELETE returned retryable error", "url", reqURL, "error", lastErr)
+	}
+
+	return fmt.Errorf("plex delete %s: all %d attempts failed: %w", reqURL, maxRetries+1, lastErr)
+}
+
+var errPlexBadRequest = errors.New("plex 400")
+
+func (s *Server) doDelete(ctx context.Context, reqURL string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, reqURL, nil)
 	if err != nil {
 		return err
@@ -199,9 +231,11 @@ func (s *Server) DeleteItem(ctx context.Context, itemID string) error {
 	}
 	defer httputil.DrainBody(resp)
 
-	// 404 means item already gone - treat as idempotent success
 	if resp.StatusCode == http.StatusNotFound {
 		return nil
+	}
+	if resp.StatusCode == http.StatusBadRequest {
+		return errPlexBadRequest
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
