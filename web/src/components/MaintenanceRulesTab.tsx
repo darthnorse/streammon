@@ -229,11 +229,13 @@ function CandidatesView({
   const [perPage, setPerPage] = usePersistedPerPage()
   const [sortField, setSortField] = useState<SortField | null>(null)
   const [sortDir, setSortDir] = useState<SortDir>('desc')
-  const [deleteConfirm, setDeleteConfirm] = useState<MaintenanceCandidate[] | null>(null)
+  const [deleteDialog, setDeleteDialog] = useState<{
+    candidates: MaintenanceCandidate[]
+    showDetails: boolean
+    includeCrossServer: boolean
+  } | null>(null)
   const [excludeConfirm, setExcludeConfirm] = useState<MaintenanceCandidate[] | null>(null)
   const [crossServerCandidate, setCrossServerCandidate] = useState<MaintenanceCandidate | null>(null)
-  const [showDetails, setShowDetails] = useState(false)
-  const [includeCrossServer, setIncludeCrossServer] = useState(false)
   const [operating, setOperating] = useState(false)
   const [deleteProgress, setDeleteProgress] = useState<DeleteProgress | null>(null)
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'partial' | 'error'; message: string; errors?: Array<{ title: string; error: string }> } | null>(null)
@@ -314,12 +316,13 @@ function CandidatesView({
   }, [totalPages, page])
 
   const handleBulkDelete = async () => {
-    if (!deleteConfirm) return
+    if (!deleteDialog) return
+    const { candidates, includeCrossServer } = deleteDialog
     setOperating(true)
-    setDeleteConfirm(null)
+    setDeleteDialog(null)
     setOperationResult(null)
 
-    const candidateIds = deleteConfirm.map(c => c.id)
+    const candidateIds = candidates.map(c => c.id)
 
     setDeleteProgress({
       current: 0,
@@ -437,13 +440,11 @@ function CandidatesView({
 
   const handleSingleDelete = (candidate: MaintenanceCandidate) => {
     closeRowMenu()
-    setShowDetails(false)
     const item = candidate.item
     if (item && (item.tmdb_id || item.tvdb_id || item.imdb_id)) {
       setCrossServerCandidate(candidate)
     } else {
-      setIncludeCrossServer(false)
-      setDeleteConfirm([candidate])
+      setDeleteDialog({ candidates: [candidate], showDetails: false, includeCrossServer: false })
     }
   }
 
@@ -500,9 +501,7 @@ function CandidatesView({
   }
 
   const handleBulkDeleteClick = () => {
-    setShowDetails(false)
-    setIncludeCrossServer(false)
-    setDeleteConfirm(selectedItems)
+    setDeleteDialog({ candidates: selectedItems, showDetails: false, includeCrossServer: false })
   }
 
   return (
@@ -723,45 +722,45 @@ function CandidatesView({
         </>
       )}
 
-      {deleteConfirm && (
+      {deleteDialog && (
         <ConfirmDialog
-          title={`Delete ${deleteConfirm.length} item${deleteConfirm.length > 1 ? 's' : ''}?`}
+          title={`Delete ${deleteDialog.candidates.length} item${deleteDialog.candidates.length > 1 ? 's' : ''}?`}
           message={
             <>
               <p className="mb-2">
-                {includeCrossServer
+                {deleteDialog.includeCrossServer
                   ? 'This will permanently delete these files and all matching copies on other servers. Cannot be undone.'
                   : 'This will permanently delete these files from your media server. Cannot be undone.'}
               </p>
               <p className="text-sm font-medium">
-                Total size: {formatSize(deleteConfirm.reduce((sum, c) => sum + (c.item?.file_size || 0), 0))}
+                Total size: {formatSize(deleteDialog.candidates.reduce((sum, c) => sum + (c.item?.file_size || 0), 0))}
               </p>
             </>
           }
-          confirmLabel={operating ? 'Deleting...' : `Delete ${deleteConfirm.length} Item${deleteConfirm.length > 1 ? 's' : ''}`}
+          confirmLabel={operating ? 'Deleting...' : `Delete ${deleteDialog.candidates.length} Item${deleteDialog.candidates.length > 1 ? 's' : ''}`}
           onConfirm={handleBulkDelete}
-          onCancel={() => { setDeleteConfirm(null); setShowDetails(false); setIncludeCrossServer(false) }}
+          onCancel={() => setDeleteDialog(null)}
           isDestructive
           disabled={operating}
         >
           <label className="flex items-center gap-2 mb-3 cursor-pointer">
             <input
               type="checkbox"
-              checked={includeCrossServer}
-              onChange={e => setIncludeCrossServer(e.target.checked)}
+              checked={deleteDialog.includeCrossServer}
+              onChange={e => setDeleteDialog(prev => prev ? { ...prev, includeCrossServer: e.target.checked } : null)}
               className="rounded border-border dark:border-border-dark"
             />
             <span className="text-sm">Also delete matching copies of each item on other servers</span>
           </label>
           <button
-            onClick={() => setShowDetails(!showDetails)}
+            onClick={() => setDeleteDialog(prev => prev ? { ...prev, showDetails: !prev.showDetails } : null)}
             className="text-sm hover:text-accent hover:underline mb-3 flex items-center gap-1"
           >
-            {showDetails ? '\u25BC Hide details' : '\u25B6 Show details'}
+            {deleteDialog.showDetails ? '\u25BC Hide details' : '\u25B6 Show details'}
           </button>
-          {showDetails && (
+          {deleteDialog.showDetails && (
             <div className="max-h-40 overflow-y-auto mb-4 p-2 rounded bg-surface dark:bg-surface-dark text-sm">
-              {deleteConfirm.map(c => (
+              {deleteDialog.candidates.map(c => (
                 <div key={c.id} className="py-1">
                   {'\u2022'} {c.item?.title} ({c.item?.year}) - {formatSize(c.item?.file_size || 0)}
                 </div>

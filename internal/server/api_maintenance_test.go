@@ -12,6 +12,7 @@ import (
 
 	"streammon/internal/mediautil"
 	"streammon/internal/models"
+	"streammon/internal/store"
 )
 
 func TestGetCriterionTypesAPI(t *testing.T) {
@@ -711,7 +712,17 @@ func TestBulkDeleteCandidatesPartialFailureAPI(t *testing.T) {
 	}
 }
 
-func TestBulkDeleteCrossServerAPI(t *testing.T) {
+type crossServerTestSetup struct {
+	srv     *testServer
+	s       *store.Store
+	server1 *models.Server
+	server2 *models.Server
+	mock1   *mockDeleteServer
+	mock2   *mockDeleteServer
+}
+
+func setupCrossServerDeleteTest(t *testing.T) crossServerTestSetup {
+	t.Helper()
 	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
 
@@ -756,7 +767,11 @@ func TestBulkDeleteCrossServerAPI(t *testing.T) {
 	p.AddServer(server1.ID, mock1)
 	p.AddServer(server2.ID, mock2)
 
-	body := `{"candidate_ids":[1],"include_cross_server":true}`
+	return crossServerTestSetup{srv: srv, s: s, server1: server1, server2: server2, mock1: mock1, mock2: mock2}
+}
+
+func doBulkDelete(t *testing.T, srv *testServer, body string) models.BulkDeleteResult {
+	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/candidates/bulk-delete", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -770,174 +785,72 @@ func TestBulkDeleteCrossServerAPI(t *testing.T) {
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
+	return resp
+}
+
+func TestBulkDeleteCrossServerAPI(t *testing.T) {
+	ts := setupCrossServerDeleteTest(t)
+	resp := doBulkDelete(t, ts.srv, `{"candidate_ids":[1],"include_cross_server":true}`)
+
 	if resp.Deleted != 2 {
 		t.Errorf("deleted = %d, want 2 (source + cross-server copy)", resp.Deleted)
 	}
 	if resp.Failed != 0 {
 		t.Errorf("failed = %d, want 0", resp.Failed)
 	}
-	if len(mock1.deleted) != 1 || mock1.deleted[0] != "plex-1" {
-		t.Errorf("mock1 deleted = %v, want [plex-1]", mock1.deleted)
+	if len(ts.mock1.deleted) != 1 || ts.mock1.deleted[0] != "plex-1" {
+		t.Errorf("mock1 deleted = %v, want [plex-1]", ts.mock1.deleted)
 	}
-	if len(mock2.deleted) != 1 || mock2.deleted[0] != "jelly-1" {
-		t.Errorf("mock2 deleted = %v, want [jelly-1]", mock2.deleted)
+	if len(ts.mock2.deleted) != 1 || ts.mock2.deleted[0] != "jelly-1" {
+		t.Errorf("mock2 deleted = %v, want [jelly-1]", ts.mock2.deleted)
 	}
 }
 
 func TestBulkDeleteCrossServerSkipsExcluded(t *testing.T) {
-	srv, s := newTestServerWrapped(t)
+	ts := setupCrossServerDeleteTest(t)
 	ctx := context.Background()
 
-	server1 := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "key1", Enabled: true}
-	if err := s.CreateServer(server1); err != nil {
-		t.Fatal(err)
-	}
-	server2 := &models.Server{Name: "Jellyfin", Type: models.ServerTypeJellyfin, URL: "http://jelly", APIKey: "key2", Enabled: true}
-	if err := s.CreateServer(server2); err != nil {
-		t.Fatal(err)
-	}
-
-	now := time.Now().UTC()
-	items := []models.LibraryItemCache{
-		{ServerID: server1.ID, LibraryID: "lib1", ItemID: "plex-1", MediaType: models.MediaTypeMovie, Title: "Inception", Year: 2010, TMDBID: "27205", AddedAt: now, SyncedAt: now},
-		{ServerID: server2.ID, LibraryID: "lib1", ItemID: "jelly-1", MediaType: models.MediaTypeMovie, Title: "Inception", Year: 2010, TMDBID: "27205", AddedAt: now, SyncedAt: now},
-	}
-	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		Name:          "Test Rule",
-		CriterionType: models.CriterionUnwatchedMovie,
-		MediaType:     models.MediaTypeMovie,
-		Parameters:    json.RawMessage(`{}`),
-		Enabled:       true,
-		Libraries:     []models.RuleLibrary{{ServerID: server1.ID, LibraryID: "lib1"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	plexItems, _ := s.ListLibraryItems(ctx, server1.ID, "lib1")
-	jellyItems, _ := s.ListLibraryItems(ctx, server2.ID, "lib1")
-	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, plexItems[0].ID, "test reason"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Exclude the cross-server copy via a rule on server2
-	rule2, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+	jellyItems, _ := ts.s.ListLibraryItems(ctx, ts.server2.ID, "lib1")
+	rule2, err := ts.s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
 		Name:          "Jelly Rule",
 		CriterionType: models.CriterionUnwatchedMovie,
 		MediaType:     models.MediaTypeMovie,
 		Parameters:    json.RawMessage(`{}`),
 		Enabled:       true,
-		Libraries:     []models.RuleLibrary{{ServerID: server2.ID, LibraryID: "lib1"}},
+		Libraries:     []models.RuleLibrary{{ServerID: ts.server2.ID, LibraryID: "lib1"}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateExclusions(ctx, rule2.ID, []int64{jellyItems[0].ID}, "admin@test.com"); err != nil {
+	if _, err := ts.s.CreateExclusions(ctx, rule2.ID, []int64{jellyItems[0].ID}, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	p := setupTestPoller(t, srv.Unwrap(), s)
-	mock1 := &mockDeleteServer{}
-	mock2 := &mockDeleteServer{}
-	p.AddServer(server1.ID, mock1)
-	p.AddServer(server2.ID, mock2)
+	resp := doBulkDelete(t, ts.srv, `{"candidate_ids":[1],"include_cross_server":true}`)
 
-	body := `{"candidate_ids":[1],"include_cross_server":true}`
-	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/candidates/bulk-delete", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp models.BulkDeleteResult
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
 	if resp.Deleted != 1 {
 		t.Errorf("deleted = %d, want 1 (source only, cross-server copy excluded)", resp.Deleted)
 	}
-	if len(mock1.deleted) != 1 {
-		t.Errorf("mock1 should have deleted plex item, got %v", mock1.deleted)
+	if len(ts.mock1.deleted) != 1 {
+		t.Errorf("mock1 should have deleted plex item, got %v", ts.mock1.deleted)
 	}
-	if len(mock2.deleted) != 0 {
-		t.Errorf("mock2 should NOT have deleted excluded item, got %v", mock2.deleted)
+	if len(ts.mock2.deleted) != 0 {
+		t.Errorf("mock2 should NOT have deleted excluded item, got %v", ts.mock2.deleted)
 	}
 }
 
 func TestBulkDeleteWithoutCrossServerIgnoresCopies(t *testing.T) {
-	srv, s := newTestServerWrapped(t)
-	ctx := context.Background()
+	ts := setupCrossServerDeleteTest(t)
+	resp := doBulkDelete(t, ts.srv, `{"candidate_ids":[1]}`)
 
-	server1 := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "key1", Enabled: true}
-	if err := s.CreateServer(server1); err != nil {
-		t.Fatal(err)
-	}
-	server2 := &models.Server{Name: "Jellyfin", Type: models.ServerTypeJellyfin, URL: "http://jelly", APIKey: "key2", Enabled: true}
-	if err := s.CreateServer(server2); err != nil {
-		t.Fatal(err)
-	}
-
-	now := time.Now().UTC()
-	items := []models.LibraryItemCache{
-		{ServerID: server1.ID, LibraryID: "lib1", ItemID: "plex-1", MediaType: models.MediaTypeMovie, Title: "Inception", Year: 2010, TMDBID: "27205", AddedAt: now, SyncedAt: now},
-		{ServerID: server2.ID, LibraryID: "lib1", ItemID: "jelly-1", MediaType: models.MediaTypeMovie, Title: "Inception", Year: 2010, TMDBID: "27205", AddedAt: now, SyncedAt: now},
-	}
-	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-
-	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
-		Name:          "Test Rule",
-		CriterionType: models.CriterionUnwatchedMovie,
-		MediaType:     models.MediaTypeMovie,
-		Parameters:    json.RawMessage(`{}`),
-		Enabled:       true,
-		Libraries:     []models.RuleLibrary{{ServerID: server1.ID, LibraryID: "lib1"}},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	plexItems, _ := s.ListLibraryItems(ctx, server1.ID, "lib1")
-	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, plexItems[0].ID, "test reason"); err != nil {
-		t.Fatal(err)
-	}
-
-	p := setupTestPoller(t, srv.Unwrap(), s)
-	mock1 := &mockDeleteServer{}
-	mock2 := &mockDeleteServer{}
-	p.AddServer(server1.ID, mock1)
-	p.AddServer(server2.ID, mock2)
-
-	body := `{"candidate_ids":[1]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/candidates/bulk-delete", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	srv.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
-	}
-
-	var resp models.BulkDeleteResult
-	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-		t.Fatal(err)
-	}
 	if resp.Deleted != 1 {
 		t.Errorf("deleted = %d, want 1", resp.Deleted)
 	}
-	if len(mock1.deleted) != 1 {
-		t.Errorf("mock1 deleted = %v, want [plex-1]", mock1.deleted)
+	if len(ts.mock1.deleted) != 1 {
+		t.Errorf("mock1 deleted = %v, want [plex-1]", ts.mock1.deleted)
 	}
-	if len(mock2.deleted) != 0 {
-		t.Errorf("mock2 should NOT have been called without cross-server flag, got %v", mock2.deleted)
+	if len(ts.mock2.deleted) != 0 {
+		t.Errorf("mock2 should NOT have been called without cross-server flag, got %v", ts.mock2.deleted)
 	}
 }
 
