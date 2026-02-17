@@ -235,6 +235,8 @@ func (s *Server) doDelete(ctx context.Context, reqURL string) error {
 		return nil
 	}
 	if resp.StatusCode == http.StatusBadRequest {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		slog.Warn("plex: 400 response", "url", reqURL, "body", string(body))
 		return errPlexBadRequest
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
