@@ -190,7 +190,7 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 		"ParentId":         {libraryID},
 		"Recursive":        {"true"},
 		"IncludeItemTypes": {itemType},
-		"Fields":           {"DateCreated,MediaSources,RecursiveItemCount,ChildCount,UserData,ProviderIds"},
+		"Fields":           {"DateCreated,ProductionYear,MediaSources,RecursiveItemCount,ChildCount,UserData,ProviderIds"},
 		"StartIndex":       {strconv.Itoa(offset)},
 		"Limit":            {strconv.Itoa(batchSize)},
 	}

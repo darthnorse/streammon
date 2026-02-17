@@ -644,19 +644,17 @@ function CandidatesView({
                       <td className="px-4 py-3 font-medium">
                         <ItemTitleButton item={candidate.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
                       </td>
-                      <td className="px-4 py-3 text-sm text-muted dark:text-muted-dark whitespace-nowrap">
-                        {candidate.item
-                          ? <>{lookup.getServerName(candidate.item.server_id)} <span className="text-muted/60 dark:text-muted-dark/60">/</span> {lookup.getLibraryName(candidate.item.server_id, candidate.item.library_id)}
-                            {candidate.cross_server_count > 0 && (
-                              <span
-                                className="ml-1.5 px-1.5 py-0.5 text-[10px] rounded-full bg-accent/10 text-accent font-medium"
-                                title={`Exists on ${candidate.cross_server_count} other server${candidate.cross_server_count > 1 ? 's' : ''}`}
-                              >
-                                +{candidate.cross_server_count}
-                              </span>
-                            )}
-                          </>
-                          : '-'}
+                      <td className="px-4 py-3 text-sm text-muted dark:text-muted-dark">
+                        {candidate.item ? (
+                          <div className="space-y-0.5">
+                            <div className="whitespace-nowrap">{lookup.getServerName(candidate.item.server_id)} <span className="text-muted/60 dark:text-muted-dark/60">/</span> {lookup.getLibraryName(candidate.item.server_id, candidate.item.library_id)}</div>
+                            {candidate.other_copies?.map((copy, i) => (
+                              <div key={i} className="whitespace-nowrap text-muted/70 dark:text-muted-dark/70 text-xs">
+                                {lookup.getServerName(copy.server_id)} <span className="text-muted/40 dark:text-muted-dark/40">/</span> {lookup.getLibraryName(copy.server_id, copy.library_id)}
+                              </div>
+                            ))}
+                          </div>
+                        ) : '-'}
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {candidate.item?.year || '-'}

@@ -11,39 +11,23 @@ import (
 	"streammon/internal/models"
 )
 
-// candidateSelectColumns is the base column list for candidate queries.
-// CrossServerCount is not populated by queries using this constant (defaults to 0);
-// only ListCandidatesForRule (paginated) uses candidateSelectColumnsWithCrossCount.
 const candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
 	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url,
 	i.tmdb_id, i.tvdb_id, i.imdb_id, i.synced_at`
 
-// candidateSelectColumnsWithCrossCount appends a correlated subquery that counts
-// other library_items sharing any external ID. The subquery runs per result row
-// but only for paginated results (25 per page), so performance is acceptable.
-const candidateSelectColumnsWithCrossCount = candidateSelectColumns + `,
-	(SELECT COUNT(*) FROM library_items other
-	 WHERE other.id != i.id
-	 AND ((i.tmdb_id != '' AND other.tmdb_id = i.tmdb_id)
-	   OR (i.tvdb_id != '' AND other.tvdb_id = i.tvdb_id)
-	   OR (i.imdb_id != '' AND other.imdb_id = i.imdb_id))
-	) as cross_server_count`
-
-func scanCandidateCore(scanner interface{ Scan(...any) error }, extra ...any) (models.MaintenanceCandidate, error) {
+func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
 	var c models.MaintenanceCandidate
 	var item models.LibraryItemCache
 	var lastWatchedAt sql.NullString
-	dest := []any{
+	err := scanner.Scan(
 		&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
 		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
 		&item.Title, &item.Year, &item.AddedAt, &lastWatchedAt, &item.VideoResolution, &item.FileSize,
 		&item.EpisodeCount, &item.ThumbURL,
 		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.SyncedAt,
-	}
-	dest = append(dest, extra...)
-	err := scanner.Scan(dest...)
+	)
 	if err != nil {
 		return c, err
 	}
@@ -54,20 +38,6 @@ func scanCandidateCore(scanner interface{ Scan(...any) error }, extra ...any) (m
 		}
 	}
 	c.Item = &item
-	return c, nil
-}
-
-func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
-	return scanCandidateCore(scanner)
-}
-
-func scanCandidateWithCrossCount(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
-	var crossCount int
-	c, err := scanCandidateCore(scanner, &crossCount)
-	if err != nil {
-		return c, err
-	}
-	c.CrossServerCount = crossCount
 	return c, nil
 }
 
@@ -156,7 +126,7 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 	copy(listArgs, args)
 	listArgs = append(listArgs, perPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+candidateSelectColumnsWithCrossCount+`
+		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
 		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
@@ -170,11 +140,18 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 
 	candidates := []models.MaintenanceCandidate{}
 	for rows.Next() {
-		c, err := scanCandidateWithCrossCount(rows)
+		c, err := scanCandidate(rows)
 		if err != nil {
 			return nil, fmt.Errorf("scan candidate: %w", err)
 		}
 		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := s.populateOtherCopies(ctx, candidates); err != nil {
+		return nil, fmt.Errorf("populate other copies: %w", err)
 	}
 
 	return &models.CandidatesResponse{
@@ -184,7 +161,128 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 		ExclusionCount: exclusionCount,
 		Page:           page,
 		PerPage:        perPage,
-	}, rows.Err()
+	}, nil
+}
+
+// populateOtherCopies finds library_items sharing external IDs with the given candidates
+// and attaches them as OtherCopies. Only called for paginated results (max 25 items).
+func (s *Store) populateOtherCopies(ctx context.Context, candidates []models.MaintenanceCandidate) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// Collect external IDs and item IDs from candidates
+	var itemIDs []int64
+	tmdbIDs := make(map[string]struct{})
+	tvdbIDs := make(map[string]struct{})
+	imdbIDs := make(map[string]struct{})
+
+	for _, c := range candidates {
+		if c.Item == nil {
+			continue
+		}
+		itemIDs = append(itemIDs, c.Item.ID)
+		if c.Item.TMDBID != "" {
+			tmdbIDs[c.Item.TMDBID] = struct{}{}
+		}
+		if c.Item.TVDBID != "" {
+			tvdbIDs[c.Item.TVDBID] = struct{}{}
+		}
+		if c.Item.IMDBID != "" {
+			imdbIDs[c.Item.IMDBID] = struct{}{}
+		}
+	}
+
+	if len(tmdbIDs) == 0 && len(tvdbIDs) == 0 && len(imdbIDs) == 0 {
+		return nil
+	}
+
+	// Build query to find other items sharing any external ID
+	var conditions []string
+	var args []any
+
+	if len(tmdbIDs) > 0 {
+		phs := make([]string, 0, len(tmdbIDs))
+		for id := range tmdbIDs {
+			phs = append(phs, "?")
+			args = append(args, id)
+		}
+		conditions = append(conditions, "tmdb_id IN ("+strings.Join(phs, ",")+")")
+	}
+	if len(tvdbIDs) > 0 {
+		phs := make([]string, 0, len(tvdbIDs))
+		for id := range tvdbIDs {
+			phs = append(phs, "?")
+			args = append(args, id)
+		}
+		conditions = append(conditions, "tvdb_id IN ("+strings.Join(phs, ",")+")")
+	}
+	if len(imdbIDs) > 0 {
+		phs := make([]string, 0, len(imdbIDs))
+		for id := range imdbIDs {
+			phs = append(phs, "?")
+			args = append(args, id)
+		}
+		conditions = append(conditions, "imdb_id IN ("+strings.Join(phs, ",")+")")
+	}
+
+	// Exclude the candidate items themselves
+	itemPhs := make([]string, len(itemIDs))
+	for i, id := range itemIDs {
+		itemPhs[i] = "?"
+		args = append(args, id)
+	}
+
+	query := `SELECT id, server_id, library_id, tmdb_id, tvdb_id, imdb_id
+		FROM library_items
+		WHERE (` + strings.Join(conditions, " OR ") + `)
+		AND id NOT IN (` + strings.Join(itemPhs, ",") + `)`
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("query other copies: %w", err)
+	}
+	defer rows.Close()
+
+	type copyRow struct {
+		id        int64
+		serverID  int64
+		libraryID string
+		tmdbID    string
+		tvdbID    string
+		imdbID    string
+	}
+	var copies []copyRow
+	for rows.Next() {
+		var r copyRow
+		if err := rows.Scan(&r.id, &r.serverID, &r.libraryID, &r.tmdbID, &r.tvdbID, &r.imdbID); err != nil {
+			return fmt.Errorf("scan other copy: %w", err)
+		}
+		copies = append(copies, r)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	// Match copies to candidates by shared external IDs
+	for i := range candidates {
+		item := candidates[i].Item
+		if item == nil {
+			continue
+		}
+		for _, cp := range copies {
+			if (item.TMDBID != "" && item.TMDBID == cp.tmdbID) ||
+				(item.TVDBID != "" && item.TVDBID == cp.tvdbID) ||
+				(item.IMDBID != "" && item.IMDBID == cp.imdbID) {
+				candidates[i].OtherCopies = append(candidates[i].OtherCopies, models.RuleLibrary{
+					ServerID:  cp.serverID,
+					LibraryID: cp.libraryID,
+				})
+			}
+		}
+	}
+
+	return nil
 }
 
 // CountCandidatesForRule returns the count of candidates for a rule, excluding excluded items

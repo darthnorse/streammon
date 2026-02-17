@@ -599,11 +599,10 @@ func TestListCandidatesForRuleSearch(t *testing.T) {
 	}
 }
 
-func TestListCandidatesForRuleCrossServerCount(t *testing.T) {
+func TestListCandidatesForRuleOtherCopies(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	// Create two servers
 	srvA := &models.Server{Name: "Server A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "keyA", Enabled: true}
 	if err := s.CreateServer(srvA); err != nil {
 		t.Fatal(err)
@@ -643,7 +642,6 @@ func TestListCandidatesForRuleCrossServerCount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Get the library item IDs
 	libItemsA, _ := s.ListLibraryItems(ctx, srvA.ID, "lib1")
 
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
@@ -658,7 +656,6 @@ func TestListCandidatesForRuleCrossServerCount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create candidates for items on server A
 	var candidates []models.BatchCandidate
 	for _, item := range libItemsA {
 		candidates = append(candidates, models.BatchCandidate{LibraryItemID: item.ID, Reason: "Test"})
@@ -674,12 +671,14 @@ func TestListCandidatesForRuleCrossServerCount(t *testing.T) {
 
 	for _, c := range result.Items {
 		if c.Item.Title == "Shared Movie" {
-			if c.CrossServerCount != 1 {
-				t.Errorf("Shared Movie: cross_server_count = %d, want 1", c.CrossServerCount)
+			if len(c.OtherCopies) != 1 {
+				t.Errorf("Shared Movie: other_copies = %d, want 1", len(c.OtherCopies))
+			} else if c.OtherCopies[0].ServerID != srvB.ID || c.OtherCopies[0].LibraryID != "lib2" {
+				t.Errorf("Shared Movie: other copy = {%d, %s}, want {%d, lib2}", c.OtherCopies[0].ServerID, c.OtherCopies[0].LibraryID, srvB.ID)
 			}
 		} else if c.Item.Title == "Unique Movie" {
-			if c.CrossServerCount != 0 {
-				t.Errorf("Unique Movie: cross_server_count = %d, want 0", c.CrossServerCount)
+			if len(c.OtherCopies) != 0 {
+				t.Errorf("Unique Movie: other_copies = %d, want 0", len(c.OtherCopies))
 			}
 		}
 	}
