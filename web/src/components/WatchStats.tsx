@@ -1,11 +1,18 @@
 import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
+import { Dropdown } from './Dropdown'
 import { ConcurrentStreamsCard } from './stats/ConcurrentStreamsCard'
 import { MediaStatCard } from './stats/MediaStatCard'
 import { TopUsersCard } from './stats/TopUsersCard'
 import type { StatsResponse } from '../types'
 
-type TimePeriod = 7 | 30 | 0
+type TimePeriod = '7' | '30' | '0'
+
+const periodOptions: { value: TimePeriod; label: string }[] = [
+  { value: '7', label: 'Last 7 days' },
+  { value: '30', label: 'Last 30 days' },
+  { value: '0', label: 'All time' },
+]
 
 const SKELETON_ITEMS = [1, 2, 3, 4] as const
 
@@ -44,10 +51,10 @@ function StatsContent({ data }: { data: StatsResponse }) {
 }
 
 export function WatchStats() {
-  const [days, setDays] = useState<TimePeriod>(30)
+  const [days, setDays] = useState<TimePeriod>('30')
   const { data, loading, error } = useFetch<StatsResponse>(`/api/stats?days=${days}`)
 
-  const renderContent = () => {
+  function renderContent() {
     if (error) {
       return (
         <div className="text-sm text-red-500 dark:text-red-400">
@@ -70,16 +77,11 @@ export function WatchStats() {
         <h2 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide">
           Watch Statistics
         </h2>
-        <select
+        <Dropdown
+          options={periodOptions}
           value={days}
-          onChange={(e) => setDays(Number(e.target.value) as TimePeriod)}
-          aria-label="Time period"
-          className="text-sm bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-accent"
-        >
-          <option value={7}>Last 7 days</option>
-          <option value={30}>Last 30 days</option>
-          <option value={0}>All time</option>
-        </select>
+          onChange={setDays}
+        />
       </div>
       {renderContent()}
     </div>

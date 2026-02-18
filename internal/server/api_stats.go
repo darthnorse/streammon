@@ -4,13 +4,13 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
 	"streammon/internal/models"
+	"streammon/internal/store"
 )
-
-var allowedFilterDays = map[int]bool{0: true, 7: true, 30: true}
 
 type StatsResponse struct {
 	TopMovies            []models.MediaStat           `json:"top_movies"`
@@ -28,82 +28,112 @@ type StatsResponse struct {
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
-	user := UserFromContext(r.Context())
-	if user != nil && user.Role == models.RoleViewer {
+	if viewerName(r) != "" {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	days := 0
+	var filter store.StatsFilter
+
 	if d := r.URL.Query().Get("days"); d != "" {
 		parsed, err := strconv.Atoi(d)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "days must be a number")
+		if err != nil || parsed < 0 {
+			writeError(w, http.StatusBadRequest, "days must be a non-negative number")
 			return
 		}
-		if !allowedFilterDays[parsed] {
-			writeError(w, http.StatusBadRequest, "days must be 0, 7, or 30")
+		filter.Days = parsed
+	} else {
+		if sd := r.URL.Query().Get("start_date"); sd != "" {
+			t, err := time.Parse("2006-01-02", sd)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid start_date, use YYYY-MM-DD")
+				return
+			}
+			filter.StartDate = t
+		}
+		if ed := r.URL.Query().Get("end_date"); ed != "" {
+			t, err := time.Parse("2006-01-02", ed)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid end_date, use YYYY-MM-DD")
+				return
+			}
+			filter.EndDate = t.AddDate(0, 0, 1)
+		}
+		hasStart := !filter.StartDate.IsZero()
+		hasEnd := !filter.EndDate.IsZero()
+		if hasStart != hasEnd {
+			writeError(w, http.StatusBadRequest, "both start_date and end_date are required")
 			return
 		}
-		days = parsed
+		if hasStart && hasEnd && !filter.EndDate.After(filter.StartDate) {
+			writeError(w, http.StatusBadRequest, "end_date must be after start_date")
+			return
+		}
 	}
+
+	sids, err := parseServerIDs(r.URL.Query().Get("server_ids"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid server_ids")
+		return
+	}
+	filter.ServerIDs = sids
 
 	var resp StatsResponse
 	g, ctx := errgroup.WithContext(r.Context())
 
 	g.Go(func() error {
 		var err error
-		resp.TopMovies, err = s.store.TopMovies(ctx, 10, days)
+		resp.TopMovies, err = s.store.TopMovies(ctx, 10, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.TopTVShows, err = s.store.TopTVShows(ctx, 10, days)
+		resp.TopTVShows, err = s.store.TopTVShows(ctx, 10, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.TopUsers, err = s.store.TopUsers(ctx, 10, days)
+		resp.TopUsers, err = s.store.TopUsers(ctx, 10, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.Library, err = s.store.LibraryStats(ctx, days)
+		resp.Library, err = s.store.LibraryStats(ctx, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.Locations, err = s.store.AllWatchLocations(ctx, days)
+		resp.Locations, err = s.store.AllWatchLocations(ctx, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.ActivityByDayOfWeek, err = s.store.ActivityByDayOfWeek(ctx, days)
+		resp.ActivityByDayOfWeek, err = s.store.ActivityByDayOfWeek(ctx, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.ActivityByHour, err = s.store.ActivityByHour(ctx, days)
+		resp.ActivityByHour, err = s.store.ActivityByHour(ctx, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.PlatformDistribution, err = s.store.PlatformDistribution(ctx, days)
+		resp.PlatformDistribution, err = s.store.PlatformDistribution(ctx, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.PlayerDistribution, err = s.store.PlayerDistribution(ctx, days)
+		resp.PlayerDistribution, err = s.store.PlayerDistribution(ctx, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.QualityDistribution, err = s.store.QualityDistribution(ctx, days)
+		resp.QualityDistribution, err = s.store.QualityDistribution(ctx, filter)
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		resp.ConcurrentTimeSeries, resp.ConcurrentPeaks, err = s.store.ConcurrentStats(ctx, days)
+		resp.ConcurrentTimeSeries, resp.ConcurrentPeaks, err = s.store.ConcurrentStats(ctx, filter)
 		return err
 	})
 

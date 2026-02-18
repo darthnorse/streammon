@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useCallback } from 'react'
+import { useClickOutside } from '../hooks/useClickOutside'
 import type { ColumnDef } from '../lib/historyColumns'
 
 interface ColumnSettingsProps {
@@ -20,29 +21,8 @@ export function ColumnSettings({
 }: ColumnSettingsProps) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        setOpen(false)
-      }
-    }
-
-    document.addEventListener('mousedown', handleClick)
-    document.addEventListener('keydown', handleKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', handleClick)
-      document.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [open])
+  const close = useCallback(() => setOpen(false), [])
+  useClickOutside(ref, open, close)
 
   const availableColumns = columns.filter(c => !excludeColumns.includes(c.id))
 

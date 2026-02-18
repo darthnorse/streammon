@@ -167,3 +167,22 @@ export function formatLocation(
   }
   return (country && country.length > 0) ? country : fb
 }
+
+export function parseYMD(s: string): { year: number; month: number; day: number } {
+  const [y, m, d] = s.split('-').map(Number)
+  return { year: y, month: m - 1, day: d }
+}
+
+export function padDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function localToday(): string {
+  return padDate(new Date())
+}
+
+export function localDaysAgo(n: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() - n)
+  return padDate(d)
+}

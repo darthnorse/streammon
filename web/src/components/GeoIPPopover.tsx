@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useCallback } from 'react'
+import { useClickOutside } from '../hooks/useClickOutside'
 import type { GeoResult } from '../types'
 import { api } from '../lib/api'
 
@@ -50,17 +51,8 @@ export function GeoIPPopover({ ip, children }: GeoIPPopoverProps) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [open])
+  const close = useCallback(() => setOpen(false), [])
+  useClickOutside(ref, open, close)
 
   function handleToggle() {
     if (open) {

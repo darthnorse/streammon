@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { DailyChart } from '../components/DailyChart'
+import { Dropdown } from '../components/Dropdown'
 import { LibraryCards } from '../components/stats/LibraryCards'
 import { TopMediaCard } from '../components/stats/TopMediaCard'
 import { TopUsersCard } from '../components/stats/TopUsersCard'
@@ -9,102 +10,216 @@ import { ActivityByDayChart } from '../components/stats/ActivityByDayChart'
 import { ActivityByHourChart } from '../components/stats/ActivityByHourChart'
 import { DistributionDonut } from '../components/stats/DistributionDonut'
 import { ConcurrentStreamsChart } from '../components/stats/ConcurrentStreamsChart'
-import type { StatsResponse } from '../types'
+import { DatePicker } from '../components/DatePicker'
+import { localToday, localDaysAgo } from '../lib/format'
+import type { StatsResponse, Server } from '../types'
 
-type DaysFilter = 0 | 7 | 30
+type DaysFilter = 0 | 7 | 30 | 'custom'
 
 const STORAGE_KEY = 'streammon:stats-days'
+const STORAGE_START = 'streammon:stats-start'
+const STORAGE_END = 'streammon:stats-end'
+const STORAGE_SERVERS = 'streammon:stats-servers'
 
 const filterOptions: { value: DaysFilter; label: string }[] = [
+  { value: 7, label: '7 days' },
+  { value: 30, label: '30 days' },
   { value: 0, label: 'All time' },
-  { value: 7, label: 'Last 7 days' },
-  { value: 30, label: 'Last 30 days' },
+  { value: 'custom', label: 'Custom' },
 ]
 
 function getStoredDays(): DaysFilter {
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored === '7') return 7
   if (stored === '30') return 30
-  return 0
+  if (stored === '0') return 0
+  if (stored === 'custom') return 'custom'
+  return 30
+}
+
+function buildStatsUrl(days: DaysFilter, startDate: string, endDate: string, serverIds: number[]): string {
+  const params = new URLSearchParams()
+  if (days === 'custom') {
+    if (startDate && endDate) {
+      params.set('start_date', startDate)
+      params.set('end_date', endDate)
+    }
+  } else if (days > 0) {
+    params.set('days', String(days))
+  }
+  if (serverIds.length > 0) {
+    params.set('server_ids', serverIds.join(','))
+  }
+  const qs = params.toString()
+  return qs ? `/api/stats?${qs}` : '/api/stats'
+}
+
+function persistedSetter(setter: (v: string) => void, key: string) {
+  return (value: string) => {
+    setter(value)
+    localStorage.setItem(key, value)
+  }
 }
 
 export function Statistics() {
   const [days, setDays] = useState<DaysFilter>(getStoredDays)
-  const url = days === 0 ? '/api/stats' : `/api/stats?days=${days}`
+  const [startDate, setStartDate] = useState(() => localStorage.getItem(STORAGE_START) ?? '')
+  const [endDate, setEndDate] = useState(() => localStorage.getItem(STORAGE_END) ?? '')
+  const [serverIds, setServerIds] = useState<number[]>(() => {
+    const stored = localStorage.getItem(STORAGE_SERVERS)
+    if (!stored) return []
+    try { return JSON.parse(stored) as number[] } catch { return [] }
+  })
+
+  const { data: servers } = useFetch<Server[]>('/api/servers')
+  const today = localToday()
+
+  const url = buildStatsUrl(days, startDate, endDate, serverIds)
   const { data, loading, error } = useFetch<StatsResponse>(url)
 
-  if (loading) {
-    return (
-      <div className="card p-12 text-center">
-        <div className="text-muted dark:text-muted-dark animate-pulse">Loading statistics...</div>
-      </div>
-    )
+  const handleStartDate = persistedSetter(setStartDate, STORAGE_START)
+  const handleEndDate = persistedSetter(setEndDate, STORAGE_END)
+
+  function handleDaysChange(value: DaysFilter) {
+    if (value === 'custom' && days !== 'custom') {
+      const range = days === 0 ? 90 : days
+      handleStartDate(localDaysAgo(range))
+      handleEndDate(today)
+    }
+    setDays(value)
+    localStorage.setItem(STORAGE_KEY, String(value))
   }
 
-  if (error) {
-    return (
-      <div className="card p-6 text-center text-red-500 dark:text-red-400">
-        Error loading statistics
-      </div>
-    )
+  function handleServerChange(selected: string[]) {
+    const ids = selected.map(Number)
+    setServerIds(ids)
+    localStorage.setItem(STORAGE_SERVERS, JSON.stringify(ids))
   }
 
-  if (!data) return null
+  const serverOptions = (servers ?? []).map(s => ({
+    value: String(s.id),
+    label: s.name,
+  }))
+
+  function renderContent() {
+    if (days === 'custom' && (!startDate || !endDate)) {
+      return (
+        <div className="card p-12 text-center">
+          <div className="text-muted dark:text-muted-dark">Select a start and end date to view statistics</div>
+        </div>
+      )
+    }
+    if (loading) {
+      return (
+        <div className="card p-12 text-center">
+          <div className="text-muted dark:text-muted-dark animate-pulse">Loading statistics...</div>
+        </div>
+      )
+    }
+    if (error) {
+      return (
+        <div className="card p-6 text-center text-red-500 dark:text-red-400">
+          Error loading statistics
+        </div>
+      )
+    }
+    if (!data) return null
+
+    return (
+      <>
+        <LibraryCards stats={data.library} concurrentPeak={data.concurrent_peaks.total} />
+
+        <DailyChart
+          days={days === 'custom' ? 0 : days}
+          startDate={days === 'custom' ? startDate : undefined}
+          endDate={days === 'custom' ? endDate : undefined}
+          serverIds={serverIds.length > 0 ? serverIds : undefined}
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <ActivityByDayChart data={data.activity_by_day_of_week} />
+          <ActivityByHourChart data={data.activity_by_hour} />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <DistributionDonut title="Platforms" data={data.platform_distribution} />
+          <DistributionDonut title="Players" data={data.player_distribution} />
+          <DistributionDonut title="Stream Quality" data={data.quality_distribution} />
+        </div>
+
+        <ConcurrentStreamsChart data={data.concurrent_time_series} />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <TopMediaCard title="Most Popular Movies" items={data.top_movies} icon="▶" />
+          <TopMediaCard title="Most Popular TV Shows" items={data.top_tv_shows} icon="▷" />
+        </div>
+
+        <TopUsersCard users={data.top_users} />
+
+        <LocationsCard locations={data.locations} />
+      </>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold">Statistics</h1>
           <p className="text-sm text-muted dark:text-muted-dark mt-1">
             Viewing trends and insights
           </p>
         </div>
-        <div className="flex gap-1">
-          {filterOptions.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => {
-                setDays(opt.value)
-                localStorage.setItem(STORAGE_KEY, String(opt.value))
-              }}
-              className={`px-3 py-1.5 rounded text-xs font-medium transition-colors
-                ${days === opt.value
-                  ? 'bg-accent/15 text-accent-dim dark:text-accent'
-                  : 'text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
-                }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1">
+              {filterOptions.map(opt => (
+                <button
+                  key={String(opt.value)}
+                  onClick={() => handleDaysChange(opt.value)}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors
+                    ${days === opt.value
+                      ? 'bg-accent/15 text-accent-dim dark:text-accent'
+                      : 'text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
+                    }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            {servers && servers.length > 1 && (
+              <Dropdown
+                multi
+                options={serverOptions}
+                selected={serverIds.map(String)}
+                onChange={handleServerChange}
+                allLabel="All Servers"
+                noneLabel="All Servers"
+              />
+            )}
+          </div>
+          {days === 'custom' && (
+            <div className="flex items-center gap-2">
+              <DatePicker
+                value={startDate}
+                onChange={handleStartDate}
+                label="Start date"
+                max={endDate || today}
+              />
+              <span className="text-muted dark:text-muted-dark text-xs">&mdash;</span>
+              <DatePicker
+                value={endDate}
+                onChange={handleEndDate}
+                label="End date"
+                min={startDate}
+                max={today}
+              />
+            </div>
+          )}
         </div>
       </div>
 
-      <LibraryCards stats={data.library} concurrentPeak={data.concurrent_peaks.total} />
-
-      <DailyChart days={days} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <ActivityByDayChart data={data.activity_by_day_of_week} />
-        <ActivityByHourChart data={data.activity_by_hour} />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <DistributionDonut title="Platforms" data={data.platform_distribution} />
-        <DistributionDonut title="Players" data={data.player_distribution} />
-        <DistributionDonut title="Stream Quality" data={data.quality_distribution} />
-      </div>
-
-      <ConcurrentStreamsChart data={data.concurrent_time_series} />
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <TopMediaCard title="Most Popular Movies" items={data.top_movies} icon="▶" />
-        <TopMediaCard title="Most Popular TV Shows" items={data.top_tv_shows} icon="▷" />
-      </div>
-
-      <TopUsersCard users={data.top_users} />
-
-      <LocationsCard locations={data.locations} />
+      {renderContent()}
     </div>
   )
 }

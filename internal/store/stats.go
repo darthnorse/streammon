@@ -11,6 +11,13 @@ import (
 	"streammon/internal/models"
 )
 
+func calcPercentage(count, total int) float64 {
+	if total == 0 {
+		return 0
+	}
+	return float64(count) / float64(total) * 100
+}
+
 // allowedDistributionColumns validates columns for distribution queries to prevent SQL injection
 var allowedDistributionColumns = map[string]bool{
 	"platform":         true,
@@ -38,6 +45,68 @@ func cutoffTime(days int) time.Time {
 	return time.Now().UTC().AddDate(0, 0, -days)
 }
 
+type StatsFilter struct {
+	Days      int
+	StartDate time.Time
+	EndDate   time.Time
+	ServerIDs []int64
+}
+
+func (f StatsFilter) timeConditionWith(alias string) (string, []any) {
+	col := "started_at"
+	if alias != "" {
+		col = alias + ".started_at"
+	}
+	if !f.StartDate.IsZero() && !f.EndDate.IsZero() {
+		return col + " >= ? AND " + col + " < ?", []any{f.StartDate, f.EndDate}
+	}
+	cutoff := cutoffTime(f.Days)
+	if !cutoff.IsZero() {
+		return col + " >= ?", []any{cutoff}
+	}
+	return "", nil
+}
+
+func (f StatsFilter) serverConditionWith(alias string) (string, []any) {
+	if len(f.ServerIDs) == 0 {
+		return "", nil
+	}
+	col := "server_id"
+	if alias != "" {
+		col = alias + ".server_id"
+	}
+	placeholders := strings.Repeat(",?", len(f.ServerIDs))[1:]
+	args := make([]any, len(f.ServerIDs))
+	for i, id := range f.ServerIDs {
+		args[i] = id
+	}
+	return fmt.Sprintf("%s IN (%s)", col, placeholders), args
+}
+
+func buildConditions(alias string, f StatsFilter) (conds []string, args []any) {
+	if tc, ta := f.timeConditionWith(alias); tc != "" {
+		conds = append(conds, tc)
+		args = append(args, ta...)
+	}
+	if sc, sa := f.serverConditionWith(alias); sc != "" {
+		conds = append(conds, sc)
+		args = append(args, sa...)
+	}
+	return
+}
+
+func (f StatsFilter) conditionsWithPrefix(prefix, alias string) (string, []any) {
+	conds, args := buildConditions(alias, f)
+	if len(conds) == 0 {
+		return "", nil
+	}
+	return prefix + strings.Join(conds, " AND "), args
+}
+
+func (f StatsFilter) conditions() (string, []any)                  { return f.conditionsWithPrefix(" WHERE ", "") }
+func (f StatsFilter) andConditions() (string, []any)               { return f.conditionsWithPrefix(" AND ", "") }
+func (f StatsFilter) andConditionsWith(alias string) (string, []any) { return f.conditionsWithPrefix(" AND ", alias) }
+
 type topMediaConfig struct {
 	selectCol  string
 	yearExpr   string
@@ -50,14 +119,8 @@ type topMediaConfig struct {
 	metaArgs   func(stat models.MediaStat) []any
 }
 
-func (s *Store) topMedia(ctx context.Context, limit int, days int, cfg topMediaConfig) ([]models.MediaStat, error) {
-	cutoff := cutoffTime(days)
-	hasTimeFilter := !cutoff.IsZero()
-
-	timeClause := ""
-	if hasTimeFilter {
-		timeClause = " AND started_at >= ?"
-	}
+func (s *Store) topMedia(ctx context.Context, limit int, filter StatsFilter, cfg topMediaConfig) ([]models.MediaStat, error) {
+	filterClause, filterArgs := filter.andConditions()
 
 	itemIDCol := cfg.itemIDCol
 	if itemIDCol == "" {
@@ -73,14 +136,12 @@ func (s *Store) topMedia(ctx context.Context, limit int, days int, cfg topMediaC
 	ORDER BY play_count DESC
 	LIMIT ?`,
 		cfg.selectCol, cfg.yearExpr,
-		cfg.extraWhere, timeClause,
+		cfg.extraWhere, filterClause,
 		cfg.groupBy)
 
 	var args []any
 	args = append(args, cfg.mediaType)
-	if hasTimeFilter {
-		args = append(args, cutoff)
-	}
+	args = append(args, filterArgs...)
 	args = append(args, limit)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -89,7 +150,7 @@ func (s *Store) topMedia(ctx context.Context, limit int, days int, cfg topMediaC
 	}
 	defer rows.Close()
 
-	var stats []models.MediaStat
+	stats := []models.MediaStat{}
 	for rows.Next() {
 		var stat models.MediaStat
 		var totalHours sql.NullFloat64
@@ -106,7 +167,7 @@ func (s *Store) topMedia(ctx context.Context, limit int, days int, cfg topMediaC
 	}
 
 	if len(stats) == 0 {
-		return []models.MediaStat{}, nil
+		return stats, nil
 	}
 
 	// Pass 2: metadata lookup per top item (media_type filter prevents cross-type contamination)
@@ -139,8 +200,8 @@ func (s *Store) topMedia(ctx context.Context, limit int, days int, cfg topMediaC
 	return stats, nil
 }
 
-func (s *Store) TopMovies(ctx context.Context, limit int, days int) ([]models.MediaStat, error) {
-	return s.topMedia(ctx, limit, days, topMediaConfig{
+func (s *Store) TopMovies(ctx context.Context, limit int, filter StatsFilter) ([]models.MediaStat, error) {
+	return s.topMedia(ctx, limit, filter, topMediaConfig{
 		selectCol:  "title",
 		yearExpr:   "year",
 		extraWhere: "",
@@ -152,8 +213,8 @@ func (s *Store) TopMovies(ctx context.Context, limit int, days int) ([]models.Me
 	})
 }
 
-func (s *Store) TopTVShows(ctx context.Context, limit int, days int) ([]models.MediaStat, error) {
-	return s.topMedia(ctx, limit, days, topMediaConfig{
+func (s *Store) TopTVShows(ctx context.Context, limit int, filter StatsFilter) ([]models.MediaStat, error) {
+	return s.topMedia(ctx, limit, filter, topMediaConfig{
 		selectCol:  "grandparent_title",
 		yearExpr:   "0 as year",
 		extraWhere: " AND grandparent_title != ''",
@@ -166,22 +227,14 @@ func (s *Store) TopTVShows(ctx context.Context, limit int, days int) ([]models.M
 	})
 }
 
-func (s *Store) TopUsers(ctx context.Context, limit int, days int) ([]models.UserStat, error) {
-	cutoff := cutoffTime(days)
-	hasTimeFilter := !cutoff.IsZero()
+func (s *Store) TopUsers(ctx context.Context, limit int, filter StatsFilter) ([]models.UserStat, error) {
+	whereClause, filterArgs := filter.conditions()
 
 	query := `SELECT user_name, COUNT(*) as play_count,
 		SUM(watched_ms) / 3600000.0 as total_hours
-	FROM watch_history`
+	FROM watch_history` + whereClause + ` GROUP BY user_name ORDER BY total_hours DESC LIMIT ?`
 
-	var args []any
-	if hasTimeFilter {
-		query += ` WHERE started_at >= ?`
-		args = append(args, cutoff)
-	}
-
-	query += ` GROUP BY user_name ORDER BY total_hours DESC LIMIT ?`
-	args = append(args, limit)
+	args := append(filterArgs, limit)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -207,22 +260,21 @@ func (s *Store) TopUsers(ctx context.Context, limit int, days int) ([]models.Use
 	return stats, nil
 }
 
-func (s *Store) LibraryStats(ctx context.Context, days int) (*models.LibraryStat, error) {
+func (s *Store) LibraryStats(ctx context.Context, filter StatsFilter) (*models.LibraryStat, error) {
 	var stats models.LibraryStat
 	var totalHours sql.NullFloat64
-	cutoff := cutoffTime(days)
+
+	whereClause, filterArgs := filter.conditions()
 
 	query := `SELECT COUNT(*) as total_plays,
 		SUM(watched_ms) / 3600000.0 as total_hours,
 		COUNT(DISTINCT user_name) as unique_users,
 		COUNT(DISTINCT CASE WHEN media_type = ? THEN title || '|' || COALESCE(year, 0) END) as unique_movies,
 		COUNT(DISTINCT CASE WHEN media_type = ? AND grandparent_title != '' THEN grandparent_title END) as unique_tv_shows
-	FROM watch_history`
+	FROM watch_history` + whereClause
+
 	args := []any{models.MediaTypeMovie, models.MediaTypeTV}
-	if !cutoff.IsZero() {
-		query += ` WHERE started_at >= ?`
-		args = append(args, cutoff)
-	}
+	args = append(args, filterArgs...)
 	if err := s.db.QueryRowContext(ctx, query, args...).Scan(
 		&stats.TotalPlays, &totalHours, &stats.UniqueUsers,
 		&stats.UniqueMovies, &stats.UniqueTVShows,
@@ -236,7 +288,6 @@ func (s *Store) LibraryStats(ctx context.Context, days int) (*models.LibraryStat
 	return &stats, nil
 }
 
-// concurrentEvent represents a session start (+1) or stop (-1) at a point in time.
 type concurrentEvent struct {
 	t        time.Time
 	delta    int
@@ -244,14 +295,10 @@ type concurrentEvent struct {
 }
 
 // loadConcurrentEvents returns start/stop events sorted by time, stops before starts (half-open intervals).
-func (s *Store) loadConcurrentEvents(ctx context.Context, cutoff time.Time) ([]concurrentEvent, error) {
-	query := `SELECT started_at, stopped_at, transcode_decision FROM watch_history`
-	var args []any
-	if !cutoff.IsZero() {
-		query += ` WHERE started_at >= ?`
-		args = append(args, cutoff)
-	}
-	rows, err := s.db.QueryContext(ctx, query, args...)
+func (s *Store) loadConcurrentEvents(ctx context.Context, filter StatsFilter) ([]concurrentEvent, error) {
+	whereClause, filterArgs := filter.conditions()
+	query := `SELECT started_at, stopped_at, transcode_decision FROM watch_history` + whereClause
+	rows, err := s.db.QueryContext(ctx, query, filterArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("loading concurrent events: %w", err)
 	}
@@ -284,20 +331,20 @@ func (s *Store) loadConcurrentEvents(ctx context.Context, cutoff time.Time) ([]c
 	return events, nil
 }
 
-func (s *Store) ConcurrentStreamsPeakByType(ctx context.Context, days int) (models.ConcurrentPeaks, error) {
-	_, peaks, err := s.ConcurrentStats(ctx, days)
+func (s *Store) ConcurrentStreamsPeakByType(ctx context.Context, filter StatsFilter) (models.ConcurrentPeaks, error) {
+	_, peaks, err := s.ConcurrentStats(ctx, filter)
 	return peaks, err
 }
 
 // ConcurrentStats loads concurrent stream events once and computes both
 // time series and peak stats in a single pass over the data.
-func (s *Store) ConcurrentStats(ctx context.Context, days int) ([]models.ConcurrentTimePoint, models.ConcurrentPeaks, error) {
-	cutoff := cutoffTime(days)
-	if cutoff.IsZero() {
-		cutoff = time.Now().UTC().AddDate(0, 0, -DefaultConcurrentPeakDays)
+func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]models.ConcurrentTimePoint, models.ConcurrentPeaks, error) {
+	// Default to 90 days for concurrent stats if no time filter specified
+	if filter.Days == 0 && filter.StartDate.IsZero() {
+		filter.Days = DefaultConcurrentPeakDays
 	}
 
-	events, err := s.loadConcurrentEvents(ctx, cutoff)
+	events, err := s.loadConcurrentEvents(ctx, filter)
 	if err != nil {
 		return nil, models.ConcurrentPeaks{}, err
 	}
@@ -363,21 +410,16 @@ func (s *Store) ConcurrentStats(ctx context.Context, days int) ([]models.Concurr
 	return points, peaks, nil
 }
 
-func (s *Store) AllWatchLocations(ctx context.Context, days int) ([]models.GeoResult, error) {
-	cutoff := cutoffTime(days)
+func (s *Store) AllWatchLocations(ctx context.Context, filter StatsFilter) ([]models.GeoResult, error) {
+	filterClause, filterArgs := filter.andConditionsWith("h")
+
 	query := `SELECT g.lat, g.lng, g.city, g.country, COALESCE(MAX(g.isp), '') as isp,
 		COALESCE(GROUP_CONCAT(DISTINCT h.user_name), '') as users
 	FROM watch_history h
 	JOIN ip_geo_cache g ON h.ip_address = g.ip
-	WHERE h.ip_address != ''`
-	var args []any
-	if !cutoff.IsZero() {
-		query += ` AND h.started_at >= ?`
-		args = append(args, cutoff)
-	}
-	query += ` GROUP BY g.lat, g.lng, g.city, g.country
+	WHERE h.ip_address != ''` + filterClause + ` GROUP BY g.lat, g.lng, g.city, g.country
 	ORDER BY g.country, g.city`
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.db.QueryContext(ctx, query, filterArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("watch locations: %w", err)
 	}
@@ -454,9 +496,7 @@ func (s *Store) UserDetailStats(ctx context.Context, userName string) (*models.U
 		return nil, fmt.Errorf("iterating location stats: %w", err)
 	}
 	for i := range stats.Locations {
-		if totalLocSessions > 0 {
-			stats.Locations[i].Percentage = float64(stats.Locations[i].SessionCount) / float64(totalLocSessions) * 100
-		}
+		stats.Locations[i].Percentage = calcPercentage(stats.Locations[i].SessionCount, totalLocSessions)
 	}
 
 	devRows, err := s.db.QueryContext(ctx,
@@ -489,9 +529,7 @@ func (s *Store) UserDetailStats(ctx context.Context, userName string) (*models.U
 		return nil, fmt.Errorf("iterating device stats: %w", err)
 	}
 	for i := range stats.Devices {
-		if totalDevSessions > 0 {
-			stats.Devices[i].Percentage = float64(stats.Devices[i].SessionCount) / float64(totalDevSessions) * 100
-		}
+		stats.Devices[i].Percentage = calcPercentage(stats.Devices[i].SessionCount, totalDevSessions)
 	}
 
 	ispRows, err := s.db.QueryContext(ctx,
@@ -525,9 +563,7 @@ func (s *Store) UserDetailStats(ctx context.Context, userName string) (*models.U
 		return nil, fmt.Errorf("iterating isp stats: %w", err)
 	}
 	for i := range stats.ISPs {
-		if totalISPSessions > 0 {
-			stats.ISPs[i].Percentage = float64(stats.ISPs[i].SessionCount) / float64(totalISPSessions) * 100
-		}
+		stats.ISPs[i].Percentage = calcPercentage(stats.ISPs[i].SessionCount, totalISPSessions)
 	}
 
 	return stats, nil
@@ -543,24 +579,19 @@ var allowedStrftimeFormats = map[string]bool{
 
 // activityCounts queries play counts grouped by a strftime expression.
 // Returns a map of bucket -> count. Used by ActivityByDayOfWeek and ActivityByHour.
-func (s *Store) activityCounts(ctx context.Context, days int, strftimeFmt, errContext string) (map[int]int, error) {
+func (s *Store) activityCounts(ctx context.Context, filter StatsFilter, strftimeFmt, errContext string) (map[int]int, error) {
 	if !allowedStrftimeFormats[strftimeFmt] {
 		return nil, fmt.Errorf("%s: invalid strftime format %q", errContext, strftimeFmt)
 	}
 
-	cutoff := cutoffTime(days)
-	hasTimeFilter := !cutoff.IsZero()
+	whereClause, filterArgs := filter.conditions()
 
 	query := fmt.Sprintf(`SELECT CAST(strftime('%s', started_at) AS INTEGER) as bucket, COUNT(*) as play_count
 		FROM watch_history`, strftimeFmt)
-	var args []any
-	if hasTimeFilter {
-		query += ` WHERE started_at >= ?`
-		args = append(args, cutoff)
-	}
+	query += whereClause
 	query += ` GROUP BY bucket ORDER BY bucket`
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.db.QueryContext(ctx, query, filterArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", errContext, err)
 	}
@@ -583,8 +614,8 @@ func (s *Store) activityCounts(ctx context.Context, days int, strftimeFmt, errCo
 
 // ActivityByDayOfWeek returns play counts grouped by day of week (UTC-based).
 // Note: Day/hour calculations are based on UTC timestamps, not user local time.
-func (s *Store) ActivityByDayOfWeek(ctx context.Context, days int) ([]models.DayOfWeekStat, error) {
-	counts, err := s.activityCounts(ctx, days, "%w", "activity by day of week")
+func (s *Store) ActivityByDayOfWeek(ctx context.Context, filter StatsFilter) ([]models.DayOfWeekStat, error) {
+	counts, err := s.activityCounts(ctx, filter, "%w", "activity by day of week")
 	if err != nil {
 		return nil, err
 	}
@@ -602,8 +633,8 @@ func (s *Store) ActivityByDayOfWeek(ctx context.Context, days int) ([]models.Day
 
 // ActivityByHour returns play counts grouped by hour of day (UTC-based).
 // Note: Day/hour calculations are based on UTC timestamps, not user local time.
-func (s *Store) ActivityByHour(ctx context.Context, days int) ([]models.HourStat, error) {
-	counts, err := s.activityCounts(ctx, days, "%H", "activity by hour")
+func (s *Store) ActivityByHour(ctx context.Context, filter StatsFilter) ([]models.HourStat, error) {
+	counts, err := s.activityCounts(ctx, filter, "%H", "activity by hour")
 	if err != nil {
 		return nil, err
 	}
@@ -618,42 +649,37 @@ func (s *Store) ActivityByHour(ctx context.Context, days int) ([]models.HourStat
 	return stats, nil
 }
 
-func (s *Store) PlatformDistribution(ctx context.Context, days int) ([]models.DistributionStat, error) {
-	return s.distribution(ctx, days, "platform", "platform distribution")
+func (s *Store) PlatformDistribution(ctx context.Context, filter StatsFilter) ([]models.DistributionStat, error) {
+	return s.distribution(ctx, filter, "platform", "platform distribution")
 }
 
-func (s *Store) PlayerDistribution(ctx context.Context, days int) ([]models.DistributionStat, error) {
-	return s.distribution(ctx, days, "player", "player distribution")
+func (s *Store) PlayerDistribution(ctx context.Context, filter StatsFilter) ([]models.DistributionStat, error) {
+	return s.distribution(ctx, filter, "player", "player distribution")
 }
 
-func (s *Store) QualityDistribution(ctx context.Context, days int) ([]models.DistributionStat, error) {
-	return s.distribution(ctx, days, "video_resolution", "quality distribution")
+func (s *Store) QualityDistribution(ctx context.Context, filter StatsFilter) ([]models.DistributionStat, error) {
+	return s.distribution(ctx, filter, "video_resolution", "quality distribution")
 }
 
-func (s *Store) distribution(ctx context.Context, days int, column, errMsg string) ([]models.DistributionStat, error) {
+func (s *Store) distribution(ctx context.Context, filter StatsFilter, column, errMsg string) ([]models.DistributionStat, error) {
 	if !allowedDistributionColumns[column] {
 		return nil, fmt.Errorf("%s: invalid column %q", errMsg, column)
 	}
 
-	cutoff := cutoffTime(days)
-	hasTimeFilter := !cutoff.IsZero()
+	whereClause, filterArgs := filter.conditions()
 
 	query := fmt.Sprintf(`SELECT COALESCE(NULLIF(%s, ''), 'Unknown') as name, COUNT(*) as cnt
 		FROM watch_history`, column)
-	var args []any
-	if hasTimeFilter {
-		query += ` WHERE started_at >= ?`
-		args = append(args, cutoff)
-	}
+	query += whereClause
 	query += ` GROUP BY name ORDER BY cnt DESC`
 
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.db.QueryContext(ctx, query, filterArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", errMsg, err)
 	}
 	defer rows.Close()
 
-	stats := make([]models.DistributionStat, 0)
+	stats := []models.DistributionStat{}
 	var total int
 	for rows.Next() {
 		var stat models.DistributionStat
@@ -668,15 +694,13 @@ func (s *Store) distribution(ctx context.Context, days int, column, errMsg strin
 	}
 
 	for i := range stats {
-		if total > 0 {
-			stats[i].Percentage = float64(stats[i].Count) / float64(total) * 100
-		}
+		stats[i].Percentage = calcPercentage(stats[i].Count, total)
 	}
 
 	return stats, nil
 }
 
-func (s *Store) ConcurrentStreamsOverTime(ctx context.Context, days int) ([]models.ConcurrentTimePoint, error) {
-	points, _, err := s.ConcurrentStats(ctx, days)
+func (s *Store) ConcurrentStreamsOverTime(ctx context.Context, filter StatsFilter) ([]models.ConcurrentTimePoint, error) {
+	points, _, err := s.ConcurrentStats(ctx, filter)
 	return points, err
 }

@@ -32,7 +32,7 @@ func TestTopMovies(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.TopMovies(ctx, 10, 0)
+	stats, err := s.TopMovies(ctx, 10, StatsFilter{})
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestTopMoviesEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
 	ctx := context.Background()
-	stats, err := s.TopMovies(ctx, 10, 0)
+	stats, err := s.TopMovies(ctx, 10, StatsFilter{})
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestTopTVShows(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.TopTVShows(ctx, 10, 0)
+	stats, err := s.TopTVShows(ctx, 10, StatsFilter{})
 	if err != nil {
 		t.Fatalf("TopTVShows: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestTopUsers(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.TopUsers(ctx, 10, 0)
+	stats, err := s.TopUsers(ctx, 10, StatsFilter{})
 	if err != nil {
 		t.Fatalf("TopUsers: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestLibraryStats(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.LibraryStats(ctx, 0)
+	stats, err := s.LibraryStats(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("LibraryStats: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestLibraryStatsEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
 	ctx := context.Background()
-	stats, err := s.LibraryStats(ctx, 0)
+	stats, err := s.LibraryStats(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("LibraryStats: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestConcurrentStreamsPeakByType(t *testing.T) {
 		StartedAt: base.Add(45 * time.Minute), StoppedAt: base.Add(60 * time.Minute),
 	})
 
-	peaks, err := s.ConcurrentStreamsPeakByType(ctx, 0)
+	peaks, err := s.ConcurrentStreamsPeakByType(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestConcurrentStreamsPeakByTypeEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	peaks, err := s.ConcurrentStreamsPeakByType(ctx, 0)
+	peaks, err := s.ConcurrentStreamsPeakByType(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestConcurrentStreamsPeakByTypeIndependentPeaks(t *testing.T) {
 		StartedAt: base.Add(2 * time.Hour), StoppedAt: base.Add(3 * time.Hour),
 	})
 
-	peaks, err := s.ConcurrentStreamsPeakByType(ctx, 0)
+	peaks, err := s.ConcurrentStreamsPeakByType(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestConcurrentStreamsPeakByTypeEmptyDecision(t *testing.T) {
 		StartedAt: base, StoppedAt: base.Add(time.Hour),
 	})
 
-	peaks, err := s.ConcurrentStreamsPeakByType(ctx, 0)
+	peaks, err := s.ConcurrentStreamsPeakByType(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestAllWatchLocations(t *testing.T) {
 	s.SetCachedGeo(&models.GeoResult{IP: "5.6.7.8", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2, ISP: "AT&T"})
 
 	ctx := context.Background()
-	locs, err := s.AllWatchLocations(ctx, 0)
+	locs, err := s.AllWatchLocations(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("AllWatchLocations: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestAllWatchLocationsEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
 	ctx := context.Background()
-	locs, err := s.AllWatchLocations(ctx, 0)
+	locs, err := s.AllWatchLocations(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("AllWatchLocations: %v", err)
 	}
@@ -464,7 +464,7 @@ func TestTopMoviesWithTimeFilter(t *testing.T) {
 	ctx := context.Background()
 
 	// All time should return both
-	all, err := s.TopMovies(ctx, 10, 0)
+	all, err := s.TopMovies(ctx, 10, StatsFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -473,7 +473,7 @@ func TestTopMoviesWithTimeFilter(t *testing.T) {
 	}
 
 	// 30 days should return only recent
-	month, err := s.TopMovies(ctx, 10, 30)
+	month, err := s.TopMovies(ctx, 10, StatsFilter{Days: 30})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +485,7 @@ func TestTopMoviesWithTimeFilter(t *testing.T) {
 	}
 
 	// 7 days should return only recent
-	week, err := s.TopMovies(ctx, 10, 7)
+	week, err := s.TopMovies(ctx, 10, StatsFilter{Days: 7})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -516,7 +516,7 @@ func TestTopMoviesWithThumbURL(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.TopMovies(ctx, 10, 0)
+	stats, err := s.TopMovies(ctx, 10, StatsFilter{})
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -545,7 +545,7 @@ func TestTopTVShowsWithThumbURL(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.TopTVShows(ctx, 10, 0)
+	stats, err := s.TopTVShows(ctx, 10, StatsFilter{})
 	if err != nil {
 		t.Fatalf("TopTVShows: %v", err)
 	}
@@ -586,7 +586,7 @@ func TestTopMoviesWithItemID(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.TopMovies(ctx, 10, 0)
+	stats, err := s.TopMovies(ctx, 10, StatsFilter{})
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -617,7 +617,7 @@ func TestTopTVShowsWithItemID(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.TopTVShows(ctx, 10, 0)
+	stats, err := s.TopTVShows(ctx, 10, StatsFilter{})
 	if err != nil {
 		t.Fatalf("TopTVShows: %v", err)
 	}
@@ -800,7 +800,7 @@ func TestActivityByDayOfWeek(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.ActivityByDayOfWeek(ctx, 0)
+	stats, err := s.ActivityByDayOfWeek(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ActivityByDayOfWeek: %v", err)
 	}
@@ -827,7 +827,7 @@ func TestActivityByDayOfWeekEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	stats, err := s.ActivityByDayOfWeek(ctx, 0)
+	stats, err := s.ActivityByDayOfWeek(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ActivityByDayOfWeek: %v", err)
 	}
@@ -866,7 +866,7 @@ func TestActivityByHour(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.ActivityByHour(ctx, 0)
+	stats, err := s.ActivityByHour(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ActivityByHour: %v", err)
 	}
@@ -887,7 +887,7 @@ func TestActivityByHourEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	stats, err := s.ActivityByHour(ctx, 0)
+	stats, err := s.ActivityByHour(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ActivityByHour: %v", err)
 	}
@@ -922,7 +922,7 @@ func TestPlatformDistribution(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.PlatformDistribution(ctx, 0)
+	stats, err := s.PlatformDistribution(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("PlatformDistribution: %v", err)
 	}
@@ -948,7 +948,7 @@ func TestPlatformDistributionEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	stats, err := s.PlatformDistribution(ctx, 0)
+	stats, err := s.PlatformDistribution(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("PlatformDistribution: %v", err)
 	}
@@ -973,7 +973,7 @@ func TestPlayerDistribution(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.PlayerDistribution(ctx, 0)
+	stats, err := s.PlayerDistribution(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("PlayerDistribution: %v", err)
 	}
@@ -1006,7 +1006,7 @@ func TestQualityDistribution(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	stats, err := s.QualityDistribution(ctx, 0)
+	stats, err := s.QualityDistribution(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("QualityDistribution: %v", err)
 	}
@@ -1062,7 +1062,7 @@ func TestConcurrentStreamsOverTime(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	points, err := s.ConcurrentStreamsOverTime(ctx, 0)
+	points, err := s.ConcurrentStreamsOverTime(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ConcurrentStreamsOverTime: %v", err)
 	}
@@ -1088,7 +1088,7 @@ func TestConcurrentStreamsOverTimeEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	points, err := s.ConcurrentStreamsOverTime(ctx, 0)
+	points, err := s.ConcurrentStreamsOverTime(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ConcurrentStreamsOverTime: %v", err)
 	}
@@ -1115,7 +1115,7 @@ func TestConcurrentStreamsOverTimeHourlyBucketing(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	points, err := s.ConcurrentStreamsOverTime(ctx, 0)
+	points, err := s.ConcurrentStreamsOverTime(ctx, StatsFilter{})
 	if err != nil {
 		t.Fatalf("ConcurrentStreamsOverTime: %v", err)
 	}
@@ -1132,7 +1132,7 @@ func TestDistributionInvalidColumn(t *testing.T) {
 	ctx := context.Background()
 
 	// Invalid column should be rejected
-	_, err := s.distribution(ctx, 0, "evil'; DROP TABLE watch_history; --", "test")
+	_, err := s.distribution(ctx, StatsFilter{}, "evil'; DROP TABLE watch_history; --", "test")
 	if err == nil {
 		t.Error("expected error for invalid column")
 	}
@@ -1141,15 +1141,15 @@ func TestDistributionInvalidColumn(t *testing.T) {
 	}
 
 	// Valid columns should work
-	_, err = s.PlatformDistribution(ctx, 0)
+	_, err = s.PlatformDistribution(ctx, StatsFilter{})
 	if err != nil {
 		t.Errorf("PlatformDistribution should succeed: %v", err)
 	}
-	_, err = s.PlayerDistribution(ctx, 0)
+	_, err = s.PlayerDistribution(ctx, StatsFilter{})
 	if err != nil {
 		t.Errorf("PlayerDistribution should succeed: %v", err)
 	}
-	_, err = s.QualityDistribution(ctx, 0)
+	_, err = s.QualityDistribution(ctx, StatsFilter{})
 	if err != nil {
 		t.Errorf("QualityDistribution should succeed: %v", err)
 	}
@@ -1160,7 +1160,7 @@ func TestActivityCountsInvalidFormat(t *testing.T) {
 	ctx := context.Background()
 
 	// Test that invalid strftime formats are rejected
-	_, err := s.activityCounts(ctx, 0, "malicious'; DROP TABLE watch_history; --", "test")
+	_, err := s.activityCounts(ctx, StatsFilter{}, "malicious'; DROP TABLE watch_history; --", "test")
 	if err == nil {
 		t.Error("expected error for invalid strftime format")
 	}
@@ -1169,13 +1169,141 @@ func TestActivityCountsInvalidFormat(t *testing.T) {
 	}
 
 	// Valid formats should work
-	_, err = s.activityCounts(ctx, 0, "%w", "test")
+	_, err = s.activityCounts(ctx, StatsFilter{}, "%w", "test")
 	if err != nil {
 		t.Errorf("expected success for %%w format: %v", err)
 	}
-	_, err = s.activityCounts(ctx, 0, "%H", "test")
+	_, err = s.activityCounts(ctx, StatsFilter{}, "%H", "test")
 	if err != nil {
 		t.Errorf("expected success for %%H format: %v", err)
+	}
+}
+
+func TestStatsFilterServerIDs(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	srv1 := &models.Server{Name: "S1", Type: models.ServerTypePlex, URL: "http://s1", APIKey: "k1", Enabled: true}
+	s.CreateServer(srv1)
+	srv2 := &models.Server{Name: "S2", Type: models.ServerTypePlex, URL: "http://s2", APIKey: "k2", Enabled: true}
+	s.CreateServer(srv2)
+
+	now := time.Now().UTC()
+
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: srv1.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Movie A", Year: 2020, WatchedMs: 7200000,
+		StartedAt: now, StoppedAt: now.Add(2 * time.Hour),
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: srv1.ID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Movie B", Year: 2021, WatchedMs: 3600000,
+		StartedAt: now, StoppedAt: now.Add(time.Hour),
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: srv2.ID, UserName: "carol", MediaType: models.MediaTypeMovie,
+		Title: "Movie C", Year: 2022, WatchedMs: 5400000,
+		StartedAt: now, StoppedAt: now.Add(90 * time.Minute),
+	})
+
+	ctx := context.Background()
+
+	all, err := s.TopMovies(ctx, 10, StatsFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("all: got %d, want 3", len(all))
+	}
+
+	s1, err := s.TopMovies(ctx, 10, StatsFilter{ServerIDs: []int64{srv1.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s1) != 2 {
+		t.Fatalf("server1: got %d, want 2", len(s1))
+	}
+
+	s2, err := s.TopMovies(ctx, 10, StatsFilter{ServerIDs: []int64{srv2.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s2) != 1 {
+		t.Fatalf("server2: got %d, want 1", len(s2))
+	}
+	if s2[0].Title != "Movie C" {
+		t.Fatalf("server2: got %q, want Movie C", s2[0].Title)
+	}
+
+	lib1, err := s.LibraryStats(ctx, StatsFilter{ServerIDs: []int64{srv1.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lib1.TotalPlays != 2 {
+		t.Fatalf("lib server1: got %d plays, want 2", lib1.TotalPlays)
+	}
+
+	users2, err := s.TopUsers(ctx, 10, StatsFilter{ServerIDs: []int64{srv2.ID}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users2) != 1 {
+		t.Fatalf("users server2: got %d, want 1", len(users2))
+	}
+	if users2[0].UserName != "carol" {
+		t.Fatalf("users server2: got %q, want carol", users2[0].UserName)
+	}
+}
+
+func TestStatsFilterDateRange(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	jan15 := time.Date(2024, 1, 15, 12, 0, 0, 0, time.UTC)
+	feb15 := time.Date(2024, 2, 15, 12, 0, 0, 0, time.UTC)
+	mar15 := time.Date(2024, 3, 15, 12, 0, 0, 0, time.UTC)
+
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Jan Movie", Year: 2024, WatchedMs: 7200000,
+		StartedAt: jan15, StoppedAt: jan15.Add(2 * time.Hour),
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Feb Movie", Year: 2024, WatchedMs: 7200000,
+		StartedAt: feb15, StoppedAt: feb15.Add(2 * time.Hour),
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Mar Movie", Year: 2024, WatchedMs: 7200000,
+		StartedAt: mar15, StoppedAt: mar15.Add(2 * time.Hour),
+	})
+
+	ctx := context.Background()
+
+	filter := StatsFilter{
+		StartDate: time.Date(2024, 2, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC),
+	}
+	movies, err := s.TopMovies(ctx, 10, filter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(movies) != 1 {
+		t.Fatalf("feb range: got %d, want 1", len(movies))
+	}
+	if movies[0].Title != "Feb Movie" {
+		t.Fatalf("feb range: got %q, want Feb Movie", movies[0].Title)
+	}
+
+	filter2 := StatsFilter{
+		StartDate: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2024, 3, 1, 0, 0, 0, 0, time.UTC),
+	}
+	movies2, err := s.TopMovies(ctx, 10, filter2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(movies2) != 2 {
+		t.Fatalf("jan-feb range: got %d, want 2", len(movies2))
 	}
 }
 

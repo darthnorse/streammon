@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"streammon/internal/models"
@@ -163,29 +164,32 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 }
 
 func (s *Store) DailyWatchCounts(start, end time.Time) ([]models.DayStat, error) {
-	return s.DailyWatchCountsForUser(start, end, "")
+	return s.DailyWatchCountsForUser(start, end, "", nil)
 }
 
-func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string) ([]models.DayStat, error) {
-	var rows *sql.Rows
-	var err error
+func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string, serverIDs []int64) ([]models.DayStat, error) {
+	conditions := []string{"started_at >= ?", "started_at < ?"}
+	args := []any{start, end}
+
 	if userFilter != "" {
-		rows, err = s.db.Query(
-			`SELECT date(started_at) AS day, media_type, COUNT(*) AS cnt
-			FROM watch_history
-			WHERE started_at >= ? AND started_at < ? AND user_name = ?
-			GROUP BY day, media_type
-			ORDER BY day`, start, end, userFilter,
-		)
-	} else {
-		rows, err = s.db.Query(
-			`SELECT date(started_at) AS day, media_type, COUNT(*) AS cnt
-			FROM watch_history
-			WHERE started_at >= ? AND started_at < ?
-			GROUP BY day, media_type
-			ORDER BY day`, start, end,
-		)
+		conditions = append(conditions, "user_name = ?")
+		args = append(args, userFilter)
 	}
+	if len(serverIDs) > 0 {
+		placeholders := strings.Repeat(",?", len(serverIDs))[1:]
+		conditions = append(conditions, fmt.Sprintf("server_id IN (%s)", placeholders))
+		for _, id := range serverIDs {
+			args = append(args, id)
+		}
+	}
+
+	query := `SELECT date(started_at) AS day, media_type, COUNT(*) AS cnt
+		FROM watch_history
+		WHERE ` + strings.Join(conditions, " AND ") + `
+		GROUP BY day, media_type
+		ORDER BY day`
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("daily watch counts: %w", err)
 	}

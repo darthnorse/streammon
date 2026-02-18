@@ -167,8 +167,9 @@ func TestGetStatsAPI_WithDaysFilter(t *testing.T) {
 		{"days=7", "?days=7", http.StatusOK},
 		{"days=30", "?days=30", http.StatusOK},
 		{"days=0", "?days=0", http.StatusOK},
+		{"days=14", "?days=14", http.StatusOK},
 		{"invalid days", "?days=invalid", http.StatusBadRequest},
-		{"unsupported days value", "?days=14", http.StatusBadRequest},
+		{"negative days", "?days=-1", http.StatusBadRequest},
 	}
 
 	for _, tt := range tests {
@@ -181,5 +182,63 @@ func TestGetStatsAPI_WithDaysFilter(t *testing.T) {
 				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
 			}
 		})
+	}
+}
+
+func TestGetStatsAPI_WithDateRange(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest("GET", "/api/stats?start_date=2024-01-01&end_date=2024-02-01", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetStatsAPI_InvalidDateRange(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	tests := []struct {
+		name  string
+		query string
+	}{
+		{"bad start_date", "?start_date=invalid"},
+		{"bad end_date", "?start_date=2024-01-01&end_date=invalid"},
+		{"end before start", "?start_date=2024-03-01&end_date=2024-01-01"},
+		{"start_date only", "?start_date=2024-01-01"},
+		{"end_date only", "?end_date=2024-02-01"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/stats"+tt.query, nil)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", w.Code)
+			}
+		})
+	}
+}
+
+func TestGetStatsAPI_WithServerIDs(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest("GET", "/api/stats?server_ids=1,2", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestGetStatsAPI_InvalidServerIDs(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest("GET", "/api/stats?server_ids=abc", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", w.Code)
 	}
 }

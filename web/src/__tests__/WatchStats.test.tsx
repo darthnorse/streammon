@@ -1,7 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithRouter } from '../test-utils'
 import { WatchStats } from '../components/WatchStats'
+import { createMockStats } from './fixtures'
 import type { StatsResponse } from '../types'
 
 vi.mock('../hooks/useFetch', () => ({
@@ -11,24 +13,6 @@ vi.mock('../hooks/useFetch', () => ({
 import { useFetch } from '../hooks/useFetch'
 
 const mockUseFetch = vi.mocked(useFetch)
-
-function createMockStats(overrides: Partial<StatsResponse> = {}): StatsResponse {
-  return {
-    top_movies: [],
-    top_tv_shows: [],
-    top_users: [],
-    library: { total_plays: 0, total_hours: 0, unique_users: 0, unique_movies: 0, unique_tv_shows: 0 },
-    locations: [],
-    activity_by_day_of_week: [],
-    activity_by_hour: [],
-    platform_distribution: [],
-    player_distribution: [],
-    quality_distribution: [],
-    concurrent_time_series: [],
-    concurrent_peaks: { total: 0, direct_play: 0, direct_stream: 0, transcode: 0 },
-    ...overrides,
-  }
-}
 
 function mockLoading() {
   mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
@@ -47,7 +31,7 @@ describe('WatchStats', () => {
     mockLoading()
     renderWithRouter(<WatchStats />)
     expect(screen.getByText('Watch Statistics')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Time period' })).toBeInTheDocument()
+    expect(screen.getByText('Last 30 days')).toBeInTheDocument()
     expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
   })
 
@@ -75,13 +59,14 @@ describe('WatchStats', () => {
     expect(screen.getByText('Transcode')).toBeInTheDocument()
   })
 
-  it('has time period dropdown with correct options and aria-label', () => {
+  it('has time period dropdown with correct options', async () => {
     mockLoading()
     renderWithRouter(<WatchStats />)
-    const select = screen.getByRole('combobox', { name: 'Time period' })
-    expect(select).toBeInTheDocument()
-    expect(screen.getByText('Last 7 days')).toBeInTheDocument()
+    // The dropdown button shows the selected label
     expect(screen.getByText('Last 30 days')).toBeInTheDocument()
+    // Open dropdown to see all options
+    await userEvent.click(screen.getByText('Last 30 days'))
+    expect(screen.getByText('Last 7 days')).toBeInTheDocument()
     expect(screen.getByText('All time')).toBeInTheDocument()
   })
 
@@ -89,7 +74,7 @@ describe('WatchStats', () => {
     mockError()
     renderWithRouter(<WatchStats />)
     expect(screen.getByText('Watch Statistics')).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Time period' })).toBeInTheDocument()
+    expect(screen.getByText('Last 30 days')).toBeInTheDocument()
     expect(screen.getByText('Failed to load statistics')).toBeInTheDocument()
   })
 

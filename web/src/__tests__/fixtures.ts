@@ -1,4 +1,4 @@
-import type { ActiveStream, WatchHistoryEntry, DayStat, User, Server } from '../types'
+import type { ActiveStream, WatchHistoryEntry, DayStat, User, Server, StatsResponse } from '../types'
 
 export const baseStream: ActiveStream = {
   session_id: 's1',
@@ -56,6 +56,24 @@ export const emptyDayStat: DayStat = {
   music: 0,
   audiobooks: 0,
   books: 0,
+}
+
+export function createMockStats(overrides: Partial<StatsResponse> = {}): StatsResponse {
+  return {
+    top_movies: [],
+    top_tv_shows: [],
+    top_users: [],
+    library: { total_plays: 0, total_hours: 0, unique_users: 0, unique_movies: 0, unique_tv_shows: 0 },
+    locations: [],
+    activity_by_day_of_week: [],
+    activity_by_hour: [],
+    platform_distribution: [],
+    player_distribution: [],
+    quality_distribution: [],
+    concurrent_time_series: [],
+    concurrent_peaks: { total: 0, direct_play: 0, direct_stream: 0, transcode: 0 },
+    ...overrides,
+  }
 }
 
 export const baseServer: Server = {

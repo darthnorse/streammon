@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-
-	"streammon/internal/models"
 )
 
 const maxPerPage = 100
@@ -37,11 +35,8 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		perPage = maxPerPage
 	}
 	userFilter := r.URL.Query().Get("user")
-
-	// Viewers can only see their own history
-	user := UserFromContext(r.Context())
-	if user != nil && user.Role == models.RoleViewer {
-		userFilter = user.Name
+	if vn := viewerName(r); vn != "" {
+		userFilter = vn
 	}
 
 	sortBy := r.URL.Query().Get("sort_by")
@@ -96,24 +91,27 @@ func (s *Server) handleDailyHistory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid start date, use YYYY-MM-DD")
 		return
 	}
-	end, err := time.Parse("2006-01-02", endStr)
+	endParsed, err := time.Parse("2006-01-02", endStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid end date, use YYYY-MM-DD")
 		return
 	}
-	if end.Before(start) {
+	// Make end date exclusive (include the full end day)
+	end := endParsed.AddDate(0, 0, 1)
+	if !end.After(start) {
 		writeError(w, http.StatusBadRequest, "end must not be before start")
 		return
 	}
 
-	// Viewers can only see their own stats
-	userFilter := ""
-	user := UserFromContext(r.Context())
-	if user != nil && user.Role == models.RoleViewer {
-		userFilter = user.Name
+	userFilter := viewerName(r)
+
+	serverIDs, err := parseServerIDs(r.URL.Query().Get("server_ids"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid server_ids")
+		return
 	}
 
-	stats, err := s.store.DailyWatchCountsForUser(start, end, userFilter)
+	stats, err := s.store.DailyWatchCountsForUser(start, end, userFilter, serverIDs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return

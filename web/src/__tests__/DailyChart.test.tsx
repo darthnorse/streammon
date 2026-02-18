@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import { renderWithRouter } from '../test-utils'
 import { DailyChart } from '../components/DailyChart'
 import { emptyDayStat } from './fixtures'
+import { localToday } from '../lib/format'
 
 beforeAll(() => {
   window.ResizeObserver = class {
@@ -65,14 +66,13 @@ describe('DailyChart', () => {
     expect(url).toMatch(/^\/api\/history\/daily\?start=\d{4}-\d{2}-\d{2}&end=\d{4}-\d{2}-\d{2}$/)
   })
 
-  it('sets end to tomorrow so today is included', () => {
+  it('sets end to today (backend makes it exclusive)', () => {
     mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     renderWithRouter(<DailyChart days={30} />)
     const url = mockUseFetch.mock.calls[0][0] as string
     const params = new URLSearchParams(url.split('?')[1])
-    const today = new Date().toISOString().slice(0, 10)
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10)
-    expect(params.get('end')).toBe(tomorrow)
+    const today = localToday()
+    expect(params.get('end')).toBe(today)
     expect(params.get('start')! <= today).toBe(true)
   })
 })
