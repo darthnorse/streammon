@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useItemDetails } from '../hooks/useItemDetails'
+import { thumbUrl } from '../lib/format'
 import { MediaDetailModal } from './MediaDetailModal'
 import type { LibraryItem } from '../types'
 
@@ -63,7 +64,7 @@ export function RecentMedia() {
             <div className="aspect-[2/3] rounded overflow-hidden bg-panel dark:bg-panel-dark border border-border dark:border-border-dark transition-transform duration-200 group-hover:scale-105 group-hover:shadow-lg">
               {item.thumb_url ? (
                 <img
-                  src={`/api/servers/${item.server_id}/thumb/${item.thumb_url}`}
+                  src={thumbUrl(item.server_id, item.thumb_url)}
                   alt={item.title}
                   className="w-full h-full object-cover"
                   loading="lazy"

@@ -186,3 +186,8 @@ export function localDaysAgo(n: number): string {
   d.setDate(d.getDate() - n)
   return padDate(d)
 }
+
+export function thumbUrl(serverId: number, thumbPath: string): string {
+  const normalized = thumbPath.replace(/^\/+/, '')
+  return `/api/servers/${serverId}/thumb/${normalized}`
+}

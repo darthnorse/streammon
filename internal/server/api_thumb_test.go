@@ -181,7 +181,7 @@ func TestValidUserIDPattern(t *testing.T) {
 		{"abc", false},                              // too short
 		{"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5", false}, // too long
 		{"g1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4", false}, // invalid char 'g'
-		{"a1b2c3d4-e5f6-a1b2-c3d4-e5f6a1b2c3d4", false}, // with dashes (GUID format)
+		{"a1b2c3d4-e5f6-a1b2-c3d4-e5f6a1b2c3d4", true}, // with dashes (Jellyfin GUID format)
 		{"", false},
 		{"../../../etc", false},
 	}

@@ -63,6 +63,11 @@ func scanHistoryEntryWithGeo(scanner interface{ Scan(...any) error }) (models.Wa
 	return e, err
 }
 
+// normalizeThumbURL ensures consistent format across all code paths.
+func normalizeThumbURL(u string) string {
+	return strings.TrimLeft(u, "/")
+}
+
 func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 	hwDecode := boolToInt(entry.TranscodeHWDecode)
 	hwEncode := boolToInt(entry.TranscodeHWEncode)
@@ -72,7 +77,7 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		entry.ParentTitle, entry.GrandparentTitle, entry.Year,
 		entry.DurationMs, entry.WatchedMs, entry.Player, entry.Platform,
 		entry.IPAddress, entry.StartedAt, entry.StoppedAt,
-		entry.SeasonNumber, entry.EpisodeNumber, entry.ThumbURL,
+		entry.SeasonNumber, entry.EpisodeNumber, normalizeThumbURL(entry.ThumbURL),
 		entry.VideoResolution, entry.TranscodeDecision,
 		entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
 		entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,
@@ -103,17 +108,27 @@ var validHistorySortColumns = map[string]bool{
 	"g.city":        true,
 }
 
-func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder string) (*models.PaginatedResult[models.WatchHistoryEntry], error) {
-	where := ""
+func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder string, serverIDs []int64) (*models.PaginatedResult[models.WatchHistoryEntry], error) {
+	var countConds []string
+	var joinConds []string
 	var args []any
 	if userFilter != "" {
-		where = " WHERE h.user_name = ?"
+		countConds = append(countConds, "user_name = ?")
+		joinConds = append(joinConds, "h.user_name = ?")
 		args = append(args, userFilter)
 	}
+	if len(serverIDs) > 0 {
+		placeholders := strings.Repeat(",?", len(serverIDs))[1:]
+		countConds = append(countConds, fmt.Sprintf("server_id IN (%s)", placeholders))
+		joinConds = append(joinConds, fmt.Sprintf("h.server_id IN (%s)", placeholders))
+		for _, id := range serverIDs {
+			args = append(args, id)
+		}
+	}
 
-	countWhere := where
-	if countWhere != "" {
-		countWhere = " WHERE user_name = ?"
+	countWhere := ""
+	if len(countConds) > 0 {
+		countWhere = " WHERE " + strings.Join(countConds, " AND ")
 	}
 	var total int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM watch_history"+countWhere, args...).Scan(&total)
@@ -128,6 +143,11 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 			order = "ASC"
 		}
 		orderBy = sortColumn + " " + order
+	}
+
+	where := ""
+	if len(joinConds) > 0 {
+		where = " WHERE " + strings.Join(joinConds, " AND ")
 	}
 
 	offset := (page - 1) * perPage
@@ -500,7 +520,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			entry.ParentTitle, entry.GrandparentTitle, entry.Year,
 			entry.DurationMs, entry.WatchedMs, entry.Player, entry.Platform,
 			entry.IPAddress, entry.StartedAt, entry.StoppedAt,
-			entry.SeasonNumber, entry.EpisodeNumber, entry.ThumbURL,
+			entry.SeasonNumber, entry.EpisodeNumber, normalizeThumbURL(entry.ThumbURL),
 			entry.VideoResolution, entry.TranscodeDecision,
 			entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
 			entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,

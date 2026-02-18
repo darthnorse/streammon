@@ -106,7 +106,7 @@ func TestWebSocketStoppedStateRemovesSession(t *testing.T) {
 		t.Errorf("expected 0 sessions after stopped, got %d", len(p.CurrentSessions()))
 	}
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -82,11 +82,20 @@ func TestGetItemDetails_Movie(t *testing.T) {
 	if len(details.Cast) != 3 {
 		t.Fatalf("cast count = %d, want 3", len(details.Cast))
 	}
+	if details.ThumbURL != "library/metadata/12345/thumb/1699000000" {
+		t.Errorf("thumb_url = %q, want library/metadata/12345/thumb/1699000000", details.ThumbURL)
+	}
 	if details.Cast[0].Name != "Cillian Murphy" {
 		t.Errorf("cast[0].name = %q, want Cillian Murphy", details.Cast[0].Name)
 	}
 	if details.Cast[0].Role != "J. Robert Oppenheimer" {
 		t.Errorf("cast[0].role = %q, want J. Robert Oppenheimer", details.Cast[0].Role)
+	}
+	if details.Cast[0].ThumbURL != "library/metadata/actors/1/thumb" {
+		t.Errorf("cast[0].thumb_url = %q, want library/metadata/actors/1/thumb", details.Cast[0].ThumbURL)
+	}
+	if details.Cast[1].ThumbURL != "library/metadata/actors/2/thumb" {
+		t.Errorf("cast[1].thumb_url = %q, want library/metadata/actors/2/thumb", details.Cast[1].ThumbURL)
 	}
 	if details.Cast[2].ThumbURL != "" {
 		t.Errorf("cast[2].thumb_url = %q, want empty (no thumb)", details.Cast[2].ThumbURL)

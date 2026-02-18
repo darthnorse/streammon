@@ -448,7 +448,7 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 	if item.GrandparentThumb != "" && item.GrandparentRatingKey != "" {
 		as.ThumbURL = item.GrandparentRatingKey
 	} else if item.Thumb != "" {
-		as.ThumbURL = strings.TrimPrefix(item.Thumb, "/")
+		as.ThumbURL = strings.TrimLeft(item.Thumb, "/")
 	}
 
 	// Media element contains transcoded output during transcoding, not source

@@ -210,7 +210,7 @@ func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.W
 		StoppedAt:         stoppedAt,
 		SeasonNumber:      int(rec.ParentMediaIndex),
 		EpisodeNumber:     int(rec.MediaIndex),
-		ThumbURL:          strings.TrimPrefix(rec.Thumb, "/"),
+		ThumbURL:          strings.TrimLeft(rec.Thumb, "/"),
 		VideoResolution:   rec.VideoFullResolution,
 		TranscodeDecision: convertTranscodeDecision(rec.TranscodeDecision),
 	}

@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { ActiveStream } from '../types'
-import { formatTimestamp, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle } from '../lib/format'
+import { formatTimestamp, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, thumbUrl } from '../lib/format'
 import { mediaTypeLabels } from '../lib/constants'
 import { GeoIPPopover } from './GeoIPPopover'
 
@@ -118,7 +118,7 @@ export function StreamCard({ stream }: StreamCardProps) {
           {stream.thumb_url ? (
             <div className="relative">
               <img
-                src={`/api/servers/${stream.server_id}/thumb/${stream.thumb_url}`}
+                src={thumbUrl(stream.server_id, stream.thumb_url)}
                 alt=""
                 className="w-28 h-[168px] object-cover rounded-lg shadow-md bg-gray-200 dark:bg-white/5"
               />
@@ -162,7 +162,7 @@ export function StreamCard({ stream }: StreamCardProps) {
               <span className="text-muted dark:text-muted-dark">{formatTimestamp(stream.progress_ms)} / {formatTimestamp(stream.duration_ms)}</span>
               <Link
                 to={`/users/${encodeURIComponent(stream.user_name)}`}
-                className="text-sm font-medium text-accent-dim dark:text-accent hover:underline truncate ml-2"
+                className="text-sm font-medium hover:text-accent hover:underline truncate ml-2"
               >
                 {stream.user_name}
               </Link>

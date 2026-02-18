@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useFetch } from '../hooks/useFetch'
+import { Dropdown } from '../components/Dropdown'
 import { formatCount, formatSize } from '../lib/format'
 import { SERVER_ACCENT } from '../lib/constants'
 import type {
@@ -121,7 +122,7 @@ function LibraryRow({ library, maintenance, onRules, onViolations }: LibraryRowP
 
 export function Libraries() {
   const navigate = useNavigate()
-  const [selectedServer, setSelectedServer] = useState<number | 'all'>('all')
+  const [selectedServers, setSelectedServers] = useState<string[]>([])
 
   const { data, loading, error } = useFetch<LibrariesResponse>('/api/libraries')
   const { data: maintenanceData } = useFetch<MaintenanceDashboard>('/api/maintenance/dashboard')
@@ -129,11 +130,13 @@ export function Libraries() {
   const libraries = data?.libraries || []
   const servers = useMemo(() => getUniqueServers(libraries), [libraries])
 
+  const selectedIds = useMemo(() => new Set(selectedServers.map(Number)), [selectedServers])
+
   const displayedLibraries = useMemo(
-    () => selectedServer === 'all'
+    () => selectedIds.size === 0
       ? libraries
-      : libraries.filter(l => l.server_id === selectedServer),
-    [libraries, selectedServer]
+      : libraries.filter(l => selectedIds.has(l.server_id)),
+    [libraries, selectedIds]
   )
 
   const getMaintenanceForLibrary = (lib: Library): LibraryMaintenance | null => {
@@ -170,24 +173,14 @@ export function Libraries() {
         </div>
 
         {servers.length > 1 && (
-          <div className="flex items-center gap-2">
-            <label htmlFor="server-filter" className="text-sm text-muted dark:text-muted-dark">
-              Server
-            </label>
-            <select
-              id="server-filter"
-              value={selectedServer}
-              onChange={(e) => setSelectedServer(e.target.value === 'all' ? 'all' : Number(e.target.value))}
-              className="px-3 py-1.5 text-sm rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark text-gray-900 dark:text-gray-100"
-            >
-              <option value="all">All Servers</option>
-              {servers.map(server => (
-                <option key={server.id} value={server.id}>
-                  {server.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Dropdown
+            multi
+            options={servers.map(s => ({ value: String(s.id), label: s.name }))}
+            selected={selectedServers}
+            onChange={setSelectedServers}
+            allLabel="All Servers"
+            noneLabel="All Servers"
+          />
         )}
       </div>
 

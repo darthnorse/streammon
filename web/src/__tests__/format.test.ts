@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatTimestamp, formatDuration, formatDate, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, formatAudioCodec, formatVideoCodec, formatLocation } from '../lib/format'
+import { formatTimestamp, formatDuration, formatDate, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, formatAudioCodec, formatVideoCodec, formatLocation, thumbUrl } from '../lib/format'
 
 describe('formatTimestamp', () => {
   it('formats seconds only', () => {
@@ -145,6 +145,21 @@ describe('formatVideoCodec', () => {
   })
   it('returns empty for no data', () => {
     expect(formatVideoCodec(undefined, undefined)).toBe('')
+  })
+})
+
+describe('thumbUrl', () => {
+  it('builds url from server id and path', () => {
+    expect(thumbUrl(1, 'library/metadata/123/thumb/456')).toBe('/api/servers/1/thumb/library/metadata/123/thumb/456')
+  })
+  it('strips single leading slash', () => {
+    expect(thumbUrl(2, '/library/metadata/123/thumb/456')).toBe('/api/servers/2/thumb/library/metadata/123/thumb/456')
+  })
+  it('strips multiple leading slashes', () => {
+    expect(thumbUrl(3, '///foo')).toBe('/api/servers/3/thumb/foo')
+  })
+  it('handles numeric rating key', () => {
+    expect(thumbUrl(1, '55555')).toBe('/api/servers/1/thumb/55555')
   })
 })
 

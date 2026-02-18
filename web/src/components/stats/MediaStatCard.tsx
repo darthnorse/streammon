@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { MediaStat } from '../../types'
 import { useItemDetails } from '../../hooks/useItemDetails'
 import { MediaDetailModal } from '../MediaDetailModal'
+import { thumbUrl } from '../../lib/format'
 
 interface SelectedItem {
   serverId: number
@@ -50,7 +51,7 @@ export function MediaStatCard({ title, items }: MediaStatCardProps) {
           >
             {displayedItem?.thumb_url && displayedItem?.server_id ? (
               <img
-                src={`/api/servers/${displayedItem.server_id}/thumb/${displayedItem.thumb_url}`}
+                src={thumbUrl(displayedItem.server_id, displayedItem.thumb_url)}
                 alt=""
                 className="w-full h-full object-cover transition-opacity duration-200"
                 loading="lazy"

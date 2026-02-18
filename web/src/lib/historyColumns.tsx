@@ -61,7 +61,7 @@ function UserLink({ name }: { name: string }) {
   return (
     <Link
       to={`/users/${encodeURIComponent(name)}`}
-      className="font-medium text-accent-dim dark:text-accent hover:underline"
+      className="font-medium hover:text-accent hover:underline"
     >
       {name}
     </Link>

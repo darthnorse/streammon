@@ -672,7 +672,7 @@ func TestCleanupZombieSessions(t *testing.T) {
 		t.Fatalf("CleanupZombieSessions: %v", err)
 	}
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

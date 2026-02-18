@@ -155,7 +155,7 @@ func TestSessionDisappearsCreatesHistory(t *testing.T) {
 
 	p.Stop()
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestServerErrorPreservesSessions(t *testing.T) {
 	}
 
 	// No history should have been created (session was carried forward)
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +401,7 @@ func TestRatingKeyChangeCreatesHistory(t *testing.T) {
 	p.Stop()
 
 	// Should have 1 history entry for Episode 1 (the old item)
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -446,7 +446,7 @@ func TestNearEndWatched(t *testing.T) {
 	triggerAndWaitPoll(t, p)
 	p.Stop()
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -482,7 +482,7 @@ func TestNearEndNotTriggered(t *testing.T) {
 	triggerAndWaitPoll(t, p)
 	p.Stop()
 
-	result, _ := s.ListHistory(1, 10, "", "", "")
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
 	if result.Items[0].WatchedMs != 100000 {
 		t.Errorf("not near-end: watched_ms = %d, want 100000", result.Items[0].WatchedMs)
 	}
@@ -526,7 +526,7 @@ func TestDLNADebounce(t *testing.T) {
 	triggerAndWaitPoll(t, p)
 	p.Stop()
 
-	result, _ := s.ListHistory(1, 10, "", "", "")
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
 	if result.Total != 1 {
 		t.Fatalf("expected 1 history entry for promoted DLNA session, got %d", result.Total)
 	}
@@ -557,7 +557,7 @@ func TestDLNATransientNoHistory(t *testing.T) {
 	triggerAndWaitPoll(t, p)
 	p.Stop()
 
-	result, _ := s.ListHistory(1, 10, "", "", "")
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
 	if result.Total != 0 {
 		t.Fatalf("expected 0 history entries for transient DLNA session, got %d", result.Total)
 	}
@@ -589,7 +589,7 @@ func TestWatchedThreshold(t *testing.T) {
 	triggerAndWaitPoll(t, p)
 	p.Stop()
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -640,7 +640,7 @@ func TestCustomWatchedThreshold(t *testing.T) {
 	triggerAndWaitPoll(t, p)
 	p.Stop()
 
-	result, _ := s.ListHistory(1, 10, "", "", "")
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
 	if result.Total != 1 {
 		t.Fatalf("expected 1 entry, got %d", result.Total)
 	}
@@ -722,7 +722,7 @@ func TestPausedMsPersistedToHistory(t *testing.T) {
 	triggerAndWaitPoll(t, p)
 	p.Stop()
 
-	result, _ := s.ListHistory(1, 10, "", "", "")
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
 	if result.Total != 1 {
 		t.Fatalf("expected 1 history entry, got %d", result.Total)
 	}
@@ -819,7 +819,7 @@ func TestIdleTimeoutTerminatesSession(t *testing.T) {
 	p.Stop()
 
 	// History should have been created
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -871,7 +871,7 @@ func TestIdleTimeoutResetsOnProgress(t *testing.T) {
 	p.Stop()
 
 	// No history should have been created
-	result, _ := s.ListHistory(1, 10, "", "", "")
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
 	if result.Total != 0 {
 		t.Errorf("expected 0 history entries, got %d", result.Total)
 	}
@@ -1045,7 +1045,7 @@ func TestIdleTimeoutSetsAccurateStoppedAt(t *testing.T) {
 	triggerAndWaitPoll(t, p)
 	p.Stop()
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

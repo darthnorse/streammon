@@ -50,7 +50,13 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		sortOrder = "desc"
 	}
 
-	result, err := s.store.ListHistory(page, perPage, userFilter, sortColumn, sortOrder)
+	serverIDs, err := parseServerIDs(r.URL.Query().Get("server_ids"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid server_ids")
+		return
+	}
+
+	result, err := s.store.ListHistory(page, perPage, userFilter, sortColumn, sortOrder, serverIDs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return

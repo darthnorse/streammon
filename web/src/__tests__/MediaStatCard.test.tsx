@@ -45,6 +45,15 @@ describe('MediaStatCard', () => {
     expect(img).toHaveAttribute('src', '/api/servers/1/thumb/thumb1.jpg')
   })
 
+  it('builds correct img src from thumb_url with leading slash', () => {
+    const items = [
+      { title: 'Movie 1', play_count: 5, total_hours: 2, thumb_url: '/library/metadata/123/thumb/456', server_id: 2 },
+    ]
+    const { container } = render(<MediaStatCard title="Movies" items={items} />)
+    const img = container.querySelector('img')
+    expect(img).toHaveAttribute('src', '/api/servers/2/thumb/library/metadata/123/thumb/456')
+  })
+
   it('shows rank number when no thumbnail', () => {
     const items = [{ title: 'Movie 1', play_count: 10, total_hours: 5 }]
     render(<MediaStatCard title="Movies" items={items} />)

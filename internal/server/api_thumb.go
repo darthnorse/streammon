@@ -15,17 +15,15 @@ import (
 )
 
 var (
-	// Emby/Jellyfin user IDs: 32-char hex GUIDs without dashes
-	validUserIDPattern = regexp.MustCompile(`^[a-fA-F0-9]{32}$`)
+	// Emby/Jellyfin user IDs: 32-char hex GUIDs, with or without dashes
+	validUserIDPattern = regexp.MustCompile(`^[a-fA-F0-9]{8}-?[a-fA-F0-9]{4}-?[a-fA-F0-9]{4}-?[a-fA-F0-9]{4}-?[a-fA-F0-9]{12}$`)
 	// Emby/Jellyfin item IDs: 32-char hex or alphanumeric (some versions use different formats)
 	validItemIDPattern = regexp.MustCompile(`^[a-zA-Z0-9]{1,64}$`)
 	// Plex rating keys: numeric IDs
 	validPlexIDPattern = regexp.MustCompile(`^[0-9]+$`)
-	// Plex thumbnail paths: library/metadata/{id}/thumb or library/metadata/actors/{id}/thumb
-	// with optional trailing segments (e.g., /thumb/1234567890)
-	validPlexThumbPath = regexp.MustCompile(`^library/metadata/(?:actors/)?[0-9]+/thumb(?:/[0-9]+)?$`)
+	// Plex thumbnail paths: library/{segments}/{id}/thumb with optional cache-buster
+	validPlexThumbPath = regexp.MustCompile(`^library/(?:[a-z]+/)*[0-9]+/thumb(?:/[0-9]+)?$`)
 )
-
 
 func escapePathSegments(path string) string {
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
@@ -42,7 +40,7 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	thumbPath := chi.URLParam(r, "*")
+	thumbPath := strings.TrimLeft(chi.URLParam(r, "*"), "/")
 	if thumbPath == "" {
 		writeError(w, http.StatusBadRequest, "missing thumb path")
 		return

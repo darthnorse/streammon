@@ -43,7 +43,7 @@ const libraryItemUpsertSQL = `
 func execLibraryItemUpsert(ctx context.Context, stmt *sql.Stmt, item models.LibraryItemCache, syncTime time.Time) error {
 	_, err := stmt.ExecContext(ctx, item.ServerID, item.LibraryID, item.ItemID,
 		item.MediaType, item.Title, item.Year, item.AddedAt, item.LastWatchedAt,
-		item.VideoResolution, item.FileSize, item.EpisodeCount, item.ThumbURL,
+		item.VideoResolution, item.FileSize, item.EpisodeCount, normalizeThumbURL(item.ThumbURL),
 		item.TMDBID, item.TVDBID, item.IMDBID, syncTime)
 	return err
 }

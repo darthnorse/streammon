@@ -419,11 +419,11 @@ func TestGetItemDetails_Movie(t *testing.T) {
 	if details.Cast[0].Role != "J. Robert Oppenheimer" {
 		t.Errorf("cast[0].role = %q, want J. Robert Oppenheimer", details.Cast[0].Role)
 	}
-	if details.Cast[0].ThumbURL != "/api/servers/1/thumb/actor1" {
-		t.Errorf("cast[0].thumb_url = %q, want /api/servers/1/thumb/actor1", details.Cast[0].ThumbURL)
+	if details.Cast[0].ThumbURL != "actor1" {
+		t.Errorf("cast[0].thumb_url = %q, want actor1", details.Cast[0].ThumbURL)
 	}
-	if details.Cast[1].ThumbURL != "/api/servers/1/thumb/actor2" {
-		t.Errorf("cast[1].thumb_url = %q, want /api/servers/1/thumb/actor2", details.Cast[1].ThumbURL)
+	if details.Cast[1].ThumbURL != "actor2" {
+		t.Errorf("cast[1].thumb_url = %q, want actor2", details.Cast[1].ThumbURL)
 	}
 	if details.Cast[2].ThumbURL != "" {
 		t.Errorf("cast[2].thumb_url = %q, want empty (no image tag)", details.Cast[2].ThumbURL)

@@ -1,7 +1,7 @@
 import { useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import type { ItemDetails } from '../types'
-import { formatDuration, formatBitrate, formatAudioCodec, formatVideoCodec, formatDate } from '../lib/format'
+import { formatDuration, formatBitrate, formatAudioCodec, formatVideoCodec, formatDate, thumbUrl } from '../lib/format'
 import { getAudioCodecIcon, getVideoCodecIcon, getResolutionIcon, getChannelsIcon } from '../lib/mediaFlags'
 
 const serverAccent: Record<string, { bar: string; badge: string }> = {
@@ -41,14 +41,15 @@ function StarRating({ rating }: { rating: number }) {
   )
 }
 
-function CastChip({ name, role, thumbUrl }: { name: string; role?: string; thumbUrl?: string }) {
+function CastChip({ name, role, thumb, serverId }: { name: string; role?: string; thumb?: string; serverId: number }) {
   if (!name) return null
   const initials = name.split(' ').filter(n => n.length > 0).map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  const imgSrc = thumb && serverId ? thumbUrl(serverId, thumb) : undefined
   return (
     <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-100 dark:bg-white/10 shrink-0">
-      {thumbUrl ? (
+      {imgSrc ? (
         <img
-          src={thumbUrl}
+          src={imgSrc}
           alt={name}
           className="w-6 h-6 rounded-full object-cover bg-gray-300 dark:bg-white/20"
           loading="lazy"
@@ -154,7 +155,7 @@ function WatchHistory({ item }: { item: ItemDetails }) {
             <div className="flex items-center gap-2 min-w-0">
               <Link
                 to={`/users/${encodeURIComponent(entry.user_name)}`}
-                className="font-medium text-accent-dim dark:text-accent hover:underline truncate"
+                className="font-medium hover:text-accent hover:underline truncate"
               >
                 {entry.user_name}
               </Link>
@@ -183,7 +184,7 @@ function ItemContent({ item, accent }: ItemContentProps) {
       <div className="shrink-0 p-4 md:p-6 flex justify-center md:block md:w-1/3">
         {item.thumb_url ? (
           <img
-            src={item.thumb_url}
+            src={thumbUrl(item.server_id, item.thumb_url)}
             alt={item.title}
             className="max-h-48 md:max-h-none w-auto md:w-full aspect-[2/3] object-cover rounded-lg shadow-lg"
           />
@@ -267,7 +268,7 @@ function ItemContent({ item, accent }: ItemContentProps) {
             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Cast</div>
             <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
               {item.cast.slice(0, 6).map((member, idx) => (
-                <CastChip key={`${member.name}-${idx}`} name={member.name} role={member.role} thumbUrl={member.thumb_url} />
+                <CastChip key={`${member.name}-${idx}`} name={member.name} role={member.role} thumb={member.thumb_url} serverId={item.server_id} />
               ))}
             </div>
           </div>

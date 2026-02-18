@@ -47,7 +47,7 @@ function HistoryCard({ entry, hideUser, onTitleClick }: HistoryCardProps) {
           {!hideUser && (
             <Link
               to={`/users/${encodeURIComponent(entry.user_name)}`}
-              className="text-sm font-medium text-accent-dim dark:text-accent hover:underline"
+              className="text-sm font-medium hover:text-accent hover:underline"
             >
               {entry.user_name}
             </Link>

@@ -9,7 +9,7 @@ const mockItem: ItemDetails = {
   year: 2023,
   summary: 'The story of American scientist J. Robert Oppenheimer.',
   media_type: 'movie',
-  thumb_url: '/api/servers/1/thumb/12345',
+  thumb_url: 'library/metadata/12345/thumb/1699000000',
   genres: ['Drama', 'History', 'Biography'],
   directors: ['Christopher Nolan'],
   cast: [

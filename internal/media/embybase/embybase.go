@@ -671,11 +671,9 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 		case "Director":
 			directors = append(directors, p.Name)
 		case "Actor":
-			// Emby/Jellyfin actor images use just the person ID (e.g., "12345")
-			// so we use thumb/%s (with slash) to build the proxy URL
 			var thumbURL string
 			if p.PrimaryImageTag != "" && p.ID != "" {
-				thumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", c.serverID, p.ID)
+				thumbURL = p.ID
 			}
 			cast = append(cast, models.CastMember{
 				Name:     p.Name,
@@ -687,7 +685,7 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 
 	var thumbURL string
 	if item.ImageTags["Primary"] != "" {
-		thumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", c.serverID, item.ID)
+		thumbURL = item.ID
 	}
 
 	var studio string

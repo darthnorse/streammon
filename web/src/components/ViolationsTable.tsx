@@ -29,7 +29,7 @@ function ViolationCard({ violation }: { violation: RuleViolation }) {
         <SeverityBadge severity={violation.severity} className="shrink-0" />
       </div>
       <div className="flex items-center gap-3 mt-2 text-xs text-muted dark:text-muted-dark">
-        <Link to={`/users/${encodeURIComponent(violation.user_name)}`} className="text-accent-dim dark:text-accent hover:underline">
+        <Link to={`/users/${encodeURIComponent(violation.user_name)}`} className="hover:text-accent hover:underline">
           {violation.user_name}
         </Link>
         <span>&middot;</span>
@@ -95,7 +95,7 @@ export function ViolationsTable({ violations, loading }: ViolationsTableProps) {
                     {formatDate(v.occurred_at)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <Link to={`/users/${encodeURIComponent(v.user_name)}`} className="text-accent-dim dark:text-accent hover:underline">
+                    <Link to={`/users/${encodeURIComponent(v.user_name)}`} className="hover:text-accent hover:underline">
                       {v.user_name}
                     </Link>
                   </td>

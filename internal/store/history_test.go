@@ -39,7 +39,7 @@ func TestInsertAndListHistory(t *testing.T) {
 		t.Fatal("expected ID to be set")
 	}
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("ListHistory: %v", err)
 	}
@@ -65,12 +65,90 @@ func TestListHistoryWithUserFilter(t *testing.T) {
 		Title: "B", StartedAt: now, StoppedAt: now,
 	})
 
-	result, err := s.ListHistory(1, 10, "alice", "", "")
+	result, err := s.ListHistory(1, 10, "alice", "", "", nil)
 	if err != nil {
 		t.Fatalf("ListHistory(alice): %v", err)
 	}
 	if result.Total != 1 {
 		t.Fatalf("expected 1 for alice, got %d", result.Total)
+	}
+}
+
+func TestListHistoryWithServerIDs(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	sid1 := seedServer(t, s)
+	srv2 := &models.Server{Name: "Second", Type: models.ServerTypePlex, URL: "http://test2", APIKey: "k2", Enabled: true}
+	if err := s.CreateServer(srv2); err != nil {
+		t.Fatalf("seed server 2: %v", err)
+	}
+	sid2 := srv2.ID
+
+	now := time.Now().UTC()
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: sid1, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Movie A", StartedAt: now, StoppedAt: now,
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: sid2, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Movie B", StartedAt: now, StoppedAt: now,
+	})
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: sid1, UserName: "bob", MediaType: models.MediaTypeTV,
+		Title: "Show C", StartedAt: now, StoppedAt: now,
+	})
+
+	// Filter to server 1 only
+	result, err := s.ListHistory(1, 10, "", "", "", []int64{sid1})
+	if err != nil {
+		t.Fatalf("ListHistory(serverIDs=[sid1]): %v", err)
+	}
+	if result.Total != 2 {
+		t.Fatalf("expected 2 entries for server 1, got %d", result.Total)
+	}
+	for _, item := range result.Items {
+		if item.ServerID != sid1 {
+			t.Errorf("expected server_id %d, got %d", sid1, item.ServerID)
+		}
+	}
+
+	// Filter to server 2 only
+	result, err = s.ListHistory(1, 10, "", "", "", []int64{sid2})
+	if err != nil {
+		t.Fatalf("ListHistory(serverIDs=[sid2]): %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 entry for server 2, got %d", result.Total)
+	}
+	if result.Items[0].Title != "Movie B" {
+		t.Errorf("expected Movie B, got %s", result.Items[0].Title)
+	}
+
+	// Filter to both servers — returns all
+	result, err = s.ListHistory(1, 10, "", "", "", []int64{sid1, sid2})
+	if err != nil {
+		t.Fatalf("ListHistory(serverIDs=[sid1,sid2]): %v", err)
+	}
+	if result.Total != 3 {
+		t.Fatalf("expected 3 entries for both servers, got %d", result.Total)
+	}
+
+	// No filter (nil) — returns all
+	result, err = s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatalf("ListHistory(serverIDs=nil): %v", err)
+	}
+	if result.Total != 3 {
+		t.Fatalf("expected 3 entries with nil filter, got %d", result.Total)
+	}
+
+	// Empty slice — same as nil, returns all
+	result, err = s.ListHistory(1, 10, "", "", "", []int64{})
+	if err != nil {
+		t.Fatalf("ListHistory(serverIDs=[]): %v", err)
+	}
+	if result.Total != 3 {
+		t.Fatalf("expected 3 entries with empty slice filter, got %d", result.Total)
 	}
 }
 
@@ -86,7 +164,7 @@ func TestListHistoryPagination(t *testing.T) {
 		})
 	}
 
-	result, err := s.ListHistory(2, 2, "", "", "")
+	result, err := s.ListHistory(2, 2, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("ListHistory page 2: %v", err)
 	}
@@ -196,6 +274,59 @@ func TestHistoryExists(t *testing.T) {
 	}
 }
 
+func TestInsertHistoryNormalizesThumbURL(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	// Insert with leading slash — should be stripped on write
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID:  serverID,
+		UserName:  "alice",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Test Movie",
+		ThumbURL:  "/library/metadata/123/thumb/456",
+		StartedAt: time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC),
+	})
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 1 {
+		t.Fatalf("expected 1 entry, got %d", result.Total)
+	}
+	if result.Items[0].ThumbURL != "library/metadata/123/thumb/456" {
+		t.Errorf("thumb_url = %q, want %q", result.Items[0].ThumbURL, "library/metadata/123/thumb/456")
+	}
+}
+
+func TestInsertHistoryBatchNormalizesThumbURL(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	entries := []*models.WatchHistoryEntry{
+		{
+			ServerID:  serverID,
+			UserName:  "alice",
+			MediaType: models.MediaTypeMovie,
+			Title:     "Movie 1",
+			ThumbURL:  "/library/metadata/789/thumb/101",
+			StartedAt: time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC),
+			StoppedAt: time.Date(2024, 6, 1, 14, 0, 0, 0, time.UTC),
+		},
+	}
+
+	inserted, _, err := s.InsertHistoryBatch(context.Background(), entries)
+	if err != nil {
+		t.Fatalf("InsertHistoryBatch: %v", err)
+	}
+	if inserted != 1 {
+		t.Fatalf("expected 1 inserted, got %d", inserted)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Items[0].ThumbURL != "library/metadata/789/thumb/101" {
+		t.Errorf("thumb_url = %q, want %q", result.Items[0].ThumbURL, "library/metadata/789/thumb/101")
+	}
+}
+
 func TestInsertHistoryBatch(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)
@@ -231,7 +362,7 @@ func TestInsertHistoryBatch(t *testing.T) {
 		t.Errorf("expected 0 skipped, got %d", skipped)
 	}
 
-	result, _ := s.ListHistory(1, 10, "", "", "")
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
 	if result.Total != 2 {
 		t.Fatalf("expected 2 entries in history, got %d", result.Total)
 	}
@@ -281,7 +412,7 @@ func TestInsertHistoryBatchSkipsDuplicates(t *testing.T) {
 		t.Errorf("expected 1 skipped, got %d", skipped)
 	}
 
-	result, _ := s.ListHistory(1, 10, "", "", "")
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
 	if result.Total != 2 {
 		t.Fatalf("expected 2 entries in history (1 original + 1 new), got %d", result.Total)
 	}
@@ -583,7 +714,7 @@ func TestInsertHistoryWithPausedMsAndWatched(t *testing.T) {
 		t.Fatalf("InsertHistory: %v", err)
 	}
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("ListHistory: %v", err)
 	}
@@ -616,7 +747,7 @@ func TestInsertHistoryWatchedFalse(t *testing.T) {
 		t.Fatalf("InsertHistory: %v", err)
 	}
 
-	result, _ := s.ListHistory(1, 10, "", "", "")
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
 	if result.Items[0].Watched {
 		t.Error("expected watched = false")
 	}
@@ -742,7 +873,7 @@ func TestUpdateHistoryEnrichment(t *testing.T) {
 		t.Fatalf("UpdateHistoryEnrichment: %v", err)
 	}
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("ListHistory: %v", err)
 	}
@@ -798,7 +929,7 @@ func TestUpdateHistoryEnrichment_PreservesExistingFields(t *testing.T) {
 		t.Fatalf("UpdateHistoryEnrichment: %v", err)
 	}
 
-	result, err := s.ListHistory(1, 10, "", "", "")
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("ListHistory: %v", err)
 	}
