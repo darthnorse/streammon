@@ -9,6 +9,30 @@ import (
 	"strings"
 )
 
+// isIgnorableAlterError returns true for ALTER TABLE ADD COLUMN errors
+// caused by the column already existing. This handles repair migrations
+// that may run on databases where the column was already added.
+func isIgnorableAlterError(stmt string, err error) bool {
+	upper := strings.ToUpper(strings.TrimSpace(stmt))
+	if !strings.HasPrefix(upper, "ALTER TABLE") || !strings.Contains(upper, "ADD COLUMN") {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate column")
+}
+
+func splitStatements(content string) []string {
+	raw := strings.Split(content, ";")
+	stmts := make([]string, 0, len(raw))
+	for _, s := range raw {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			stmts = append(stmts, s)
+		}
+	}
+	return stmts
+}
+
 func (s *Store) Migrate(migrationsDir string) error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
@@ -58,8 +82,13 @@ func (s *Store) Migrate(migrationsDir string) error {
 		}
 		defer tx.Rollback()
 
-		if _, err := tx.Exec(string(content)); err != nil {
-			return fmt.Errorf("executing migration %s: %w", f, err)
+		for _, stmt := range splitStatements(string(content)) {
+			if _, err := tx.Exec(stmt); err != nil {
+				if isIgnorableAlterError(stmt, err) {
+					continue
+				}
+				return fmt.Errorf("executing migration %s: %w", f, err)
+			}
 		}
 
 		if _, err := tx.Exec("INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {

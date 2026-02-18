@@ -66,6 +66,7 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := s.store.GetTautulliConfig()
 	if err != nil {
+		log.Printf("ERROR tautulli import: GetTautulliConfig: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
@@ -255,6 +256,7 @@ func (s *Server) handleStartEnrichment(w http.ResponseWriter, r *http.Request) {
 
 	cfg, err := s.store.GetTautulliConfig()
 	if err != nil {
+		log.Printf("ERROR enrichment: GetTautulliConfig: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
@@ -265,6 +267,7 @@ func (s *Server) handleStartEnrichment(w http.ResponseWriter, r *http.Request) {
 
 	count, err := s.store.CountUnenrichedHistory(r.Context(), req.ServerID)
 	if err != nil {
+		log.Printf("ERROR enrichment: CountUnenrichedHistory(server_id=%d): %v", req.ServerID, err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
