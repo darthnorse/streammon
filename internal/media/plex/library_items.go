@@ -5,10 +5,12 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"streammon/internal/httputil"
@@ -21,7 +23,7 @@ const (
 	plexTypeShow      = "2"
 	itemBatchSize     = 100
 	historyBatchSize  = 2000
-	historyMaxEntries = 5000000
+	historyMaxEntries = 500000
 	maxResponseBody   = 50 << 20 // 50 MB
 )
 
@@ -61,8 +63,13 @@ type historyContainer struct {
 }
 
 type historyItemXML struct {
-	GrandparentRatingKey string `xml:"grandparentRatingKey,attr"`
-	ViewedAt             string `xml:"viewedAt,attr"`
+	RatingKey string `xml:"ratingKey,attr"`
+	// GrandparentKey is a full metadata path (e.g. "/library/metadata/151929").
+	// This differs from the sessions endpoint which returns grandparentRatingKey
+	// as a plain numeric ID. Use ratingKeyFromPath() to extract the ID.
+	GrandparentKey string `xml:"grandparentKey,attr"`
+	ViewedAt       string `xml:"viewedAt,attr"`
+	AccountID      string `xml:"accountID,attr"`
 }
 
 func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
@@ -75,7 +82,16 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	if err != nil {
 		return nil, fmt.Errorf("fetch series: %w", err)
 	}
-	mediautil.EnrichSeriesData(ctx, series, libraryID, "plex", s.getSeriesEpisodeSize, s.fetchSeriesWatchHistory)
+	mediautil.EnrichSeriesData(ctx, series, libraryID, "plex", s.getSeriesEpisodeSize)
+
+	movieHistory, seriesHistory, err := s.fetchAllWatchHistory(ctx, libraryID, len(movies)+len(series))
+	if err != nil {
+		slog.Warn("failed to fetch watch history, using per-item data only",
+			"server_type", "plex", "error", err)
+	} else {
+		mediautil.EnrichLastWatched(movies, movieHistory)
+		mediautil.EnrichLastWatched(series, seriesHistory)
+	}
 
 	result := slices.Concat(movies, series)
 	if result == nil {
@@ -289,18 +305,25 @@ func (s *Server) fetchEpisodeSizeBatch(ctx context.Context, showRatingKey string
 	return totalSize, len(container.Videos), nil
 }
 
-func (s *Server) fetchSeriesWatchHistory(ctx context.Context, libraryID string) (map[string]time.Time, error) {
-	result := make(map[string]time.Time)
+// fetchAllWatchHistory fetches the complete watch history for a library
+// from /status/sessions/history/all, which includes ALL users (admin,
+// managed, and shared). Returns separate maps for movies and TV series.
+// totalItems is used for early termination: once every library item has
+// been seen in history, further pages are skipped.
+func (s *Server) fetchAllWatchHistory(ctx context.Context, libraryID string, totalItems int) (movieHistory, seriesHistory map[string]time.Time, err error) {
+	movieHistory = make(map[string]time.Time)
+	seriesHistory = make(map[string]time.Time)
 	offset := 0
+	accountIDs := make(map[string]bool)
 
 	for offset < historyMaxEntries {
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, nil, ctx.Err()
 		}
 
 		container, err := s.fetchHistoryBatch(ctx, libraryID, offset)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if len(container.Videos) == 0 {
@@ -308,12 +331,23 @@ func (s *Server) fetchSeriesWatchHistory(ctx context.Context, libraryID string) 
 		}
 
 		for _, v := range container.Videos {
-			if v.GrandparentRatingKey == "" {
+			ts := atoi64(v.ViewedAt)
+			if ts <= 0 {
 				continue
 			}
-			if _, exists := result[v.GrandparentRatingKey]; !exists {
-				if ts := atoi64(v.ViewedAt); ts > 0 {
-					result[v.GrandparentRatingKey] = time.Unix(ts, 0).UTC()
+			t := time.Unix(ts, 0).UTC()
+			if v.AccountID != "" {
+				accountIDs[v.AccountID] = true
+			}
+
+			gpRatingKey := ratingKeyFromPath(v.GrandparentKey)
+			if gpRatingKey != "" {
+				if existing, exists := seriesHistory[gpRatingKey]; !exists || t.After(existing) {
+					seriesHistory[gpRatingKey] = t
+				}
+			} else if v.RatingKey != "" {
+				if existing, exists := movieHistory[v.RatingKey]; !exists || t.After(existing) {
+					movieHistory[v.RatingKey] = t
 				}
 			}
 		}
@@ -325,12 +359,41 @@ func (s *Server) fetchSeriesWatchHistory(ctx context.Context, libraryID string) 
 			Total:   container.Size,
 			Library: libraryID,
 		})
+
+		// Early exit: every library item has at least one watch entry,
+		// so older pages can't contribute new data (sorted viewedAt:desc).
+		matched := len(movieHistory) + len(seriesHistory)
+		if totalItems > 0 && matched >= totalItems {
+			break
+		}
+
 		if offset >= container.Size {
 			break
 		}
 	}
 
-	return result, nil
+	slog.Info("plex watch history fetched",
+		"library", libraryID,
+		"accounts", len(accountIDs),
+		"movies", len(movieHistory),
+		"series", len(seriesHistory),
+		"total_entries", offset)
+	return movieHistory, seriesHistory, nil
+}
+
+// ratingKeyFromPath extracts the numeric ID from a Plex metadata path.
+// e.g. "/library/metadata/151929" → "151929"
+// Returns "" if the trailing segment is not a valid numeric ID.
+func ratingKeyFromPath(path string) string {
+	i := strings.LastIndex(path, "/")
+	if i < 0 || i+1 >= len(path) {
+		return ""
+	}
+	seg := path[i+1:]
+	if _, err := strconv.Atoi(seg); err != nil {
+		return ""
+	}
+	return seg
 }
 
 func (s *Server) fetchHistoryBatch(ctx context.Context, libraryID string, offset int) (*historyContainer, error) {

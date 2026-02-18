@@ -11,12 +11,9 @@ import (
 // SizeFetcher fetches the total file size for a series by its item ID.
 type SizeFetcher func(ctx context.Context, itemID string) (int64, error)
 
-// HistoryFetcher fetches a map of series ID → most recent watch time.
-type HistoryFetcher func(ctx context.Context, libraryID string) (map[string]time.Time, error)
-
-// EnrichSeriesData fills in missing file sizes and watch history for a slice of series items.
+// EnrichSeriesData fills in missing file sizes for a slice of series items.
 // It sends progress events throughout and is used by both Plex and Emby/Jellyfin adapters.
-func EnrichSeriesData(ctx context.Context, series []models.LibraryItemCache, libraryID, serverType string, fetchSize SizeFetcher, fetchHistory HistoryFetcher) {
+func EnrichSeriesData(ctx context.Context, series []models.LibraryItemCache, libraryID, serverType string, fetchSize SizeFetcher) {
 	for i := range series {
 		if series[i].FileSize == 0 {
 			size, err := fetchSize(ctx, series[i].ItemID)
@@ -32,19 +29,6 @@ func EnrichSeriesData(ctx context.Context, series []models.LibraryItemCache, lib
 			Total:   len(series),
 			Library: libraryID,
 		})
-	}
-	if len(series) > 0 {
-		SendProgress(ctx, SyncProgress{
-			Phase:   PhaseHistory,
-			Library: libraryID,
-		})
-		historyMap, err := fetchHistory(ctx, libraryID)
-		if err != nil {
-			slog.Warn("failed to fetch series watch history, using series-level data",
-				"server_type", serverType, "error", err)
-		} else {
-			EnrichLastWatched(series, historyMap)
-		}
 	}
 }
 

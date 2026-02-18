@@ -744,7 +744,7 @@ type embyUser struct {
 	PrimaryImageTag string `json:"PrimaryImageTag"`
 }
 
-func (c *Client) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
+func (c *Client) fetchUsers(ctx context.Context) ([]embyUser, error) {
 	body, err := c.doGet(ctx, c.url+"/Users", 10<<20)
 	if err != nil {
 		return nil, err
@@ -753,12 +753,19 @@ func (c *Client) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
 	if err := json.Unmarshal(body, &users); err != nil {
 		return nil, fmt.Errorf("parsing users: %w", err)
 	}
+	return users, nil
+}
+
+func (c *Client) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
+	users, err := c.fetchUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	result := make([]models.MediaUser, 0, len(users))
 	for _, u := range users {
 		thumbURL := ""
 		if u.PrimaryImageTag != "" {
-			// Store as "user/{userId}" for the thumb proxy to build the correct URL
 			thumbURL = "user/" + u.ID
 		}
 		result = append(result, models.MediaUser{

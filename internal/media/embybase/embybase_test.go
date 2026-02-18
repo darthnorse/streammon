@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"streammon/internal/mediautil"
 	"streammon/internal/models"
 )
 
@@ -730,6 +729,10 @@ func TestGetLibrariesOtherType(t *testing.T) {
 
 func TestGetLibraryItems(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users" {
+			w.Write([]byte(`[]`))
+			return
+		}
 		if r.Header.Get("X-Emby-Token") != "test-key" {
 			t.Error("missing X-Emby-Token header")
 		}
@@ -766,8 +769,6 @@ func TestGetLibraryItems(t *testing.T) {
 				],
 				"TotalRecordCount": 2
 			}`))
-		case parentID == "lib1" && itemType == "Episode" && r.URL.Query().Get("Filters") == "IsPlayed":
-			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
 		default:
 			t.Errorf("unexpected request: ParentId=%s, IncludeItemTypes=%s", parentID, itemType)
 			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
@@ -854,6 +855,10 @@ func TestGetLibraryItemsEmpty(t *testing.T) {
 func TestGetLibraryItemsPagination(t *testing.T) {
 	callCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users" {
+			w.Write([]byte(`[]`))
+			return
+		}
 		itemType := r.URL.Query().Get("IncludeItemTypes")
 		startIndex := r.URL.Query().Get("StartIndex")
 
@@ -965,6 +970,10 @@ func TestGetLibraryItemsSeriesError(t *testing.T) {
 
 func TestGetLibraryItemsWithMediaInfo(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users" {
+			w.Write([]byte(`[]`))
+			return
+		}
 		itemType := r.URL.Query().Get("IncludeItemTypes")
 		if itemType == "Movie" {
 			w.Write([]byte(`{
@@ -1011,6 +1020,10 @@ func TestGetLibraryItemsWithMediaInfo(t *testing.T) {
 
 func TestSeriesEnrichedFromEpisodeHistory(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users" {
+			w.Write([]byte(`[{"Id":"user1","Name":"TestUser"}]`))
+			return
+		}
 		parentID := r.URL.Query().Get("ParentId")
 		itemType := r.URL.Query().Get("IncludeItemTypes")
 		filters := r.URL.Query().Get("Filters")
@@ -1073,6 +1086,10 @@ func TestSeriesEnrichedFromEpisodeHistory(t *testing.T) {
 
 func TestSeriesHistoryNeverDowngrades(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users" {
+			w.Write([]byte(`[{"Id":"user1","Name":"TestUser"}]`))
+			return
+		}
 		parentID := r.URL.Query().Get("ParentId")
 		itemType := r.URL.Query().Get("IncludeItemTypes")
 		filters := r.URL.Query().Get("Filters")
@@ -1119,11 +1136,14 @@ func TestSeriesHistoryNeverDowngrades(t *testing.T) {
 	}
 }
 
-func TestSeriesHistoryEndpointFailure(t *testing.T) {
+func TestAllUserWatchDataFailureFallsBack(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users" {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		parentID := r.URL.Query().Get("ParentId")
 		itemType := r.URL.Query().Get("IncludeItemTypes")
-		filters := r.URL.Query().Get("Filters")
 
 		switch {
 		case parentID == "lib1" && itemType == "Movie":
@@ -1135,8 +1155,6 @@ func TestSeriesHistoryEndpointFailure(t *testing.T) {
 				],
 				"TotalRecordCount": 1
 			}`))
-		case parentID == "lib1" && itemType == "Episode" && filters == "IsPlayed":
-			w.WriteHeader(http.StatusInternalServerError)
 		default:
 			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
 		}
@@ -1146,33 +1164,38 @@ func TestSeriesHistoryEndpointFailure(t *testing.T) {
 	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
 	items, err := c.GetLibraryItems(context.Background(), "lib1")
 	if err != nil {
-		t.Fatal("should not fail when episode history endpoint fails:", err)
+		t.Fatal("should not fail when all-user watch data fetch fails:", err)
 	}
 
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
-	// Should keep the original series-level value
+	// Should keep the original per-item value from API user
 	want := time.Date(2025, 3, 15, 0, 0, 0, 0, time.UTC)
 	if items[0].LastWatchedAt == nil || !items[0].LastWatchedAt.Equal(want) {
-		t.Errorf("LastWatchedAt = %v, want %v (fallback to series-level)", items[0].LastWatchedAt, want)
+		t.Errorf("LastWatchedAt = %v, want %v (fallback to per-item data)", items[0].LastWatchedAt, want)
 	}
 }
 
-func TestMovieOnlyLibraryNoEpisodeHistoryCall(t *testing.T) {
-	historyCallCount := 0
+func TestMovieWatchDataFromOtherUser(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users" {
+			w.Write([]byte(`[{"Id":"admin","Name":"Admin"},{"Id":"friend","Name":"Friend"}]`))
+			return
+		}
 		itemType := r.URL.Query().Get("IncludeItemTypes")
 		filters := r.URL.Query().Get("Filters")
+		userID := r.URL.Query().Get("UserId")
 
-		if itemType == "Episode" && filters == "IsPlayed" {
-			historyCallCount++
-		}
-
-		switch itemType {
-		case "Movie":
+		switch {
+		case itemType == "Movie" && filters == "":
 			w.Write([]byte(`{
 				"Items": [{"Id": "movie1", "Name": "TestMovie", "Type": "Movie", "ProductionYear": 2023, "DateCreated": "2024-01-01T00:00:00Z"}],
+				"TotalRecordCount": 1
+			}`))
+		case itemType == "Movie" && filters == "IsPlayed" && userID == "friend":
+			w.Write([]byte(`{
+				"Items": [{"Id": "movie1", "Name": "TestMovie", "Type": "Movie", "UserData": {"LastPlayedDate": "2026-02-17T10:00:00Z", "Played": true}}],
 				"TotalRecordCount": 1
 			}`))
 		default:
@@ -1189,20 +1212,28 @@ func TestMovieOnlyLibraryNoEpisodeHistoryCall(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected 1 item, got %d", len(items))
 	}
-	if historyCallCount != 0 {
-		t.Errorf("episode history endpoint called %d times, want 0 for movie-only library", historyCallCount)
+	if items[0].LastWatchedAt == nil {
+		t.Fatal("movie watched by friend should have LastWatchedAt set")
+	}
+	want := time.Date(2026, 2, 17, 10, 0, 0, 0, time.UTC)
+	if !items[0].LastWatchedAt.Equal(want) {
+		t.Errorf("LastWatchedAt = %v, want %v", *items[0].LastWatchedAt, want)
 	}
 }
 
 func TestSeriesHistoryPagination(t *testing.T) {
-	historyCallCount := 0
+	episodeCallCount := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users" {
+			w.Write([]byte(`[{"Id":"user1","Name":"TestUser"}]`))
+			return
+		}
 		parentID := r.URL.Query().Get("ParentId")
 		itemType := r.URL.Query().Get("IncludeItemTypes")
 		filters := r.URL.Query().Get("Filters")
 
 		switch {
-		case parentID == "lib1" && itemType == "Movie":
+		case parentID == "lib1" && itemType == "Movie" && filters == "":
 			w.Write([]byte(`{"Items": [], "TotalRecordCount": 0}`))
 		case parentID == "lib1" && itemType == "Series":
 			w.Write([]byte(`{
@@ -1212,18 +1243,16 @@ func TestSeriesHistoryPagination(t *testing.T) {
 				"TotalRecordCount": 1
 			}`))
 		case parentID == "lib1" && itemType == "Episode" && filters == "IsPlayed":
-			historyCallCount++
+			episodeCallCount++
 			startIndex := r.URL.Query().Get("StartIndex")
 			switch startIndex {
 			case "0":
-				// First batch: 100 episodes from other series
 				items := make([]string, 100)
 				for i := range items {
 					items[i] = fmt.Sprintf(`{"Id": "ep%d", "Type": "Episode", "SeriesId": "other%d", "UserData": {"LastPlayedDate": "2025-06-01T00:00:00Z", "Played": true}}`, i, i)
 				}
 				w.Write([]byte(fmt.Sprintf(`{"Items": [%s], "TotalRecordCount": 101}`, strings.Join(items, ","))))
 			case "100":
-				// Second batch: our series appears (last entry)
 				w.Write([]byte(`{
 					"Items": [
 						{"Id": "ep200", "Type": "Episode", "SeriesId": "series1", "UserData": {"LastPlayedDate": "2025-08-15T10:00:00Z", "Played": true}}
@@ -1245,8 +1274,8 @@ func TestSeriesHistoryPagination(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if historyCallCount != 2 {
-		t.Errorf("episode history endpoint called %d times, want 2 (pagination)", historyCallCount)
+	if episodeCallCount != 2 {
+		t.Errorf("episode history endpoint called %d times, want 2 (pagination)", episodeCallCount)
 	}
 
 	show := items[0]
@@ -1256,16 +1285,6 @@ func TestSeriesHistoryPagination(t *testing.T) {
 	want := time.Date(2025, 8, 15, 10, 0, 0, 0, time.UTC)
 	if !show.LastWatchedAt.Equal(want) {
 		t.Errorf("LastWatchedAt = %v, want %v", *show.LastWatchedAt, want)
-	}
-}
-
-func TestEnrichLastWatched_EmptyMap(t *testing.T) {
-	series := []models.LibraryItemCache{
-		{ItemID: "100", Title: "Test"},
-	}
-	mediautil.EnrichLastWatched(series, map[string]time.Time{})
-	if series[0].LastWatchedAt != nil {
-		t.Error("should remain nil with empty history map")
 	}
 }
 

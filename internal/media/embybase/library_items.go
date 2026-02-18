@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -17,10 +18,9 @@ import (
 )
 
 const (
-	itemBatchSize     = 100
-	historyBatchSize  = 2000
-	historyMaxEntries = 5000000
-	maxResponseBody   = 50 << 20 // 50 MB
+	itemBatchSize    = 100
+	historyBatchSize = 2000
+	maxResponseBody  = 50 << 20 // 50 MB
 )
 
 type libraryItemsCacheResponse struct {
@@ -68,7 +68,16 @@ func (c *Client) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	if err != nil {
 		return nil, fmt.Errorf("fetch series: %w", err)
 	}
-	mediautil.EnrichSeriesData(ctx, series, libraryID, string(c.serverType), c.getSeriesEpisodeSize, c.fetchSeriesWatchHistory)
+	mediautil.EnrichSeriesData(ctx, series, libraryID, string(c.serverType), c.getSeriesEpisodeSize)
+
+	movieHistory, seriesHistory, err := c.fetchAllUsersWatchData(ctx, libraryID)
+	if err != nil {
+		slog.Warn("failed to fetch all-user watch data, using per-item data only",
+			"server_type", string(c.serverType), "error", err)
+	} else {
+		mediautil.EnrichLastWatched(movies, movieHistory)
+		mediautil.EnrichLastWatched(series, seriesHistory)
+	}
 
 	result := slices.Concat(movies, series)
 	if result == nil {
@@ -265,11 +274,85 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 	return items, itemsResp.TotalRecordCount, nil
 }
 
-func (c *Client) fetchSeriesWatchHistory(ctx context.Context, libraryID string) (map[string]time.Time, error) {
-	result := make(map[string]time.Time)
+// fetchAllUsersWatchData iterates all server users and collects the latest
+// watch time for each movie and series across ALL users, not just the API user.
+func (c *Client) fetchAllUsersWatchData(ctx context.Context, libraryID string) (movieHistory, seriesHistory map[string]time.Time, err error) {
+	users, err := c.fetchUsers(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetch users: %w", err)
+	}
+
+	movieHistory = make(map[string]time.Time)
+	seriesHistory = make(map[string]time.Time)
+
+	for i, user := range users {
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseHistory,
+			Current: i + 1,
+			Total:   len(users),
+			Library: libraryID,
+		})
+
+		movies, err := c.fetchPlayedItems(ctx, libraryID, user.ID, "Movie")
+		if err != nil {
+			slog.Warn("failed to fetch played movies for user",
+				"user", user.Name, "server_type", string(c.serverType), "error", err)
+		} else {
+			for _, item := range movies {
+				if item.UserData == nil || item.UserData.LastPlayedDate == "" {
+					continue
+				}
+				t := parseEmbyTime(item.UserData.LastPlayedDate)
+				if !t.IsZero() {
+					if existing, ok := movieHistory[item.ID]; !ok || t.After(existing) {
+						movieHistory[item.ID] = t
+					}
+				}
+			}
+		}
+
+		episodes, err := c.fetchPlayedItems(ctx, libraryID, user.ID, "Episode")
+		if err != nil {
+			slog.Warn("failed to fetch played episodes for user",
+				"user", user.Name, "server_type", string(c.serverType), "error", err)
+		} else {
+			for _, ep := range episodes {
+				if ep.SeriesId == "" || ep.UserData == nil || ep.UserData.LastPlayedDate == "" {
+					continue
+				}
+				t := parseEmbyTime(ep.UserData.LastPlayedDate)
+				if !t.IsZero() {
+					if existing, ok := seriesHistory[ep.SeriesId]; !ok || t.After(existing) {
+						seriesHistory[ep.SeriesId] = t
+					}
+				}
+			}
+		}
+	}
+
+	slog.Info("all-user watch data fetched",
+		"server_type", string(c.serverType),
+		"library", libraryID,
+		"users", len(users),
+		"movies", len(movieHistory),
+		"series", len(seriesHistory))
+	return movieHistory, seriesHistory, nil
+}
+
+// fetchPlayedItems returns all played items of a given type for a specific user.
+func (c *Client) fetchPlayedItems(ctx context.Context, libraryID, userID, itemType string) ([]embyLibraryItem, error) {
+	var allItems []embyLibraryItem
 	offset := 0
 
-	for offset < historyMaxEntries {
+	fields := "UserData"
+	if itemType == "Episode" {
+		fields = "UserData,SeriesId"
+	}
+
+	for {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
@@ -277,50 +360,30 @@ func (c *Client) fetchSeriesWatchHistory(ctx context.Context, libraryID string) 
 		params := url.Values{
 			"ParentId":         {libraryID},
 			"Recursive":        {"true"},
-			"IncludeItemTypes": {"Episode"},
+			"IncludeItemTypes": {itemType},
 			"Filters":          {"IsPlayed"},
-			"Fields":           {"UserData"},
-			"SortBy":           {"DatePlayed"},
-			"SortOrder":        {"Descending"},
+			"Fields":           {fields},
+			"UserId":           {userID},
 			"StartIndex":       {strconv.Itoa(offset)},
 			"Limit":            {strconv.Itoa(historyBatchSize)},
 		}
 
 		var resp libraryItemsCacheResponse
 		if err := c.fetchItemsPage(ctx, params, &resp); err != nil {
-			return nil, fmt.Errorf("fetch episode history: %w", err)
+			return nil, err
 		}
 
 		if len(resp.Items) == 0 {
 			break
 		}
 
-		for _, ep := range resp.Items {
-			if ep.SeriesId == "" {
-				continue
-			}
-			if _, exists := result[ep.SeriesId]; !exists {
-				if ep.UserData != nil && ep.UserData.LastPlayedDate != "" {
-					t := parseEmbyTime(ep.UserData.LastPlayedDate)
-					if !t.IsZero() {
-						result[ep.SeriesId] = t
-					}
-				}
-			}
-		}
-
+		allItems = append(allItems, resp.Items...)
 		offset += len(resp.Items)
-		mediautil.SendProgress(ctx, mediautil.SyncProgress{
-			Phase:   mediautil.PhaseHistory,
-			Current: offset,
-			Total:   resp.TotalRecordCount,
-			Library: libraryID,
-		})
 		if offset >= resp.TotalRecordCount {
 			break
 		}
 	}
 
-	return result, nil
+	return allItems, nil
 }
 

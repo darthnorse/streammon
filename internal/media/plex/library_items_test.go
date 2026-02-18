@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -57,7 +57,7 @@ func TestGetLibraryItems(t *testing.T) {
 
 	historyXML := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer totalSize="1">
-  <Video grandparentRatingKey="200" viewedAt="1700500000"/>
+  <Video grandparentKey="/library/metadata/200" viewedAt="1700500000"/>
 </MediaContainer>`
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -118,8 +118,8 @@ func TestShowsEnrichedFromHistory(t *testing.T) {
 
 	historyXML := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer totalSize="2">
-  <Video grandparentRatingKey="300" viewedAt="1700200000"/>
-  <Video grandparentRatingKey="400" viewedAt="1700300000"/>
+  <Video grandparentKey="/library/metadata/300" viewedAt="1700200000"/>
+  <Video grandparentKey="/library/metadata/400" viewedAt="1700300000"/>
 </MediaContainer>`
 
 	ts := newShowHistoryServer(t, showsXML, func(w http.ResponseWriter, r *http.Request) {
@@ -162,7 +162,7 @@ func TestHistoryNeverDowngrades(t *testing.T) {
 
 	historyXML := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer totalSize="1">
-  <Video grandparentRatingKey="500" viewedAt="1700000000"/>
+  <Video grandparentKey="/library/metadata/500" viewedAt="1700000000"/>
 </MediaContainer>`
 
 	ts := newShowHistoryServer(t, showsXML, func(w http.ResponseWriter, r *http.Request) {
@@ -212,15 +212,22 @@ func TestHistoryEndpointFailure(t *testing.T) {
 	}
 }
 
-func TestMovieOnlyLibraryNoHistoryCall(t *testing.T) {
+func TestMovieWatchHistoryFromAllUsers(t *testing.T) {
 	moviesXML := `<?xml version="1.0" encoding="UTF-8"?>
-<MediaContainer totalSize="1">
-  <Video ratingKey="700" type="movie" title="TestMovie" year="2023" addedAt="1700000000">
+<MediaContainer totalSize="2">
+  <Video ratingKey="700" type="movie" title="Unwatched Movie" year="2023" addedAt="1700000000">
     <Media videoResolution="4k"><Part size="30000000000"/></Media>
+  </Video>
+  <Video ratingKey="701" type="movie" title="Friend Watched Movie" year="2022" addedAt="1700000000">
+    <Media videoResolution="1080"><Part size="5000000000"/></Media>
   </Video>
 </MediaContainer>`
 
-	historyCallCount := 0
+	historyXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer totalSize="1">
+  <Video ratingKey="701" viewedAt="1700600000" accountID="99"/>
+</MediaContainer>`
+
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeMovie:
@@ -228,8 +235,7 @@ func TestMovieOnlyLibraryNoHistoryCall(t *testing.T) {
 		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeShow:
 			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
 		case r.URL.Path == "/status/sessions/history/all":
-			historyCallCount++
-			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+			w.Write([]byte(historyXML))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -241,11 +247,71 @@ func TestMovieOnlyLibraryNoHistoryCall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(items))
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
 	}
-	if historyCallCount != 0 {
-		t.Errorf("history endpoint called %d times, want 0 for movie-only library", historyCallCount)
+
+	unwatched := items[0]
+	if unwatched.Title != "Unwatched Movie" {
+		t.Errorf("first item title = %q, want Unwatched Movie", unwatched.Title)
+	}
+	if unwatched.LastWatchedAt != nil {
+		t.Error("unwatched movie should have nil LastWatchedAt")
+	}
+
+	watched := items[1]
+	if watched.Title != "Friend Watched Movie" {
+		t.Errorf("second item title = %q, want Friend Watched Movie", watched.Title)
+	}
+	if watched.LastWatchedAt == nil {
+		t.Fatal("movie watched by friend should have LastWatchedAt set from history")
+	}
+	want := time.Unix(1700600000, 0).UTC()
+	if !watched.LastWatchedAt.Equal(want) {
+		t.Errorf("LastWatchedAt = %v, want %v", *watched.LastWatchedAt, want)
+	}
+}
+
+func TestMovieHistoryNeverDowngradesAdminData(t *testing.T) {
+	moviesXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer totalSize="1">
+  <Video ratingKey="710" type="movie" title="Admin Recent" year="2023" addedAt="1700000000" lastViewedAt="1800000000">
+    <Media videoResolution="1080"><Part size="5000000000"/></Media>
+  </Video>
+</MediaContainer>`
+
+	historyXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer totalSize="1">
+  <Video ratingKey="710" viewedAt="1700000000" accountID="99"/>
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeMovie:
+			w.Write([]byte(moviesXML))
+		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeShow:
+			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+		case r.URL.Path == "/status/sessions/history/all":
+			w.Write([]byte(historyXML))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+	items, err := srv.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	movie := items[0]
+	if movie.LastWatchedAt == nil {
+		t.Fatal("LastWatchedAt should not be nil")
+	}
+	want := time.Unix(1800000000, 0).UTC()
+	if !movie.LastWatchedAt.Equal(want) {
+		t.Errorf("LastWatchedAt = %v, want %v (admin data should not be downgraded)", *movie.LastWatchedAt, want)
 	}
 }
 
@@ -264,11 +330,11 @@ func TestHistoryPagination(t *testing.T) {
 		case "0":
 			items := make([]string, historyBatchSize)
 			for i := range items {
-				items[i] = fmt.Sprintf(`<Video grandparentRatingKey="other%d" viewedAt="%d"/>`, i, 1700500000-i)
+				items[i] = fmt.Sprintf(`<Video grandparentKey="/library/metadata/other%d" viewedAt="%d"/>`, i, 1700500000-i)
 			}
 			w.Write([]byte(fmt.Sprintf(`<MediaContainer totalSize="%d">%s</MediaContainer>`, total, strings.Join(items, ""))))
 		case strconv.Itoa(historyBatchSize):
-			w.Write([]byte(fmt.Sprintf(`<MediaContainer totalSize="%d"><Video grandparentRatingKey="800" viewedAt="1700600000"/></MediaContainer>`, total)))
+			w.Write([]byte(fmt.Sprintf(`<MediaContainer totalSize="%d"><Video grandparentKey="/library/metadata/800" viewedAt="1700600000"/></MediaContainer>`, total)))
 		default:
 			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
 		}
@@ -292,6 +358,28 @@ func TestHistoryPagination(t *testing.T) {
 	want := time.Unix(1700600000, 0).UTC()
 	if !show.LastWatchedAt.Equal(want) {
 		t.Errorf("LastWatchedAt = %v, want %v", *show.LastWatchedAt, want)
+	}
+}
+
+func TestRatingKeyFromPath(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"/library/metadata/151929", "151929"},
+		{"/library/metadata/1", "1"},
+		{"", ""},
+		{"/", ""},
+		{"/library/metadata/", ""},
+		{"no-slash", ""},
+		{"/library/metadata/151929/children", ""},
+		{"/library/metadata/abc", ""},
+	}
+	for _, tt := range tests {
+		got := ratingKeyFromPath(tt.input)
+		if got != tt.want {
+			t.Errorf("ratingKeyFromPath(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
 
