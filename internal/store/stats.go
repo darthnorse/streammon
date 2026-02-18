@@ -18,16 +18,11 @@ func calcPercentage(count, total int) float64 {
 	return float64(count) / float64(total) * 100
 }
 
-// allowedDistributionColumns validates columns for distribution queries to prevent SQL injection
 var allowedDistributionColumns = map[string]bool{
 	"platform":         true,
 	"player":           true,
 	"video_resolution": true,
 }
-
-const (
-	DefaultConcurrentPeakDays = 90
-)
 
 func formatLastSeen(s sql.NullString) string {
 	if s.Valid {
@@ -127,7 +122,6 @@ func (s *Store) topMedia(ctx context.Context, limit int, filter StatsFilter, cfg
 		itemIDCol = "item_id"
 	}
 
-	// Pass 1: fast aggregate — no correlated subqueries
 	query := fmt.Sprintf(`SELECT %s, %s, COUNT(*) as play_count,
 		SUM(watched_ms) / 3600000.0 as total_hours
 	FROM watch_history
@@ -170,18 +164,18 @@ func (s *Store) topMedia(ctx context.Context, limit int, filter StatsFilter, cfg
 		return stats, nil
 	}
 
-	// Pass 2: metadata lookup per top item (media_type filter prevents cross-type contamination)
 	metaQuery := fmt.Sprintf(`SELECT thumb_url, server_id, %s
 		FROM watch_history
-		WHERE media_type = ? AND %s AND thumb_url != ''
+		WHERE media_type = ? AND %s AND thumb_url != ''%s
 		ORDER BY started_at DESC LIMIT 1`,
-		itemIDCol, cfg.metaWhere)
+		itemIDCol, cfg.metaWhere, filterClause)
 
 	for i := range stats {
 		var thumbURL sql.NullString
 		var serverID sql.NullInt64
 		var itemID sql.NullString
 		metaArgs := append([]any{cfg.mediaType}, cfg.metaArgs(stats[i])...)
+		metaArgs = append(metaArgs, filterArgs...)
 		err := s.db.QueryRowContext(ctx, metaQuery, metaArgs...).Scan(&thumbURL, &serverID, &itemID)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, fmt.Errorf("%s metadata: %w", cfg.errMsg, err)
@@ -331,19 +325,8 @@ func (s *Store) loadConcurrentEvents(ctx context.Context, filter StatsFilter) ([
 	return events, nil
 }
 
-func (s *Store) ConcurrentStreamsPeakByType(ctx context.Context, filter StatsFilter) (models.ConcurrentPeaks, error) {
-	_, peaks, err := s.ConcurrentStats(ctx, filter)
-	return peaks, err
-}
 
-// ConcurrentStats loads concurrent stream events once and computes both
-// time series and peak stats in a single pass over the data.
 func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]models.ConcurrentTimePoint, models.ConcurrentPeaks, error) {
-	// Default to 90 days for concurrent stats if no time filter specified
-	if filter.Days == 0 && filter.StartDate.IsZero() {
-		filter.Days = DefaultConcurrentPeakDays
-	}
-
 	events, err := s.loadConcurrentEvents(ctx, filter)
 	if err != nil {
 		return nil, models.ConcurrentPeaks{}, err
@@ -382,7 +365,6 @@ func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]mode
 			peaks.Transcode = transcode
 		}
 
-		// Hourly time series
 		hourBucket := ev.t.Truncate(time.Hour)
 		if existing, ok := hourlyMax[hourBucket]; !ok || total > existing.Total {
 			hourlyMax[hourBucket] = models.ConcurrentTimePoint{
@@ -571,14 +553,11 @@ func (s *Store) UserDetailStats(ctx context.Context, userName string) (*models.U
 
 var dayNames = []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
 
-// allowedStrftimeFormats validates strftime format strings to prevent injection
 var allowedStrftimeFormats = map[string]bool{
 	"%w": true, // day of week (0-6)
 	"%H": true, // hour (00-23)
 }
 
-// activityCounts queries play counts grouped by a strftime expression.
-// Returns a map of bucket -> count. Used by ActivityByDayOfWeek and ActivityByHour.
 func (s *Store) activityCounts(ctx context.Context, filter StatsFilter, strftimeFmt, errContext string) (map[int]int, error) {
 	if !allowedStrftimeFormats[strftimeFmt] {
 		return nil, fmt.Errorf("%s: invalid strftime format %q", errContext, strftimeFmt)
@@ -612,8 +591,7 @@ func (s *Store) activityCounts(ctx context.Context, filter StatsFilter, strftime
 	return counts, nil
 }
 
-// ActivityByDayOfWeek returns play counts grouped by day of week (UTC-based).
-// Note: Day/hour calculations are based on UTC timestamps, not user local time.
+// Day/hour calculations are based on UTC timestamps, not user local time.
 func (s *Store) ActivityByDayOfWeek(ctx context.Context, filter StatsFilter) ([]models.DayOfWeekStat, error) {
 	counts, err := s.activityCounts(ctx, filter, "%w", "activity by day of week")
 	if err != nil {
@@ -631,8 +609,6 @@ func (s *Store) ActivityByDayOfWeek(ctx context.Context, filter StatsFilter) ([]
 	return stats, nil
 }
 
-// ActivityByHour returns play counts grouped by hour of day (UTC-based).
-// Note: Day/hour calculations are based on UTC timestamps, not user local time.
 func (s *Store) ActivityByHour(ctx context.Context, filter StatsFilter) ([]models.HourStat, error) {
 	counts, err := s.activityCounts(ctx, filter, "%H", "activity by hour")
 	if err != nil {
@@ -700,7 +676,4 @@ func (s *Store) distribution(ctx context.Context, filter StatsFilter, column, er
 	return stats, nil
 }
 
-func (s *Store) ConcurrentStreamsOverTime(ctx context.Context, filter StatsFilter) ([]models.ConcurrentTimePoint, error) {
-	points, _, err := s.ConcurrentStats(ctx, filter)
-	return points, err
-}
+

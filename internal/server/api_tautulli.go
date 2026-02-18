@@ -78,8 +78,9 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 
 	client, err := tautulli.NewClient(cfg.URL, cfg.APIKey)
 	if err != nil {
+		log.Printf("ERROR tautulli import: NewClient: %v", err)
 		writeJSON(w, http.StatusOK, tautulliImportResponse{
-			Error: err.Error(),
+			Error: "failed to connect to Tautulli server",
 		})
 		return
 	}
@@ -142,7 +143,7 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 			Total:     totalRecords,
 			Inserted:  totalInserted,
 			Skipped:   totalSkipped,
-			Error:     err.Error(),
+			Error:     "import failed, check server logs",
 		})
 		return
 	}
@@ -169,27 +170,15 @@ func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.W
 
 	startedAt := time.Unix(rec.Started, 0).UTC()
 	stoppedAt := time.Unix(rec.Stopped, 0).UTC()
-	if rec.Stopped == 0 {
-		stoppedAt = startedAt.Add(time.Duration(rec.Duration) * time.Second)
-	}
-
-	durationMs := rec.Duration * 1000
-	watchedMs := rec.PlayDuration * 1000
-
-	if durationMs < 0 {
-		durationMs = 0
-	}
-	if watchedMs < 0 {
-		watchedMs = 0
+	if rec.Stopped == 0 && rec.PlayDuration > 0 {
+		// Use actual watch time, not total media duration, so concurrent
+		// stream calculations reflect real overlap rather than full runtime.
+		stoppedAt = startedAt.Add(time.Duration(rec.PlayDuration) * time.Second)
 	}
 
 	const maxDurationMs = 24 * 60 * 60 * 1000
-	if durationMs > maxDurationMs {
-		durationMs = maxDurationMs
-	}
-	if watchedMs > maxDurationMs {
-		watchedMs = maxDurationMs
-	}
+	durationMs := clampMs(rec.Duration*1000, maxDurationMs)
+	watchedMs := clampMs(rec.PlayDuration*1000, maxDurationMs)
 
 	return &models.WatchHistoryEntry{
 		ServerID:          serverID,
@@ -214,6 +203,16 @@ func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.W
 		VideoResolution:   rec.VideoFullResolution,
 		TranscodeDecision: convertTranscodeDecision(rec.TranscodeDecision),
 	}
+}
+
+func clampMs(v, max int64) int64 {
+	if v < 0 {
+		return 0
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 func convertTranscodeDecision(decision string) models.TranscodeDecision {
@@ -298,7 +297,6 @@ func (s *Server) handleStopEnrichment(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleEnrichmentStatus(w http.ResponseWriter, r *http.Request) {
 	st := s.enrichment.status()
 
-	// When not running, allow the frontend to query pending count for a specific server.
 	if !st.Running {
 		serverID := st.ServerID
 		if v := r.URL.Query().Get("server_id"); v != "" {

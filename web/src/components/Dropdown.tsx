@@ -98,6 +98,8 @@ export function Dropdown<T extends string = string>(props: DropdownProps<T>) {
       <button
         type="button"
         onClick={() => options.length > 0 && setOpen(!open)}
+        aria-expanded={open}
+        aria-haspopup="listbox"
         className="bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1"
       >
         <span>{getButtonLabel(props)}</span>

@@ -63,16 +63,30 @@ func scanHistoryEntryWithGeo(scanner interface{ Scan(...any) error }) (models.Wa
 	return e, err
 }
 
-// normalizeThumbURL ensures consistent format across all code paths.
 func normalizeThumbURL(u string) string {
 	return strings.TrimLeft(u, "/")
 }
 
-func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
-	hwDecode := boolToInt(entry.TranscodeHWDecode)
-	hwEncode := boolToInt(entry.TranscodeHWEncode)
-	watched := boolToInt(entry.Watched)
-	result, err := s.db.Exec(historyInsertSQL,
+// historyDedupSQL checks for an existing entry with the same server/user/title
+// within 60 seconds of the given started_at. This catches duplicates from the
+// poller and Tautulli recording the same session with slightly different timestamps.
+// Uses range predicates so SQLite can use the idx_watch_history_dedup composite index.
+const historyDedupSQL = `SELECT 1 FROM watch_history
+	WHERE server_id = ? AND user_name = ? AND title = ?
+	AND started_at BETWEEN ? AND ?
+	LIMIT 1`
+
+const historyDedupWindow = 60 * time.Second
+
+func historyDedupArgs(entry *models.WatchHistoryEntry) []any {
+	return []any{
+		entry.ServerID, entry.UserName, entry.Title,
+		entry.StartedAt.Add(-historyDedupWindow), entry.StartedAt.Add(historyDedupWindow),
+	}
+}
+
+func historyInsertArgs(entry *models.WatchHistoryEntry) []any {
+	return []any{
 		entry.ServerID, entry.ItemID, entry.GrandparentItemID, entry.UserName, entry.MediaType, entry.Title,
 		entry.ParentTitle, entry.GrandparentTitle, entry.Year,
 		entry.DurationMs, entry.WatchedMs, entry.Player, entry.Platform,
@@ -80,9 +94,24 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		entry.SeasonNumber, entry.EpisodeNumber, normalizeThumbURL(entry.ThumbURL),
 		entry.VideoResolution, entry.TranscodeDecision,
 		entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
-		entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,
-		entry.PausedMs, watched, entry.TautulliReferenceID,
-	)
+		entry.VideoDecision, entry.AudioDecision,
+		boolToInt(entry.TranscodeHWDecode), boolToInt(entry.TranscodeHWEncode),
+		entry.DynamicRange, entry.PausedMs, boolToInt(entry.Watched), entry.TautulliReferenceID,
+	}
+}
+
+func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
+	ctx := context.Background()
+	var exists int
+	err := s.db.QueryRowContext(ctx, historyDedupSQL, historyDedupArgs(entry)...).Scan(&exists)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("checking history dedup: %w", err)
+	}
+
+	result, err := s.db.ExecContext(ctx, historyInsertSQL, historyInsertArgs(entry)...)
 	if err != nil {
 		return fmt.Errorf("inserting history: %w", err)
 	}
@@ -183,10 +212,6 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 	}, nil
 }
 
-func (s *Store) DailyWatchCounts(start, end time.Time) ([]models.DayStat, error) {
-	return s.DailyWatchCountsForUser(start, end, "", nil)
-}
-
 func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string, serverIDs []int64) ([]models.DayStat, error) {
 	conditions := []string{"started_at >= ?", "started_at < ?"}
 	args := []any{start, end}
@@ -254,10 +279,6 @@ func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string,
 	return stats, nil
 }
 
-func (s *Store) HistoryForTitle(title string, limit int) ([]models.WatchHistoryEntry, error) {
-	return s.HistoryForTitleByUser(title, "", limit)
-}
-
 func (s *Store) HistoryForTitleByUser(title, userName string, limit int) ([]models.WatchHistoryEntry, error) {
 	var query string
 	var args []any
@@ -292,11 +313,11 @@ func (s *Store) HistoryForTitleByUser(title, userName string, limit int) ([]mode
 }
 
 func (s *Store) HistoryExists(serverID int64, userName, title string, startedAt time.Time) (bool, error) {
-	var count int
-	err := s.db.QueryRow(
-		`SELECT 1 FROM watch_history WHERE server_id = ? AND user_name = ? AND title = ? AND started_at = ? LIMIT 1`,
-		serverID, userName, title, startedAt,
-	).Scan(&count)
+	var exists int
+	err := s.db.QueryRow(historyDedupSQL,
+		serverID, userName, title,
+		startedAt.Add(-historyDedupWindow), startedAt.Add(historyDedupWindow),
+	).Scan(&exists)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -304,44 +325,6 @@ func (s *Store) HistoryExists(serverID int64, userName, title string, startedAt 
 		return false, fmt.Errorf("checking history exists: %w", err)
 	}
 	return true, nil
-}
-
-func (s *Store) UpdateHistoryStreamDetails(id int64, entry *models.WatchHistoryEntry) error {
-	hwDecode := boolToInt(entry.TranscodeHWDecode)
-	hwEncode := boolToInt(entry.TranscodeHWEncode)
-	_, err := s.db.Exec(`UPDATE watch_history SET
-		video_resolution = ?, video_codec = ?, audio_codec = ?, audio_channels = ?,
-		bandwidth = ?, transcode_decision = ?, video_decision = ?, audio_decision = ?,
-		transcode_hw_decode = ?, transcode_hw_encode = ?, dynamic_range = ?
-		WHERE id = ?`,
-		entry.VideoResolution, entry.VideoCodec, entry.AudioCodec, entry.AudioChannels,
-		entry.Bandwidth, entry.TranscodeDecision, entry.VideoDecision, entry.AudioDecision,
-		hwDecode, hwEncode, entry.DynamicRange, id,
-	)
-	if err != nil {
-		return fmt.Errorf("updating history stream details: %w", err)
-	}
-	return nil
-}
-
-func (s *Store) ListHistoryNeedingEnrichment(serverID int64, limit int) ([]models.WatchHistoryEntry, error) {
-	rows, err := s.db.Query(`SELECT `+historyColumns+` FROM watch_history
-		WHERE server_id = ? AND (video_resolution = '' OR video_resolution IS NULL)
-		ORDER BY started_at DESC LIMIT ?`, serverID, limit)
-	if err != nil {
-		return nil, fmt.Errorf("listing history for enrichment: %w", err)
-	}
-	defer rows.Close()
-
-	items := []models.WatchHistoryEntry{}
-	for rows.Next() {
-		e, err := scanHistoryEntry(rows)
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, e)
-	}
-	return items, rows.Err()
 }
 
 func (s *Store) GetLastStreamBeforeTime(userName string, beforeTime time.Time, withinHours int) (*models.WatchHistoryEntry, error) {
@@ -487,9 +470,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 	}
 	defer insertStmt.Close()
 
-	existsStmt, err := tx.PrepareContext(ctx,
-		`SELECT 1 FROM watch_history WHERE server_id = ? AND user_name = ? AND title = ? AND started_at = ? LIMIT 1`,
-	)
+	existsStmt, err := tx.PrepareContext(ctx, historyDedupSQL)
 	if err != nil {
 		return 0, 0, fmt.Errorf("prepare exists check: %w", err)
 	}
@@ -503,7 +484,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 		}
 
 		var exists int
-		err := existsStmt.QueryRowContext(ctx, entry.ServerID, entry.UserName, entry.Title, entry.StartedAt).Scan(&exists)
+		err := existsStmt.QueryRowContext(ctx, historyDedupArgs(entry)...).Scan(&exists)
 		if err == nil {
 			skipped++
 			continue
@@ -512,20 +493,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			return inserted, skipped, fmt.Errorf("checking if entry exists: %w", err)
 		}
 
-		hwDecode := boolToInt(entry.TranscodeHWDecode)
-		hwEncode := boolToInt(entry.TranscodeHWEncode)
-		watched := boolToInt(entry.Watched)
-		_, err = insertStmt.ExecContext(ctx,
-			entry.ServerID, entry.ItemID, entry.GrandparentItemID, entry.UserName, entry.MediaType, entry.Title,
-			entry.ParentTitle, entry.GrandparentTitle, entry.Year,
-			entry.DurationMs, entry.WatchedMs, entry.Player, entry.Platform,
-			entry.IPAddress, entry.StartedAt, entry.StoppedAt,
-			entry.SeasonNumber, entry.EpisodeNumber, normalizeThumbURL(entry.ThumbURL),
-			entry.VideoResolution, entry.TranscodeDecision,
-			entry.VideoCodec, entry.AudioCodec, entry.AudioChannels, entry.Bandwidth,
-			entry.VideoDecision, entry.AudioDecision, hwDecode, hwEncode, entry.DynamicRange,
-			entry.PausedMs, watched, entry.TautulliReferenceID,
-		)
+		_, err = insertStmt.ExecContext(ctx, historyInsertArgs(entry)...)
 		if err != nil {
 			return 0, 0, fmt.Errorf("inserting entry: %w", err)
 		}
@@ -539,7 +507,6 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 	return inserted, skipped, nil
 }
 
-// UnenrichedRef is a minimal pair of (row ID, tautulli reference_id) for enrichment.
 type UnenrichedRef struct {
 	ID    int64
 	RefID int64

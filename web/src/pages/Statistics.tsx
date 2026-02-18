@@ -11,7 +11,8 @@ import { ActivityByHourChart } from '../components/stats/ActivityByHourChart'
 import { DistributionDonut } from '../components/stats/DistributionDonut'
 import { ConcurrentStreamsChart } from '../components/stats/ConcurrentStreamsChart'
 import { DatePicker } from '../components/DatePicker'
-import { localToday, localDaysAgo } from '../lib/format'
+import { useLocalToday } from '../hooks/useLocalToday'
+import { localDaysAgo } from '../lib/format'
 import type { StatsResponse, Server } from '../types'
 
 type DaysFilter = 0 | 7 | 30 | 'custom'
@@ -72,7 +73,7 @@ export function Statistics() {
   })
 
   const { data: servers } = useFetch<Server[]>('/api/servers')
-  const today = localToday()
+  const today = useLocalToday()
 
   const url = buildStatsUrl(days, startDate, endDate, serverIds)
   const { data, loading, error } = useFetch<StatsResponse>(url)

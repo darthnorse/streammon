@@ -7,9 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"streammon/internal/models"
 	"streammon/internal/store"
+	"streammon/internal/tautulli"
 )
 
 func mockTautulli(t *testing.T) *httptest.Server {
@@ -178,6 +180,69 @@ func TestStartEnrich_NoneToEnrich(t *testing.T) {
 	}
 	if resp.Total != 0 {
 		t.Fatalf("expected total 0, got %d", resp.Total)
+	}
+}
+
+func TestConvertTautulliRecord_StoppedZeroUsesPlayDuration(t *testing.T) {
+	rec := tautulli.HistoryRecord{
+		User:         "alice",
+		Title:        "Long Movie",
+		MediaType:    "movie",
+		Started:      1700000000,
+		Stopped:      0,           // unknown stop time
+		Duration:     7200,        // 2 hour movie
+		PlayDuration: 600,         // user only watched 10 minutes
+	}
+
+	entry := convertTautulliRecord(rec, 1)
+
+	expectedStop := time.Unix(1700000000, 0).UTC().Add(600 * time.Second)
+	if !entry.StoppedAt.Equal(expectedStop) {
+		t.Errorf("stoppedAt = %v, want %v (startedAt + play_duration)", entry.StoppedAt, expectedStop)
+	}
+}
+
+func TestConvertTautulliRecord_StoppedNonZeroUsesActualStop(t *testing.T) {
+	rec := tautulli.HistoryRecord{
+		User:         "alice",
+		Title:        "Movie",
+		MediaType:    "movie",
+		Started:      1700000000,
+		Stopped:      1700003600, // actual stop time
+		Duration:     7200,
+		PlayDuration: 3600,
+	}
+
+	entry := convertTautulliRecord(rec, 1)
+
+	expectedStop := time.Unix(1700003600, 0).UTC()
+	if !entry.StoppedAt.Equal(expectedStop) {
+		t.Errorf("stoppedAt = %v, want %v (actual stop time)", entry.StoppedAt, expectedStop)
+	}
+}
+
+func TestConvertTautulliRecord_StoppedAndPlayDurationBothZero(t *testing.T) {
+	rec := tautulli.HistoryRecord{
+		User:         "alice",
+		Title:        "In Progress",
+		MediaType:    "movie",
+		Started:      1700000000,
+		Stopped:      0,
+		Duration:     7200,
+		PlayDuration: 0, // still in progress or corrupted
+	}
+
+	entry := convertTautulliRecord(rec, 1)
+
+	// stoppedAt stays as time.Unix(0) (epoch), which is before startedAt.
+	// loadConcurrentEvents correctly skips entries where stop < start,
+	// so this entry won't inflate concurrent stream counts.
+	expectedStop := time.Unix(0, 0).UTC()
+	if !entry.StoppedAt.Equal(expectedStop) {
+		t.Errorf("stoppedAt = %v, want %v (should not use Duration as fallback)", entry.StoppedAt, expectedStop)
+	}
+	if !entry.StoppedAt.Before(entry.StartedAt) {
+		t.Error("stoppedAt should be before startedAt so it gets filtered from concurrent stats")
 	}
 }
 

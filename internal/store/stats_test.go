@@ -232,9 +232,9 @@ func TestConcurrentStreamsPeakByType(t *testing.T) {
 		StartedAt: base.Add(45 * time.Minute), StoppedAt: base.Add(60 * time.Minute),
 	})
 
-	peaks, err := s.ConcurrentStreamsPeakByType(ctx, StatsFilter{})
+	_, peaks, err := s.ConcurrentStats(ctx, StatsFilter{})
 	if err != nil {
-		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
+		t.Fatalf("ConcurrentStats: %v", err)
 	}
 
 	// Peak total: all 4 overlap at 0:45
@@ -263,9 +263,9 @@ func TestConcurrentStreamsPeakByTypeEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	peaks, err := s.ConcurrentStreamsPeakByType(ctx, StatsFilter{})
+	_, peaks, err := s.ConcurrentStats(ctx, StatsFilter{})
 	if err != nil {
-		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
+		t.Fatalf("ConcurrentStats: %v", err)
 	}
 	if peaks.Total != 0 || peaks.DirectPlay != 0 || peaks.DirectStream != 0 || peaks.Transcode != 0 {
 		t.Errorf("expected all zeros, got %+v", peaks)
@@ -311,9 +311,9 @@ func TestConcurrentStreamsPeakByTypeIndependentPeaks(t *testing.T) {
 		StartedAt: base.Add(2 * time.Hour), StoppedAt: base.Add(3 * time.Hour),
 	})
 
-	peaks, err := s.ConcurrentStreamsPeakByType(ctx, StatsFilter{})
+	_, peaks, err := s.ConcurrentStats(ctx, StatsFilter{})
 	if err != nil {
-		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
+		t.Fatalf("ConcurrentStats: %v", err)
 	}
 
 	// Peak total: 3 (the transcode phase)
@@ -350,9 +350,9 @@ func TestConcurrentStreamsPeakByTypeEmptyDecision(t *testing.T) {
 		StartedAt: base, StoppedAt: base.Add(time.Hour),
 	})
 
-	peaks, err := s.ConcurrentStreamsPeakByType(ctx, StatsFilter{})
+	_, peaks, err := s.ConcurrentStats(ctx, StatsFilter{})
 	if err != nil {
-		t.Fatalf("ConcurrentStreamsPeakByType: %v", err)
+		t.Fatalf("ConcurrentStats: %v", err)
 	}
 
 	// Empty decision should count as direct play, so peak direct play = 2
@@ -1062,9 +1062,9 @@ func TestConcurrentStreamsOverTime(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	points, err := s.ConcurrentStreamsOverTime(ctx, StatsFilter{})
+	points, _, err := s.ConcurrentStats(ctx, StatsFilter{})
 	if err != nil {
-		t.Fatalf("ConcurrentStreamsOverTime: %v", err)
+		t.Fatalf("ConcurrentStats: %v", err)
 	}
 
 	if len(points) == 0 {
@@ -1088,9 +1088,9 @@ func TestConcurrentStreamsOverTimeEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	points, err := s.ConcurrentStreamsOverTime(ctx, StatsFilter{})
+	points, _, err := s.ConcurrentStats(ctx, StatsFilter{})
 	if err != nil {
-		t.Fatalf("ConcurrentStreamsOverTime: %v", err)
+		t.Fatalf("ConcurrentStats: %v", err)
 	}
 
 	if len(points) != 0 {
@@ -1115,9 +1115,9 @@ func TestConcurrentStreamsOverTimeHourlyBucketing(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	points, err := s.ConcurrentStreamsOverTime(ctx, StatsFilter{})
+	points, _, err := s.ConcurrentStats(ctx, StatsFilter{})
 	if err != nil {
-		t.Fatalf("ConcurrentStreamsOverTime: %v", err)
+		t.Fatalf("ConcurrentStats: %v", err)
 	}
 
 	// With 10 sessions starting/stopping in the same hour window,

@@ -62,7 +62,6 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-resolve uncached GeoIP for IPs on this page
 	if s.geoResolver != nil {
 		for i := range result.Items {
 			e := &result.Items[i]

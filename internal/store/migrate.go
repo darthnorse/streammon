@@ -19,9 +19,7 @@ func isIgnorableAlterError(stmt string, err error) bool {
 	return strings.Contains(msg, "duplicate column")
 }
 
-// splitStatements splits SQL content into individual statements on semicolons.
-// NOTE: This does not handle semicolons inside string literals (e.g. VALUES ('a;b')).
-// For StreamMon's DDL-only migrations this is sufficient.
+// Does not handle semicolons inside string literals — fine for DDL-only migrations.
 func splitStatements(content string) []string {
 	raw := strings.Split(content, ";")
 	var stmts []string

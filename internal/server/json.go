@@ -31,7 +31,6 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-// parseServerIDs parses a comma-separated list of int64 server IDs.
 func parseServerIDs(raw string) ([]int64, error) {
 	if raw == "" {
 		return nil, nil
@@ -48,7 +47,6 @@ func parseServerIDs(raw string) ([]int64, error) {
 	return ids, nil
 }
 
-// viewerName returns the viewer's name if the request is from a viewer, or empty string otherwise.
 func viewerName(r *http.Request) string {
 	user := UserFromContext(r.Context())
 	if user != nil && user.Role == models.RoleViewer {

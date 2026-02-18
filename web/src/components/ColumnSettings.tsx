@@ -112,7 +112,7 @@ export function ColumnSettings({
                 onReset()
                 setOpen(false)
               }}
-              className="text-xs text-accent-dim dark:text-accent hover:underline"
+              className="text-xs hover:text-accent hover:underline"
             >
               Reset to defaults
             </button>

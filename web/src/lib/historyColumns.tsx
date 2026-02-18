@@ -33,13 +33,13 @@ export function EntryTitle({ entry, onTitleClick }: EntryTitleProps) {
     return (
       <div>
         <div
-          className={`font-medium text-gray-900 dark:text-gray-50 truncate ${canClickSeries ? 'cursor-pointer hover:text-accent dark:hover:text-accent transition-colors' : ''}`}
+          className={`font-medium text-gray-900 dark:text-gray-50 truncate ${canClickSeries ? 'cursor-pointer hover:text-accent hover:underline dark:hover:text-accent transition-colors' : ''}`}
           onClick={canClickSeries ? () => onTitleClick(entry.server_id, entry.grandparent_item_id!) : undefined}
         >
           {entry.grandparent_title}
         </div>
         <div
-          className={`text-xs text-muted dark:text-muted-dark truncate ${canClickItem ? 'cursor-pointer hover:text-accent dark:hover:text-accent transition-colors' : ''}`}
+          className={`text-xs text-muted dark:text-muted-dark truncate ${canClickItem ? 'cursor-pointer hover:text-accent hover:underline dark:hover:text-accent transition-colors' : ''}`}
           onClick={canClickItem ? () => onTitleClick(entry.server_id, entry.item_id!) : undefined}
         >
           {subtitle}
@@ -49,7 +49,7 @@ export function EntryTitle({ entry, onTitleClick }: EntryTitleProps) {
   }
   return (
     <div
-      className={`font-medium text-gray-900 dark:text-gray-50 truncate ${canClickItem ? 'cursor-pointer hover:text-accent dark:hover:text-accent transition-colors' : ''}`}
+      className={`font-medium text-gray-900 dark:text-gray-50 truncate ${canClickItem ? 'cursor-pointer hover:text-accent hover:underline dark:hover:text-accent transition-colors' : ''}`}
       onClick={canClickItem ? () => onTitleClick(entry.server_id, entry.item_id!) : undefined}
     >
       {entry.title}

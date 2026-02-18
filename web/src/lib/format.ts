@@ -5,11 +5,8 @@ export function formatCount(count: number): string {
   return count.toLocaleString()
 }
 
-/**
- * Format bytes into human-readable size (B, KB, MB, GB, TB, PB)
- */
 export function formatSize(bytes: number): string {
-  if (bytes === 0) return '-'
+  if (bytes <= 0) return '-'
   const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
   const i = Math.floor(Math.log(bytes) / Math.log(1024))
   const value = bytes / Math.pow(1024, i)
