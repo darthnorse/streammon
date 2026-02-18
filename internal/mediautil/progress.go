@@ -3,10 +3,11 @@ package mediautil
 import "context"
 
 const (
-	PhaseItems   = "items"
-	PhaseHistory = "history"
-	PhaseDone    = "done"
-	PhaseError   = "error"
+	PhaseItems     = "items"
+	PhaseHistory   = "history"
+	PhaseEnriching = "enriching"
+	PhaseDone      = "done"
+	PhaseError     = "error"
 )
 
 // SyncProgress represents a progress update during library sync.

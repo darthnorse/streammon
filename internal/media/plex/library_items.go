@@ -65,11 +65,12 @@ type historyContainer struct {
 type historyItemXML struct {
 	RatingKey string `xml:"ratingKey,attr"`
 	// GrandparentKey is a full metadata path (e.g. "/library/metadata/151929").
-	// This differs from the sessions endpoint which returns grandparentRatingKey
-	// as a plain numeric ID. Use ratingKeyFromPath() to extract the ID.
 	GrandparentKey string `xml:"grandparentKey,attr"`
-	ViewedAt       string `xml:"viewedAt,attr"`
-	AccountID      string `xml:"accountID,attr"`
+	// GrandparentRatingKey is a plain numeric ID (e.g. "151929").
+	// Some Plex versions return one or the other; we check both.
+	GrandparentRatingKey string `xml:"grandparentRatingKey,attr"`
+	ViewedAt             string `xml:"viewedAt,attr"`
+	AccountID            string `xml:"accountID,attr"`
 }
 
 func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
@@ -92,6 +93,12 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 		mediautil.EnrichLastWatched(movies, movieHistory)
 		mediautil.EnrichLastWatched(series, seriesHistory)
 	}
+
+	// Per-item fallback: for items the bulk history missed (e.g. due to Plex
+	// version differences in XML attributes), query Plex directly per item.
+	// This mirrors Maintainerr's approach of using metadataItemID.
+	s.enrichMissedWatchHistory(ctx, movies, libraryID)
+	s.enrichMissedWatchHistory(ctx, series, libraryID)
 
 	result := slices.Concat(movies, series)
 	if result == nil {
@@ -305,9 +312,7 @@ func (s *Server) fetchEpisodeSizeBatch(ctx context.Context, showRatingKey string
 	return totalSize, len(container.Videos), nil
 }
 
-// fetchAllWatchHistory fetches the complete watch history for a library
-// from /status/sessions/history/all, which includes ALL users (admin,
-// managed, and shared). Returns separate maps for movies and TV series.
+// fetchAllWatchHistory includes ALL users (admin, managed, and shared).
 // totalItems is used for early termination: once every library item has
 // been seen in history, further pages are skipped.
 func (s *Server) fetchAllWatchHistory(ctx context.Context, libraryID string, totalItems int) (movieHistory, seriesHistory map[string]time.Time, err error) {
@@ -341,6 +346,9 @@ func (s *Server) fetchAllWatchHistory(ctx context.Context, libraryID string, tot
 			}
 
 			gpRatingKey := ratingKeyFromPath(v.GrandparentKey)
+			if gpRatingKey == "" {
+				gpRatingKey = v.GrandparentRatingKey
+			}
 			if gpRatingKey != "" {
 				if existing, exists := seriesHistory[gpRatingKey]; !exists || t.After(existing) {
 					seriesHistory[gpRatingKey] = t
@@ -396,16 +404,20 @@ func ratingKeyFromPath(path string) string {
 	return seg
 }
 
-func (s *Server) fetchHistoryBatch(ctx context.Context, libraryID string, offset int) (*historyContainer, error) {
+// fetchHistory makes a GET request to /status/sessions/history/all with the given
+// query parameters and returns the parsed XML container.
+func (s *Server) fetchHistory(ctx context.Context, params url.Values) (*historyContainer, error) {
 	u, err := url.Parse(fmt.Sprintf("%s/status/sessions/history/all", s.url))
 	if err != nil {
 		return nil, fmt.Errorf("parse URL: %w", err)
 	}
 	q := u.Query()
 	q.Set("sort", "viewedAt:desc")
-	q.Set("librarySectionID", libraryID)
-	q.Set("X-Plex-Container-Start", strconv.Itoa(offset))
-	q.Set("X-Plex-Container-Size", strconv.Itoa(historyBatchSize))
+	for k, vs := range params {
+		for _, v := range vs {
+			q.Set(k, v)
+		}
+	}
 	u.RawQuery = q.Encode()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -435,4 +447,85 @@ func (s *Server) fetchHistoryBatch(ctx context.Context, libraryID string, offset
 	}
 
 	return &container, nil
+}
+
+func (s *Server) fetchHistoryBatch(ctx context.Context, libraryID string, offset int) (*historyContainer, error) {
+	return s.fetchHistory(ctx, url.Values{
+		"librarySectionID":       {libraryID},
+		"X-Plex-Container-Start": {strconv.Itoa(offset)},
+		"X-Plex-Container-Size":  {strconv.Itoa(historyBatchSize)},
+	})
+}
+
+// enrichMissedWatchHistory queries Plex per-item for any items that still have
+// nil LastWatchedAt after the bulk history fetch. Uses metadataItemID to let
+// Plex match episodes to shows server-side, avoiding grandparentKey parsing.
+func (s *Server) enrichMissedWatchHistory(ctx context.Context, items []models.LibraryItemCache, libraryID string) {
+	var needsLookup int
+	for i := range items {
+		if items[i].LastWatchedAt == nil {
+			needsLookup++
+		}
+	}
+	if needsLookup == 0 {
+		return
+	}
+
+	var recovered, lookups int
+	for i := range items {
+		if items[i].LastWatchedAt != nil {
+			continue
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		lookups++
+
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseEnriching,
+			Current: lookups,
+			Total:   needsLookup,
+			Library: libraryID,
+		})
+
+		t, err := s.fetchItemLastWatched(ctx, items[i].ItemID)
+		if err != nil {
+			slog.Warn("per-item history check failed",
+				"item", items[i].Title, "error", err)
+			continue
+		}
+		if t != nil {
+			items[i].LastWatchedAt = t
+			recovered++
+		}
+	}
+	if recovered > 0 {
+		slog.Info("per-item history recovered watches",
+			"library", libraryID, "recovered", recovered, "lookups", lookups)
+	}
+}
+
+// fetchItemLastWatched returns the most recent watch time for a specific item
+// across all users, or nil if never watched. Uses the metadataItemID parameter
+// which Plex resolves to include child items (episodes for a show).
+func (s *Server) fetchItemLastWatched(ctx context.Context, itemID string) (*time.Time, error) {
+	container, err := s.fetchHistory(ctx, url.Values{
+		"metadataItemID":         {itemID},
+		"X-Plex-Container-Start": {"0"},
+		"X-Plex-Container-Size":  {"1"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(container.Videos) == 0 {
+		return nil, nil
+	}
+
+	ts := atoi64(container.Videos[0].ViewedAt)
+	if ts <= 0 {
+		return nil, nil
+	}
+	t := time.Unix(ts, 0).UTC()
+	return &t, nil
 }

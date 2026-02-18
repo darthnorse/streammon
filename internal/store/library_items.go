@@ -25,7 +25,12 @@ const libraryItemUpsertSQL = `
 		media_type = excluded.media_type,
 		title = excluded.title,
 		year = excluded.year,
-		last_watched_at = excluded.last_watched_at,
+		last_watched_at = CASE
+			WHEN excluded.last_watched_at IS NOT NULL AND
+				(library_items.last_watched_at IS NULL OR excluded.last_watched_at > library_items.last_watched_at)
+			THEN excluded.last_watched_at
+			ELSE library_items.last_watched_at
+		END,
 		video_resolution = excluded.video_resolution,
 		file_size = excluded.file_size,
 		episode_count = excluded.episode_count,
@@ -158,7 +163,6 @@ func (s *Store) DeleteStaleLibraryItems(ctx context.Context, serverID int64, lib
 // This prevents race conditions between concurrent syncs for the same library.
 func (s *Store) SyncLibraryItems(ctx context.Context, serverID int64, libraryID string, items []models.LibraryItemCache) (upserted int, deleted int64, err error) {
 	if len(items) == 0 {
-		// Even with no items, we should delete stale items
 		deleted, err = s.DeleteStaleLibraryItems(ctx, serverID, libraryID, time.Now().UTC())
 		return 0, deleted, err
 	}
@@ -267,12 +271,7 @@ func (s *Store) ListItemsForLibraries(ctx context.Context, libraries []models.Ru
 	return items, nil
 }
 
-func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (map[int64]*time.Time, error) {
-	result := make(map[int64]*time.Time)
-	if len(itemIDs) == 0 {
-		return result, nil
-	}
-
+func (s *Store) batchQueryTimes(ctx context.Context, itemIDs []int64, queryFn func(placeholders string) string, errLabel string, result map[int64]*time.Time) error {
 	const batchSize = 200
 	for i := 0; i < len(itemIDs); i += batchSize {
 		end := i + batchSize
@@ -288,11 +287,45 @@ func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (
 			args[j] = id
 		}
 
-		query := `SELECT t.id,
-			MAX(CASE
-				WHEN other.last_watched_at IS NOT NULL THEN other.last_watched_at
-				ELSE NULL
-			END) as max_watched
+		rows, err := s.db.QueryContext(ctx, queryFn(strings.Join(placeholders, ",")), args...)
+		if err != nil {
+			return fmt.Errorf("%s: %w", errLabel, err)
+		}
+
+		for rows.Next() {
+			var id int64
+			var ts sql.NullString
+			if err := rows.Scan(&id, &ts); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan %s: %w", errLabel, err)
+			}
+			if ts.Valid && ts.String != "" {
+				t, parseErr := parseSQLiteTime(ts.String)
+				if parseErr == nil {
+					result[id] = &t
+				}
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (map[int64]*time.Time, error) {
+	result := make(map[int64]*time.Time)
+	if len(itemIDs) == 0 {
+		return result, nil
+	}
+
+	err := s.batchQueryTimes(ctx, itemIDs, func(ph string) string {
+		return `SELECT t.id,
+			MAX(
+				MAX(COALESCE(other.last_watched_at, '')),
+				COALESCE(t.last_watched_at, '')
+			) as max_watched
 		FROM library_items t
 		LEFT JOIN library_items other ON other.id != t.id
 			AND other.last_watched_at IS NOT NULL
@@ -301,77 +334,11 @@ func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (
 				(t.tvdb_id != '' AND other.tvdb_id = t.tvdb_id) OR
 				(t.imdb_id != '' AND other.imdb_id = t.imdb_id)
 			)
-		WHERE t.id IN (` + strings.Join(placeholders, ",") + `)
+		WHERE t.id IN (` + ph + `)
 		GROUP BY t.id`
-
-		rows, err := s.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, fmt.Errorf("get cross-server watch times: %w", err)
-		}
-
-		for rows.Next() {
-			var id int64
-			var maxWatched sql.NullString
-			if err := rows.Scan(&id, &maxWatched); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("scan cross-server watch time: %w", err)
-			}
-			if maxWatched.Valid && maxWatched.String != "" {
-				t, parseErr := parseSQLiteTime(maxWatched.String)
-				if parseErr == nil {
-					result[id] = &t
-				}
-			}
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-	}
-
-	// Fetch each item's own last_watched_at to merge with cross-server results
-	for i := 0; i < len(itemIDs); i += batchSize {
-		end := i + batchSize
-		if end > len(itemIDs) {
-			end = len(itemIDs)
-		}
-		batch := itemIDs[i:end]
-
-		placeholders := make([]string, len(batch))
-		args := make([]any, len(batch))
-		for j, id := range batch {
-			placeholders[j] = "?"
-			args[j] = id
-		}
-
-		query := `SELECT id, last_watched_at FROM library_items WHERE id IN (` + strings.Join(placeholders, ",") + `)`
-		rows, err := s.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, fmt.Errorf("get own watch times: %w", err)
-		}
-
-		for rows.Next() {
-			var id int64
-			var ownWatched sql.NullString
-			if err := rows.Scan(&id, &ownWatched); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("scan own watch time: %w", err)
-			}
-			if ownWatched.Valid && ownWatched.String != "" {
-				ownTime, parseErr := parseSQLiteTime(ownWatched.String)
-				if parseErr == nil {
-					crossTime := result[id]
-					if crossTime == nil || ownTime.After(*crossTime) {
-						t := ownTime
-						result[id] = &t
-					}
-				}
-			}
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
+	}, "cross-server watch times", result)
+	if err != nil {
+		return nil, err
 	}
 
 	return result, nil
@@ -379,58 +346,28 @@ func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (
 
 // GetStreamMonWatchTimes returns the most recent watch_history activity for a batch of library items.
 // For movies it matches on item_id; for TV shows it also matches on grandparent_item_id (series ID).
-// This captures ALL users' activity, not just the API user's, which the media server's lastViewedAt misses.
+// Title-based fallback covers legacy data where grandparent_item_id is empty; constrained to same
+// server and media_type to avoid false positives from title collisions.
 func (s *Store) GetStreamMonWatchTimes(ctx context.Context, itemIDs []int64) (map[int64]*time.Time, error) {
 	result := make(map[int64]*time.Time)
 	if len(itemIDs) == 0 {
 		return result, nil
 	}
 
-	const batchSize = 200
-	for i := 0; i < len(itemIDs); i += batchSize {
-		end := i + batchSize
-		if end > len(itemIDs) {
-			end = len(itemIDs)
-		}
-		batch := itemIDs[i:end]
-
-		placeholders := make([]string, len(batch))
-		args := make([]any, len(batch))
-		for j, id := range batch {
-			placeholders[j] = "?"
-			args[j] = id
-		}
-
-		query := `SELECT li.id, MAX(wh.stopped_at) as last_activity
+	err := s.batchQueryTimes(ctx, itemIDs, func(ph string) string {
+		return `SELECT li.id, MAX(wh.stopped_at) as last_activity
 			FROM library_items li
 			JOIN watch_history wh ON wh.server_id = li.server_id
-				AND (wh.item_id = li.item_id OR wh.grandparent_item_id = li.item_id)
-			WHERE li.id IN (` + strings.Join(placeholders, ",") + `)
+				AND (
+					wh.item_id = li.item_id
+					OR wh.grandparent_item_id = li.item_id
+					OR (li.title != '' AND wh.media_type = li.media_type AND (wh.title = li.title OR wh.grandparent_title = li.title))
+				)
+			WHERE li.id IN (` + ph + `)
 			GROUP BY li.id`
-
-		rows, err := s.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, fmt.Errorf("get streammon watch times: %w", err)
-		}
-
-		for rows.Next() {
-			var id int64
-			var lastActivity sql.NullString
-			if err := rows.Scan(&id, &lastActivity); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("scan streammon watch time: %w", err)
-			}
-			if lastActivity.Valid && lastActivity.String != "" {
-				t, parseErr := parseSQLiteTime(lastActivity.String)
-				if parseErr == nil {
-					result[id] = &t
-				}
-			}
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
+	}, "streammon watch times", result)
+	if err != nil {
+		return nil, err
 	}
 
 	return result, nil

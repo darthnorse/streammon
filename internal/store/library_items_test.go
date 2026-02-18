@@ -8,6 +8,17 @@ import (
 	"streammon/internal/models"
 )
 
+func findByItemID(t *testing.T, items []models.LibraryItemCache, itemID string) models.LibraryItemCache {
+	t.Helper()
+	for _, it := range items {
+		if it.ItemID == itemID {
+			return it
+		}
+	}
+	t.Fatalf("item %s not found", itemID)
+	return models.LibraryItemCache{}
+}
+
 func TestUpsertLibraryItems(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
@@ -474,6 +485,39 @@ func TestUpsertLibraryItemsLastWatchedAt(t *testing.T) {
 	if updated.LastWatchedAt.Sub(newWatchedAt).Abs() > time.Second {
 		t.Errorf("updated LastWatchedAt = %v, want ~%v", *updated.LastWatchedAt, newWatchedAt)
 	}
+
+	// Re-sync with nil LastWatchedAt must NOT wipe the existing value
+	items[0].LastWatchedAt = nil
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+	afterNilSync, err := s.GetLibraryItem(ctx, watched.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterNilSync.LastWatchedAt == nil {
+		t.Fatal("LastWatchedAt was wiped to nil — upsert must never downgrade watch data")
+	}
+	if afterNilSync.LastWatchedAt.Sub(newWatchedAt).Abs() > time.Second {
+		t.Errorf("LastWatchedAt = %v, want ~%v (should be preserved)", *afterNilSync.LastWatchedAt, newWatchedAt)
+	}
+
+	// Re-sync with older LastWatchedAt must NOT downgrade
+	olderTime := now.AddDate(0, 0, -60).Truncate(time.Second)
+	items[0].LastWatchedAt = &olderTime
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+	afterOlderSync, err := s.GetLibraryItem(ctx, watched.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterOlderSync.LastWatchedAt == nil {
+		t.Fatal("LastWatchedAt was wiped after older sync")
+	}
+	if afterOlderSync.LastWatchedAt.Sub(newWatchedAt).Abs() > time.Second {
+		t.Errorf("LastWatchedAt = %v, want ~%v (should not be downgraded)", *afterOlderSync.LastWatchedAt, newWatchedAt)
+	}
 }
 
 func seedMultiServerItems(t *testing.T, s *Store) (srvPlex, srvJelly *models.Server) {
@@ -597,22 +641,12 @@ func TestGetCrossServerWatchTimes(t *testing.T) {
 	jellyLib1, _ := s.ListLibraryItems(ctx, srvJelly.ID, "lib1")
 	jellyLib2, _ := s.ListLibraryItems(ctx, srvJelly.ID, "lib2")
 
-	findByItemID := func(items []models.LibraryItemCache, itemID string) models.LibraryItemCache {
-		for _, it := range items {
-			if it.ItemID == itemID {
-				return it
-			}
-		}
-		t.Fatalf("item %s not found", itemID)
-		return models.LibraryItemCache{}
-	}
-
-	plexInception := findByItemID(plexLib1, "plex-1")
-	jellyInception := findByItemID(jellyLib1, "jelly-1")
-	jellyInterstellar := findByItemID(jellyLib1, "jelly-2")
-	jellyBB := findByItemID(jellyLib2, "jelly-3")
-	plexNoIDs := findByItemID(plexLib1, "plex-4")
-	jellyNoIDs := findByItemID(jellyLib1, "jelly-4")
+	plexInception := findByItemID(t, plexLib1, "plex-1")
+	jellyInception := findByItemID(t, jellyLib1, "jelly-1")
+	jellyInterstellar := findByItemID(t, jellyLib1, "jelly-2")
+	jellyBB := findByItemID(t, jellyLib2, "jelly-3")
+	plexNoIDs := findByItemID(t, plexLib1, "plex-4")
+	jellyNoIDs := findByItemID(t, jellyLib1, "jelly-4")
 
 	t.Run("cross-server propagation via tmdb_id", func(t *testing.T) {
 		// Jellyfin Inception should get Plex's more recent watch time
@@ -719,18 +753,8 @@ func TestFindMatchingItems(t *testing.T) {
 	plexLib1, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
 	jellyLib1, _ := s.ListLibraryItems(ctx, srvJelly.ID, "lib1")
 
-	findByItemID := func(items []models.LibraryItemCache, itemID string) models.LibraryItemCache {
-		for _, it := range items {
-			if it.ItemID == itemID {
-				return it
-			}
-		}
-		t.Fatalf("item %s not found", itemID)
-		return models.LibraryItemCache{}
-	}
-
 	t.Run("finds match on other server", func(t *testing.T) {
-		plexInception := findByItemID(plexLib1, "plex-1")
+		plexInception := findByItemID(t, plexLib1, "plex-1")
 		matches, err := s.FindMatchingItems(ctx, &plexInception)
 		if err != nil {
 			t.Fatal(err)
@@ -747,7 +771,7 @@ func TestFindMatchingItems(t *testing.T) {
 	})
 
 	t.Run("excludes self", func(t *testing.T) {
-		plexInception := findByItemID(plexLib1, "plex-1")
+		plexInception := findByItemID(t, plexLib1, "plex-1")
 		matches, err := s.FindMatchingItems(ctx, &plexInception)
 		if err != nil {
 			t.Fatal(err)
@@ -760,7 +784,7 @@ func TestFindMatchingItems(t *testing.T) {
 	})
 
 	t.Run("no external IDs returns empty", func(t *testing.T) {
-		plexNoIDs := findByItemID(plexLib1, "plex-4")
+		plexNoIDs := findByItemID(t, plexLib1, "plex-4")
 		matches, err := s.FindMatchingItems(ctx, &plexNoIDs)
 		if err != nil {
 			t.Fatal(err)
@@ -771,7 +795,7 @@ func TestFindMatchingItems(t *testing.T) {
 	})
 
 	t.Run("unique item returns empty", func(t *testing.T) {
-		jellyInterstellar := findByItemID(jellyLib1, "jelly-2")
+		jellyInterstellar := findByItemID(t, jellyLib1, "jelly-2")
 		matches, err := s.FindMatchingItems(ctx, &jellyInterstellar)
 		if err != nil {
 			t.Fatal(err)
@@ -790,18 +814,8 @@ func TestGetStreamMonWatchTimes(t *testing.T) {
 
 	plexLib1, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
 
-	findByItemID := func(items []models.LibraryItemCache, itemID string) models.LibraryItemCache {
-		for _, it := range items {
-			if it.ItemID == itemID {
-				return it
-			}
-		}
-		t.Fatalf("item %s not found", itemID)
-		return models.LibraryItemCache{}
-	}
-
-	plexMatrix := findByItemID(plexLib1, "plex-2") // never watched per media server
-	plexInception := findByItemID(plexLib1, "plex-1")
+	plexMatrix := findByItemID(t, plexLib1, "plex-2") // never watched per media server
+	plexInception := findByItemID(t, plexLib1, "plex-1")
 
 	now := time.Now().UTC()
 	recentWatch := now.Add(-2 * time.Hour).Truncate(time.Second)
@@ -897,6 +911,99 @@ func TestGetStreamMonWatchTimes(t *testing.T) {
 		}
 		if watchTime.Sub(episodeWatch).Abs() > time.Second {
 			t.Errorf("watch time = %v, want ~%v", *watchTime, episodeWatch)
+		}
+	})
+
+	t.Run("TV show matched by title when grandparent_item_id empty", func(t *testing.T) {
+		// Create a TV show that has a different item_id than what's in watch_history
+		tvItems := []models.LibraryItemCache{
+			{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-show-99", MediaType: models.MediaTypeTV, Title: "Succession", Year: 2018, AddedAt: now.AddDate(0, 0, -730), SyncedAt: now},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, tvItems); err != nil {
+			t.Fatal(err)
+		}
+
+		items, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
+		var showItem models.LibraryItemCache
+		for _, it := range items {
+			if it.ItemID == "plex-show-99" {
+				showItem = it
+				break
+			}
+		}
+		if showItem.ID == 0 {
+			t.Fatal("show item not found")
+		}
+
+		titleWatch := now.Add(-3 * time.Hour).Truncate(time.Second)
+		// Insert watch_history with empty grandparent_item_id (simulates old/broken data)
+		s.InsertHistory(&models.WatchHistoryEntry{
+			ServerID:          srvPlex.ID,
+			ItemID:            "plex-ep-500",
+			GrandparentItemID: "", // empty — ID match won't work
+			UserName:          "Rerun717",
+			MediaType:         models.MediaTypeTV,
+			Title:             "Austerlitz",
+			GrandparentTitle:  "Succession",
+			StartedAt:         titleWatch.Add(-45 * time.Minute),
+			StoppedAt:         titleWatch,
+		})
+
+		result, err := s.GetStreamMonWatchTimes(ctx, []int64{showItem.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		watchTime := result[showItem.ID]
+		if watchTime == nil {
+			t.Fatal("expected non-nil watch time from title-based fallback")
+		}
+		if watchTime.Sub(titleWatch).Abs() > time.Second {
+			t.Errorf("watch time = %v, want ~%v", *watchTime, titleWatch)
+		}
+	})
+
+	t.Run("movie matched by title when item_id empty", func(t *testing.T) {
+		movieItems := []models.LibraryItemCache{
+			{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-movie-99", MediaType: models.MediaTypeMovie, Title: "Orphan Movie", Year: 2020, AddedAt: now.AddDate(0, 0, -500), SyncedAt: now},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, movieItems); err != nil {
+			t.Fatal(err)
+		}
+
+		items, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
+		var movieItem models.LibraryItemCache
+		for _, it := range items {
+			if it.ItemID == "plex-movie-99" {
+				movieItem = it
+				break
+			}
+		}
+		if movieItem.ID == 0 {
+			t.Fatal("movie item not found")
+		}
+
+		movieWatch := now.Add(-5 * time.Hour).Truncate(time.Second)
+		// Insert watch_history with empty item_id (old data)
+		s.InsertHistory(&models.WatchHistoryEntry{
+			ServerID:  srvPlex.ID,
+			ItemID:    "", // empty — ID match won't work
+			UserName:  "viewer1",
+			MediaType: models.MediaTypeMovie,
+			Title:     "Orphan Movie",
+			StartedAt: movieWatch.Add(-2 * time.Hour),
+			StoppedAt: movieWatch,
+		})
+
+		result, err := s.GetStreamMonWatchTimes(ctx, []int64{movieItem.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		watchTime := result[movieItem.ID]
+		if watchTime == nil {
+			t.Fatal("expected non-nil watch time from title-based fallback for movie")
+		}
+		if watchTime.Sub(movieWatch).Abs() > time.Second {
+			t.Errorf("watch time = %v, want ~%v", *watchTime, movieWatch)
 		}
 	})
 }

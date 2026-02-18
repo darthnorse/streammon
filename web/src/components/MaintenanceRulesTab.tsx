@@ -106,6 +106,8 @@ function formatSyncProgress(state: SyncProgress, libraryName?: string): string {
       return state.total ? `${prefix}Scanning ${state.current ?? 0}/${state.total}` : `${prefix}Scanning...`
     case 'history':
       return state.total ? `${prefix}History ${state.current ?? 0}/${state.total}` : `${prefix}Fetching history...`
+    case 'enriching':
+      return state.total ? `${prefix}Verifying watch history ${state.current ?? 0}/${state.total}` : `${prefix}Verifying watch history...`
     case 'error':
       return state.error ? `${prefix}Error: ${state.error}` : `${prefix}Sync error`
     case 'done':

@@ -48,13 +48,11 @@ func (s *Server) TestConnection(ctx context.Context) error {
 	return err
 }
 
-// IdentityInfo contains server identity information from Plex
 type IdentityInfo struct {
 	MachineIdentifier string
 	Version           string
 }
 
-// GetIdentity returns the server's identity information including machine_id
 func (s *Server) GetIdentity(ctx context.Context) (*IdentityInfo, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url+"/identity", nil)
 	if err != nil {
@@ -213,6 +211,7 @@ func (s *Server) DeleteItem(ctx context.Context, itemID string) error {
 		slog.Warn("plex: DELETE returned retryable error", "url", reqURL, "error", lastErr)
 	}
 
+	s.client.CloseIdleConnections()
 	return fmt.Errorf("plex delete %s: all %d attempts failed: %w", reqURL, maxRetries+1, lastErr)
 }
 
@@ -229,26 +228,25 @@ func (s *Server) doDelete(ctx context.Context, reqURL string) error {
 	if err != nil {
 		return fmt.Errorf("plex delete: %w", err)
 	}
-	defer httputil.DrainBody(resp)
+	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil
 	}
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNoContent {
+		return nil
+	}
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 	if resp.StatusCode == http.StatusBadRequest {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		slog.Warn("plex: 400 response", "url", reqURL, "body", string(body))
 		return errPlexBadRequest
 	}
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		if len(body) > 0 {
-			return fmt.Errorf("plex delete: status %d: %s", resp.StatusCode, body)
-		}
-		return fmt.Errorf("plex delete: status %d", resp.StatusCode)
+	if len(body) > 0 {
+		return fmt.Errorf("plex delete: status %d: %s", resp.StatusCode, body)
 	}
-	return nil
+	return fmt.Errorf("plex delete: status %d", resp.StatusCode)
 }
-
 
 type mediaContainer struct {
 	XMLName xml.Name   `xml:"MediaContainer"`

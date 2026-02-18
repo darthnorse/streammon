@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -709,6 +710,77 @@ func TestBulkDeleteCandidatesPartialFailureAPI(t *testing.T) {
 	errs := resp["errors"].([]any)
 	if len(errs) != 2 {
 		t.Errorf("errors count = %d, want 2", len(errs))
+	}
+}
+
+func TestBulkDeleteCircuitBreakerAPI(t *testing.T) {
+	srv, s := newTestServerWrapped(t)
+	ctx := context.Background()
+
+	server := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	var items []models.LibraryItemCache
+	for i := range 5 {
+		items = append(items, models.LibraryItemCache{
+			ServerID: server.ID, LibraryID: "lib1",
+			ItemID: fmt.Sprintf("item%d", i), MediaType: models.MediaTypeMovie,
+			Title: fmt.Sprintf("Movie %d", i), Year: 2020, AddedAt: now,
+		})
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		Name:          "Test Rule",
+		CriterionType: models.CriterionUnwatchedMovie,
+		MediaType:     models.MediaTypeMovie,
+		Parameters:    json.RawMessage(`{}`),
+		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: server.ID, LibraryID: "lib1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	libItems, _ := s.ListLibraryItems(ctx, server.ID, "lib1")
+	var candidateIDs []int64
+	for _, li := range libItems {
+		if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, li.ID, "test"); err != nil {
+			t.Fatal(err)
+		}
+		candidateIDs = append(candidateIDs, li.ID)
+	}
+
+	p := setupTestPoller(t, srv.Unwrap(), s)
+	mock := &mockDeleteServer{deleteErr: errors.New("plex 400")}
+	p.AddServer(server.ID, mock)
+
+	idsJSON, _ := json.Marshal(candidateIDs)
+	body := fmt.Sprintf(`{"candidate_ids":%s}`, idsJSON)
+	resp := doBulkDelete(t, srv, body)
+
+	// Circuit breaker fires after 3 consecutive failures, remaining 2 are aborted
+	if resp.Failed != 5 {
+		t.Errorf("failed = %d, want 5 (3 attempted + 2 aborted)", resp.Failed)
+	}
+	if resp.Deleted != 0 {
+		t.Errorf("deleted = %d, want 0", resp.Deleted)
+	}
+
+	foundAbortError := false
+	for _, e := range resp.Errors {
+		if strings.Contains(e.Error, "aborted") {
+			foundAbortError = true
+			break
+		}
+	}
+	if !foundAbortError {
+		t.Error("expected an abort error message in errors list")
 	}
 }
 

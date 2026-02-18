@@ -154,6 +154,107 @@ func TestShowsEnrichedFromHistory(t *testing.T) {
 	}
 }
 
+func TestShowsEnrichedFromGrandparentRatingKey(t *testing.T) {
+	showsXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer totalSize="2">
+  <Directory ratingKey="300" type="show" title="Succession" year="2018" addedAt="1700000000" leafCount="39"/>
+  <Directory ratingKey="400" type="show" title="The Bear" year="2022" addedAt="1700000000" leafCount="18"/>
+</MediaContainer>`
+
+	historyXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer totalSize="2">
+  <Video grandparentRatingKey="300" viewedAt="1700200000" accountID="42"/>
+  <Video grandparentRatingKey="400" viewedAt="1700300000" accountID="42"/>
+</MediaContainer>`
+
+	ts := newShowHistoryServer(t, showsXML, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(historyXML))
+	})
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+	items, err := srv.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	for _, item := range items {
+		if item.LastWatchedAt == nil {
+			t.Errorf("%s: LastWatchedAt should be set from grandparentRatingKey history", item.Title)
+		}
+	}
+
+	if !items[0].LastWatchedAt.Equal(time.Unix(1700200000, 0).UTC()) {
+		t.Errorf("Succession LastWatchedAt = %v, want %v", *items[0].LastWatchedAt, time.Unix(1700200000, 0).UTC())
+	}
+	if !items[1].LastWatchedAt.Equal(time.Unix(1700300000, 0).UTC()) {
+		t.Errorf("The Bear LastWatchedAt = %v, want %v", *items[1].LastWatchedAt, time.Unix(1700300000, 0).UTC())
+	}
+}
+
+func TestPerItemFallbackRecoversWatchHistory(t *testing.T) {
+	showsXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer totalSize="2">
+  <Directory ratingKey="300" type="show" title="Succession" year="2018" addedAt="1700000000" leafCount="39"/>
+  <Directory ratingKey="400" type="show" title="The Bear" year="2022" addedAt="1700000000" leafCount="18"/>
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeMovie:
+			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeShow:
+			w.Write([]byte(showsXML))
+		case r.URL.Path == "/status/sessions/history/all":
+			metadataItemID := r.URL.Query().Get("metadataItemID")
+			if metadataItemID != "" {
+				// Per-item fallback query
+				switch metadataItemID {
+				case "300":
+					w.Write([]byte(`<MediaContainer totalSize="1"><Video viewedAt="1700500000" accountID="42"/></MediaContainer>`))
+				case "400":
+					w.Write([]byte(`<MediaContainer totalSize="1"><Video viewedAt="1700600000" accountID="42"/></MediaContainer>`))
+				default:
+					w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+				}
+			} else {
+				// Bulk history returns nothing (simulating broken grandparentKey)
+				w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+			}
+		default:
+			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+	items, err := srv.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+
+	for _, item := range items {
+		if item.LastWatchedAt == nil {
+			t.Fatalf("%s: LastWatchedAt should be set via per-item fallback", item.Title)
+		}
+	}
+
+	if !items[0].LastWatchedAt.Equal(time.Unix(1700500000, 0).UTC()) {
+		t.Errorf("Succession LastWatchedAt = %v, want %v", *items[0].LastWatchedAt, time.Unix(1700500000, 0).UTC())
+	}
+	if !items[1].LastWatchedAt.Equal(time.Unix(1700600000, 0).UTC()) {
+		t.Errorf("The Bear LastWatchedAt = %v, want %v", *items[1].LastWatchedAt, time.Unix(1700600000, 0).UTC())
+	}
+}
+
 func TestHistoryNeverDowngrades(t *testing.T) {
 	showsXML := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer totalSize="1">
@@ -235,7 +336,16 @@ func TestMovieWatchHistoryFromAllUsers(t *testing.T) {
 		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeShow:
 			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
 		case r.URL.Path == "/status/sessions/history/all":
-			w.Write([]byte(historyXML))
+			if mid := r.URL.Query().Get("metadataItemID"); mid != "" {
+				// Per-item fallback: only ratingKey 701 was watched
+				if mid == "701" {
+					w.Write([]byte(historyXML))
+				} else {
+					w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+				}
+			} else {
+				w.Write([]byte(historyXML))
+			}
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}

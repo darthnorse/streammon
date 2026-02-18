@@ -665,7 +665,6 @@ func (s *Server) handleDeleteLibraryItem(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Fetch the source item and verify the target is a cross-server match
 	sourceItem, err := s.store.GetLibraryItem(r.Context(), sourceID)
 	if errors.Is(err, models.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "source item not found")
@@ -1037,8 +1036,16 @@ func (s *Server) streamBulkDelete(w http.ResponseWriter, r *http.Request, candid
 	}
 }
 
-// executeBulkDelete performs the bulk delete with optional progress callback
+// executeBulkDelete performs the bulk delete with optional progress callback.
+// Aborts early if the media server rejects consecutiveFailureLimit deletes in
+// a row, since this typically indicates rate-limiting or a config issue.
 func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, candidateMap map[int64]models.MaintenanceCandidate, deletedBy string, includeCrossServer bool, onProgress func(BulkDeleteProgress)) models.BulkDeleteResult {
+	const (
+		basePacing              = 500 * time.Millisecond
+		failurePacing           = 3 * time.Second
+		consecutiveFailureLimit = 3
+	)
+
 	result := models.BulkDeleteResult{
 		Errors: []models.BulkDeleteError{},
 	}
@@ -1048,16 +1055,21 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 	// Track library item IDs already deleted so that two candidates pointing
 	// at the same library item don't attempt a redundant media-server delete.
 	deletedItemIDs := make(map[int64]bool)
+	consecutiveServerFailures := 0
 
 	for i, candidateID := range candidateIDs {
-		// Pace requests to avoid overwhelming media servers or reverse proxies
-		// that rate-limit rapid DELETE requests (common with nginx/Caddy/Traefik).
+		// Pace requests to avoid overwhelming media servers or reverse proxies.
+		// Use a longer delay after a failed delete to let the server recover.
 		if i > 0 {
+			pacing := basePacing
+			if consecutiveServerFailures > 0 {
+				pacing = failurePacing
+			}
 			select {
 			case <-ctx.Done():
 				log.Printf("bulk delete cancelled: %v", ctx.Err())
 				return result
-			case <-time.After(500 * time.Millisecond):
+			case <-time.After(pacing):
 			}
 		}
 
@@ -1134,6 +1146,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 
 		if delResult.ServerDeleted && delResult.DBCleaned {
 			result.Deleted++
+			consecutiveServerFailures = 0
 			deletedItemIDs[candidate.LibraryItemID] = true
 
 			if includeCrossServer {
@@ -1159,6 +1172,19 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 				Title:       candidate.Item.Title,
 				Error:       delResult.Error,
 			})
+			if !delResult.ServerDeleted {
+				consecutiveServerFailures++
+			}
+			if consecutiveServerFailures >= consecutiveFailureLimit {
+				remaining := total - i - 1
+				log.Printf("bulk delete: aborting after %d consecutive failures, %d items remaining", consecutiveFailureLimit, remaining)
+				result.Failed += remaining
+				result.Errors = append(result.Errors, models.BulkDeleteError{
+					Title: fmt.Sprintf("(%d items skipped)", remaining),
+					Error: fmt.Sprintf("aborted: media server rejected %d consecutive deletes", consecutiveFailureLimit),
+				})
+				break
+			}
 		}
 	}
 
