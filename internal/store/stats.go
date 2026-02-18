@@ -41,23 +41,22 @@ func cutoffTime(days int) time.Time {
 type topMediaConfig struct {
 	selectCol  string
 	yearExpr   string
-	thumbMatch string
 	extraWhere string
 	groupBy    string
 	mediaType  models.MediaType
 	errMsg     string
 	itemIDCol  string
+	metaWhere  string
+	metaArgs   func(stat models.MediaStat) []any
 }
 
-func (s *Store) topMedia(limit int, days int, cfg topMediaConfig) ([]models.MediaStat, error) {
+func (s *Store) topMedia(ctx context.Context, limit int, days int, cfg topMediaConfig) ([]models.MediaStat, error) {
 	cutoff := cutoffTime(days)
 	hasTimeFilter := !cutoff.IsZero()
 
 	timeClause := ""
-	subqueryTimeClause := ""
 	if hasTimeFilter {
 		timeClause = " AND started_at >= ?"
-		subqueryTimeClause = " AND h2.started_at >= ?"
 	}
 
 	itemIDCol := cfg.itemIDCol
@@ -65,108 +64,109 @@ func (s *Store) topMedia(limit int, days int, cfg topMediaConfig) ([]models.Medi
 		itemIDCol = "item_id"
 	}
 
-	// Subqueries prefer the most frequently watched copy of a title, then most recent.
-	// This avoids showing a wrong poster when duplicate items exist (e.g. 4K + 1080p).
-	thumbOrder := fmt.Sprintf(
-		`ORDER BY (SELECT COUNT(*) FROM watch_history h3 WHERE h3.%s = h2.%s) DESC, h2.started_at DESC LIMIT 1`,
-		itemIDCol, itemIDCol)
-
+	// Pass 1: fast aggregate — no correlated subqueries
 	query := fmt.Sprintf(`SELECT %s, %s, COUNT(*) as play_count,
-		SUM(watched_ms) / 3600000.0 as total_hours,
-		(SELECT thumb_url FROM watch_history h2
-		 WHERE %s AND h2.thumb_url != ''%s %s) as thumb_url,
-		(SELECT server_id FROM watch_history h2
-		 WHERE %s AND h2.thumb_url != ''%s %s) as server_id,
-		(SELECT %s FROM watch_history h2
-		 WHERE %s AND h2.%s != ''%s %s) as item_id
+		SUM(watched_ms) / 3600000.0 as total_hours
 	FROM watch_history
 	WHERE media_type = ?%s%s
 	GROUP BY %s
 	ORDER BY play_count DESC
 	LIMIT ?`,
 		cfg.selectCol, cfg.yearExpr,
-		cfg.thumbMatch, subqueryTimeClause, thumbOrder,
-		cfg.thumbMatch, subqueryTimeClause, thumbOrder,
-		itemIDCol, cfg.thumbMatch, itemIDCol, subqueryTimeClause, thumbOrder,
 		cfg.extraWhere, timeClause,
 		cfg.groupBy)
 
 	var args []any
-	if hasTimeFilter {
-		args = append(args, cutoff, cutoff, cutoff)
-	}
 	args = append(args, cfg.mediaType)
 	if hasTimeFilter {
 		args = append(args, cutoff)
 	}
 	args = append(args, limit)
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", cfg.errMsg, err)
 	}
 	defer rows.Close()
 
-	return scanMediaStats(rows)
+	var stats []models.MediaStat
+	for rows.Next() {
+		var stat models.MediaStat
+		var totalHours sql.NullFloat64
+		if err := rows.Scan(&stat.Title, &stat.Year, &stat.PlayCount, &totalHours); err != nil {
+			return nil, fmt.Errorf("scanning %s: %w", cfg.errMsg, err)
+		}
+		if totalHours.Valid {
+			stat.TotalHours = totalHours.Float64
+		}
+		stats = append(stats, stat)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating %s: %w", cfg.errMsg, err)
+	}
+
+	if len(stats) == 0 {
+		return []models.MediaStat{}, nil
+	}
+
+	// Pass 2: metadata lookup per top item (media_type filter prevents cross-type contamination)
+	metaQuery := fmt.Sprintf(`SELECT thumb_url, server_id, %s
+		FROM watch_history
+		WHERE media_type = ? AND %s AND thumb_url != ''
+		ORDER BY started_at DESC LIMIT 1`,
+		itemIDCol, cfg.metaWhere)
+
+	for i := range stats {
+		var thumbURL sql.NullString
+		var serverID sql.NullInt64
+		var itemID sql.NullString
+		metaArgs := append([]any{cfg.mediaType}, cfg.metaArgs(stats[i])...)
+		err := s.db.QueryRowContext(ctx, metaQuery, metaArgs...).Scan(&thumbURL, &serverID, &itemID)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("%s metadata: %w", cfg.errMsg, err)
+		}
+		if thumbURL.Valid {
+			stats[i].ThumbURL = thumbURL.String
+		}
+		if serverID.Valid {
+			stats[i].ServerID = serverID.Int64
+		}
+		if itemID.Valid {
+			stats[i].ItemID = itemID.String
+		}
+	}
+
+	return stats, nil
 }
 
-func (s *Store) TopMovies(limit int, days int) ([]models.MediaStat, error) {
-	return s.topMedia(limit, days, topMediaConfig{
+func (s *Store) TopMovies(ctx context.Context, limit int, days int) ([]models.MediaStat, error) {
+	return s.topMedia(ctx, limit, days, topMediaConfig{
 		selectCol:  "title",
 		yearExpr:   "year",
-		thumbMatch: "h2.title = watch_history.title AND h2.year = watch_history.year",
 		extraWhere: "",
 		groupBy:    "title, year",
 		mediaType:  models.MediaTypeMovie,
 		errMsg:     "top movies",
+		metaWhere:  "title = ? AND year = ?",
+		metaArgs:   func(s models.MediaStat) []any { return []any{s.Title, s.Year} },
 	})
 }
 
-func (s *Store) TopTVShows(limit int, days int) ([]models.MediaStat, error) {
-	return s.topMedia(limit, days, topMediaConfig{
+func (s *Store) TopTVShows(ctx context.Context, limit int, days int) ([]models.MediaStat, error) {
+	return s.topMedia(ctx, limit, days, topMediaConfig{
 		selectCol:  "grandparent_title",
 		yearExpr:   "0 as year",
-		thumbMatch: "h2.grandparent_title = watch_history.grandparent_title",
 		extraWhere: " AND grandparent_title != ''",
 		groupBy:    "grandparent_title",
 		mediaType:  models.MediaTypeTV,
 		errMsg:     "top tv shows",
 		itemIDCol:  "grandparent_item_id",
+		metaWhere:  "grandparent_title = ?",
+		metaArgs:   func(s models.MediaStat) []any { return []any{s.Title} },
 	})
 }
 
-func scanMediaStats(rows *sql.Rows) ([]models.MediaStat, error) {
-	stats := []models.MediaStat{}
-	for rows.Next() {
-		var stat models.MediaStat
-		var totalHours sql.NullFloat64
-		var thumbURL sql.NullString
-		var serverID sql.NullInt64
-		var itemID sql.NullString
-		if err := rows.Scan(&stat.Title, &stat.Year, &stat.PlayCount, &totalHours, &thumbURL, &serverID, &itemID); err != nil {
-			return nil, fmt.Errorf("scanning media stats: %w", err)
-		}
-		if totalHours.Valid {
-			stat.TotalHours = totalHours.Float64
-		}
-		if thumbURL.Valid {
-			stat.ThumbURL = thumbURL.String
-		}
-		if serverID.Valid {
-			stat.ServerID = serverID.Int64
-		}
-		if itemID.Valid {
-			stat.ItemID = itemID.String
-		}
-		stats = append(stats, stat)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterating media stats: %w", err)
-	}
-	return stats, nil
-}
-
-func (s *Store) TopUsers(limit int, days int) ([]models.UserStat, error) {
+func (s *Store) TopUsers(ctx context.Context, limit int, days int) ([]models.UserStat, error) {
 	cutoff := cutoffTime(days)
 	hasTimeFilter := !cutoff.IsZero()
 
@@ -183,7 +183,7 @@ func (s *Store) TopUsers(limit int, days int) ([]models.UserStat, error) {
 	query += ` GROUP BY user_name ORDER BY total_hours DESC LIMIT ?`
 	args = append(args, limit)
 
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("top users: %w", err)
 	}
@@ -207,48 +207,30 @@ func (s *Store) TopUsers(limit int, days int) ([]models.UserStat, error) {
 	return stats, nil
 }
 
-func (s *Store) LibraryStats(days int) (*models.LibraryStat, error) {
+func (s *Store) LibraryStats(ctx context.Context, days int) (*models.LibraryStat, error) {
 	var stats models.LibraryStat
 	var totalHours sql.NullFloat64
 	cutoff := cutoffTime(days)
-	hasTimeFilter := !cutoff.IsZero()
 
 	query := `SELECT COUNT(*) as total_plays,
 		SUM(watched_ms) / 3600000.0 as total_hours,
-		COUNT(DISTINCT user_name) as unique_users
+		COUNT(DISTINCT user_name) as unique_users,
+		COUNT(DISTINCT CASE WHEN media_type = ? THEN title || '|' || COALESCE(year, 0) END) as unique_movies,
+		COUNT(DISTINCT CASE WHEN media_type = ? AND grandparent_title != '' THEN grandparent_title END) as unique_tv_shows
 	FROM watch_history`
-	var args []any
-	if hasTimeFilter {
+	args := []any{models.MediaTypeMovie, models.MediaTypeTV}
+	if !cutoff.IsZero() {
 		query += ` WHERE started_at >= ?`
 		args = append(args, cutoff)
 	}
-	if err := s.db.QueryRow(query, args...).Scan(&stats.TotalPlays, &totalHours, &stats.UniqueUsers); err != nil {
+	if err := s.db.QueryRowContext(ctx, query, args...).Scan(
+		&stats.TotalPlays, &totalHours, &stats.UniqueUsers,
+		&stats.UniqueMovies, &stats.UniqueTVShows,
+	); err != nil {
 		return nil, fmt.Errorf("library stats: %w", err)
 	}
 	if totalHours.Valid {
 		stats.TotalHours = totalHours.Float64
-	}
-
-	query = `SELECT COUNT(DISTINCT title || '|' || COALESCE(year, 0))
-	FROM watch_history WHERE media_type = ?`
-	args = []any{models.MediaTypeMovie}
-	if hasTimeFilter {
-		query += ` AND started_at >= ?`
-		args = append(args, cutoff)
-	}
-	if err := s.db.QueryRow(query, args...).Scan(&stats.UniqueMovies); err != nil {
-		return nil, fmt.Errorf("unique movies: %w", err)
-	}
-
-	query = `SELECT COUNT(DISTINCT grandparent_title)
-	FROM watch_history WHERE media_type = ? AND grandparent_title != ''`
-	args = []any{models.MediaTypeTV}
-	if hasTimeFilter {
-		query += ` AND started_at >= ?`
-		args = append(args, cutoff)
-	}
-	if err := s.db.QueryRow(query, args...).Scan(&stats.UniqueTVShows); err != nil {
-		return nil, fmt.Errorf("unique tv shows: %w", err)
 	}
 
 	return &stats, nil
@@ -261,8 +243,7 @@ type concurrentEvent struct {
 	decision string
 }
 
-// loadConcurrentEvents queries watch_history and returns sorted start/stop events.
-// Events are sorted by time with stops before starts at equal timestamps (half-open intervals).
+// loadConcurrentEvents returns start/stop events sorted by time, stops before starts (half-open intervals).
 func (s *Store) loadConcurrentEvents(ctx context.Context, cutoff time.Time) ([]concurrentEvent, error) {
 	query := `SELECT started_at, stopped_at, transcode_decision FROM watch_history`
 	var args []any
@@ -304,41 +285,66 @@ func (s *Store) loadConcurrentEvents(ctx context.Context, cutoff time.Time) ([]c
 }
 
 func (s *Store) ConcurrentStreamsPeakByType(ctx context.Context, days int) (models.ConcurrentPeaks, error) {
-	events, err := s.loadConcurrentEvents(ctx, cutoffTime(days))
+	_, peaks, err := s.ConcurrentStats(ctx, days)
+	return peaks, err
+}
+
+// ConcurrentStats loads concurrent stream events once and computes both
+// time series and peak stats in a single pass over the data.
+func (s *Store) ConcurrentStats(ctx context.Context, days int) ([]models.ConcurrentTimePoint, models.ConcurrentPeaks, error) {
+	cutoff := cutoffTime(days)
+	if cutoff.IsZero() {
+		cutoff = time.Now().UTC().AddDate(0, 0, -DefaultConcurrentPeakDays)
+	}
+
+	events, err := s.loadConcurrentEvents(ctx, cutoff)
 	if err != nil {
-		return models.ConcurrentPeaks{}, err
+		return nil, models.ConcurrentPeaks{}, err
 	}
 	if len(events) == 0 {
-		return models.ConcurrentPeaks{}, nil
+		return []models.ConcurrentTimePoint{}, models.ConcurrentPeaks{}, nil
 	}
 
 	var peaks models.ConcurrentPeaks
 	var peakTime time.Time
-	var curTotal, curDirectPlay, curDirectStream, curTranscode int
+	hourlyMax := make(map[time.Time]models.ConcurrentTimePoint)
+	var directPlay, directStream, transcode int
+
 	for _, ev := range events {
-		curTotal += ev.delta
 		switch models.TranscodeDecision(ev.decision) {
-		case models.TranscodeDecisionDirectPlay:
-			curDirectPlay += ev.delta
 		case models.TranscodeDecisionCopy:
-			curDirectStream += ev.delta
+			directStream += ev.delta
 		case models.TranscodeDecisionTranscode:
-			curTranscode += ev.delta
+			transcode += ev.delta
 		default:
-			curDirectPlay += ev.delta
+			directPlay += ev.delta
 		}
-		if curTotal > peaks.Total {
-			peaks.Total = curTotal
+		total := directPlay + directStream + transcode
+
+		if total > peaks.Total {
+			peaks.Total = total
 			peakTime = ev.t
 		}
-		if curDirectPlay > peaks.DirectPlay {
-			peaks.DirectPlay = curDirectPlay
+		if directPlay > peaks.DirectPlay {
+			peaks.DirectPlay = directPlay
 		}
-		if curDirectStream > peaks.DirectStream {
-			peaks.DirectStream = curDirectStream
+		if directStream > peaks.DirectStream {
+			peaks.DirectStream = directStream
 		}
-		if curTranscode > peaks.Transcode {
-			peaks.Transcode = curTranscode
+		if transcode > peaks.Transcode {
+			peaks.Transcode = transcode
+		}
+
+		// Hourly time series
+		hourBucket := ev.t.Truncate(time.Hour)
+		if existing, ok := hourlyMax[hourBucket]; !ok || total > existing.Total {
+			hourlyMax[hourBucket] = models.ConcurrentTimePoint{
+				Time:         hourBucket,
+				DirectPlay:   directPlay,
+				DirectStream: directStream,
+				Transcode:    transcode,
+				Total:        total,
+			}
 		}
 	}
 
@@ -346,10 +352,18 @@ func (s *Store) ConcurrentStreamsPeakByType(ctx context.Context, days int) (mode
 		peaks.PeakAt = peakTime.Format(time.RFC3339)
 	}
 
-	return peaks, nil
+	points := make([]models.ConcurrentTimePoint, 0, len(hourlyMax))
+	for _, p := range hourlyMax {
+		points = append(points, p)
+	}
+	sort.Slice(points, func(i, j int) bool {
+		return points[i].Time.Before(points[j].Time)
+	})
+
+	return points, peaks, nil
 }
 
-func (s *Store) AllWatchLocations(days int) ([]models.GeoResult, error) {
+func (s *Store) AllWatchLocations(ctx context.Context, days int) ([]models.GeoResult, error) {
 	cutoff := cutoffTime(days)
 	query := `SELECT g.lat, g.lng, g.city, g.country, COALESCE(MAX(g.isp), '') as isp,
 		COALESCE(GROUP_CONCAT(DISTINCT h.user_name), '') as users
@@ -363,7 +377,7 @@ func (s *Store) AllWatchLocations(days int) ([]models.GeoResult, error) {
 	}
 	query += ` GROUP BY g.lat, g.lng, g.city, g.country
 	ORDER BY g.country, g.city`
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("watch locations: %w", err)
 	}
@@ -387,7 +401,7 @@ func (s *Store) AllWatchLocations(days int) ([]models.GeoResult, error) {
 	return results, nil
 }
 
-func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error) {
+func (s *Store) UserDetailStats(ctx context.Context, userName string) (*models.UserDetailStats, error) {
 	stats := &models.UserDetailStats{
 		Locations: []models.LocationStat{},
 		Devices:   []models.DeviceStat{},
@@ -395,7 +409,7 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 	}
 
 	var totalHours sql.NullFloat64
-	err := s.db.QueryRow(
+	err := s.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) as session_count,
 			SUM(watched_ms) / 3600000.0 as total_hours
 		FROM watch_history
@@ -409,7 +423,7 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 		stats.TotalHours = totalHours.Float64
 	}
 
-	locRows, err := s.db.Query(
+	locRows, err := s.db.QueryContext(ctx,
 		`SELECT g.city, g.country, COUNT(*) as session_count,
 			MAX(COALESCE(h.stopped_at, h.started_at)) as last_seen
 		FROM watch_history h
@@ -439,14 +453,13 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 	if err := locRows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating location stats: %w", err)
 	}
-
 	for i := range stats.Locations {
 		if totalLocSessions > 0 {
 			stats.Locations[i].Percentage = float64(stats.Locations[i].SessionCount) / float64(totalLocSessions) * 100
 		}
 	}
 
-	devRows, err := s.db.Query(
+	devRows, err := s.db.QueryContext(ctx,
 		`SELECT player, platform, COUNT(*) as session_count,
 			MAX(COALESCE(stopped_at, started_at)) as last_seen
 		FROM watch_history
@@ -475,14 +488,13 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 	if err := devRows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating device stats: %w", err)
 	}
-
 	for i := range stats.Devices {
 		if totalDevSessions > 0 {
 			stats.Devices[i].Percentage = float64(stats.Devices[i].SessionCount) / float64(totalDevSessions) * 100
 		}
 	}
 
-	ispRows, err := s.db.Query(
+	ispRows, err := s.db.QueryContext(ctx,
 		`SELECT g.isp, COUNT(*) as session_count,
 			MAX(COALESCE(h.stopped_at, h.started_at)) as last_seen
 		FROM watch_history h
@@ -512,7 +524,6 @@ func (s *Store) UserDetailStats(userName string) (*models.UserDetailStats, error
 	if err := ispRows.Err(); err != nil {
 		return nil, fmt.Errorf("iterating isp stats: %w", err)
 	}
-
 	for i := range stats.ISPs {
 		if totalISPSessions > 0 {
 			stats.ISPs[i].Percentage = float64(stats.ISPs[i].SessionCount) / float64(totalISPSessions) * 100
@@ -665,56 +676,7 @@ func (s *Store) distribution(ctx context.Context, days int, column, errMsg strin
 	return stats, nil
 }
 
-// ConcurrentStreamsOverTime returns hourly-bucketed concurrent stream data.
-// Results are aggregated to hourly intervals to prevent large datasets.
 func (s *Store) ConcurrentStreamsOverTime(ctx context.Context, days int) ([]models.ConcurrentTimePoint, error) {
-	cutoff := cutoffTime(days)
-	if cutoff.IsZero() {
-		cutoff = time.Now().UTC().AddDate(0, 0, -DefaultConcurrentPeakDays)
-	}
-
-	events, err := s.loadConcurrentEvents(ctx, cutoff)
-	if err != nil {
-		return nil, err
-	}
-	if len(events) == 0 {
-		return []models.ConcurrentTimePoint{}, nil
-	}
-
-	hourlyMax := make(map[time.Time]models.ConcurrentTimePoint)
-	var directPlay, directStream, transcode int
-
-	for _, ev := range events {
-		switch models.TranscodeDecision(ev.decision) {
-		case models.TranscodeDecisionCopy:
-			directStream += ev.delta
-		case models.TranscodeDecisionTranscode:
-			transcode += ev.delta
-		default:
-			directPlay += ev.delta
-		}
-		total := directPlay + directStream + transcode
-
-		hourBucket := ev.t.Truncate(time.Hour)
-		existing, ok := hourlyMax[hourBucket]
-		if !ok || total > existing.Total {
-			hourlyMax[hourBucket] = models.ConcurrentTimePoint{
-				Time:         hourBucket,
-				DirectPlay:   directPlay,
-				DirectStream: directStream,
-				Transcode:    transcode,
-				Total:        total,
-			}
-		}
-	}
-
-	points := make([]models.ConcurrentTimePoint, 0, len(hourlyMax))
-	for _, p := range hourlyMax {
-		points = append(points, p)
-	}
-	sort.Slice(points, func(i, j int) bool {
-		return points[i].Time.Before(points[j].Time)
-	})
-
-	return points, nil
+	points, _, err := s.ConcurrentStats(ctx, days)
+	return points, err
 }

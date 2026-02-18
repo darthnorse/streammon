@@ -168,7 +168,7 @@ func (s *Server) handleGetUserStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.store.UserDetailStats(name)
+	stats, err := s.store.UserDetailStats(r.Context(), name)
 	if err != nil {
 		log.Printf("UserDetailStats error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
@@ -179,6 +179,10 @@ func (s *Server) handleGetUserStats(w http.ResponseWriter, r *http.Request) {
 		_, err := s.store.GetUser(name)
 		if errors.Is(err, models.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "not found")
+			return
+		} else if err != nil {
+			log.Printf("GetUser error: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal")
 			return
 		}
 	}

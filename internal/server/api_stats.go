@@ -5,13 +5,12 @@ import (
 	"net/http"
 	"strconv"
 
+	"golang.org/x/sync/errgroup"
+
 	"streammon/internal/models"
 )
 
-const (
-	FilterDaysWeek  = 7
-	FilterDaysMonth = 30
-)
+var allowedFilterDays = map[int]bool{0: true, 7: true, 30: true}
 
 type StatsResponse struct {
 	TopMovies            []models.MediaStat           `json:"top_movies"`
@@ -29,75 +28,88 @@ type StatsResponse struct {
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
-	// Global stats are admin-only (contains sensitive aggregate data)
 	user := UserFromContext(r.Context())
 	if user != nil && user.Role == models.RoleViewer {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return
 	}
 
-	days := 0 // default: all time. Valid values: 7, 30, or 0/omitted (all time)
+	days := 0
 	if d := r.URL.Query().Get("days"); d != "" {
 		parsed, err := strconv.Atoi(d)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "days must be a number")
 			return
 		}
-		if parsed != 0 && parsed != FilterDaysWeek && parsed != FilterDaysMonth {
+		if !allowedFilterDays[parsed] {
 			writeError(w, http.StatusBadRequest, "days must be 0, 7, or 30")
 			return
 		}
 		days = parsed
 	}
 
-	resp := StatsResponse{}
+	var resp StatsResponse
+	g, ctx := errgroup.WithContext(r.Context())
 
-	logAndFail := func(name string, err error) bool {
-		if err != nil {
-			log.Printf("%s error: %v", name, err)
-			writeError(w, http.StatusInternalServerError, "internal")
-			return true
-		}
-		return false
-	}
+	g.Go(func() error {
+		var err error
+		resp.TopMovies, err = s.store.TopMovies(ctx, 10, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.TopTVShows, err = s.store.TopTVShows(ctx, 10, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.TopUsers, err = s.store.TopUsers(ctx, 10, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.Library, err = s.store.LibraryStats(ctx, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.Locations, err = s.store.AllWatchLocations(ctx, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.ActivityByDayOfWeek, err = s.store.ActivityByDayOfWeek(ctx, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.ActivityByHour, err = s.store.ActivityByHour(ctx, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.PlatformDistribution, err = s.store.PlatformDistribution(ctx, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.PlayerDistribution, err = s.store.PlayerDistribution(ctx, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.QualityDistribution, err = s.store.QualityDistribution(ctx, days)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		resp.ConcurrentTimeSeries, resp.ConcurrentPeaks, err = s.store.ConcurrentStats(ctx, days)
+		return err
+	})
 
-	var err error
-	if resp.TopMovies, err = s.store.TopMovies(10, days); logAndFail("TopMovies", err) {
-		return
-	}
-	if resp.TopTVShows, err = s.store.TopTVShows(10, days); logAndFail("TopTVShows", err) {
-		return
-	}
-	if resp.TopUsers, err = s.store.TopUsers(10, days); logAndFail("TopUsers", err) {
-		return
-	}
-	if resp.Library, err = s.store.LibraryStats(days); logAndFail("LibraryStats", err) {
-		return
-	}
-
-	if resp.Locations, err = s.store.AllWatchLocations(days); logAndFail("AllWatchLocations", err) {
-		return
-	}
-	ctx := r.Context()
-	if resp.ActivityByDayOfWeek, err = s.store.ActivityByDayOfWeek(ctx, days); logAndFail("ActivityByDayOfWeek", err) {
-		return
-	}
-	if resp.ActivityByHour, err = s.store.ActivityByHour(ctx, days); logAndFail("ActivityByHour", err) {
-		return
-	}
-	if resp.PlatformDistribution, err = s.store.PlatformDistribution(ctx, days); logAndFail("PlatformDistribution", err) {
-		return
-	}
-	if resp.PlayerDistribution, err = s.store.PlayerDistribution(ctx, days); logAndFail("PlayerDistribution", err) {
-		return
-	}
-	if resp.QualityDistribution, err = s.store.QualityDistribution(ctx, days); logAndFail("QualityDistribution", err) {
-		return
-	}
-	if resp.ConcurrentTimeSeries, err = s.store.ConcurrentStreamsOverTime(ctx, days); logAndFail("ConcurrentStreamsOverTime", err) {
-		return
-	}
-	if resp.ConcurrentPeaks, err = s.store.ConcurrentStreamsPeakByType(ctx, days); logAndFail("ConcurrentStreamsPeakByType", err) {
+	if err := g.Wait(); err != nil {
+		log.Printf("stats error: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 

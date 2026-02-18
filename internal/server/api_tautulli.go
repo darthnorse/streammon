@@ -278,7 +278,8 @@ func (s *Server) handleStartEnrichment(w http.ResponseWriter, r *http.Request) {
 
 	client, err := tautulli.NewClient(cfg.URL, cfg.APIKey)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("ERROR enrichment: NewClient: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 

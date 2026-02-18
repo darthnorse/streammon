@@ -31,7 +31,8 @@ func TestTopMovies(t *testing.T) {
 		StartedAt: now, StoppedAt: now.Add(90 * time.Minute),
 	})
 
-	stats, err := s.TopMovies(10, 0)
+	ctx := context.Background()
+	stats, err := s.TopMovies(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -53,7 +54,8 @@ func TestTopMovies(t *testing.T) {
 func TestTopMoviesEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	stats, err := s.TopMovies(10, 0)
+	ctx := context.Background()
+	stats, err := s.TopMovies(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -83,7 +85,8 @@ func TestTopTVShows(t *testing.T) {
 		StartedAt: now, StoppedAt: now.Add(30 * time.Minute),
 	})
 
-	stats, err := s.TopTVShows(10, 0)
+	ctx := context.Background()
+	stats, err := s.TopTVShows(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("TopTVShows: %v", err)
 	}
@@ -120,7 +123,8 @@ func TestTopUsers(t *testing.T) {
 		Title: "M1", WatchedMs: 1800000, StartedAt: now, StoppedAt: now.Add(30 * time.Minute),
 	})
 
-	stats, err := s.TopUsers(10, 0)
+	ctx := context.Background()
+	stats, err := s.TopUsers(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("TopUsers: %v", err)
 	}
@@ -160,7 +164,8 @@ func TestLibraryStats(t *testing.T) {
 		StartedAt: now, StoppedAt: now.Add(time.Hour),
 	})
 
-	stats, err := s.LibraryStats(0)
+	ctx := context.Background()
+	stats, err := s.LibraryStats(ctx, 0)
 	if err != nil {
 		t.Fatalf("LibraryStats: %v", err)
 	}
@@ -185,7 +190,8 @@ func TestLibraryStats(t *testing.T) {
 func TestLibraryStatsEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	stats, err := s.LibraryStats(0)
+	ctx := context.Background()
+	stats, err := s.LibraryStats(ctx, 0)
 	if err != nil {
 		t.Fatalf("LibraryStats: %v", err)
 	}
@@ -384,7 +390,8 @@ func TestAllWatchLocations(t *testing.T) {
 	s.SetCachedGeo(&models.GeoResult{IP: "1.2.3.5", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0, ISP: "Verizon"})
 	s.SetCachedGeo(&models.GeoResult{IP: "5.6.7.8", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2, ISP: "AT&T"})
 
-	locs, err := s.AllWatchLocations(0)
+	ctx := context.Background()
+	locs, err := s.AllWatchLocations(ctx, 0)
 	if err != nil {
 		t.Fatalf("AllWatchLocations: %v", err)
 	}
@@ -424,7 +431,8 @@ func TestAllWatchLocations(t *testing.T) {
 func TestAllWatchLocationsEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	locs, err := s.AllWatchLocations(0)
+	ctx := context.Background()
+	locs, err := s.AllWatchLocations(ctx, 0)
 	if err != nil {
 		t.Fatalf("AllWatchLocations: %v", err)
 	}
@@ -453,8 +461,10 @@ func TestTopMoviesWithTimeFilter(t *testing.T) {
 		StartedAt: recentDate, StoppedAt: recentDate.Add(2 * time.Hour),
 	})
 
+	ctx := context.Background()
+
 	// All time should return both
-	all, err := s.TopMovies(10, 0)
+	all, err := s.TopMovies(ctx, 10, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +473,7 @@ func TestTopMoviesWithTimeFilter(t *testing.T) {
 	}
 
 	// 30 days should return only recent
-	month, err := s.TopMovies(10, 30)
+	month, err := s.TopMovies(ctx, 10, 30)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +485,7 @@ func TestTopMoviesWithTimeFilter(t *testing.T) {
 	}
 
 	// 7 days should return only recent
-	week, err := s.TopMovies(10, 7)
+	week, err := s.TopMovies(ctx, 10, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +515,8 @@ func TestTopMoviesWithThumbURL(t *testing.T) {
 		ThumbURL: "library/metadata/123/thumb",
 	})
 
-	stats, err := s.TopMovies(10, 0)
+	ctx := context.Background()
+	stats, err := s.TopMovies(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -533,7 +544,8 @@ func TestTopTVShowsWithThumbURL(t *testing.T) {
 		ThumbURL: "library/metadata/456/thumb",
 	})
 
-	stats, err := s.TopTVShows(10, 0)
+	ctx := context.Background()
+	stats, err := s.TopTVShows(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("TopTVShows: %v", err)
 	}
@@ -573,7 +585,8 @@ func TestTopMoviesWithItemID(t *testing.T) {
 		ThumbURL: "library/metadata/12345/thumb",
 	})
 
-	stats, err := s.TopMovies(10, 0)
+	ctx := context.Background()
+	stats, err := s.TopMovies(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("TopMovies: %v", err)
 	}
@@ -603,7 +616,8 @@ func TestTopTVShowsWithItemID(t *testing.T) {
 		ThumbURL:          "library/metadata/67890/thumb",
 	})
 
-	stats, err := s.TopTVShows(10, 0)
+	ctx := context.Background()
+	stats, err := s.TopTVShows(ctx, 10, 0)
 	if err != nil {
 		t.Fatalf("TopTVShows: %v", err)
 	}
@@ -652,7 +666,8 @@ func TestUserDetailStats(t *testing.T) {
 	s.SetCachedGeo(&models.GeoResult{IP: "1.2.3.4", City: "NYC", Country: "US", Lat: 40.7, Lng: -74.0})
 	s.SetCachedGeo(&models.GeoResult{IP: "5.6.7.8", City: "LA", Country: "US", Lat: 34.0, Lng: -118.2})
 
-	stats, err := s.UserDetailStats("alice")
+	ctx := context.Background()
+	stats, err := s.UserDetailStats(ctx, "alice")
 	if err != nil {
 		t.Fatalf("UserDetailStats: %v", err)
 	}
@@ -708,7 +723,8 @@ func TestUserDetailStatsEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
 	// User with no watch history
-	stats, err := s.UserDetailStats("nobody")
+	ctx := context.Background()
+	stats, err := s.UserDetailStats(ctx, "nobody")
 	if err != nil {
 		t.Fatalf("UserDetailStats: %v", err)
 	}
@@ -740,7 +756,8 @@ func TestUserDetailStatsNoGeoData(t *testing.T) {
 		StartedAt: now, StoppedAt: now.Add(time.Hour),
 	})
 
-	stats, err := s.UserDetailStats("alice")
+	ctx := context.Background()
+	stats, err := s.UserDetailStats(ctx, "alice")
 	if err != nil {
 		t.Fatalf("UserDetailStats: %v", err)
 	}
@@ -1114,10 +1131,17 @@ func TestDistributionInvalidColumn(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	// This tests that the allowedDistributionColumns validation works
-	// We can't call distribution() directly since it's unexported,
-	// but we verify the public methods work correctly
-	_, err := s.PlatformDistribution(ctx, 0)
+	// Invalid column should be rejected
+	_, err := s.distribution(ctx, 0, "evil'; DROP TABLE watch_history; --", "test")
+	if err == nil {
+		t.Error("expected error for invalid column")
+	}
+	if err != nil && !strings.Contains(err.Error(), "invalid column") {
+		t.Errorf("expected 'invalid column' error, got: %v", err)
+	}
+
+	// Valid columns should work
+	_, err = s.PlatformDistribution(ctx, 0)
 	if err != nil {
 		t.Errorf("PlatformDistribution should succeed: %v", err)
 	}
