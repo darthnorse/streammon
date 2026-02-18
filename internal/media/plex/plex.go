@@ -228,7 +228,7 @@ func (s *Server) doDelete(ctx context.Context, reqURL string) error {
 	if err != nil {
 		return fmt.Errorf("plex delete: %w", err)
 	}
-	defer resp.Body.Close()
+	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode == http.StatusNotFound {
 		return nil

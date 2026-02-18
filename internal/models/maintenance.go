@@ -204,7 +204,7 @@ type BulkDeleteResult struct {
 	Failed    int               `json:"failed"`
 	Skipped   int               `json:"skipped"` // Items skipped because they were excluded since page load
 	TotalSize int64             `json:"total_size"`
-	Errors    []BulkDeleteError `json:"errors,omitempty"`
+	Errors    []BulkDeleteError `json:"errors"`
 }
 
 type BulkDeleteError struct {

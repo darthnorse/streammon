@@ -308,7 +308,7 @@ func (s *Store) batchQueryTimes(ctx context.Context, itemIDs []int64, queryFn fu
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
-			return err
+			return fmt.Errorf("%s rows: %w", errLabel, err)
 		}
 	}
 	return nil

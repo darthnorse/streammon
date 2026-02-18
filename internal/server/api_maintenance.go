@@ -1172,7 +1172,9 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 				Title:       candidate.Item.Title,
 				Error:       delResult.Error,
 			})
-			if !delResult.ServerDeleted {
+			if delResult.ServerDeleted {
+				consecutiveServerFailures = 0
+			} else {
 				consecutiveServerFailures++
 			}
 			if consecutiveServerFailures >= consecutiveFailureLimit {

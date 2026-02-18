@@ -748,12 +748,18 @@ func TestBulkDeleteCircuitBreakerAPI(t *testing.T) {
 	}
 
 	libItems, _ := s.ListLibraryItems(ctx, server.ID, "lib1")
-	var candidateIDs []int64
 	for _, li := range libItems {
 		if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, li.ID, "test"); err != nil {
 			t.Fatal(err)
 		}
-		candidateIDs = append(candidateIDs, li.ID)
+	}
+	candidates, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var candidateIDs []int64
+	for _, c := range candidates.Items {
+		candidateIDs = append(candidateIDs, c.ID)
 	}
 
 	p := setupTestPoller(t, srv.Unwrap(), s)
