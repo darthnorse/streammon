@@ -783,6 +783,124 @@ func TestFindMatchingItems(t *testing.T) {
 
 }
 
+func TestGetStreamMonWatchTimes(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srvPlex, _ := seedMultiServerItems(t, s)
+
+	plexLib1, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
+
+	findByItemID := func(items []models.LibraryItemCache, itemID string) models.LibraryItemCache {
+		for _, it := range items {
+			if it.ItemID == itemID {
+				return it
+			}
+		}
+		t.Fatalf("item %s not found", itemID)
+		return models.LibraryItemCache{}
+	}
+
+	plexMatrix := findByItemID(plexLib1, "plex-2") // never watched per media server
+	plexInception := findByItemID(plexLib1, "plex-1")
+
+	now := time.Now().UTC()
+	recentWatch := now.Add(-2 * time.Hour).Truncate(time.Second)
+
+	// Insert watch_history for Matrix (movie) - direct item_id match
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID:  srvPlex.ID,
+		ItemID:    "plex-2",
+		UserName:  "familymember",
+		MediaType: models.MediaTypeMovie,
+		Title:     "The Matrix",
+		StartedAt: recentWatch.Add(-2 * time.Hour),
+		StoppedAt: recentWatch,
+	})
+
+	t.Run("movie matched by item_id", func(t *testing.T) {
+		result, err := s.GetStreamMonWatchTimes(ctx, []int64{plexMatrix.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		watchTime := result[plexMatrix.ID]
+		if watchTime == nil {
+			t.Fatal("expected non-nil watch time from StreamMon history")
+		}
+		if watchTime.Sub(recentWatch).Abs() > time.Second {
+			t.Errorf("watch time = %v, want ~%v", *watchTime, recentWatch)
+		}
+	})
+
+	t.Run("no history returns nil", func(t *testing.T) {
+		result, err := s.GetStreamMonWatchTimes(ctx, []int64{plexInception.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Inception has media server LastWatchedAt but no watch_history record
+		if result[plexInception.ID] != nil {
+			t.Errorf("expected nil for item with no StreamMon history, got %v", result[plexInception.ID])
+		}
+	})
+
+	t.Run("empty input", func(t *testing.T) {
+		result, err := s.GetStreamMonWatchTimes(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result) != 0 {
+			t.Errorf("expected empty map, got %d entries", len(result))
+		}
+	})
+
+	t.Run("TV show matched by grandparent_item_id", func(t *testing.T) {
+		// Create a TV show library item
+		tvItems := []models.LibraryItemCache{
+			{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-show-1", MediaType: models.MediaTypeTV, Title: "Test Show", Year: 2024, AddedAt: now.AddDate(0, 0, -30), SyncedAt: now},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, tvItems); err != nil {
+			t.Fatal(err)
+		}
+
+		items, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
+		var showItem models.LibraryItemCache
+		for _, it := range items {
+			if it.ItemID == "plex-show-1" {
+				showItem = it
+				break
+			}
+		}
+		if showItem.ID == 0 {
+			t.Fatal("show item not found")
+		}
+
+		episodeWatch := now.Add(-1 * time.Hour).Truncate(time.Second)
+		// Insert watch_history for an episode — grandparent_item_id is the show's item_id
+		s.InsertHistory(&models.WatchHistoryEntry{
+			ServerID:          srvPlex.ID,
+			ItemID:            "plex-ep-1",
+			GrandparentItemID: "plex-show-1",
+			UserName:          "familymember",
+			MediaType:         models.MediaTypeTV,
+			Title:             "Episode 1",
+			GrandparentTitle:  "Test Show",
+			StartedAt:         episodeWatch.Add(-30 * time.Minute),
+			StoppedAt:         episodeWatch,
+		})
+
+		result, err := s.GetStreamMonWatchTimes(ctx, []int64{showItem.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		watchTime := result[showItem.ID]
+		if watchTime == nil {
+			t.Fatal("expected non-nil watch time from episode history via grandparent_item_id")
+		}
+		if watchTime.Sub(episodeWatch).Abs() > time.Second {
+			t.Errorf("watch time = %v, want ~%v", *watchTime, episodeWatch)
+		}
+	})
+}
+
 func TestGetAllLibraryTotalSizes(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

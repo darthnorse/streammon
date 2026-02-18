@@ -97,6 +97,21 @@ func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.Maintena
 		}
 	}
 
+	// Merge StreamMon's own watch_history which captures ALL users' sessions,
+	// not just the API user whose watch data the media server reports.
+	smTimes, err := e.store.GetStreamMonWatchTimes(ctx, itemIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("streammon watch times: %w", err)
+	}
+
+	for i := range items {
+		if t, ok := smTimes[items[i].ID]; ok && t != nil {
+			if items[i].LastWatchedAt == nil || t.After(*items[i].LastWatchedAt) {
+				items[i].LastWatchedAt = t
+			}
+		}
+	}
+
 	var results []models.BatchCandidate
 	for _, item := range items {
 		if ctx.Err() != nil {

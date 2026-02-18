@@ -698,6 +698,109 @@ func TestEvaluateCrossServerWatchNoExternalIDs(t *testing.T) {
 	}
 }
 
+func TestEvaluateUnwatchedExcludesItemWithStreamMonHistory(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	// TV show added 200 days ago, media server reports LastWatchedAt=nil
+	// (API user never watched it, but another household member did today)
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "show1",
+		MediaType: models.MediaTypeTV,
+		Title:     "Real Housewives",
+		Year:      2020,
+		AddedAt:   now.AddDate(0, 0, -200),
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate a watch session from another user captured by StreamMon's poller
+	recentWatch := now.Add(-2 * time.Hour)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID:          srv.ID,
+		ItemID:            "ep-42",
+		GrandparentItemID: "show1",
+		UserName:          "familymember",
+		MediaType:         models.MediaTypeTV,
+		Title:             "S05E01",
+		GrandparentTitle:  "Real Housewives",
+		StartedAt:         recentWatch.Add(-time.Hour),
+		StoppedAt:         recentWatch,
+	})
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionUnwatchedTVNone,
+		Parameters:    json.RawMessage(`{"days": 30}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (StreamMon history from today should prevent flagging); reason=%q",
+			len(results), results[0].Reason)
+	}
+}
+
+func TestEvaluateUnwatchedMovieExcludesItemWithStreamMonHistory(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	// Movie added 200 days ago, media server reports LastWatchedAt=nil
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "movie1",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Family Movie",
+		Year:      2022,
+		AddedAt:   now.AddDate(0, 0, -200),
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Another user watched it recently — direct item_id match for movies
+	recentWatch := now.Add(-3 * time.Hour)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID:  srv.ID,
+		ItemID:    "movie1",
+		UserName:  "kid",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Family Movie",
+		StartedAt: recentWatch.Add(-2 * time.Hour),
+		StoppedAt: recentWatch,
+	})
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionUnwatchedMovie,
+		Parameters:    json.RawMessage(`{"days": 30}`),
+	}
+
+	e := NewEvaluator(s)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (StreamMon history should prevent flagging); reason=%q",
+			len(results), results[0].Reason)
+	}
+}
+
 func TestExternalIDKeys(t *testing.T) {
 	tests := []struct {
 		name string

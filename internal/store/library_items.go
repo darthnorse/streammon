@@ -377,6 +377,65 @@ func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (
 	return result, nil
 }
 
+// GetStreamMonWatchTimes returns the most recent watch_history activity for a batch of library items.
+// For movies it matches on item_id; for TV shows it also matches on grandparent_item_id (series ID).
+// This captures ALL users' activity, not just the API user's, which the media server's lastViewedAt misses.
+func (s *Store) GetStreamMonWatchTimes(ctx context.Context, itemIDs []int64) (map[int64]*time.Time, error) {
+	result := make(map[int64]*time.Time)
+	if len(itemIDs) == 0 {
+		return result, nil
+	}
+
+	const batchSize = 200
+	for i := 0; i < len(itemIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(itemIDs) {
+			end = len(itemIDs)
+		}
+		batch := itemIDs[i:end]
+
+		placeholders := make([]string, len(batch))
+		args := make([]any, len(batch))
+		for j, id := range batch {
+			placeholders[j] = "?"
+			args[j] = id
+		}
+
+		query := `SELECT li.id, MAX(wh.stopped_at) as last_activity
+			FROM library_items li
+			JOIN watch_history wh ON wh.server_id = li.server_id
+				AND (wh.item_id = li.item_id OR wh.grandparent_item_id = li.item_id)
+			WHERE li.id IN (` + strings.Join(placeholders, ",") + `)
+			GROUP BY li.id`
+
+		rows, err := s.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("get streammon watch times: %w", err)
+		}
+
+		for rows.Next() {
+			var id int64
+			var lastActivity sql.NullString
+			if err := rows.Scan(&id, &lastActivity); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan streammon watch time: %w", err)
+			}
+			if lastActivity.Valid && lastActivity.String != "" {
+				t, parseErr := parseSQLiteTime(lastActivity.String)
+				if parseErr == nil {
+					result[id] = &t
+				}
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+	}
+
+	return result, nil
+}
+
 func (s *Store) FindMatchingItems(ctx context.Context, item *models.LibraryItemCache) ([]models.LibraryItemCache, error) {
 	var clauses []string
 	var args []any
