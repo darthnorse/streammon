@@ -14,11 +14,10 @@ CREATE TABLE watch_sessions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_watch_sessions_history_id ON watch_sessions(history_id);
-
--- Backfill: every existing history row gets 1 session
 INSERT INTO watch_sessions (history_id, duration_ms, watched_ms, paused_ms,
     player, platform, ip_address, started_at, stopped_at, created_at)
 SELECT id, duration_ms, watched_ms, paused_ms,
     player, platform, ip_address, started_at, stopped_at, created_at
 FROM watch_history;
+
+CREATE INDEX idx_watch_sessions_history_id ON watch_sessions(history_id);
