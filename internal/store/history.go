@@ -67,10 +67,8 @@ func normalizeThumbURL(u string) string {
 	return strings.TrimLeft(u, "/")
 }
 
-// historyDedupSQL checks for an existing entry with the same server/user/title
-// within 60 seconds of the given started_at. This catches duplicates from the
-// poller and Tautulli recording the same session with slightly different timestamps.
-// Uses range predicates so SQLite can use the idx_watch_history_dedup composite index.
+// Catches poller-vs-Tautulli timestamp mismatches.
+// Range predicates let SQLite use the idx_watch_history_dedup composite index.
 const historyDedupSQL = `SELECT 1 FROM watch_history
 	WHERE server_id = ? AND user_name = ? AND title = ?
 	AND started_at BETWEEN ? AND ?
@@ -86,17 +84,19 @@ const historyConsolidateSQL = `SELECT id, duration_ms, watched_ms, paused_ms, st
 	AND stopped_at >= ? AND started_at < ?
 	ORDER BY stopped_at DESC LIMIT 1`
 
-const historyConsolidateUpdateSQL = `UPDATE watch_history SET stopped_at = ?, watched_ms = ?, paused_ms = ?, duration_ms = ?, watched = ? WHERE id = ?`
+const historyConsolidateUpdateSQL = `UPDATE watch_history
+	SET stopped_at = ?, watched_ms = ?, paused_ms = ?, duration_ms = ?, watched = ?
+	WHERE id = ?`
 
-type mergedFields struct {
+type consolidationResult struct {
 	WatchedMs  int64
 	PausedMs   int64
 	DurationMs int64
 	Watched    bool
 }
 
-func mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs int64, entry *models.WatchHistoryEntry, thresholdPct int) mergedFields {
-	m := mergedFields{
+func mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs int64, entry *models.WatchHistoryEntry, thresholdPct int) consolidationResult {
+	m := consolidationResult{
 		WatchedMs:  existingWatchedMs + entry.WatchedMs,
 		PausedMs:   existingPausedMs + entry.PausedMs,
 		DurationMs: existingDurationMs,
@@ -560,18 +560,6 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 	}
 	defer existsStmt.Close()
 
-	consolidateSelectStmt, err := tx.PrepareContext(ctx, historyConsolidateSQL)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("prepare consolidate select: %w", err)
-	}
-	defer consolidateSelectStmt.Close()
-
-	consolidateUpdateStmt, err := tx.PrepareContext(ctx, historyConsolidateUpdateSQL)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("prepare consolidate update: %w", err)
-	}
-	defer consolidateUpdateStmt.Close()
-
 	for _, entry := range entries {
 		select {
 		case <-ctx.Done():
@@ -589,30 +577,13 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			return inserted, skipped, consolidated, fmt.Errorf("checking if entry exists: %w", err)
 		}
 
-		windowStart := entry.StartedAt.Add(-historyConsolidateWindow)
-		var existingID int64
-		var existingDurationMs, existingWatchedMs, existingPausedMs int64
-		var existingStoppedAt time.Time
-		cErr := consolidateSelectStmt.QueryRowContext(ctx,
-			entry.ServerID, entry.UserName, entry.Title,
-			windowStart, entry.StartedAt,
-		).Scan(&existingID, &existingDurationMs, &existingWatchedMs, &existingPausedMs, &existingStoppedAt)
-		if cErr == nil {
-			m := mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs, entry, thresholdPct)
-			newStoppedAt := entry.StoppedAt
-			if existingStoppedAt.After(newStoppedAt) {
-				newStoppedAt = existingStoppedAt
-			}
-			_, cErr = consolidateUpdateStmt.ExecContext(ctx,
-				newStoppedAt, m.WatchedMs, m.PausedMs, m.DurationMs, boolToInt(m.Watched), existingID,
-			)
-			if cErr != nil {
-				return inserted, skipped, consolidated, fmt.Errorf("consolidating history: %w", cErr)
-			}
+		merged, cErr := tryConsolidate(ctx, tx, entry, thresholdPct)
+		if cErr != nil {
+			return inserted, skipped, consolidated, cErr
+		}
+		if merged {
 			consolidated++
 			continue
-		} else if !errors.Is(cErr, sql.ErrNoRows) {
-			return inserted, skipped, consolidated, fmt.Errorf("checking consolidation: %w", cErr)
 		}
 
 		_, err = insertStmt.ExecContext(ctx, historyInsertArgs(entry)...)

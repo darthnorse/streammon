@@ -1,5 +1,6 @@
 -- Migration 036 only handled direct pairs (A->B). This handles full chains
 -- (A->B->C->...) and overlapping sessions (negative gaps) using a recursive CTE.
+-- Window: 1800 seconds = 30 minutes. Depth limit: 500 (safety bound for pathological data).
 
 CREATE TEMP TABLE consolidate_chains AS
 WITH RECURSIVE chains(id, anchor_id, server_id, user_name, title, started_at, stopped_at, depth) AS (

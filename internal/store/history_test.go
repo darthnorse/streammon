@@ -468,7 +468,7 @@ func TestInsertHistoryAllowsDifferentSessions(t *testing.T) {
 	}
 }
 
-func TestInsertHistoryDedupBoundary(t *testing.T) {
+func TestInsertHistoryDedupAndConsolidateBoundary(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)
 
@@ -1542,27 +1542,33 @@ func TestMigration037ConsolidatesChains(t *testing.T) {
 	}
 
 	var countBefore int
-	s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE title = 'Chain Movie'`).Scan(&countBefore)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE title = 'Chain Movie'`).Scan(&countBefore); err != nil {
+		t.Fatalf("count before: %v", err)
+	}
 	if countBefore != 5 {
 		t.Fatalf("expected 5 chain entries before migration, got %d", countBefore)
 	}
 
-	// Delete migration 037 record so it can re-run
-	s.db.Exec(`DELETE FROM schema_migrations WHERE version = 37`)
+	if _, err := s.db.Exec(`DELETE FROM schema_migrations WHERE version = 37`); err != nil {
+		t.Fatalf("delete migration record: %v", err)
+	}
 	if err := s.Migrate(migrationsDir()); err != nil {
 		t.Fatalf("re-run migration: %v", err)
 	}
 
 	var countAfter int
-	s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE title = 'Chain Movie'`).Scan(&countAfter)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE title = 'Chain Movie'`).Scan(&countAfter); err != nil {
+		t.Fatalf("count after: %v", err)
+	}
 	if countAfter != 1 {
 		t.Errorf("expected 1 chain entry after migration, got %d", countAfter)
 	}
 
-	// Verify the surviving anchor has accumulated watched_ms
 	var watchedMs int64
 	var stoppedAt string
-	s.db.QueryRow(`SELECT watched_ms, stopped_at FROM watch_history WHERE title = 'Chain Movie'`).Scan(&watchedMs, &stoppedAt)
+	if err := s.db.QueryRow(`SELECT watched_ms, stopped_at FROM watch_history WHERE title = 'Chain Movie'`).Scan(&watchedMs, &stoppedAt); err != nil {
+		t.Fatalf("query chain result: %v", err)
+	}
 	if watchedMs != 75000 {
 		t.Errorf("consolidated watched_ms = %d, want 75000 (5 * 15000)", watchedMs)
 	}
@@ -1572,24 +1578,27 @@ func TestMigration037ConsolidatesChains(t *testing.T) {
 		t.Errorf("stopped_at = %s, want %s", stoppedAt, expectedStop)
 	}
 
-	// Verify watched flag: 75000/100000 = 75% < 85% => watched=0
 	var watched int
-	s.db.QueryRow(`SELECT watched FROM watch_history WHERE title = 'Chain Movie'`).Scan(&watched)
+	if err := s.db.QueryRow(`SELECT watched FROM watch_history WHERE title = 'Chain Movie'`).Scan(&watched); err != nil {
+		t.Fatalf("query watched: %v", err)
+	}
 	if watched != 0 {
 		t.Errorf("watched = %d, want 0 (75%% < 85%%)", watched)
 	}
 
-	// Verify other movie was not touched
 	var otherCount int
-	s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE title = 'Other Movie'`).Scan(&otherCount)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE title = 'Other Movie'`).Scan(&otherCount); err != nil {
+		t.Fatalf("query other count: %v", err)
+	}
 	if otherCount != 1 {
 		t.Errorf("other movie count = %d, want 1 (untouched)", otherCount)
 	}
 	var otherWatched int
-	s.db.QueryRow(`SELECT watched FROM watch_history WHERE title = 'Other Movie'`).Scan(&otherWatched)
+	if err := s.db.QueryRow(`SELECT watched FROM watch_history WHERE title = 'Other Movie'`).Scan(&otherWatched); err != nil {
+		t.Fatalf("query other watched: %v", err)
+	}
 	if otherWatched != 1 {
 		t.Errorf("other movie watched = %d, want 1 (untouched)", otherWatched)
 	}
 }
-
 
