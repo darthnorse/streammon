@@ -1463,3 +1463,133 @@ func TestInsertHistoryConsolidatesDifferentUser(t *testing.T) {
 	}
 }
 
+func TestInsertHistoryBatchOutOfOrder(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	base := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	// Entries arrive out of chronological order (C, A, B)
+	entries := []*models.WatchHistoryEntry{
+		{
+			ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+			Title: "The Matrix", DurationMs: 100000, WatchedMs: 10000,
+			StartedAt: base.Add(20 * time.Minute), StoppedAt: base.Add(30 * time.Minute),
+		},
+		{
+			ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+			Title: "The Matrix", DurationMs: 100000, WatchedMs: 10000,
+			StartedAt: base, StoppedAt: base.Add(10 * time.Minute),
+		},
+		{
+			ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+			Title: "The Matrix", DurationMs: 100000, WatchedMs: 10000,
+			StartedAt: base.Add(10 * time.Minute), StoppedAt: base.Add(20 * time.Minute),
+		},
+	}
+
+	inserted, _, consolidated, err := s.InsertHistoryBatch(context.Background(), entries)
+	if err != nil {
+		t.Fatalf("InsertHistoryBatch: %v", err)
+	}
+
+	// C is inserted first. A arrives next: A.started_at < C.started_at, so A
+	// won't find C as a predecessor (consolidation looks for entries that started
+	// BEFORE the new entry). A is inserted. B arrives: B finds A as predecessor
+	// (A.stopped_at == B.started_at, within window). B is consolidated into A.
+	// Result: 2 rows (A+B merged, C separate), 1 consolidated.
+	if inserted != 2 {
+		t.Errorf("expected 2 inserted, got %d", inserted)
+	}
+	if consolidated != 1 {
+		t.Errorf("expected 1 consolidated, got %d", consolidated)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 2 {
+		t.Errorf("expected 2 rows (out-of-order leaves gap), got %d", result.Total)
+	}
+}
+
+func TestMigration037ConsolidatesChains(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	base := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	// Insert chain data directly via SQL, bypassing runtime consolidation
+	for i := 0; i < 5; i++ {
+		start := base.Add(time.Duration(i*10) * time.Minute)
+		stop := start.Add(10 * time.Minute)
+		_, err := s.db.Exec(
+			`INSERT INTO watch_history (server_id, user_name, title, media_type, duration_ms, watched_ms, started_at, stopped_at, watched)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			serverID, "alice", "Chain Movie", "movie", 100000, 15000, start, stop, 0,
+		)
+		if err != nil {
+			t.Fatalf("insert chain entry %d: %v", i, err)
+		}
+	}
+
+	// Also insert a separate entry (different title) to verify it's not touched
+	_, err := s.db.Exec(
+		`INSERT INTO watch_history (server_id, user_name, title, media_type, duration_ms, watched_ms, started_at, stopped_at, watched)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		serverID, "alice", "Other Movie", "movie", 100000, 90000, base, base.Add(time.Hour), 1,
+	)
+	if err != nil {
+		t.Fatalf("insert other: %v", err)
+	}
+
+	var countBefore int
+	s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE title = 'Chain Movie'`).Scan(&countBefore)
+	if countBefore != 5 {
+		t.Fatalf("expected 5 chain entries before migration, got %d", countBefore)
+	}
+
+	// Delete migration 037 record so it can re-run
+	s.db.Exec(`DELETE FROM schema_migrations WHERE version = 37`)
+	if err := s.Migrate(migrationsDir()); err != nil {
+		t.Fatalf("re-run migration: %v", err)
+	}
+
+	var countAfter int
+	s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE title = 'Chain Movie'`).Scan(&countAfter)
+	if countAfter != 1 {
+		t.Errorf("expected 1 chain entry after migration, got %d", countAfter)
+	}
+
+	// Verify the surviving anchor has accumulated watched_ms
+	var watchedMs int64
+	var stoppedAt string
+	s.db.QueryRow(`SELECT watched_ms, stopped_at FROM watch_history WHERE title = 'Chain Movie'`).Scan(&watchedMs, &stoppedAt)
+	if watchedMs != 75000 {
+		t.Errorf("consolidated watched_ms = %d, want 75000 (5 * 15000)", watchedMs)
+	}
+
+	expectedStop := base.Add(50 * time.Minute).Format(time.RFC3339)
+	if stoppedAt != expectedStop {
+		t.Errorf("stopped_at = %s, want %s", stoppedAt, expectedStop)
+	}
+
+	// Verify watched flag: 75000/100000 = 75% < 85% => watched=0
+	var watched int
+	s.db.QueryRow(`SELECT watched FROM watch_history WHERE title = 'Chain Movie'`).Scan(&watched)
+	if watched != 0 {
+		t.Errorf("watched = %d, want 0 (75%% < 85%%)", watched)
+	}
+
+	// Verify other movie was not touched
+	var otherCount int
+	s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE title = 'Other Movie'`).Scan(&otherCount)
+	if otherCount != 1 {
+		t.Errorf("other movie count = %d, want 1 (untouched)", otherCount)
+	}
+	var otherWatched int
+	s.db.QueryRow(`SELECT watched FROM watch_history WHERE title = 'Other Movie'`).Scan(&otherWatched)
+	if otherWatched != 1 {
+		t.Errorf("other movie watched = %d, want 1 (untouched)", otherWatched)
+	}
+}
+
+
