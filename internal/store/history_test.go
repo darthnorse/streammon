@@ -1511,6 +1511,106 @@ func TestInsertHistoryBatchOutOfOrder(t *testing.T) {
 	}
 }
 
+func TestInsertHistoryConsolidatesDifferentServerNoMerge(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	sid1 := seedServer(t, s)
+	srv2 := &models.Server{Name: "Second", Type: models.ServerTypePlex, URL: "http://test2", APIKey: "k2", Enabled: true}
+	if err := s.CreateServer(srv2); err != nil {
+		t.Fatalf("seed server 2: %v", err)
+	}
+	sid2 := srv2.ID
+
+	now := time.Now().UTC()
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: sid1, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", StartedAt: now.Add(-20 * time.Minute), StoppedAt: now.Add(-10 * time.Minute),
+	}); err != nil {
+		t.Fatalf("insert server1: %v", err)
+	}
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: sid2, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", StartedAt: now.Add(-5 * time.Minute), StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("insert server2: %v", err)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 2 {
+		t.Fatalf("expected 2 rows (different servers), got %d", result.Total)
+	}
+}
+
+func TestInsertHistoryBatchInternalConsolidation(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	base := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	entries := []*models.WatchHistoryEntry{
+		{
+			ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+			Title: "The Matrix", DurationMs: 100000, WatchedMs: 30000,
+			StartedAt: base, StoppedAt: base.Add(10 * time.Minute),
+		},
+		{
+			ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+			Title: "The Matrix", DurationMs: 100000, WatchedMs: 20000,
+			StartedAt: base.Add(10 * time.Minute), StoppedAt: base.Add(20 * time.Minute),
+		},
+	}
+
+	inserted, _, consolidated, err := s.InsertHistoryBatch(context.Background(), entries)
+	if err != nil {
+		t.Fatalf("InsertHistoryBatch: %v", err)
+	}
+	if inserted != 1 {
+		t.Errorf("expected 1 inserted, got %d", inserted)
+	}
+	if consolidated != 1 {
+		t.Errorf("expected 1 consolidated, got %d", consolidated)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 1 {
+		t.Fatalf("expected 1 row after batch-internal consolidation, got %d", result.Total)
+	}
+	if result.Items[0].WatchedMs != 50000 {
+		t.Errorf("watched_ms = %d, want 50000", result.Items[0].WatchedMs)
+	}
+}
+
+func TestInsertHistoryConsolidatesHigherDuration(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", DurationMs: 80000, WatchedMs: 30000,
+		StartedAt: now.Add(-20 * time.Minute), StoppedAt: now.Add(-10 * time.Minute),
+	}); err != nil {
+		t.Fatalf("insert A: %v", err)
+	}
+
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", DurationMs: 120000, WatchedMs: 40000,
+		StartedAt: now.Add(-5 * time.Minute), StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("insert B: %v", err)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 1 {
+		t.Fatalf("expected 1 row, got %d", result.Total)
+	}
+	if result.Items[0].DurationMs != 120000 {
+		t.Errorf("duration_ms = %d, want 120000 (max of 80000 and 120000)", result.Items[0].DurationMs)
+	}
+	if result.Items[0].WatchedMs != 70000 {
+		t.Errorf("watched_ms = %d, want 70000", result.Items[0].WatchedMs)
+	}
+}
+
 func TestMigration037ConsolidatesChains(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)
