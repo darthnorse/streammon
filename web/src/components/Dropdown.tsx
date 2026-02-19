@@ -103,7 +103,7 @@ export function Dropdown<T extends string = string>(props: DropdownProps<T>) {
         className="bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1"
       >
         <span>{getButtonLabel(props)}</span>
-        <span className="text-[10px]">▾</span>
+        <span className="text-lg">▾</span>
       </button>
       {open && (
         <div className="absolute z-50 top-full mt-1 left-0 min-w-full bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded shadow-lg py-1">

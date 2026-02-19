@@ -80,10 +80,10 @@ function HistoryCard({ entry, hideUser, onTitleClick, expanded, sessions, onTogg
       {entry.session_count > 1 && (
         <button
           onClick={onToggle}
-          className="mt-2 text-xs text-muted dark:text-muted-dark hover:text-accent hover:underline"
+          className="mt-2 text-sm text-muted dark:text-muted-dark hover:text-accent hover:underline [&>span]:text-2xl"
           data-testid="session-toggle"
         >
-          {expanded ? '▾' : '▸'} {entry.session_count} sessions
+          <span>{expanded ? '▾' : '▸'}</span> {entry.session_count} sessions
         </button>
       )}
       {expanded && sessions && (
@@ -362,7 +362,7 @@ function HistoryRow({ entry, orderedColumns, isExpanded, hasMultiple, sessions, 
           {hasMultiple && (
             <button
               onClick={onToggle}
-              className="text-muted dark:text-muted-dark hover:text-accent text-xs leading-none"
+              className="text-muted dark:text-muted-dark hover:text-accent text-2xl leading-none"
               data-testid="session-chevron"
               aria-label={isExpanded ? 'Collapse sessions' : 'Expand sessions'}
             >

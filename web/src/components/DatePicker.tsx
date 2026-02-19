@@ -106,7 +106,7 @@ export function DatePicker({ value, onChange, label, max, min }: DatePickerProps
           <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
         <span>{value ? formatDisplay(value) : label}</span>
-        <span className="text-[10px] text-muted dark:text-muted-dark">▾</span>
+        <span className="text-lg text-muted dark:text-muted-dark">▾</span>
       </button>
 
       {open && (
