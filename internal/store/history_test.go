@@ -106,7 +106,6 @@ func TestListHistoryWithServerIDs(t *testing.T) {
 		Title: "Show C", StartedAt: now, StoppedAt: now,
 	})
 
-	// Filter to server 1 only
 	result, err := s.ListHistory(1, 10, "", "", "", []int64{sid1})
 	if err != nil {
 		t.Fatalf("ListHistory(serverIDs=[sid1]): %v", err)
@@ -120,7 +119,6 @@ func TestListHistoryWithServerIDs(t *testing.T) {
 		}
 	}
 
-	// Filter to server 2 only
 	result, err = s.ListHistory(1, 10, "", "", "", []int64{sid2})
 	if err != nil {
 		t.Fatalf("ListHistory(serverIDs=[sid2]): %v", err)
@@ -132,7 +130,6 @@ func TestListHistoryWithServerIDs(t *testing.T) {
 		t.Errorf("expected Movie B, got %s", result.Items[0].Title)
 	}
 
-	// Filter to both servers — returns all
 	result, err = s.ListHistory(1, 10, "", "", "", []int64{sid1, sid2})
 	if err != nil {
 		t.Fatalf("ListHistory(serverIDs=[sid1,sid2]): %v", err)
@@ -141,7 +138,6 @@ func TestListHistoryWithServerIDs(t *testing.T) {
 		t.Fatalf("expected 3 entries for both servers, got %d", result.Total)
 	}
 
-	// No filter (nil) — returns all
 	result, err = s.ListHistory(1, 10, "", "", "", nil)
 	if err != nil {
 		t.Fatalf("ListHistory(serverIDs=nil): %v", err)
@@ -272,7 +268,6 @@ func TestHistoryExists(t *testing.T) {
 		t.Fatal("expected entry not to exist for different title")
 	}
 
-	// Within 60s window — fuzzy match should find it
 	nearTime := startedAt.Add(5 * time.Second)
 	exists, err = s.HistoryExists(serverID, "alice", "The Matrix", nearTime)
 	if err != nil {
@@ -282,7 +277,6 @@ func TestHistoryExists(t *testing.T) {
 		t.Fatal("expected entry to exist for time within 60s window")
 	}
 
-	// Well outside window — should not match
 	differentTime := startedAt.Add(time.Hour)
 	exists, err = s.HistoryExists(serverID, "alice", "The Matrix", differentTime)
 	if err != nil {
@@ -297,7 +291,6 @@ func TestInsertHistoryNormalizesThumbURL(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)
 
-	// Insert with leading slash — should be stripped on write
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID:  serverID,
 		UserName:  "alice",
@@ -332,7 +325,7 @@ func TestInsertHistoryBatchNormalizesThumbURL(t *testing.T) {
 		},
 	}
 
-	inserted, _, err := s.InsertHistoryBatch(context.Background(), entries)
+	inserted, _, _, err := s.InsertHistoryBatch(context.Background(), entries)
 	if err != nil {
 		t.Fatalf("InsertHistoryBatch: %v", err)
 	}
@@ -370,7 +363,7 @@ func TestInsertHistoryBatch(t *testing.T) {
 		},
 	}
 
-	inserted, skipped, err := s.InsertHistoryBatch(context.Background(), entries)
+	inserted, skipped, consolidated, err := s.InsertHistoryBatch(context.Background(), entries)
 	if err != nil {
 		t.Fatalf("InsertHistoryBatch: %v", err)
 	}
@@ -379,6 +372,9 @@ func TestInsertHistoryBatch(t *testing.T) {
 	}
 	if skipped != 0 {
 		t.Errorf("expected 0 skipped, got %d", skipped)
+	}
+	if consolidated != 0 {
+		t.Errorf("expected 0 consolidated, got %d", consolidated)
 	}
 
 	result, _ := s.ListHistory(1, 10, "", "", "", nil)
@@ -401,7 +397,7 @@ func TestInsertHistoryBatchSkipsDuplicates(t *testing.T) {
 		makeHistoryEntry(serverID, "bob", "New Episode", startedAt.Add(time.Hour)),
 	}
 
-	inserted, skipped, err := s.InsertHistoryBatch(context.Background(), entries)
+	inserted, skipped, consolidated, err := s.InsertHistoryBatch(context.Background(), entries)
 	if err != nil {
 		t.Fatalf("InsertHistoryBatch: %v", err)
 	}
@@ -410,6 +406,9 @@ func TestInsertHistoryBatchSkipsDuplicates(t *testing.T) {
 	}
 	if skipped != 1 {
 		t.Errorf("expected 1 skipped, got %d", skipped)
+	}
+	if consolidated != 0 {
+		t.Errorf("expected 0 consolidated, got %d", consolidated)
 	}
 
 	result, _ := s.ListHistory(1, 10, "", "", "", nil)
@@ -453,12 +452,12 @@ func TestInsertHistoryAllowsDifferentSessions(t *testing.T) {
 		t.Fatalf("first insert: %v", err)
 	}
 
-	// Same user/title but 2 hours later — genuine rewatch, not a duplicate
-	if err := s.InsertHistory(makeHistoryEntry(serverID, "alice", "Test Movie", startedAt.Add(2*time.Hour))); err != nil {
+	// Same user/title but 3 hours later — genuine rewatch, not a duplicate
+	// (gap between first entry's StoppedAt and this StartedAt is 1 hour, outside 30min consolidation window)
+	if err := s.InsertHistory(makeHistoryEntry(serverID, "alice", "Test Movie", startedAt.Add(3*time.Hour))); err != nil {
 		t.Fatalf("rewatch insert: %v", err)
 	}
 
-	// Different user at same time — not a duplicate
 	if err := s.InsertHistory(makeHistoryEntry(serverID, "bob", "Test Movie", startedAt)); err != nil {
 		t.Fatalf("different user insert: %v", err)
 	}
@@ -479,7 +478,6 @@ func TestInsertHistoryDedupBoundary(t *testing.T) {
 		t.Fatalf("initial insert: %v", err)
 	}
 
-	// 59 seconds later — within window, should be deduped
 	dup59 := makeHistoryEntry(serverID, "alice", "Test Movie", startedAt.Add(59*time.Second))
 	if err := s.InsertHistory(dup59); err != nil {
 		t.Fatalf("59s insert: %v", err)
@@ -497,7 +495,6 @@ func TestInsertHistoryDedupBoundary(t *testing.T) {
 		t.Error("60s gap: expected duplicate to be skipped (boundary is inclusive)")
 	}
 
-	// 61 seconds later — outside window, should be allowed
 	entry61 := makeHistoryEntry(serverID, "alice", "Test Movie", startedAt.Add(61*time.Second))
 	if err := s.InsertHistory(entry61); err != nil {
 		t.Fatalf("61s insert: %v", err)
@@ -529,7 +526,7 @@ func TestInsertHistoryBatchFuzzyDedup(t *testing.T) {
 		makeHistoryEntry(serverID, "bob", "New Episode", startedAt),
 	}
 
-	inserted, skipped, err := s.InsertHistoryBatch(context.Background(), entries)
+	inserted, skipped, consolidated, err := s.InsertHistoryBatch(context.Background(), entries)
 	if err != nil {
 		t.Fatalf("InsertHistoryBatch: %v", err)
 	}
@@ -538,6 +535,9 @@ func TestInsertHistoryBatchFuzzyDedup(t *testing.T) {
 	}
 	if skipped != 1 {
 		t.Errorf("expected 1 skipped (alice's duplicate), got %d", skipped)
+	}
+	if consolidated != 0 {
+		t.Errorf("expected 0 consolidated, got %d", consolidated)
 	}
 
 	result, _ := s.ListHistory(1, 10, "", "", "", nil)
@@ -549,12 +549,12 @@ func TestInsertHistoryBatchFuzzyDedup(t *testing.T) {
 func TestInsertHistoryBatchEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	inserted, skipped, err := s.InsertHistoryBatch(context.Background(), []*models.WatchHistoryEntry{})
+	inserted, skipped, consolidated, err := s.InsertHistoryBatch(context.Background(), []*models.WatchHistoryEntry{})
 	if err != nil {
 		t.Fatalf("InsertHistoryBatch (empty): %v", err)
 	}
-	if inserted != 0 || skipped != 0 {
-		t.Errorf("expected 0/0, got %d/%d", inserted, skipped)
+	if inserted != 0 || skipped != 0 || consolidated != 0 {
+		t.Errorf("expected 0/0/0, got %d/%d/%d", inserted, skipped, consolidated)
 	}
 }
 
@@ -578,7 +578,7 @@ func TestInsertHistoryBatchContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, _, err := s.InsertHistoryBatch(ctx, entries)
+	_, _, _, err := s.InsertHistoryBatch(ctx, entries)
 	if err == nil {
 		t.Fatal("expected error from cancelled context")
 	}
@@ -603,7 +603,6 @@ func TestGetLastStreamBeforeTime(t *testing.T) {
 		}
 	}
 
-	// Test: Get alice's last stream before now
 	entry, err := s.GetLastStreamBeforeTime("alice", now, 24)
 	if err != nil {
 		t.Fatalf("GetLastStreamBeforeTime: %v", err)
@@ -618,7 +617,6 @@ func TestGetLastStreamBeforeTime(t *testing.T) {
 		t.Errorf("expected IP 2.2.2.2, got %s", entry.IPAddress)
 	}
 
-	// Test: Get alice's last stream before the second entry
 	entry, err = s.GetLastStreamBeforeTime("alice", now.Add(-1*time.Hour), 24)
 	if err != nil {
 		t.Fatalf("GetLastStreamBeforeTime (before second entry): %v", err)
@@ -630,8 +628,6 @@ func TestGetLastStreamBeforeTime(t *testing.T) {
 		t.Errorf("expected Movie 1, got %s", entry.Title)
 	}
 
-	// Test: No entry found outside window
-	// Query from 3 hours ago with 1 hour window - no entries exist before 3 hours ago
 	entry, err = s.GetLastStreamBeforeTime("alice", now.Add(-3*time.Hour), 1)
 	if err != nil {
 		t.Fatalf("GetLastStreamBeforeTime (outside window): %v", err)
@@ -640,7 +636,6 @@ func TestGetLastStreamBeforeTime(t *testing.T) {
 		t.Errorf("expected nil entry for outside window, got %+v", entry)
 	}
 
-	// Test: Unknown user returns nil
 	entry, err = s.GetLastStreamBeforeTime("unknown", now, 24)
 	if err != nil {
 		t.Fatalf("GetLastStreamBeforeTime (unknown user): %v", err)
@@ -666,7 +661,6 @@ func TestGetDeviceLastStream(t *testing.T) {
 		}
 	}
 
-	// Test: Get last Chrome stream before now
 	entry, err := s.GetDeviceLastStream("alice", "Plex Web", "Chrome", now, 24)
 	if err != nil {
 		t.Fatalf("GetDeviceLastStream: %v", err)
@@ -678,7 +672,6 @@ func TestGetDeviceLastStream(t *testing.T) {
 		t.Errorf("expected Movie 3, got %s", entry.Title)
 	}
 
-	// Test: Get last Chrome stream before Movie 3
 	entry, err = s.GetDeviceLastStream("alice", "Plex Web", "Chrome", now.Add(-30*time.Minute), 24)
 	if err != nil {
 		t.Fatalf("GetDeviceLastStream (before Movie 3): %v", err)
@@ -690,7 +683,6 @@ func TestGetDeviceLastStream(t *testing.T) {
 		t.Errorf("expected Movie 1, got %s", entry.Title)
 	}
 
-	// Test: Get last iOS stream
 	entry, err = s.GetDeviceLastStream("alice", "Plex for iOS", "iOS", now, 24)
 	if err != nil {
 		t.Fatalf("GetDeviceLastStream (iOS): %v", err)
@@ -702,7 +694,6 @@ func TestGetDeviceLastStream(t *testing.T) {
 		t.Errorf("expected Movie 2, got %s", entry.Title)
 	}
 
-	// Test: Unknown device returns nil
 	entry, err = s.GetDeviceLastStream("alice", "Unknown", "Unknown", now, 24)
 	if err != nil {
 		t.Fatalf("GetDeviceLastStream (unknown device): %v", err)
@@ -731,7 +722,6 @@ func TestHasDeviceBeenUsed(t *testing.T) {
 		t.Fatalf("InsertHistory: %v", err)
 	}
 
-	// Test: Device has been used before now
 	used, err := s.HasDeviceBeenUsed("alice", "Plex Web", "Chrome", now)
 	if err != nil {
 		t.Fatalf("HasDeviceBeenUsed: %v", err)
@@ -740,7 +730,6 @@ func TestHasDeviceBeenUsed(t *testing.T) {
 		t.Error("expected device to have been used")
 	}
 
-	// Test: Device not used before the entry was created
 	used, err = s.HasDeviceBeenUsed("alice", "Plex Web", "Chrome", now.Add(-2*time.Hour))
 	if err != nil {
 		t.Fatalf("HasDeviceBeenUsed (before entry): %v", err)
@@ -749,7 +738,6 @@ func TestHasDeviceBeenUsed(t *testing.T) {
 		t.Error("expected device not to have been used before entry time")
 	}
 
-	// Test: Different device not used
 	used, err = s.HasDeviceBeenUsed("alice", "Plex for iOS", "iOS", now)
 	if err != nil {
 		t.Fatalf("HasDeviceBeenUsed (different device): %v", err)
@@ -758,7 +746,6 @@ func TestHasDeviceBeenUsed(t *testing.T) {
 		t.Error("expected different device not to have been used")
 	}
 
-	// Test: Different user not used this device
 	used, err = s.HasDeviceBeenUsed("bob", "Plex Web", "Chrome", now)
 	if err != nil {
 		t.Fatalf("HasDeviceBeenUsed (different user): %v", err)
@@ -776,7 +763,7 @@ func TestGetUserDistinctIPs(t *testing.T) {
 	entries := []models.WatchHistoryEntry{
 		{ServerID: serverID, UserName: "alice", Title: "Movie 1", StartedAt: now.Add(-3 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
 		{ServerID: serverID, UserName: "alice", Title: "Movie 2", StartedAt: now.Add(-2 * time.Hour), IPAddress: "2.2.2.2", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
-		{ServerID: serverID, UserName: "alice", Title: "Movie 3", StartedAt: now.Add(-1 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie}, // duplicate IP
+		{ServerID: serverID, UserName: "alice", Title: "Movie 3", StartedAt: now.Add(-1 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
 		{ServerID: serverID, UserName: "bob", Title: "Movie 4", StartedAt: now.Add(-30 * time.Minute), IPAddress: "3.3.3.3", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
 	}
 	for i := range entries {
@@ -785,7 +772,6 @@ func TestGetUserDistinctIPs(t *testing.T) {
 		}
 	}
 
-	// Test: Get alice's distinct IPs
 	ips, err := s.GetUserDistinctIPs("alice", now, 100)
 	if err != nil {
 		t.Fatalf("GetUserDistinctIPs: %v", err)
@@ -804,7 +790,6 @@ func TestGetUserDistinctIPs(t *testing.T) {
 		t.Error("expected IP 2.2.2.2 to be in result")
 	}
 
-	// Test: Limit works
 	ips, err = s.GetUserDistinctIPs("alice", now, 1)
 	if err != nil {
 		t.Fatalf("GetUserDistinctIPs (limit 1): %v", err)
@@ -813,7 +798,6 @@ func TestGetUserDistinctIPs(t *testing.T) {
 		t.Errorf("expected 1 IP with limit, got %d", len(ips))
 	}
 
-	// Test: Unknown user returns empty
 	ips, err = s.GetUserDistinctIPs("unknown", now, 100)
 	if err != nil {
 		t.Fatalf("GetUserDistinctIPs (unknown user): %v", err)
@@ -889,7 +873,6 @@ func TestCountUnenrichedHistory(t *testing.T) {
 
 	now := time.Now().UTC()
 
-	// Insert record with reference_id and enriched=0 (unenriched)
 	if err := s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
 		Title: "Unenriched 1", StartedAt: now, StoppedAt: now,
@@ -897,7 +880,6 @@ func TestCountUnenrichedHistory(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertHistory: %v", err)
 	}
-	// Insert record with reference_id, then mark as enriched
 	enrichedEntry := &models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
 		Title: "Enriched 1", StartedAt: now.Add(time.Hour), StoppedAt: now.Add(2 * time.Hour),
@@ -960,7 +942,6 @@ func TestListUnenrichedHistory(t *testing.T) {
 		t.Errorf("expected ref_id 200, got %d", refs[1].RefID)
 	}
 
-	// Test limit
 	refs, err = s.ListUnenrichedHistory(context.Background(), serverID, 1)
 	if err != nil {
 		t.Fatalf("ListUnenrichedHistory (limit 1): %v", err)
@@ -1020,7 +1001,6 @@ func TestUpdateHistoryEnrichment(t *testing.T) {
 		t.Errorf("expected TranscodeHWEncode false")
 	}
 
-	// After enrichment, should no longer be counted as unenriched (enriched=1)
 	count, err := s.CountUnenrichedHistory(context.Background(), serverID)
 	if err != nil {
 		t.Fatalf("CountUnenrichedHistory: %v", err)
@@ -1123,7 +1103,7 @@ func TestGetRecentISPs(t *testing.T) {
 	entries := []models.WatchHistoryEntry{
 		{ServerID: serverID, UserName: "alice", Title: "Movie 1", StartedAt: now.Add(-3 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
 		{ServerID: serverID, UserName: "alice", Title: "Movie 2", StartedAt: now.Add(-2 * time.Hour), IPAddress: "2.2.2.2", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
-		{ServerID: serverID, UserName: "alice", Title: "Movie 3", StartedAt: now.Add(-1 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie}, // duplicate ISP
+		{ServerID: serverID, UserName: "alice", Title: "Movie 3", StartedAt: now.Add(-1 * time.Hour), IPAddress: "1.1.1.1", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
 		{ServerID: serverID, UserName: "alice", Title: "Movie 4", StartedAt: now.Add(-30 * time.Minute), IPAddress: "4.4.4.4", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie}, // Empty ISP - should not be counted
 		{ServerID: serverID, UserName: "bob", Title: "Movie 5", StartedAt: now.Add(-30 * time.Minute), IPAddress: "3.3.3.3", Player: "Plex Web", Platform: "Chrome", MediaType: models.MediaTypeMovie},
 	}
@@ -1133,7 +1113,6 @@ func TestGetRecentISPs(t *testing.T) {
 		}
 	}
 
-	// Test: Get alice's recent ISPs (within time window)
 	isps, err := s.GetRecentISPs("alice", now, 24)
 	if err != nil {
 		t.Fatalf("GetRecentISPs: %v", err)
@@ -1152,7 +1131,6 @@ func TestGetRecentISPs(t *testing.T) {
 		t.Error("expected ISP Verizon to be in result")
 	}
 
-	// Test: Time window filtering
 	isps, err = s.GetRecentISPs("alice", now.Add(-2*time.Hour), 1) // Only entries from 3 hours ago
 	if err != nil {
 		t.Fatalf("GetRecentISPs (time window): %v", err)
@@ -1161,7 +1139,6 @@ func TestGetRecentISPs(t *testing.T) {
 		t.Errorf("expected 1 ISP in time window, got %d: %v", len(isps), isps)
 	}
 
-	// Test: Unknown user returns empty
 	isps, err = s.GetRecentISPs("unknown", now, 24)
 	if err != nil {
 		t.Fatalf("GetRecentISPs (unknown user): %v", err)
@@ -1170,12 +1147,236 @@ func TestGetRecentISPs(t *testing.T) {
 		t.Errorf("expected 0 ISPs for unknown user, got %d", len(isps))
 	}
 
-	// Test: Empty ISPs are not included
-	// Alice used IP 4.4.4.4 which has empty ISP - should not appear
 	for _, isp := range isps {
 		if isp == "" {
 			t.Error("empty ISP should not be in result")
 		}
+	}
+}
+
+func TestInsertHistoryConsolidates(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	entryA := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", DurationMs: 100000, WatchedMs: 30000, PausedMs: 5000,
+		StartedAt: now.Add(-20 * time.Minute), StoppedAt: now.Add(-10 * time.Minute),
+	}
+	if err := s.InsertHistory(entryA); err != nil {
+		t.Fatalf("insert A: %v", err)
+	}
+
+	entryB := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", DurationMs: 100000, WatchedMs: 20000, PausedMs: 3000,
+		StartedAt: now.Add(-5 * time.Minute), StoppedAt: now,
+	}
+	if err := s.InsertHistory(entryB); err != nil {
+		t.Fatalf("insert B: %v", err)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 row after consolidation, got %d", result.Total)
+	}
+	row := result.Items[0]
+	if row.ID != entryA.ID {
+		t.Errorf("expected surviving row ID %d (entryA), got %d", entryA.ID, row.ID)
+	}
+	if !row.StartedAt.Equal(entryA.StartedAt) {
+		t.Errorf("started_at = %v, want %v (entryA's start)", row.StartedAt, entryA.StartedAt)
+	}
+	if !row.StoppedAt.Equal(now) {
+		t.Errorf("stopped_at = %v, want %v", row.StoppedAt, now)
+	}
+	if row.DurationMs != 100000 {
+		t.Errorf("duration_ms = %d, want 100000", row.DurationMs)
+	}
+	if row.WatchedMs != 50000 {
+		t.Errorf("watched_ms = %d, want 50000", row.WatchedMs)
+	}
+	if row.PausedMs != 8000 {
+		t.Errorf("paused_ms = %d, want 8000", row.PausedMs)
+	}
+}
+
+func TestInsertHistoryConsolidatesDifferentTitleNoMerge(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Movie 1", StartedAt: now.Add(-20 * time.Minute), StoppedAt: now.Add(-10 * time.Minute),
+	}); err != nil {
+		t.Fatalf("insert 1: %v", err)
+	}
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Movie 2", StartedAt: now.Add(-5 * time.Minute), StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("insert 2: %v", err)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 2 {
+		t.Fatalf("expected 2 rows (different titles), got %d", result.Total)
+	}
+}
+
+func TestInsertHistoryConsolidateBoundary(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	base := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	// Entry A: stopped at base
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", StartedAt: base.Add(-30 * time.Minute), StoppedAt: base,
+	}); err != nil {
+		t.Fatalf("insert A: %v", err)
+	}
+
+	// Entry B: starts exactly 30 minutes after A stopped — at boundary, should consolidate (<= is inclusive)
+	entryB := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", StartedAt: base.Add(30 * time.Minute), StoppedAt: base.Add(40 * time.Minute),
+	}
+	if err := s.InsertHistory(entryB); err != nil {
+		t.Fatalf("insert B (30min gap): %v", err)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 1 {
+		t.Fatalf("30min gap: expected 1 row (consolidated), got %d", result.Total)
+	}
+
+	// Entry C: starts 30min + 1s after the consolidated row's new stopped_at — outside window
+	newStoppedAt := base.Add(40 * time.Minute)
+	entryC := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", StartedAt: newStoppedAt.Add(30*time.Minute + time.Second), StoppedAt: newStoppedAt.Add(45 * time.Minute),
+	}
+	if err := s.InsertHistory(entryC); err != nil {
+		t.Fatalf("insert C (30min+1s gap): %v", err)
+	}
+
+	result, _ = s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 2 {
+		t.Fatalf("30min+1s gap: expected 2 rows (not consolidated), got %d", result.Total)
+	}
+}
+
+func TestInsertHistoryConsolidatesWatchedFlag(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	entryA := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", DurationMs: 100000, WatchedMs: 50000,
+		StartedAt: now.Add(-20 * time.Minute), StoppedAt: now.Add(-10 * time.Minute),
+	}
+	if err := s.InsertHistory(entryA); err != nil {
+		t.Fatalf("insert A: %v", err)
+	}
+
+	entryB := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", DurationMs: 100000, WatchedMs: 40000,
+		StartedAt: now.Add(-5 * time.Minute), StoppedAt: now,
+	}
+	if err := s.InsertHistory(entryB); err != nil {
+		t.Fatalf("insert B: %v", err)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 1 {
+		t.Fatalf("expected 1 row, got %d", result.Total)
+	}
+	if result.Items[0].WatchedMs != 90000 {
+		t.Errorf("watched_ms = %d, want 90000", result.Items[0].WatchedMs)
+	}
+	if !result.Items[0].Watched {
+		t.Error("expected watched=true (90% >= 85%)")
+	}
+}
+
+func TestInsertHistoryBatchConsolidates(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", DurationMs: 100000, WatchedMs: 30000,
+		StartedAt: now.Add(-20 * time.Minute), StoppedAt: now.Add(-10 * time.Minute),
+	}); err != nil {
+		t.Fatalf("pre-insert: %v", err)
+	}
+
+	entries := []*models.WatchHistoryEntry{
+		{
+			ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+			Title: "The Matrix", DurationMs: 100000, WatchedMs: 20000,
+			StartedAt: now.Add(-5 * time.Minute), StoppedAt: now,
+		},
+		{
+			ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+			Title: "Different Movie",
+			StartedAt: now, StoppedAt: now.Add(10 * time.Minute),
+		},
+	}
+
+	inserted, _, consolidated, err := s.InsertHistoryBatch(context.Background(), entries)
+	if err != nil {
+		t.Fatalf("InsertHistoryBatch: %v", err)
+	}
+	if inserted != 1 {
+		t.Errorf("expected 1 inserted, got %d", inserted)
+	}
+	if consolidated != 1 {
+		t.Errorf("expected 1 consolidated, got %d", consolidated)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 2 {
+		t.Fatalf("expected 2 rows (1 consolidated + 1 new), got %d", result.Total)
+	}
+	for _, item := range result.Items {
+		if item.Title == "The Matrix" && item.WatchedMs != 50000 {
+			t.Errorf("consolidated row watched_ms = %d, want 50000", item.WatchedMs)
+		}
+	}
+}
+
+func TestInsertHistoryConsolidatesDifferentUser(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", StartedAt: now.Add(-20 * time.Minute), StoppedAt: now.Add(-10 * time.Minute),
+	}); err != nil {
+		t.Fatalf("insert alice: %v", err)
+	}
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", StartedAt: now.Add(-5 * time.Minute), StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("insert bob: %v", err)
+	}
+
+	result, _ := s.ListHistory(1, 10, "", "", "", nil)
+	if result.Total != 2 {
+		t.Fatalf("expected 2 rows (different users), got %d", result.Total)
 	}
 }
 

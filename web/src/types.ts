@@ -347,6 +347,7 @@ export type TautulliSettings = IntegrationSettings
 export interface TautulliImportResult {
   imported: number
   skipped: number
+  consolidated: number
   total: number
   error?: string
 }

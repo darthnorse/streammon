@@ -227,6 +227,8 @@ func (c *Client) TestConnection(ctx context.Context) error {
 func (c *Client) GetHistory(ctx context.Context, start, length int) ([]HistoryRecord, int, error) {
 	params := url.Values{}
 	params.Set("cmd", "get_history")
+	params.Set("order_column", "date")
+	params.Set("order_dir", "asc")
 	params.Set("start", fmt.Sprintf("%d", start))
 	params.Set("length", fmt.Sprintf("%d", length))
 

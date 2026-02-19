@@ -78,6 +78,67 @@ const historyDedupSQL = `SELECT 1 FROM watch_history
 
 const historyDedupWindow = 60 * time.Second
 
+const historyConsolidateWindow = 30 * time.Minute
+
+const historyConsolidateSQL = `SELECT id, duration_ms, watched_ms, paused_ms
+	FROM watch_history
+	WHERE server_id = ? AND user_name = ? AND title = ?
+	AND stopped_at >= ? AND stopped_at <= ?
+	ORDER BY stopped_at DESC LIMIT 1`
+
+const historyConsolidateUpdateSQL = `UPDATE watch_history SET stopped_at = ?, watched_ms = ?, paused_ms = ?, duration_ms = ?, watched = ? WHERE id = ?`
+
+type mergedFields struct {
+	WatchedMs  int64
+	PausedMs   int64
+	DurationMs int64
+	Watched    bool
+}
+
+func mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs int64, entry *models.WatchHistoryEntry, thresholdPct int) mergedFields {
+	m := mergedFields{
+		WatchedMs:  existingWatchedMs + entry.WatchedMs,
+		PausedMs:   existingPausedMs + entry.PausedMs,
+		DurationMs: existingDurationMs,
+	}
+	if entry.DurationMs > existingDurationMs {
+		m.DurationMs = entry.DurationMs
+	}
+	m.Watched = m.DurationMs > 0 && float64(m.WatchedMs)/float64(m.DurationMs)*100 >= float64(thresholdPct)
+	return m
+}
+
+type queryExecer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func tryConsolidate(ctx context.Context, qe queryExecer, entry *models.WatchHistoryEntry, thresholdPct int) (bool, error) {
+	windowStart := entry.StartedAt.Add(-historyConsolidateWindow)
+
+	var existingID int64
+	var existingDurationMs, existingWatchedMs, existingPausedMs int64
+	err := qe.QueryRowContext(ctx, historyConsolidateSQL,
+		entry.ServerID, entry.UserName, entry.Title,
+		windowStart, entry.StartedAt,
+	).Scan(&existingID, &existingDurationMs, &existingWatchedMs, &existingPausedMs)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("checking consolidation: %w", err)
+	}
+
+	m := mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs, entry, thresholdPct)
+	_, err = qe.ExecContext(ctx, historyConsolidateUpdateSQL,
+		entry.StoppedAt, m.WatchedMs, m.PausedMs, m.DurationMs, boolToInt(m.Watched), existingID,
+	)
+	if err != nil {
+		return false, fmt.Errorf("consolidating history: %w", err)
+	}
+	return true, nil
+}
+
 func historyDedupArgs(entry *models.WatchHistoryEntry) []any {
 	return []any{
 		entry.ServerID, entry.UserName, entry.Title,
@@ -102,8 +163,16 @@ func historyInsertArgs(entry *models.WatchHistoryEntry) []any {
 
 func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 	ctx := context.Background()
+	thresholdPct, _ := s.GetWatchedThreshold()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
 	var exists int
-	err := s.db.QueryRowContext(ctx, historyDedupSQL, historyDedupArgs(entry)...).Scan(&exists)
+	err = tx.QueryRowContext(ctx, historyDedupSQL, historyDedupArgs(entry)...).Scan(&exists)
 	if err == nil {
 		return nil
 	}
@@ -111,7 +180,15 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		return fmt.Errorf("checking history dedup: %w", err)
 	}
 
-	result, err := s.db.ExecContext(ctx, historyInsertSQL, historyInsertArgs(entry)...)
+	consolidated, err := tryConsolidate(ctx, tx, entry, thresholdPct)
+	if err != nil {
+		return err
+	}
+	if consolidated {
+		return tx.Commit()
+	}
+
+	result, err := tx.ExecContext(ctx, historyInsertSQL, historyInsertArgs(entry)...)
 	if err != nil {
 		return fmt.Errorf("inserting history: %w", err)
 	}
@@ -120,7 +197,7 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		return err
 	}
 	entry.ID = id
-	return nil
+	return tx.Commit()
 }
 
 var validHistorySortColumns = map[string]bool{
@@ -168,7 +245,7 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 	orderBy := "h.started_at DESC"
 	if sortColumn != "" && validHistorySortColumns[sortColumn] {
 		order := "DESC"
-		if sortOrder == "ASC" || sortOrder == "asc" {
+		if sortOrder == "asc" {
 			order = "ASC"
 		}
 		orderBy = sortColumn + " " + order
@@ -453,33 +530,47 @@ func (s *Store) GetRecentISPs(userName string, beforeTime time.Time, withinHours
 	return isps, rows.Err()
 }
 
-func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped int, err error) {
+func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped, consolidated int, err error) {
 	if len(entries) == 0 {
-		return 0, 0, nil
+		return 0, 0, 0, nil
 	}
+
+	thresholdPct, _ := s.GetWatchedThreshold()
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, 0, fmt.Errorf("begin tx: %w", err)
+		return 0, 0, 0, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
 	insertStmt, err := tx.PrepareContext(ctx, historyInsertSQL)
 	if err != nil {
-		return 0, 0, fmt.Errorf("prepare insert: %w", err)
+		return 0, 0, 0, fmt.Errorf("prepare insert: %w", err)
 	}
 	defer insertStmt.Close()
 
 	existsStmt, err := tx.PrepareContext(ctx, historyDedupSQL)
 	if err != nil {
-		return 0, 0, fmt.Errorf("prepare exists check: %w", err)
+		return 0, 0, 0, fmt.Errorf("prepare exists check: %w", err)
 	}
 	defer existsStmt.Close()
+
+	consolidateSelectStmt, err := tx.PrepareContext(ctx, historyConsolidateSQL)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("prepare consolidate select: %w", err)
+	}
+	defer consolidateSelectStmt.Close()
+
+	consolidateUpdateStmt, err := tx.PrepareContext(ctx, historyConsolidateUpdateSQL)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("prepare consolidate update: %w", err)
+	}
+	defer consolidateUpdateStmt.Close()
 
 	for _, entry := range entries {
 		select {
 		case <-ctx.Done():
-			return inserted, skipped, ctx.Err()
+			return inserted, skipped, consolidated, ctx.Err()
 		default:
 		}
 
@@ -490,21 +581,42 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			continue
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			return inserted, skipped, fmt.Errorf("checking if entry exists: %w", err)
+			return inserted, skipped, consolidated, fmt.Errorf("checking if entry exists: %w", err)
+		}
+
+		windowStart := entry.StartedAt.Add(-historyConsolidateWindow)
+		var existingID int64
+		var existingDurationMs, existingWatchedMs, existingPausedMs int64
+		cErr := consolidateSelectStmt.QueryRowContext(ctx,
+			entry.ServerID, entry.UserName, entry.Title,
+			windowStart, entry.StartedAt,
+		).Scan(&existingID, &existingDurationMs, &existingWatchedMs, &existingPausedMs)
+		if cErr == nil {
+			m := mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs, entry, thresholdPct)
+			_, cErr = consolidateUpdateStmt.ExecContext(ctx,
+				entry.StoppedAt, m.WatchedMs, m.PausedMs, m.DurationMs, boolToInt(m.Watched), existingID,
+			)
+			if cErr != nil {
+				return inserted, skipped, consolidated, fmt.Errorf("consolidating history: %w", cErr)
+			}
+			consolidated++
+			continue
+		} else if !errors.Is(cErr, sql.ErrNoRows) {
+			return inserted, skipped, consolidated, fmt.Errorf("checking consolidation: %w", cErr)
 		}
 
 		_, err = insertStmt.ExecContext(ctx, historyInsertArgs(entry)...)
 		if err != nil {
-			return 0, 0, fmt.Errorf("inserting entry: %w", err)
+			return 0, 0, 0, fmt.Errorf("inserting entry: %w", err)
 		}
 		inserted++
 	}
 
 	if err := tx.Commit(); err != nil {
-		return 0, 0, fmt.Errorf("commit tx: %w", err)
+		return 0, 0, 0, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return inserted, skipped, nil
+	return inserted, skipped, consolidated, nil
 }
 
 type UnenrichedRef struct {

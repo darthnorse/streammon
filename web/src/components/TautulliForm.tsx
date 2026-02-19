@@ -27,6 +27,7 @@ interface ImportProgress {
   total: number
   inserted: number
   skipped: number
+  consolidated: number
   error?: string
 }
 
@@ -188,6 +189,7 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
                 setImportResult({
                   imported: data.inserted,
                   skipped: data.skipped,
+                  consolidated: data.consolidated,
                   total: data.total,
                 })
               } else if (data.type === 'error') {
@@ -195,6 +197,7 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
                 setImportResult({
                   imported: data.inserted,
                   skipped: data.skipped,
+                  consolidated: data.consolidated,
                   total: data.total,
                   error: data.error,
                 })
@@ -382,7 +385,8 @@ export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) 
               {importResult && !importResult.error && (
                 <div className="text-sm font-mono px-3 py-2 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
                   Imported {importResult.imported.toLocaleString()} records
-                  {importResult.skipped > 0 && ` (skipped ${importResult.skipped.toLocaleString()} duplicates)`}
+                  {importResult.consolidated > 0 && `, merged ${importResult.consolidated.toLocaleString()}`}
+                  {importResult.skipped > 0 && `, skipped ${importResult.skipped.toLocaleString()} duplicates`}
                 </div>
               )}
             </>

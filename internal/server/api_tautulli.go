@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"streammon/internal/mediautil"
@@ -27,12 +26,13 @@ type tautulliImportResponse struct {
 }
 
 type tautulliProgressEvent struct {
-	Type      string `json:"type"` // "progress" or "complete" or "error"
-	Processed int    `json:"processed"`
-	Total     int    `json:"total"`
-	Inserted  int    `json:"inserted"`
-	Skipped   int    `json:"skipped"`
-	Error     string `json:"error,omitempty"`
+	Type         string `json:"type"` // "progress" or "complete" or "error"
+	Processed    int    `json:"processed"`
+	Total        int    `json:"total"`
+	Inserted     int    `json:"inserted"`
+	Skipped      int    `json:"skipped"`
+	Consolidated int    `json:"consolidated"`
+	Error        string `json:"error,omitempty"`
 }
 
 func (s *Server) tautulliDeps() integrationDeps {
@@ -103,7 +103,7 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	var totalInserted, totalSkipped, totalRecords, processed int
+	var totalInserted, totalSkipped, totalConsolidated, totalRecords, processed int
 
 	err = client.StreamHistory(ctx, 1000, func(batch tautulli.BatchResult) error {
 		entries := make([]*models.WatchHistoryEntry, 0, len(batch.Records))
@@ -114,48 +114,52 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 
 			if (i+1)%10 == 0 || i == len(batch.Records)-1 {
 				sendEvent(tautulliProgressEvent{
-					Type:      "progress",
-					Processed: processed + i + 1,
-					Total:     batch.Total,
-					Inserted:  totalInserted,
-					Skipped:   totalSkipped,
+					Type:         "progress",
+					Processed:    processed + i + 1,
+					Total:        batch.Total,
+					Inserted:     totalInserted,
+					Skipped:      totalSkipped,
+					Consolidated: totalConsolidated,
 				})
 			}
 		}
 
-		inserted, skipped, err := s.store.InsertHistoryBatch(ctx, entries)
+		inserted, skipped, consolidated, err := s.store.InsertHistoryBatch(ctx, entries)
 		if err != nil {
 			return err
 		}
 
 		totalInserted += inserted
 		totalSkipped += skipped
+		totalConsolidated += consolidated
 		totalRecords = batch.Total
 		processed += len(batch.Records)
 		return nil
 	})
 
 	if err != nil {
-		log.Printf("Tautulli import error: %v (imported %d, skipped %d)", err, totalInserted, totalSkipped)
+		log.Printf("Tautulli import error: %v (imported %d, skipped %d, consolidated %d)", err, totalInserted, totalSkipped, totalConsolidated)
 		sendEvent(tautulliProgressEvent{
-			Type:      "error",
-			Processed: processed,
-			Total:     totalRecords,
-			Inserted:  totalInserted,
-			Skipped:   totalSkipped,
-			Error:     "import failed, check server logs",
+			Type:         "error",
+			Processed:    processed,
+			Total:        totalRecords,
+			Inserted:     totalInserted,
+			Skipped:      totalSkipped,
+			Consolidated: totalConsolidated,
+			Error:        "import failed, check server logs",
 		})
 		return
 	}
 
-	log.Printf("Tautulli import completed: %d inserted, %d skipped, server_id=%d", totalInserted, totalSkipped, req.ServerID)
+	log.Printf("Tautulli import completed: %d inserted, %d skipped, %d consolidated, server_id=%d", totalInserted, totalSkipped, totalConsolidated, req.ServerID)
 
 	sendEvent(tautulliProgressEvent{
-		Type:      "complete",
-		Processed: processed,
-		Total:     totalRecords,
-		Inserted:  totalInserted,
-		Skipped:   totalSkipped,
+		Type:         "complete",
+		Processed:    processed,
+		Total:        totalRecords,
+		Inserted:     totalInserted,
+		Skipped:      totalSkipped,
+		Consolidated: totalConsolidated,
 	})
 }
 
@@ -199,7 +203,7 @@ func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.W
 		StoppedAt:         stoppedAt,
 		SeasonNumber:      int(rec.ParentMediaIndex),
 		EpisodeNumber:     int(rec.MediaIndex),
-		ThumbURL:          strings.TrimLeft(rec.Thumb, "/"),
+		ThumbURL:          rec.Thumb,
 		VideoResolution:   rec.VideoFullResolution,
 		TranscodeDecision: convertTranscodeDecision(rec.TranscodeDecision),
 	}
