@@ -472,7 +472,105 @@ func (s *Store) CalculateAllHouseholdLocations(ctx context.Context, minSessions 
 		}
 	}
 
-	return created, rows.Err()
+	if err := rows.Err(); err != nil {
+		return created, err
+	}
+
+	s.BackfillHouseholdGeo()
+	return created, nil
+}
+
+// BackfillHouseholdGeo updates household locations that have an IP but no city
+// with geo data from the cache, merging duplicates where a city-row already exists.
+func (s *Store) BackfillHouseholdGeo() {
+	// Phase 1: Merge duplicates — absorb empty-city rows into resolved-city rows.
+	// Uses SUM/MIN aggregates to handle multiple empty-city rows per user/IP.
+	result, err := s.db.Exec(`
+		UPDATE household_locations SET
+			session_count = session_count + (
+				SELECT COALESCE(SUM(e.session_count), 0)
+				FROM household_locations e
+				WHERE e.user_name = household_locations.user_name
+				  AND e.ip_address = household_locations.ip_address
+				  AND e.city = '' AND e.id != household_locations.id
+			),
+			first_seen = MIN(first_seen, (
+				SELECT MIN(e.first_seen) FROM household_locations e
+				WHERE e.user_name = household_locations.user_name
+				  AND e.ip_address = household_locations.ip_address
+				  AND e.city = '' AND e.id != household_locations.id
+			))
+		WHERE city != '' AND EXISTS (
+			SELECT 1 FROM household_locations e
+			WHERE e.user_name = household_locations.user_name
+			  AND e.ip_address = household_locations.ip_address
+			  AND e.city = '' AND e.id != household_locations.id
+		)`)
+	if err != nil {
+		log.Printf("backfill household geo merge: %v", err)
+	} else if n, _ := result.RowsAffected(); n > 0 {
+		if _, err := s.db.Exec(`
+			DELETE FROM household_locations WHERE city = '' AND ip_address != ''
+			  AND EXISTS (
+				SELECT 1 FROM household_locations h2
+				WHERE h2.user_name = household_locations.user_name
+				  AND h2.ip_address = household_locations.ip_address
+				  AND h2.city != '' AND h2.id != household_locations.id
+			  )`); err != nil {
+			log.Printf("backfill household geo delete: %v", err)
+		} else {
+			log.Printf("merged %d duplicate household locations", n)
+		}
+	}
+
+	// Phase 2: Backfill remaining empty-city rows from geo cache.
+	// Collects IDs first to avoid holding an open cursor during writes.
+	type backfillRow struct {
+		id                int64
+		city, country     string
+		lat, lng          float64
+	}
+	rows, err := s.db.Query(`
+		SELECT h.id, g.city, g.country, g.lat, g.lng
+		FROM household_locations h
+		JOIN ip_geo_cache g ON h.ip_address = g.ip
+		WHERE h.ip_address != '' AND h.city = '' AND g.city != ''`)
+	if err != nil {
+		log.Printf("backfill household geo query: %v", err)
+		return
+	}
+	var pending []backfillRow
+	for rows.Next() {
+		var r backfillRow
+		if err := rows.Scan(&r.id, &r.city, &r.country, &r.lat, &r.lng); err != nil {
+			continue
+		}
+		pending = append(pending, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		log.Printf("backfill household geo iterate: %v", err)
+	}
+
+	var updated int
+	for _, r := range pending {
+		res, err := s.db.Exec(`UPDATE OR IGNORE household_locations SET city = ?, country = ?, latitude = ?, longitude = ? WHERE id = ?`,
+			r.city, r.country, r.lat, r.lng, r.id)
+		if err != nil {
+			log.Printf("backfill household geo update id=%d: %v", r.id, err)
+			continue
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			if _, delErr := s.db.Exec(`DELETE FROM household_locations WHERE id = ?`, r.id); delErr != nil {
+				log.Printf("backfill household geo delete orphan id=%d: %v", r.id, delErr)
+			}
+		} else {
+			updated++
+		}
+	}
+	if updated > 0 {
+		log.Printf("backfilled geo data for %d household locations", updated)
+	}
 }
 
 func (s *Store) GetUserTrustScore(userName string) (*models.UserTrustScore, error) {

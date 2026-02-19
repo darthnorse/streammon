@@ -7,6 +7,12 @@ interface UserHouseholdCardProps {
   userName: string
 }
 
+function formatLocation(loc: HouseholdLocation): string {
+  const place = [loc.city, loc.country].filter(Boolean).join(', ')
+  if (place) return loc.ip_address ? `${place} (${loc.ip_address})` : place
+  return loc.ip_address || 'Unknown location'
+}
+
 function CardHeader() {
   return (
     <h3 className="text-sm font-medium text-muted dark:text-muted-dark uppercase tracking-wide mb-4">
@@ -87,7 +93,7 @@ export function UserHouseholdCard({ userName }: UserHouseholdCardProps) {
             <div key={loc.id} className="flex items-start justify-between gap-2 text-sm">
               <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">
-                  {loc.city || loc.ip_address || 'Unknown location'}{loc.country && `, ${loc.country}`}
+                  {formatLocation(loc)}
                 </div>
                 <div className="text-xs text-muted dark:text-muted-dark flex items-center gap-2 mt-0.5">
                   {loc.auto_learned ? (

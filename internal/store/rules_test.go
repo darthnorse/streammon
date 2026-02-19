@@ -783,6 +783,121 @@ func TestAutoLearnHouseholdLocationDifferentCities(t *testing.T) {
 	}
 }
 
+func insertTestHousehold(t *testing.T, s *Store, user, ip, city, country string, sessions int, firstSeen, lastSeen string) {
+	t.Helper()
+	_, err := s.db.Exec(`INSERT INTO household_locations
+		(user_name, ip_address, city, country, latitude, longitude, auto_learned, trusted, session_count, first_seen, last_seen)
+		VALUES (?, ?, ?, ?, 0, 0, 1, 0, ?, ?, ?)`,
+		user, ip, city, country, sessions, firstSeen, lastSeen)
+	if err != nil {
+		t.Fatalf("inserting household: %v", err)
+	}
+}
+
+func insertTestGeoCache(t *testing.T, s *Store, ip, city, country string) {
+	t.Helper()
+	_, err := s.db.Exec(`INSERT INTO ip_geo_cache (ip, lat, lng, city, country, isp, cached_at)
+		VALUES (?, 0, 0, ?, ?, 'ISP', CURRENT_TIMESTAMP)`, ip, city, country)
+	if err != nil {
+		t.Fatalf("inserting geo cache: %v", err)
+	}
+}
+
+func TestBackfillHouseholdGeo(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	insertTestHousehold(t, s, "alice", "1.1.1.1", "", "", 5, "2024-01-01T00:00:00Z", "2024-06-01T00:00:00Z")
+	insertTestGeoCache(t, s, "1.1.1.1", "New York", "US")
+
+	s.BackfillHouseholdGeo()
+
+	locations, err := s.ListHouseholdLocations("alice")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations: %v", err)
+	}
+	if len(locations) != 1 {
+		t.Fatalf("expected 1 location, got %d", len(locations))
+	}
+	if locations[0].City != "New York" {
+		t.Errorf("expected city=New York, got %q", locations[0].City)
+	}
+	if locations[0].Country != "US" {
+		t.Errorf("expected country=US, got %q", locations[0].Country)
+	}
+}
+
+func TestBackfillHouseholdGeoMergesDuplicates(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	insertTestHousehold(t, s, "bob", "2.2.2.2", "", "", 3, "2024-01-01T00:00:00Z", "2024-03-01T00:00:00Z")
+	insertTestHousehold(t, s, "bob", "2.2.2.2", "Chicago", "US", 7, "2024-04-01T00:00:00Z", "2024-06-01T00:00:00Z")
+
+	s.BackfillHouseholdGeo()
+
+	locations, err := s.ListHouseholdLocations("bob")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations: %v", err)
+	}
+	if len(locations) != 1 {
+		t.Fatalf("expected 1 location after merge, got %d", len(locations))
+	}
+	if locations[0].City != "Chicago" {
+		t.Errorf("expected city=Chicago, got %q", locations[0].City)
+	}
+	if locations[0].SessionCount != 10 {
+		t.Errorf("expected session_count=10 (3+7), got %d", locations[0].SessionCount)
+	}
+	if locations[0].FirstSeen.Year() != 2024 || locations[0].FirstSeen.Month() != 1 {
+		t.Errorf("expected first_seen=2024-01, got %v", locations[0].FirstSeen)
+	}
+}
+
+func TestBackfillHouseholdGeoNoopWhenComplete(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	insertTestHousehold(t, s, "carol", "3.3.3.3", "London", "GB", 20, "2024-01-01T00:00:00Z", "2024-06-01T00:00:00Z")
+
+	s.BackfillHouseholdGeo()
+
+	locations, err := s.ListHouseholdLocations("carol")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations: %v", err)
+	}
+	if len(locations) != 1 {
+		t.Fatalf("expected 1 location, got %d", len(locations))
+	}
+	loc := locations[0]
+	if loc.City != "London" {
+		t.Errorf("expected city=London, got %q", loc.City)
+	}
+	if loc.Country != "GB" {
+		t.Errorf("expected country=GB, got %q", loc.Country)
+	}
+	if loc.SessionCount != 20 {
+		t.Errorf("expected session_count=20 (unchanged), got %d", loc.SessionCount)
+	}
+	if loc.Trusted != false {
+		t.Error("expected trusted=false (unchanged)")
+	}
+}
+
+func TestBackfillHouseholdGeoUniqueConflict(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	insertTestHousehold(t, s, "dave", "4.4.4.4", "", "", 2, "2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z")
+	insertTestHousehold(t, s, "dave", "4.4.4.4", "Seattle", "US", 8, "2024-03-01T00:00:00Z", "2024-06-01T00:00:00Z")
+	insertTestGeoCache(t, s, "4.4.4.4", "Seattle", "US")
+
+	s.BackfillHouseholdGeo()
+
+	locations, err := s.ListHouseholdLocations("dave")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations: %v", err)
+	}
+	if len(locations) != 1 {
+		t.Fatalf("expected 1 location after conflict resolution, got %d", len(locations))
+	}
+	if locations[0].City != "Seattle" {
+		t.Errorf("expected city=Seattle, got %q", locations[0].City)
+	}
+}
+
 func seedTestServer(t *testing.T, s *Store) int64 {
 	t.Helper()
 	srv := &models.Server{

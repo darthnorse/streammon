@@ -137,6 +137,10 @@ func (s *Server) handleGeoBackfill(w http.ResponseWriter, r *http.Request) {
 		resolved++
 	}
 
+	if resolved > 0 {
+		s.store.BackfillHouseholdGeo()
+	}
+
 	log.Printf("geo backfill: resolved %d, skipped %d, total %d", resolved, skipped, len(ips))
 	writeJSON(w, http.StatusOK, geoBackfillResponse{
 		Resolved: resolved,
