@@ -166,10 +166,25 @@ type WatchHistoryEntry struct {
 	DynamicRange        string            `json:"dynamic_range,omitempty"`
 	PausedMs            int64             `json:"paused_ms,omitempty"`
 	Watched             bool              `json:"watched"`
+	SessionCount        int               `json:"session_count"`
 	TautulliReferenceID int64             `json:"-"`
 	City                string            `json:"city,omitempty"`
 	Country             string            `json:"country,omitempty"`
 	ISP                 string            `json:"isp,omitempty"`
+}
+
+type WatchSession struct {
+	ID         int64     `json:"id"`
+	HistoryID  int64     `json:"history_id"`
+	DurationMs int64     `json:"duration_ms"`
+	WatchedMs  int64     `json:"watched_ms"`
+	PausedMs   int64     `json:"paused_ms,omitempty"`
+	Player     string    `json:"player"`
+	Platform   string    `json:"platform"`
+	IPAddress  string    `json:"ip_address"`
+	StartedAt  time.Time `json:"started_at"`
+	StoppedAt  time.Time `json:"stopped_at"`
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 type TranscodeDecision string

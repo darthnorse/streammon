@@ -6,6 +6,10 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"streammon/internal/models"
 )
 
 const maxPerPage = 100
@@ -85,6 +89,31 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if vn := viewerName(r); vn != "" {
+		owner, err := s.store.GetHistoryOwner(id)
+		if err != nil || owner != vn {
+			writeJSON(w, http.StatusOK, []models.WatchSession{})
+			return
+		}
+	}
+	sessions, err := s.store.ListSessionsForHistory(id)
+	if err != nil {
+		log.Printf("listing sessions for history %d: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	if sessions == nil {
+		sessions = []models.WatchSession{}
+	}
+	writeJSON(w, http.StatusOK, sessions)
 }
 
 func (s *Server) handleDailyHistory(w http.ResponseWriter, r *http.Request) {

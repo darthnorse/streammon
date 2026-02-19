@@ -82,11 +82,26 @@ export interface WatchHistoryEntry {
   transcode_hw_encode?: boolean
   dynamic_range?: string
   paused_ms?: number
-  watched?: boolean
+  watched: boolean
+  session_count: number
   // Geo fields from ip_geo_cache (populated by ListHistory)
   city?: string
   country?: string
   isp?: string
+}
+
+export interface WatchSession {
+  id: number
+  history_id: number
+  duration_ms: number
+  watched_ms: number
+  paused_ms?: number
+  player: string
+  platform: string
+  ip_address: string
+  started_at: string
+  stopped_at: string
+  created_at: string
 }
 
 export interface ActiveStream {

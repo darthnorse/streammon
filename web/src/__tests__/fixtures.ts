@@ -36,6 +36,8 @@ export const baseHistoryEntry: WatchHistoryEntry = {
   started_at: '2024-06-15T12:00:00Z',
   stopped_at: '2024-06-15T14:28:00Z',
   created_at: '2024-06-15T12:00:00Z',
+  watched: true,
+  session_count: 1,
 }
 
 export const baseUser: User = {

@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import type { WatchHistoryEntry } from '../types'
+import type { WatchHistoryEntry, WatchSession } from '../types'
 import { formatDuration, formatDate, formatLocation } from '../lib/format'
 import { mediaTypeLabels } from '../lib/constants'
 import { getHistoryColumns, EntryTitle } from '../lib/historyColumns'
@@ -8,6 +8,7 @@ import { useColumnConfig } from '../hooks/useColumnConfig'
 import { useItemDetails } from '../hooks/useItemDetails'
 import { ColumnSettings } from './ColumnSettings'
 import { MediaDetailModal } from './MediaDetailModal'
+import { api } from '../lib/api'
 
 type SortDirection = 'asc' | 'desc'
 
@@ -37,9 +38,12 @@ interface HistoryCardProps {
   entry: WatchHistoryEntry
   hideUser?: boolean
   onTitleClick?: (serverId: number, itemId: string) => void
+  expanded?: boolean
+  sessions?: WatchSession[]
+  onToggle?: () => void
 }
 
-function HistoryCard({ entry, hideUser, onTitleClick }: HistoryCardProps) {
+function HistoryCard({ entry, hideUser, onTitleClick, expanded, sessions, onToggle }: HistoryCardProps) {
   return (
     <div className="card p-4" data-testid="history-row">
       <div className="flex items-start justify-between gap-3">
@@ -73,7 +77,53 @@ function HistoryCard({ entry, hideUser, onTitleClick }: HistoryCardProps) {
           {entry.isp && <span className="ml-2 opacity-75">({entry.isp})</span>}
         </div>
       )}
+      {entry.session_count > 1 && (
+        <button
+          onClick={onToggle}
+          className="mt-2 text-xs text-muted dark:text-muted-dark hover:text-accent hover:underline"
+          data-testid="session-toggle"
+        >
+          {expanded ? '▾' : '▸'} {entry.session_count} sessions
+        </button>
+      )}
+      {expanded && sessions && (
+        <div className="mt-2 ml-4 space-y-1" data-testid="session-list">
+          {sessions.map(s => (
+            <div key={s.id} className="text-xs text-muted dark:text-muted-dark bg-gray-50/50 dark:bg-white/[0.01] rounded px-2 py-1">
+              <span>{formatDate(s.started_at)}</span>
+              <span className="mx-1">&ndash;</span>
+              <span>{formatDate(s.stopped_at)}</span>
+              <span className="mx-2">&middot;</span>
+              <span>{formatDuration(s.watched_ms)}</span>
+              {s.player && <span className="ml-2">{s.player}</span>}
+              {s.platform && <span className="ml-1 opacity-75">({s.platform})</span>}
+              {s.ip_address && <span className="ml-2 opacity-75">{s.ip_address}</span>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
+  )
+}
+
+function SessionSubRows({ sessions, colSpan }: { sessions: WatchSession[]; colSpan: number }) {
+  return (
+    <>
+      {sessions.map(s => (
+        <tr key={s.id} className="bg-gray-50/50 dark:bg-white/[0.01]" data-testid="session-row">
+          <td colSpan={colSpan} className="px-4 py-2 pl-12 text-xs text-muted dark:text-muted-dark">
+            <span>{formatDate(s.started_at)}</span>
+            <span className="mx-1">&ndash;</span>
+            <span>{formatDate(s.stopped_at)}</span>
+            <span className="mx-2">&middot;</span>
+            <span>{formatDuration(s.watched_ms)}</span>
+            {s.player && <span className="ml-3">{s.player}</span>}
+            {s.platform && <span className="ml-1 opacity-75">({s.platform})</span>}
+            {s.ip_address && <span className="ml-3 opacity-75">{s.ip_address}</span>}
+          </td>
+        </tr>
+      ))}
+    </>
   )
 }
 
@@ -90,6 +140,17 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
   const excludeColumns = hideUser ? USER_EXCLUDE : EMPTY_EXCLUDE
   const [internalSort, setInternalSort] = useState<SortState | null>(null)
   const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(() => new Set())
+  const [sessionCache, setSessionCache] = useState<Record<number, WatchSession[]>>({})
+  const sessionCacheRef = useRef(sessionCache)
+  sessionCacheRef.current = sessionCache
+
+  // Clear expand/cache state when entries change (e.g. pagination)
+  const entriesKey = entries.map(e => e.id).join(',')
+  useEffect(() => {
+    setExpandedRows(new Set())
+    setSessionCache({})
+  }, [entriesKey])
 
   // Use controlled state if provided, otherwise use internal state
   const sort = controlledSort !== undefined ? controlledSort : internalSort
@@ -97,6 +158,30 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
 
   const handleTitleClick = useCallback((serverId: number, itemId: string) => {
     setSelectedItem({ serverId, itemId })
+  }, [])
+
+  const toggleExpand = useCallback(async (historyId: number) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev)
+      if (next.has(historyId)) {
+        next.delete(historyId)
+      } else {
+        next.add(historyId)
+      }
+      return next
+    })
+    if (!sessionCacheRef.current[historyId]) {
+      try {
+        const sessions = await api.get<WatchSession[]>(`/api/history/${historyId}/sessions`)
+        setSessionCache(prev => ({ ...prev, [historyId]: sessions }))
+      } catch {
+        setExpandedRows(prev => {
+          const next = new Set(prev)
+          next.delete(historyId)
+          return next
+        })
+      }
+    }
   }, [])
 
   const columns = useMemo(() => getHistoryColumns(handleTitleClick), [handleTitleClick])
@@ -163,11 +248,22 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
     )
   }
 
+  // Total column count including the expand chevron column
+  const totalColSpan = orderedColumns.length + 1
+
   return (
     <>
       <div className="md:hidden space-y-3">
         {sortedEntries.map(entry => (
-          <HistoryCard key={entry.id} entry={entry} hideUser={hideUser} onTitleClick={handleTitleClick} />
+          <HistoryCard
+            key={entry.id}
+            entry={entry}
+            hideUser={hideUser}
+            onTitleClick={handleTitleClick}
+            expanded={expandedRows.has(entry.id)}
+            sessions={sessionCache[entry.id]}
+            onToggle={() => toggleExpand(entry.id)}
+          />
         ))}
       </div>
 
@@ -190,6 +286,7 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
             <thead>
               <tr className="border-b border-border dark:border-border-dark text-left text-xs
                             text-muted dark:text-muted-dark uppercase tracking-wider">
+                <th className="w-8 px-1 py-3" />
                 {orderedColumns.map(col => {
                   const isSortable = !!col.sortValue
                   const isActive = sort?.columnId === col.id
@@ -214,19 +311,22 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
               </tr>
             </thead>
             <tbody className="divide-y divide-border dark:divide-border-dark">
-              {sortedEntries.map(entry => (
-                <tr key={entry.id} data-testid="history-row"
-                    className="hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
-                  {orderedColumns.map(col => (
-                    <td
-                      key={col.id}
-                      className={`px-4 py-3 ${col.className || ''} ${col.responsiveClassName || ''}`}
-                    >
-                      {col.render(entry)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
+              {sortedEntries.map(entry => {
+                const isExpanded = expandedRows.has(entry.id)
+                const hasMultiple = entry.session_count > 1
+                return (
+                  <HistoryRow
+                    key={entry.id}
+                    entry={entry}
+                    orderedColumns={orderedColumns}
+                    isExpanded={isExpanded}
+                    hasMultiple={hasMultiple}
+                    sessions={sessionCache[entry.id]}
+                    totalColSpan={totalColSpan}
+                    onToggle={() => toggleExpand(entry.id)}
+                  />
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -238,6 +338,49 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
           loading={detailsLoading}
           onClose={() => setSelectedItem(null)}
         />
+      )}
+    </>
+  )
+}
+
+interface HistoryRowProps {
+  entry: WatchHistoryEntry
+  orderedColumns: ReturnType<typeof getHistoryColumns>
+  isExpanded: boolean
+  hasMultiple: boolean
+  sessions?: WatchSession[]
+  totalColSpan: number
+  onToggle: () => void
+}
+
+function HistoryRow({ entry, orderedColumns, isExpanded, hasMultiple, sessions, totalColSpan, onToggle }: HistoryRowProps) {
+  return (
+    <>
+      <tr data-testid="history-row"
+          className="hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
+        <td className="w-8 px-1 py-3 text-center">
+          {hasMultiple && (
+            <button
+              onClick={onToggle}
+              className="text-muted dark:text-muted-dark hover:text-accent text-xs leading-none"
+              data-testid="session-chevron"
+              aria-label={isExpanded ? 'Collapse sessions' : 'Expand sessions'}
+            >
+              {isExpanded ? '▾' : '▸'}
+            </button>
+          )}
+        </td>
+        {orderedColumns.map(col => (
+          <td
+            key={col.id}
+            className={`px-4 py-3 ${col.className || ''} ${col.responsiveClassName || ''}`}
+          >
+            {col.render(entry)}
+          </td>
+        ))}
+      </tr>
+      {isExpanded && sessions && (
+        <SessionSubRows sessions={sessions} colSpan={totalColSpan} />
       )}
     </>
   )

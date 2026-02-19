@@ -15,14 +15,14 @@ const historyColumns = `id, server_id, item_id, grandparent_item_id, user_name, 
 	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at, created_at,
 	season_number, episode_number, thumb_url, video_resolution, transcode_decision,
 	video_codec, audio_codec, audio_channels, bandwidth, video_decision, audio_decision,
-	transcode_hw_decode, transcode_hw_encode, dynamic_range, paused_ms, watched`
+	transcode_hw_decode, transcode_hw_encode, dynamic_range, paused_ms, watched, session_count`
 
 const historyColumnsWithGeo = `h.id, h.server_id, h.item_id, h.grandparent_item_id, h.user_name, h.media_type, h.title, h.parent_title,
 	h.grandparent_title, h.year, h.duration_ms, h.watched_ms, h.player, h.platform, h.ip_address,
 	h.started_at, h.stopped_at, h.created_at, h.season_number, h.episode_number, h.thumb_url,
 	h.video_resolution, h.transcode_decision,
 	h.video_codec, h.audio_codec, h.audio_channels, h.bandwidth, h.video_decision, h.audio_decision,
-	h.transcode_hw_decode, h.transcode_hw_encode, h.dynamic_range, h.paused_ms, h.watched,
+	h.transcode_hw_decode, h.transcode_hw_encode, h.dynamic_range, h.paused_ms, h.watched, h.session_count,
 	COALESCE(g.city, ''), COALESCE(g.country, ''), COALESCE(g.isp, '')`
 
 const historyInsertSQL = `INSERT INTO watch_history (server_id, item_id, grandparent_item_id, user_name, media_type, title, parent_title, grandparent_title,
@@ -40,7 +40,7 @@ func scanHistoryEntry(scanner interface{ Scan(...any) error }) (models.WatchHist
 		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
 		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL, &e.VideoResolution, &e.TranscodeDecision,
 		&e.VideoCodec, &e.AudioCodec, &e.AudioChannels, &e.Bandwidth, &e.VideoDecision, &e.AudioDecision,
-		&hwDecode, &hwEncode, &e.DynamicRange, &e.PausedMs, &watched)
+		&hwDecode, &hwEncode, &e.DynamicRange, &e.PausedMs, &watched, &e.SessionCount)
 	e.TranscodeHWDecode = hwDecode != 0
 	e.TranscodeHWEncode = hwEncode != 0
 	e.Watched = watched != 0
@@ -55,7 +55,7 @@ func scanHistoryEntryWithGeo(scanner interface{ Scan(...any) error }) (models.Wa
 		&e.Player, &e.Platform, &e.IPAddress, &e.StartedAt, &e.StoppedAt, &e.CreatedAt,
 		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL, &e.VideoResolution, &e.TranscodeDecision,
 		&e.VideoCodec, &e.AudioCodec, &e.AudioChannels, &e.Bandwidth, &e.VideoDecision, &e.AudioDecision,
-		&hwDecode, &hwEncode, &e.DynamicRange, &e.PausedMs, &watched,
+		&hwDecode, &hwEncode, &e.DynamicRange, &e.PausedMs, &watched, &e.SessionCount,
 		&e.City, &e.Country, &e.ISP)
 	e.TranscodeHWDecode = hwDecode != 0
 	e.TranscodeHWEncode = hwEncode != 0
@@ -76,6 +76,31 @@ const historyDedupSQL = `SELECT 1 FROM watch_history
 
 const historyDedupWindow = 60 * time.Second
 
+type queryExecer interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+const sessionInsertSQL = `INSERT INTO watch_sessions
+	(history_id, duration_ms, watched_ms, paused_ms, player, platform, ip_address, started_at, stopped_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+
+func sessionInsertArgs(historyID int64, entry *models.WatchHistoryEntry) []any {
+	return []any{
+		historyID, entry.DurationMs, entry.WatchedMs, entry.PausedMs,
+		entry.Player, entry.Platform, entry.IPAddress,
+		entry.StartedAt, entry.StoppedAt,
+	}
+}
+
+func insertSession(ctx context.Context, qe queryExecer, historyID int64, entry *models.WatchHistoryEntry) error {
+	_, err := qe.ExecContext(ctx, sessionInsertSQL, sessionInsertArgs(historyID, entry)...)
+	if err != nil {
+		return fmt.Errorf("inserting session: %w", err)
+	}
+	return nil
+}
+
 const historyConsolidateWindow = 30 * time.Minute
 
 const historyConsolidateSQL = `SELECT id, duration_ms, watched_ms, paused_ms, stopped_at
@@ -85,7 +110,7 @@ const historyConsolidateSQL = `SELECT id, duration_ms, watched_ms, paused_ms, st
 	ORDER BY stopped_at DESC LIMIT 1`
 
 const historyConsolidateUpdateSQL = `UPDATE watch_history
-	SET stopped_at = ?, watched_ms = ?, paused_ms = ?, duration_ms = ?, watched = ?
+	SET stopped_at = ?, watched_ms = ?, paused_ms = ?, duration_ms = ?, watched = ?, session_count = session_count + 1
 	WHERE id = ?`
 
 type consolidationResult struct {
@@ -108,12 +133,7 @@ func mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs 
 	return m
 }
 
-type queryExecer interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
-
-func tryConsolidate(ctx context.Context, qe queryExecer, entry *models.WatchHistoryEntry, thresholdPct int) (bool, error) {
+func tryConsolidate(ctx context.Context, qe queryExecer, entry *models.WatchHistoryEntry, thresholdPct int) (int64, error) {
 	windowStart := entry.StartedAt.Add(-historyConsolidateWindow)
 
 	var existingID int64
@@ -124,10 +144,10 @@ func tryConsolidate(ctx context.Context, qe queryExecer, entry *models.WatchHist
 		windowStart, entry.StartedAt,
 	).Scan(&existingID, &existingDurationMs, &existingWatchedMs, &existingPausedMs, &existingStoppedAt)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+		return 0, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("checking consolidation: %w", err)
+		return 0, fmt.Errorf("checking consolidation: %w", err)
 	}
 
 	m := mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs, entry, thresholdPct)
@@ -139,9 +159,9 @@ func tryConsolidate(ctx context.Context, qe queryExecer, entry *models.WatchHist
 		newStoppedAt, m.WatchedMs, m.PausedMs, m.DurationMs, boolToInt(m.Watched), existingID,
 	)
 	if err != nil {
-		return false, fmt.Errorf("consolidating history: %w", err)
+		return 0, fmt.Errorf("consolidating history: %w", err)
 	}
-	return true, nil
+	return existingID, nil
 }
 
 func historyDedupArgs(entry *models.WatchHistoryEntry) []any {
@@ -185,11 +205,14 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		return fmt.Errorf("checking history dedup: %w", err)
 	}
 
-	consolidated, err := tryConsolidate(ctx, tx, entry, thresholdPct)
+	consolidatedID, err := tryConsolidate(ctx, tx, entry, thresholdPct)
 	if err != nil {
 		return err
 	}
-	if consolidated {
+	if consolidatedID > 0 {
+		if err := insertSession(ctx, tx, consolidatedID, entry); err != nil {
+			return err
+		}
 		return tx.Commit()
 	}
 
@@ -202,6 +225,9 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		return err
 	}
 	entry.ID = id
+	if err := insertSession(ctx, tx, id, entry); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -560,10 +586,16 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 	}
 	defer existsStmt.Close()
 
+	sessionStmt, err := tx.PrepareContext(ctx, sessionInsertSQL)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("prepare session insert: %w", err)
+	}
+	defer sessionStmt.Close()
+
 	for _, entry := range entries {
 		select {
 		case <-ctx.Done():
-			return inserted, skipped, consolidated, ctx.Err()
+			return 0, 0, 0, ctx.Err()
 		default:
 		}
 
@@ -574,21 +606,31 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			continue
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			return inserted, skipped, consolidated, fmt.Errorf("checking if entry exists: %w", err)
+			return 0, 0, 0, fmt.Errorf("checking if entry exists: %w", err)
 		}
 
-		merged, cErr := tryConsolidate(ctx, tx, entry, thresholdPct)
+		consolidatedID, cErr := tryConsolidate(ctx, tx, entry, thresholdPct)
 		if cErr != nil {
-			return inserted, skipped, consolidated, cErr
+			return 0, 0, 0, cErr
 		}
-		if merged {
+		if consolidatedID > 0 {
+			if _, err := sessionStmt.ExecContext(ctx, sessionInsertArgs(consolidatedID, entry)...); err != nil {
+				return 0, 0, 0, fmt.Errorf("inserting session: %w", err)
+			}
 			consolidated++
 			continue
 		}
 
-		_, err = insertStmt.ExecContext(ctx, historyInsertArgs(entry)...)
+		result, err := insertStmt.ExecContext(ctx, historyInsertArgs(entry)...)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("inserting entry: %w", err)
+		}
+		newID, err := result.LastInsertId()
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("getting last insert id: %w", err)
+		}
+		if _, err := sessionStmt.ExecContext(ctx, sessionInsertArgs(newID, entry)...); err != nil {
+			return 0, 0, 0, fmt.Errorf("inserting session: %w", err)
 		}
 		inserted++
 	}
@@ -667,4 +709,35 @@ func (s *Store) MarkHistoryEnriched(ctx context.Context, id int64) error {
 		return fmt.Errorf("marking history enriched: %w", err)
 	}
 	return nil
+}
+
+func (s *Store) GetHistoryOwner(historyID int64) (string, error) {
+	var userName string
+	err := s.db.QueryRow(`SELECT user_name FROM watch_history WHERE id = ?`, historyID).Scan(&userName)
+	if err != nil {
+		return "", err
+	}
+	return userName, nil
+}
+
+func (s *Store) ListSessionsForHistory(historyID int64) ([]models.WatchSession, error) {
+	rows, err := s.db.Query(
+		`SELECT id, history_id, duration_ms, watched_ms, paused_ms, player, platform,
+			ip_address, started_at, stopped_at, created_at
+		 FROM watch_sessions WHERE history_id = ? ORDER BY started_at ASC`, historyID)
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions for history: %w", err)
+	}
+	defer rows.Close()
+
+	sessions := []models.WatchSession{}
+	for rows.Next() {
+		var ws models.WatchSession
+		if err := rows.Scan(&ws.ID, &ws.HistoryID, &ws.DurationMs, &ws.WatchedMs, &ws.PausedMs,
+			&ws.Player, &ws.Platform, &ws.IPAddress, &ws.StartedAt, &ws.StoppedAt, &ws.CreatedAt); err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, ws)
+	}
+	return sessions, rows.Err()
 }

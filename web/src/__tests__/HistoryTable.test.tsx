@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithRouter } from '../test-utils'
 import { HistoryTable } from '../components/HistoryTable'
 import { baseHistoryEntry } from './fixtures'
+import { api } from '../lib/api'
 
 describe('HistoryTable', () => {
   beforeEach(() => {
@@ -161,5 +162,51 @@ describe('HistoryTable', () => {
 
     await user.click(userHeader) // clear - back to original order
     expect(getTableRows()[0].textContent).toContain('alice')
+  })
+
+  it('shows chevron for multi-session entries', () => {
+    const multiEntry = { ...baseHistoryEntry, session_count: 3 }
+    renderWithRouter(<HistoryTable entries={[multiEntry]} />)
+    expect(screen.getAllByTestId('session-chevron').length).toBeGreaterThan(0)
+  })
+
+  it('hides chevron for single-session entries', () => {
+    const singleEntry = { ...baseHistoryEntry, session_count: 1 }
+    renderWithRouter(<HistoryTable entries={[singleEntry]} />)
+    expect(screen.queryAllByTestId('session-chevron').length).toBe(0)
+  })
+
+  it('expands sessions on chevron click', async () => {
+    const user = userEvent.setup()
+    const multiEntry = { ...baseHistoryEntry, id: 42, session_count: 2 }
+
+    const mockSessions = [
+      {
+        id: 1, history_id: 42, duration_ms: 50000, watched_ms: 25000, paused_ms: 0,
+        player: 'Chrome', platform: 'Web', ip_address: '1.1.1.1',
+        started_at: '2024-06-15T12:00:00Z', stopped_at: '2024-06-15T13:00:00Z',
+        created_at: '2024-06-15T12:00:00Z',
+      },
+      {
+        id: 2, history_id: 42, duration_ms: 50000, watched_ms: 25000, paused_ms: 0,
+        player: 'iOS App', platform: 'iPhone', ip_address: '2.2.2.2',
+        started_at: '2024-06-15T13:10:00Z', stopped_at: '2024-06-15T14:00:00Z',
+        created_at: '2024-06-15T13:10:00Z',
+      },
+    ]
+
+    vi.spyOn(api, 'get').mockResolvedValueOnce(mockSessions)
+
+    renderWithRouter(<HistoryTable entries={[multiEntry]} />)
+
+    const chevrons = screen.getAllByTestId('session-chevron')
+    await user.click(chevrons[0])
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('session-row').length).toBe(2)
+    })
+    expect(api.get).toHaveBeenCalledWith('/api/history/42/sessions')
+
+    vi.restoreAllMocks()
   })
 })
