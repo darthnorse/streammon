@@ -499,13 +499,14 @@ func TestInsertHistoryDedupBoundary(t *testing.T) {
 	if err := s.InsertHistory(entry61); err != nil {
 		t.Fatalf("61s insert: %v", err)
 	}
-	if entry61.ID == 0 {
-		t.Error("61s gap: expected entry to be inserted (outside dedup window)")
+	// 61s is outside dedup but within consolidation window (overlapping sessions), so consolidated
+	if entry61.ID != 0 {
+		t.Error("61s gap: expected entry to be consolidated (overlapping session)")
 	}
 
 	result, _ := s.ListHistory(1, 10, "", "", "", nil)
-	if result.Total != 2 {
-		t.Errorf("expected 2 entries (original + 61s), got %d", result.Total)
+	if result.Total != 1 {
+		t.Errorf("expected 1 entry (61s consolidated into original), got %d", result.Total)
 	}
 }
 
@@ -1353,6 +1354,88 @@ func TestInsertHistoryBatchConsolidates(t *testing.T) {
 		if item.Title == "The Matrix" && item.WatchedMs != 50000 {
 			t.Errorf("consolidated row watched_ms = %d, want 50000", item.WatchedMs)
 		}
+	}
+}
+
+func TestInsertHistoryConsolidatesOverlapping(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	now := time.Now().UTC()
+	entryA := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", DurationMs: 100000, WatchedMs: 60000,
+		StartedAt: now.Add(-30 * time.Minute), StoppedAt: now.Add(-5 * time.Minute),
+	}
+	if err := s.InsertHistory(entryA); err != nil {
+		t.Fatalf("insert A: %v", err)
+	}
+
+	entryB := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", DurationMs: 100000, WatchedMs: 20000,
+		StartedAt: now.Add(-15 * time.Minute), StoppedAt: now,
+	}
+	if err := s.InsertHistory(entryB); err != nil {
+		t.Fatalf("insert B: %v", err)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 row after overlapping consolidation, got %d", result.Total)
+	}
+	row := result.Items[0]
+	if row.WatchedMs != 80000 {
+		t.Errorf("watched_ms = %d, want 80000", row.WatchedMs)
+	}
+	if !row.StoppedAt.Equal(now) {
+		t.Errorf("stopped_at = %v, want %v (later of the two)", row.StoppedAt, now)
+	}
+	if !row.StartedAt.Equal(entryA.StartedAt) {
+		t.Errorf("started_at = %v, want %v (entryA's start)", row.StartedAt, entryA.StartedAt)
+	}
+}
+
+func TestInsertHistoryConsolidatesChain(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	base := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	entries := []struct {
+		start, stop time.Time
+		watchedMs   int64
+	}{
+		{base, base.Add(10 * time.Minute), 10000},
+		{base.Add(10 * time.Minute), base.Add(20 * time.Minute), 10000},
+		{base.Add(20 * time.Minute), base.Add(30 * time.Minute), 10000},
+		{base.Add(30 * time.Minute), base.Add(40 * time.Minute), 10000},
+	}
+	for i, e := range entries {
+		if err := s.InsertHistory(&models.WatchHistoryEntry{
+			ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+			Title: "The Matrix", DurationMs: 100000, WatchedMs: e.watchedMs,
+			StartedAt: e.start, StoppedAt: e.stop,
+		}); err != nil {
+			t.Fatalf("insert %d: %v", i, err)
+		}
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 row after 4-entry chain consolidation, got %d", result.Total)
+	}
+	row := result.Items[0]
+	if row.WatchedMs != 40000 {
+		t.Errorf("watched_ms = %d, want 40000", row.WatchedMs)
+	}
+	if !row.StoppedAt.Equal(base.Add(40 * time.Minute)) {
+		t.Errorf("stopped_at = %v, want %v", row.StoppedAt, base.Add(40*time.Minute))
 	}
 }
 

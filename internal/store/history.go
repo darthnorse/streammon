@@ -80,10 +80,10 @@ const historyDedupWindow = 60 * time.Second
 
 const historyConsolidateWindow = 30 * time.Minute
 
-const historyConsolidateSQL = `SELECT id, duration_ms, watched_ms, paused_ms
+const historyConsolidateSQL = `SELECT id, duration_ms, watched_ms, paused_ms, stopped_at
 	FROM watch_history
 	WHERE server_id = ? AND user_name = ? AND title = ?
-	AND stopped_at >= ? AND stopped_at <= ?
+	AND stopped_at >= ? AND started_at < ?
 	ORDER BY stopped_at DESC LIMIT 1`
 
 const historyConsolidateUpdateSQL = `UPDATE watch_history SET stopped_at = ?, watched_ms = ?, paused_ms = ?, duration_ms = ?, watched = ? WHERE id = ?`
@@ -118,10 +118,11 @@ func tryConsolidate(ctx context.Context, qe queryExecer, entry *models.WatchHist
 
 	var existingID int64
 	var existingDurationMs, existingWatchedMs, existingPausedMs int64
+	var existingStoppedAt time.Time
 	err := qe.QueryRowContext(ctx, historyConsolidateSQL,
 		entry.ServerID, entry.UserName, entry.Title,
 		windowStart, entry.StartedAt,
-	).Scan(&existingID, &existingDurationMs, &existingWatchedMs, &existingPausedMs)
+	).Scan(&existingID, &existingDurationMs, &existingWatchedMs, &existingPausedMs, &existingStoppedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -130,8 +131,12 @@ func tryConsolidate(ctx context.Context, qe queryExecer, entry *models.WatchHist
 	}
 
 	m := mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs, entry, thresholdPct)
+	newStoppedAt := entry.StoppedAt
+	if existingStoppedAt.After(newStoppedAt) {
+		newStoppedAt = existingStoppedAt
+	}
 	_, err = qe.ExecContext(ctx, historyConsolidateUpdateSQL,
-		entry.StoppedAt, m.WatchedMs, m.PausedMs, m.DurationMs, boolToInt(m.Watched), existingID,
+		newStoppedAt, m.WatchedMs, m.PausedMs, m.DurationMs, boolToInt(m.Watched), existingID,
 	)
 	if err != nil {
 		return false, fmt.Errorf("consolidating history: %w", err)
@@ -587,14 +592,19 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 		windowStart := entry.StartedAt.Add(-historyConsolidateWindow)
 		var existingID int64
 		var existingDurationMs, existingWatchedMs, existingPausedMs int64
+		var existingStoppedAt time.Time
 		cErr := consolidateSelectStmt.QueryRowContext(ctx,
 			entry.ServerID, entry.UserName, entry.Title,
 			windowStart, entry.StartedAt,
-		).Scan(&existingID, &existingDurationMs, &existingWatchedMs, &existingPausedMs)
+		).Scan(&existingID, &existingDurationMs, &existingWatchedMs, &existingPausedMs, &existingStoppedAt)
 		if cErr == nil {
 			m := mergeConsolidation(existingWatchedMs, existingPausedMs, existingDurationMs, entry, thresholdPct)
+			newStoppedAt := entry.StoppedAt
+			if existingStoppedAt.After(newStoppedAt) {
+				newStoppedAt = existingStoppedAt
+			}
 			_, cErr = consolidateUpdateStmt.ExecContext(ctx,
-				entry.StoppedAt, m.WatchedMs, m.PausedMs, m.DurationMs, boolToInt(m.Watched), existingID,
+				newStoppedAt, m.WatchedMs, m.PausedMs, m.DurationMs, boolToInt(m.Watched), existingID,
 			)
 			if cErr != nil {
 				return inserted, skipped, consolidated, fmt.Errorf("consolidating history: %w", cErr)
