@@ -2,11 +2,13 @@ package store
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // isIgnorableAlterError handles repair migrations that re-add columns already present.
@@ -78,6 +80,9 @@ func (s *Store) applyMigration(dir, f string) error {
 		return nil
 	}
 
+	log.Printf("applying migration %s", f)
+	start := time.Now()
+
 	content, err := os.ReadFile(filepath.Join(dir, f))
 	if err != nil {
 		return fmt.Errorf("reading migration %s: %w", f, err)
@@ -102,5 +107,9 @@ func (s *Store) applyMigration(dir, f string) error {
 		return err
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	log.Printf("applied migration %s (took %s)", f, time.Since(start).Round(time.Millisecond))
+	return nil
 }
