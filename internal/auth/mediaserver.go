@@ -93,7 +93,7 @@ func (p *MediaServerProvider) validateAndAuthenticate(w http.ResponseWriter, r *
 	}
 
 	srv, err := p.store.GetServer(req.ServerID)
-	if err != nil || srv.Type != p.serverType || !srv.Enabled {
+	if err != nil || srv.Type != p.serverType || !srv.Enabled || srv.DeletedAt != nil {
 		writeJSONError(w, "server not available", http.StatusBadRequest)
 		return nil, nil, nil, false
 	}

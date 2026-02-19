@@ -4,6 +4,7 @@ import { HistoryTable, SortState } from '../components/HistoryTable'
 import { Pagination } from '../components/Pagination'
 import { Dropdown } from '../components/Dropdown'
 import { HISTORY_COLUMNS } from '../lib/historyColumns'
+import { buildServerOptions } from '../lib/utils'
 import type { WatchHistoryEntry, PaginatedResult, Server } from '../types'
 
 type PerPage = '10' | '20' | '50' | '100'
@@ -55,10 +56,7 @@ export function History() {
     setPage(1)
   }, [])
 
-  const serverOptions = (servers ?? []).map(s => ({
-    value: String(s.id),
-    label: s.name,
-  }))
+  const serverOptions = buildServerOptions(servers ?? [])
 
   return (
     <div>

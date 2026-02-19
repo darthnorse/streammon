@@ -69,6 +69,7 @@ type Server struct {
 	ShowRecentMedia bool       `json:"show_recent_media"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+	DeletedAt       *time.Time `json:"deleted_at,omitempty"`
 }
 
 func (s *Server) Validate() error {

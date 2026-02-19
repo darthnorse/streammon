@@ -13,6 +13,7 @@ import { RadarrForm } from '../components/RadarrForm'
 import { EmptyState } from '../components/EmptyState'
 import { IntegrationCard } from '../components/IntegrationCard'
 import { UserManagement } from '../components/UserManagement'
+import { ServerDeleteDialog } from '../components/ServerDeleteDialog'
 import { btnOutline, btnDanger } from '../lib/constants'
 
 const serverTypeColors: Record<string, string> = {
@@ -50,13 +51,18 @@ export function Settings() {
   const [showOverseerrForm, setShowOverseerrForm] = useState(false)
   const [showSonarrForm, setShowSonarrForm] = useState(false)
   const [showRadarrForm, setShowRadarrForm] = useState(false)
+  const [deletingServer, setDeletingServer] = useState<Server | null>(null)
+  const [deleteError, setDeleteError] = useState('')
   const [actionError, setActionError] = useState('')
+  const [restoringId, setRestoringId] = useState<number | null>(null)
   const [calculatingHouseholds, setCalculatingHouseholds] = useState(false)
   const [householdResult, setHouseholdResult] = useState<{ created: number } | null>(null)
   const [syncingAvatars, setSyncingAvatars] = useState(false)
   const [avatarSyncResult, setAvatarSyncResult] = useState<{ synced: number; updated: number; errors?: string[] } | null>(null)
 
   const serverList = servers ?? []
+  const activeServers = serverList.filter(s => !s.deleted_at)
+  const deletedServers = serverList.filter(s => s.deleted_at)
   const oidcConfigured = !!oidc?.issuer
   const tautulliConfigured = !!tautulli?.url
 
@@ -80,14 +86,37 @@ export function Settings() {
     refetchServers()
   }
 
-  async function handleDelete(server: Server) {
-    if (!window.confirm(`Delete "${server.name}"?`)) return
+  const handleDeleteConfirm = useCallback(async (keepHistory: boolean) => {
+    if (!deletingServer) return
     try {
-      await api.del(`/api/servers/${server.id}`)
+      const url = keepHistory
+        ? `/api/servers/${deletingServer.id}?keep_history=true`
+        : `/api/servers/${deletingServer.id}`
+      await api.del(url)
+      setDeleteError('')
+      setActionError('')
+      setDeletingServer(null)
+      refetchServers()
+    } catch {
+      setDeleteError('Failed to delete server. Please try again.')
+    }
+  }, [deletingServer, refetchServers])
+
+  const handleCancelDelete = useCallback(() => {
+    setDeletingServer(null)
+    setDeleteError('')
+  }, [])
+
+  async function handleRestore(server: Server) {
+    setRestoringId(server.id)
+    try {
+      await api.post(`/api/servers/${server.id}/restore`, {})
       setActionError('')
       refetchServers()
     } catch {
-      setActionError('Failed to delete server')
+      setActionError('Failed to restore server')
+    } finally {
+      setRestoringId(null)
     }
   }
 
@@ -224,14 +253,14 @@ export function Settings() {
             </EmptyState>
           )}
 
-          {!loading && !fetchError && serverList.length === 0 && (
+          {!loading && !fetchError && activeServers.length === 0 && deletedServers.length === 0 && (
             <EmptyState icon="&#9881;" title="No servers configured" description="Add a Plex, Emby, or Jellyfin server to get started" />
           )}
 
-          {!loading && !fetchError && serverList.length > 0 && (
+          {!loading && !fetchError && (activeServers.length > 0 || deletedServers.length > 0) && (
             <>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {serverList.map(srv => (
+                {activeServers.map(srv => (
                   <div key={srv.id} className="card card-hover p-5">
                     <div className="flex items-start justify-between mb-3">
                       <div className="min-w-0 flex-1">
@@ -258,13 +287,50 @@ export function Settings() {
                       <button onClick={() => openEdit(srv)} aria-label="Edit" className={btnOutline}>
                         Edit
                       </button>
-                      <button onClick={() => handleDelete(srv)} aria-label="Delete" className={btnDanger}>
+                      <button onClick={() => setDeletingServer(srv)} aria-label="Delete" className={btnDanger}>
                         Delete
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
+
+              {deletedServers.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-sm font-medium text-muted dark:text-muted-dark mb-3">Deleted Servers</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {deletedServers.map(srv => (
+                      <div key={srv.id} className="card p-5 opacity-60">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-semibold text-base truncate">{srv.name}</h3>
+                            <p className="text-xs text-muted dark:text-muted-dark mt-0.5">
+                              Deleted {srv.deleted_at && new Date(srv.deleted_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <span className="badge badge-muted ml-3 shrink-0">Deleted</span>
+                        </div>
+
+                        <div className="flex items-center gap-2 mb-4">
+                          <span className={`badge ${serverTypeColors[srv.type] ?? 'badge-muted'}`}>
+                            {srv.type}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
+                          <button
+                            onClick={() => handleRestore(srv)}
+                            disabled={restoringId === srv.id}
+                            className={btnOutline + (restoringId === srv.id ? ' opacity-50 cursor-not-allowed' : '')}
+                          >
+                            {restoringId === srv.id ? 'Restoring...' : 'Restore'}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="card p-5 mt-4">
                 <h3 className="font-semibold text-base mb-2">User Avatars</h3>
@@ -325,6 +391,15 @@ export function Settings() {
               server={editingServer}
               onClose={closeForm}
               onSaved={handleSaved}
+            />
+          )}
+
+          {deletingServer && (
+            <ServerDeleteDialog
+              server={deletingServer}
+              error={deleteError}
+              onConfirm={handleDeleteConfirm}
+              onCancel={handleCancelDelete}
             />
           )}
         </>
@@ -548,7 +623,7 @@ interface EnrichStartResponse {
 
 function TautulliEnrichment() {
   const { data: servers } = useFetch<Server[]>('/api/servers')
-  const plexServers = servers?.filter(s => s.type === 'plex')
+  const plexServers = servers?.filter(s => s.type === 'plex' && !s.deleted_at)
 
   const [selectedServer, setSelectedServer] = useState<number>(0)
   const [enrichStatus, setEnrichStatus] = useState<EnrichmentStatus | null>(null)

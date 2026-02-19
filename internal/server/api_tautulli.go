@@ -58,9 +58,13 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err := s.store.GetServer(req.ServerID)
+	srv, err := s.store.GetServer(req.ServerID)
 	if err != nil {
 		writeStoreError(w, err)
+		return
+	}
+	if srv.DeletedAt != nil {
+		writeError(w, http.StatusBadRequest, "server has been deleted")
 		return
 	}
 
@@ -252,8 +256,13 @@ func (s *Server) handleStartEnrichment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.GetServer(req.ServerID); err != nil {
+	srv, err := s.store.GetServer(req.ServerID)
+	if err != nil {
 		writeStoreError(w, err)
+		return
+	}
+	if srv.DeletedAt != nil {
+		writeError(w, http.StatusBadRequest, "server has been deleted")
 		return
 	}
 

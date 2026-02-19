@@ -85,14 +85,24 @@ func redactServerForViewer(srv models.Server) models.Server {
 }
 
 func (s *Server) handleListServers(w http.ResponseWriter, r *http.Request) {
-	servers, err := s.store.ListServers()
+	user := UserFromContext(r.Context())
+	isAdmin := user != nil && user.Role == models.RoleAdmin
+
+	// Admins see all servers (including deleted) for settings management;
+	// viewers only see active servers.
+	var servers []models.Server
+	var err error
+	if isAdmin {
+		servers, err = s.store.ListAllServers()
+	} else {
+		servers, err = s.store.ListServers()
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 
-	// Redact infrastructure details for non-admin users
-	if user := UserFromContext(r.Context()); user == nil || user.Role != models.RoleAdmin {
+	if !isAdmin {
 		for i := range servers {
 			servers[i] = redactServerForViewer(servers[i])
 		}
@@ -135,8 +145,13 @@ func (s *Server) handleGetServer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Redact infrastructure details for non-admin users
-	if user := UserFromContext(r.Context()); user == nil || user.Role != models.RoleAdmin {
+	user := UserFromContext(r.Context())
+	isAdmin := user != nil && user.Role == models.RoleAdmin
+	if !isAdmin {
+		if srv.DeletedAt != nil {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
 		redacted := redactServerForViewer(*srv)
 		srv = &redacted
 	}
@@ -160,6 +175,10 @@ func (s *Server) handleUpdateServer(w http.ResponseWriter, r *http.Request) {
 	existing, err := s.store.GetServer(id)
 	if err != nil {
 		writeStoreError(w, err)
+		return
+	}
+	if existing.DeletedAt != nil {
+		writeError(w, http.StatusBadRequest, "cannot update a deleted server")
 		return
 	}
 
@@ -209,15 +228,44 @@ func (s *Server) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid id")
 		return
 	}
-	if err := s.store.DeleteServer(id); err != nil {
-		writeStoreError(w, err)
-		return
+
+	if r.URL.Query().Get("keep_history") == "true" {
+		if err := s.store.SoftDeleteServer(id); err != nil {
+			writeStoreError(w, err)
+			return
+		}
+	} else {
+		if err := s.store.DeleteServer(id); err != nil {
+			writeStoreError(w, err)
+			return
+		}
 	}
+
 	if s.poller != nil {
 		s.poller.RemoveServer(id)
 	}
 	s.InvalidateLibraryCache()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRestoreServer(w http.ResponseWriter, r *http.Request) {
+	id, err := parseServerID(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid id")
+		return
+	}
+	if err := s.store.RestoreServer(id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	srv, err := s.store.GetServer(id)
+	if err != nil {
+		writeStoreError(w, err)
+		return
+	}
+	s.syncServerToPoller(srv)
+	s.InvalidateLibraryCache()
+	writeJSON(w, http.StatusOK, srv)
 }
 
 type testConnectionResult struct {
@@ -373,6 +421,10 @@ func (s *Server) handleTestServer(w http.ResponseWriter, r *http.Request) {
 	srv, err := s.store.GetServer(id)
 	if err != nil {
 		writeStoreError(w, err)
+		return
+	}
+	if srv.DeletedAt != nil {
+		writeError(w, http.StatusBadRequest, "cannot test a deleted server")
 		return
 	}
 	testConnection(w, r, *srv)

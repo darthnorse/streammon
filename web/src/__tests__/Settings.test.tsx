@@ -94,28 +94,56 @@ describe('Settings', () => {
     expect(screen.getByText(/edit server/i)).toBeDefined()
   })
 
-  it('deletes a server after confirmation', async () => {
+  it('shows delete confirmation modal with both options', async () => {
     mockApi.get.mockResolvedValue([baseServer])
-    mockApi.del.mockResolvedValue(undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     renderWithRouter(<Settings />)
     await waitFor(() => {
       expect(screen.getByText('My Plex')).toBeDefined()
     })
     fireEvent.click(screen.getByRole('button', { name: /delete/i }))
+    expect(screen.getByText(/keep watch history/i)).toBeDefined()
+    expect(screen.getByText(/delete everything/i)).toBeDefined()
+  })
+
+  it('soft deletes when keep history is selected', async () => {
+    mockApi.get.mockResolvedValue([baseServer])
+    mockApi.del.mockResolvedValue(undefined)
+    renderWithRouter(<Settings />)
+    await waitFor(() => {
+      expect(screen.getByText('My Plex')).toBeDefined()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }))
+    // "Keep watch history" is selected by default
+    fireEvent.click(screen.getByText('Delete Server'))
+    await waitFor(() => {
+      expect(mockApi.del).toHaveBeenCalledWith('/api/servers/1?keep_history=true')
+    })
+  })
+
+  it('hard deletes when delete everything is selected', async () => {
+    mockApi.get.mockResolvedValue([baseServer])
+    mockApi.del.mockResolvedValue(undefined)
+    renderWithRouter(<Settings />)
+    await waitFor(() => {
+      expect(screen.getByText('My Plex')).toBeDefined()
+    })
+    fireEvent.click(screen.getByRole('button', { name: /delete/i }))
+    // Select "Delete everything"
+    fireEvent.click(screen.getByText(/delete everything/i))
+    fireEvent.click(screen.getByText('Delete Everything'))
     await waitFor(() => {
       expect(mockApi.del).toHaveBeenCalledWith('/api/servers/1')
     })
   })
 
-  it('does not delete when confirm is cancelled', async () => {
+  it('cancels delete when modal is dismissed', async () => {
     mockApi.get.mockResolvedValue([baseServer])
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
     renderWithRouter(<Settings />)
     await waitFor(() => {
       expect(screen.getByText('My Plex')).toBeDefined()
     })
     fireEvent.click(screen.getByRole('button', { name: /delete/i }))
+    fireEvent.click(screen.getByText('Cancel'))
     expect(mockApi.del).not.toHaveBeenCalled()
   })
 
@@ -127,17 +155,45 @@ describe('Settings', () => {
     })
   })
 
-  it('shows error when delete fails', async () => {
+  it('shows error in modal when delete fails and keeps modal open', async () => {
     mockApi.get.mockResolvedValue([baseServer])
     renderWithRouter(<Settings />)
     await waitFor(() => {
       expect(screen.getByText('My Plex')).toBeDefined()
     })
     mockApi.del.mockRejectedValue(new Error('Server error'))
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
     fireEvent.click(screen.getByRole('button', { name: /delete/i }))
+    fireEvent.click(screen.getByText('Delete Server'))
     await waitFor(() => {
       expect(screen.getByText(/failed to delete/i)).toBeDefined()
+      // Modal should remain open — options still visible
+      expect(screen.getByText(/keep watch history/i)).toBeDefined()
+    })
+  })
+
+  it('shows deleted servers section with restore button', async () => {
+    const deletedServer = { ...baseServer, id: 2, name: 'Old Emby', type: 'emby' as const, deleted_at: '2024-06-01T00:00:00Z' }
+    mockApi.get.mockResolvedValue([baseServer, deletedServer])
+    renderWithRouter(<Settings />)
+    await waitFor(() => {
+      expect(screen.getByText('My Plex')).toBeDefined()
+      expect(screen.getByText('Old Emby')).toBeDefined()
+      expect(screen.getByText('Deleted Servers')).toBeDefined()
+      expect(screen.getByText('Restore')).toBeDefined()
+    })
+  })
+
+  it('restores a deleted server', async () => {
+    const deletedServer = { ...baseServer, id: 2, name: 'Old Emby', type: 'emby' as const, deleted_at: '2024-06-01T00:00:00Z' }
+    mockApi.get.mockResolvedValue([baseServer, deletedServer])
+    mockApi.post.mockResolvedValue({ ...deletedServer, deleted_at: undefined })
+    renderWithRouter(<Settings />)
+    await waitFor(() => {
+      expect(screen.getByText('Restore')).toBeDefined()
+    })
+    fireEvent.click(screen.getByText('Restore'))
+    await waitFor(() => {
+      expect(mockApi.post).toHaveBeenCalledWith('/api/servers/2/restore', {})
     })
   })
 })

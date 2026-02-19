@@ -14,6 +14,7 @@ export interface Server {
   show_recent_media: boolean
   created_at: string
   updated_at: string
+  deleted_at?: string
 }
 
 export interface User {

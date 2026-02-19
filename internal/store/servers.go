@@ -8,11 +8,15 @@ import (
 	"streammon/internal/models"
 )
 
-const serverColumns = `id, name, type, url, api_key, machine_id, enabled, show_recent_media, created_at, updated_at`
+const serverColumns = `id, name, type, url, api_key, machine_id, enabled, show_recent_media, created_at, updated_at, deleted_at`
 
 func scanServer(scanner interface{ Scan(...any) error }) (models.Server, error) {
 	var srv models.Server
-	err := scanner.Scan(&srv.ID, &srv.Name, &srv.Type, &srv.URL, &srv.APIKey, &srv.MachineID, &srv.Enabled, &srv.ShowRecentMedia, &srv.CreatedAt, &srv.UpdatedAt)
+	var deletedAt sql.NullTime
+	err := scanner.Scan(&srv.ID, &srv.Name, &srv.Type, &srv.URL, &srv.APIKey, &srv.MachineID, &srv.Enabled, &srv.ShowRecentMedia, &srv.CreatedAt, &srv.UpdatedAt, &deletedAt)
+	if deletedAt.Valid {
+		srv.DeletedAt = &deletedAt.Time
+	}
 	return srv, err
 }
 
@@ -28,6 +32,8 @@ func (s *Store) CreateServer(srv *models.Server) error {
 	return nil
 }
 
+// GetServer returns a server by ID, including soft-deleted servers.
+// Callers that need to guard against deleted servers should check DeletedAt.
 func (s *Store) GetServer(id int64) (*models.Server, error) {
 	srv, err := scanServer(s.db.QueryRow(
 		`SELECT `+serverColumns+` FROM servers WHERE id = ?`, id,
@@ -41,8 +47,8 @@ func (s *Store) GetServer(id int64) (*models.Server, error) {
 	return &srv, nil
 }
 
-func (s *Store) ListServers() ([]models.Server, error) {
-	rows, err := s.db.Query(`SELECT ` + serverColumns + ` FROM servers ORDER BY id`)
+func (s *Store) listServers(query string) ([]models.Server, error) {
+	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("listing servers: %w", err)
 	}
@@ -57,6 +63,16 @@ func (s *Store) ListServers() ([]models.Server, error) {
 		servers = append(servers, srv)
 	}
 	return servers, rows.Err()
+}
+
+// ListServers returns only active (non-deleted) servers.
+func (s *Store) ListServers() ([]models.Server, error) {
+	return s.listServers(`SELECT ` + serverColumns + ` FROM servers WHERE deleted_at IS NULL ORDER BY id`)
+}
+
+// ListAllServers returns all servers including soft-deleted ones.
+func (s *Store) ListAllServers() ([]models.Server, error) {
+	return s.listServers(`SELECT ` + serverColumns + ` FROM servers ORDER BY id`)
 }
 
 func (s *Store) UpdateServer(srv *models.Server) error {
@@ -122,6 +138,8 @@ func (s *Store) UpdateServerAtomic(existing, srv *models.Server) error {
 	return nil
 }
 
+// DeleteServer permanently removes a server and all its watch history.
+// Works on both active and soft-deleted servers.
 func (s *Store) DeleteServer(id int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -149,4 +167,38 @@ func (s *Store) DeleteServer(id int64) error {
 	}
 
 	return tx.Commit()
+}
+
+// SoftDeleteServer marks a server as deleted without removing any data.
+func (s *Store) SoftDeleteServer(id int64) error {
+	result, err := s.db.Exec(
+		`UPDATE servers SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL`, id)
+	if err != nil {
+		return fmt.Errorf("soft-deleting server: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("server %d: %w", id, models.ErrNotFound)
+	}
+	return nil
+}
+
+// RestoreServer clears the deleted_at timestamp, making the server active again.
+func (s *Store) RestoreServer(id int64) error {
+	result, err := s.db.Exec(
+		`UPDATE servers SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL`, id)
+	if err != nil {
+		return fmt.Errorf("restoring server: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("server %d: %w", id, models.ErrNotFound)
+	}
+	return nil
 }

@@ -13,6 +13,7 @@ import { ConcurrentStreamsChart } from '../components/stats/ConcurrentStreamsCha
 import { DatePicker } from '../components/DatePicker'
 import { useLocalToday } from '../hooks/useLocalToday'
 import { localDaysAgo } from '../lib/format'
+import { buildServerOptions } from '../lib/utils'
 import type { StatsResponse, Server } from '../types'
 
 type DaysFilter = 0 | 7 | 30 | 'custom'
@@ -97,10 +98,7 @@ export function Statistics() {
     localStorage.setItem(STORAGE_SERVERS, JSON.stringify(ids))
   }
 
-  const serverOptions = (servers ?? []).map(s => ({
-    value: String(s.id),
-    label: s.name,
-  }))
+  const serverOptions = buildServerOptions(servers ?? [])
 
   function renderContent() {
     if (days === 'custom' && (!startDate || !endDate)) {

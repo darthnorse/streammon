@@ -40,7 +40,7 @@ const selectClass = `w-full px-3 py-2.5 rounded-lg text-sm
 export function TautulliForm({ settings, onClose, onSaved }: TautulliFormProps) {
   const isEdit = !!settings?.url
   const { data: allServers } = useFetch<Server[]>('/api/servers')
-  const servers = allServers?.filter(s => s.type === 'plex')
+  const servers = allServers?.filter(s => s.type === 'plex' && !s.deleted_at)
 
   const [form, setForm] = useState<FormData>({
     url: settings?.url ?? '',

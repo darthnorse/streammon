@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"streammon/internal/auth"
 	"streammon/internal/models"
 )
 
@@ -253,6 +254,47 @@ func TestDeleteServerAPI(t *testing.T) {
 	}
 }
 
+func TestRestoreServerNotFoundAPI(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/999/restore", strings.NewReader("{}"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUpdateDeletedServerRejected(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	st.CreateServer(&models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex:32400", APIKey: "key", MachineID: "m123", Enabled: true})
+	st.SoftDeleteServer(1)
+
+	body := `{"name":"Updated","type":"plex","url":"http://plex:32400","api_key":"key","machine_id":"m123","enabled":true}`
+	req := httptest.NewRequest(http.MethodPut, "/api/servers/1", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for updating deleted server, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestTestDeletedServerRejected(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	st.CreateServer(&models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex:32400", APIKey: "key", Enabled: true})
+	st.SoftDeleteServer(1)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/1/test", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for testing deleted server, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestCreateServerWithMachineID(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
@@ -437,6 +479,150 @@ func TestUpdateServerPreservesMaintenanceDataOnSameURL(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 item preserved when URL unchanged, got %d", count)
+	}
+}
+
+func TestDeleteServerKeepHistory(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	server := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex:32400", APIKey: "key", Enabled: true}
+	st.CreateServer(server)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/servers/1?keep_history=true", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Server should still exist in ListAllServers with deleted_at set
+	all, err := st.ListAllServers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 1 {
+		t.Fatalf("expected 1 server, got %d", len(all))
+	}
+	if all[0].DeletedAt == nil {
+		t.Fatal("expected deleted_at to be set")
+	}
+
+	// Should be excluded from ListServers
+	active, err := st.ListServers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("expected 0 active servers, got %d", len(active))
+	}
+}
+
+func TestDeleteServerHardDeleteAPI(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	st.CreateServer(&models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex:32400", APIKey: "key", Enabled: true})
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/servers/1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Server should be completely gone
+	all, err := st.ListAllServers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 0 {
+		t.Fatalf("expected 0 servers, got %d", len(all))
+	}
+}
+
+func TestRestoreServerAPI(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	server := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex:32400", APIKey: "key", Enabled: true}
+	st.CreateServer(server)
+	st.SoftDeleteServer(server.ID)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/servers/1/restore", strings.NewReader("{}"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var restored models.Server
+	if err := json.NewDecoder(w.Body).Decode(&restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.DeletedAt != nil {
+		t.Fatal("expected deleted_at to be nil after restore")
+	}
+
+	// Should be back in active list
+	active, err := st.ListServers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(active) != 1 {
+		t.Fatalf("expected 1 active server, got %d", len(active))
+	}
+}
+
+func TestListServersAdminSeesDeleted(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	st.CreateServer(&models.Server{Name: "Active", Type: models.ServerTypePlex, URL: "http://a", APIKey: "k"})
+	st.CreateServer(&models.Server{Name: "Deleted", Type: models.ServerTypeEmby, URL: "http://b", APIKey: "k"})
+	st.SoftDeleteServer(2)
+
+	// Admin (default test user) sees both
+	req := httptest.NewRequest(http.MethodGet, "/api/servers", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var servers []models.Server
+	if err := json.NewDecoder(w.Body).Decode(&servers); err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 2 {
+		t.Fatalf("admin: expected 2 servers, got %d", len(servers))
+	}
+}
+
+func TestListServersViewerHidesDeleted(t *testing.T) {
+	srv, st := newTestServer(t)
+	st.CreateServer(&models.Server{Name: "Active", Type: models.ServerTypePlex, URL: "http://a", APIKey: "k"})
+	st.CreateServer(&models.Server{Name: "Deleted", Type: models.ServerTypeEmby, URL: "http://b", APIKey: "k"})
+	st.SoftDeleteServer(2)
+
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer", "viewer@test.local")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/servers", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var servers []models.Server
+	if err := json.NewDecoder(w.Body).Decode(&servers); err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 {
+		t.Fatalf("viewer: expected 1 server (active only), got %d", len(servers))
+	}
+	if servers[0].Name != "Active" {
+		t.Fatalf("viewer: expected 'Active', got %s", servers[0].Name)
+	}
+	// Viewer should not see URL (redacted)
+	if servers[0].URL != "" {
+		t.Fatal("viewer: expected URL to be redacted")
 	}
 }
 

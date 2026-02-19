@@ -64,6 +64,7 @@ func (s *Server) routes() {
 		r.Get("/servers/{id}", s.handleGetServer)
 		r.With(RequireRole(models.RoleAdmin)).Put("/servers/{id}", s.handleUpdateServer)
 		r.With(RequireRole(models.RoleAdmin)).Delete("/servers/{id}", s.handleDeleteServer)
+		r.With(RequireRole(models.RoleAdmin)).Post("/servers/{id}/restore", s.handleRestoreServer)
 		r.With(RequireRole(models.RoleAdmin)).Post("/servers/{id}/test", s.handleTestServer)
 
 		r.Get("/history", s.handleListHistory)
