@@ -13,6 +13,7 @@ import (
 func TestTrustScoreEndpointGuard(t *testing.T) {
 	t.Run("viewer cannot access own trust score when setting disabled", func(t *testing.T) {
 		srv, st := newTestServer(t)
+		st.SetGuestSettings(map[string]bool{"visible_trust_score": false})
 		viewerToken := createViewerSession(t, st, "viewer-ts1")
 
 		req := httptest.NewRequest(http.MethodGet, "/api/users/viewer-ts1/trust", nil)
@@ -27,7 +28,7 @@ func TestTrustScoreEndpointGuard(t *testing.T) {
 
 	t.Run("viewer can access own trust score when setting enabled", func(t *testing.T) {
 		srv, st := newTestServer(t)
-		if err := st.SetTrustScoreVisibility(true); err != nil {
+		if err := st.SetGuestSettings(map[string]bool{"visible_trust_score": true}); err != nil {
 			t.Fatal(err)
 		}
 		viewerToken := createViewerSession(t, st, "viewer-ts2")
@@ -44,7 +45,7 @@ func TestTrustScoreEndpointGuard(t *testing.T) {
 
 	t.Run("viewer cannot access other user trust score even when enabled", func(t *testing.T) {
 		srv, st := newTestServer(t)
-		if err := st.SetTrustScoreVisibility(true); err != nil {
+		if err := st.SetGuestSettings(map[string]bool{"visible_trust_score": true}); err != nil {
 			t.Fatal(err)
 		}
 		viewerToken := createViewerSession(t, st, "viewer-ts3")
@@ -73,7 +74,7 @@ func TestTrustScoreEndpointGuard(t *testing.T) {
 }
 
 func TestTrustScoreVisibility(t *testing.T) {
-	t.Run("get default returns false", func(t *testing.T) {
+	t.Run("get default returns true", func(t *testing.T) {
 		srv, _ := newTestServerWrapped(t)
 
 		req := httptest.NewRequest(http.MethodGet, "/api/settings/trust-visibility", nil)
@@ -88,8 +89,8 @@ func TestTrustScoreVisibility(t *testing.T) {
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		if resp.Enabled {
-			t.Fatal("expected disabled by default")
+		if !resp.Enabled {
+			t.Fatal("expected enabled by default")
 		}
 	})
 
@@ -104,7 +105,7 @@ func TestTrustScoreVisibility(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 
-		enabled, err := st.GetTrustScoreVisibility()
+		enabled, err := st.GetGuestSetting("visible_trust_score")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -115,7 +116,7 @@ func TestTrustScoreVisibility(t *testing.T) {
 
 	t.Run("put disables", func(t *testing.T) {
 		srv, st := newTestServerWrapped(t)
-		if err := st.SetTrustScoreVisibility(true); err != nil {
+		if err := st.SetGuestSettings(map[string]bool{"visible_trust_score": true}); err != nil {
 			t.Fatal(err)
 		}
 
@@ -127,7 +128,7 @@ func TestTrustScoreVisibility(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 
-		enabled, _ := st.GetTrustScoreVisibility()
+		enabled, _ := st.GetGuestSetting("visible_trust_score")
 		if enabled {
 			t.Fatal("expected disabled after PUT false")
 		}

@@ -701,3 +701,70 @@ func TestCleanupZombieSessions(t *testing.T) {
 		t.Fatalf("second CleanupZombieSessions: %v", err)
 	}
 }
+
+func TestGuestSettingsDefaults(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	gs, err := s.GetGuestSettings()
+	if err != nil {
+		t.Fatalf("GetGuestSettings: %v", err)
+	}
+	for key, val := range gs {
+		if !val {
+			t.Errorf("expected %s to default true, got false", key)
+		}
+	}
+	expected := []string{
+		"access_enabled", "store_plex_tokens", "show_discover",
+		"visible_trust_score", "visible_violations", "visible_watch_history",
+		"visible_household", "visible_devices", "visible_isps",
+	}
+	for _, k := range expected {
+		if _, ok := gs[k]; !ok {
+			t.Errorf("missing key %s", k)
+		}
+	}
+}
+
+func TestGuestSettingsRoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	updates := map[string]bool{
+		"visible_devices": false,
+		"visible_isps":    false,
+	}
+	if err := s.SetGuestSettings(updates); err != nil {
+		t.Fatalf("SetGuestSettings: %v", err)
+	}
+
+	gs, _ := s.GetGuestSettings()
+	if gs["visible_devices"] {
+		t.Fatal("expected visible_devices=false")
+	}
+	if gs["visible_isps"] {
+		t.Fatal("expected visible_isps=false")
+	}
+	if !gs["visible_trust_score"] {
+		t.Fatal("expected visible_trust_score=true (unchanged)")
+	}
+}
+
+func TestGuestSettingSingle(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	// Default
+	val, err := s.GetGuestSetting("visible_devices")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !val {
+		t.Fatal("expected default true")
+	}
+
+	// After setting false
+	s.SetGuestSettings(map[string]bool{"visible_devices": false})
+	val, _ = s.GetGuestSetting("visible_devices")
+	if val {
+		t.Fatal("expected false after update")
+	}
+}

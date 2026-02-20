@@ -10,7 +10,7 @@ type trustScoreVisibilityPayload struct {
 }
 
 func (s *Server) handleGetTrustScoreVisibility(w http.ResponseWriter, r *http.Request) {
-	enabled, err := s.store.GetTrustScoreVisibility()
+	enabled, err := s.store.GetGuestSetting("visible_trust_score")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
@@ -25,7 +25,7 @@ func (s *Server) handleUpdateTrustScoreVisibility(w http.ResponseWriter, r *http
 		return
 	}
 
-	if err := s.store.SetTrustScoreVisibility(req.Enabled); err != nil {
+	if err := s.store.SetGuestSettings(map[string]bool{"visible_trust_score": req.Enabled}); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}

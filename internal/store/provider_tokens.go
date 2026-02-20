@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	storePlexTokensKey = "overseerr.store_plex_tokens"
+	storePlexTokensKey = "guest.store_plex_tokens"
 	ProviderPlex       = "plex"
 )
 

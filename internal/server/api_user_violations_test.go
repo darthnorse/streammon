@@ -41,6 +41,7 @@ func setupViolation(t *testing.T, st interface {
 func TestUserViolations(t *testing.T) {
 	t.Run("viewer cannot access own violations when setting disabled", func(t *testing.T) {
 		srv, st := newTestServer(t)
+		st.SetGuestSettings(map[string]bool{"visible_trust_score": false})
 		viewerToken := createViewerSession(t, st, "viewer-v1")
 		setupViolation(t, st, "viewer-v1")
 
@@ -56,7 +57,7 @@ func TestUserViolations(t *testing.T) {
 
 	t.Run("viewer can access own violations when setting enabled", func(t *testing.T) {
 		srv, st := newTestServer(t)
-		if err := st.SetTrustScoreVisibility(true); err != nil {
+		if err := st.SetGuestSettings(map[string]bool{"visible_trust_score": true}); err != nil {
 			t.Fatal(err)
 		}
 		viewerToken := createViewerSession(t, st, "viewer-v2")
@@ -82,7 +83,7 @@ func TestUserViolations(t *testing.T) {
 
 	t.Run("viewer cannot access other user violations even when enabled", func(t *testing.T) {
 		srv, st := newTestServer(t)
-		if err := st.SetTrustScoreVisibility(true); err != nil {
+		if err := st.SetGuestSettings(map[string]bool{"visible_trust_score": true}); err != nil {
 			t.Fatal(err)
 		}
 		viewerToken := createViewerSession(t, st, "viewer-v3")

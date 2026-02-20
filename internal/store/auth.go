@@ -414,7 +414,7 @@ func (s *Store) UpdateUserEmail(userID int64, email string) error {
 }
 
 func (s *Store) GetGuestAccess() (bool, error) {
-	val, err := s.GetSetting("auth.guest_access")
+	val, err := s.GetSetting("guest.access_enabled")
 	if err != nil {
 		log.Printf("reading guest access setting: %v", err)
 		return false, nil
@@ -426,7 +426,7 @@ func (s *Store) GetGuestAccess() (bool, error) {
 			return false, nil
 		}
 		if val != "" {
-			_ = s.SetSetting("auth.guest_access", val)
+			_ = s.SetSetting("guest.access_enabled", val)
 			_ = s.SetSetting("auth.plex.guest_access", "")
 		}
 	}
@@ -438,7 +438,7 @@ func (s *Store) SetGuestAccess(allowed bool) error {
 	if allowed {
 		val = "true"
 	}
-	return s.SetSetting("auth.guest_access", val)
+	return s.SetSetting("guest.access_enabled", val)
 }
 
 // UpdateSessionActivity updates the last_used_at timestamp for a session

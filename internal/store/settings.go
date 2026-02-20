@@ -239,22 +239,64 @@ func (s *Store) SetWatchedThreshold(pct int) error {
 	return s.SetSetting(watchedThresholdKey, strconv.Itoa(pct))
 }
 
-const userTrustScoreVisibleKey = "users.trust_score_visible"
-
-func (s *Store) GetTrustScoreVisibility() (bool, error) {
-	val, err := s.GetSetting(userTrustScoreVisibleKey)
-	if err != nil {
-		return false, err
-	}
-	return val == "true", nil
+var guestSettingKeys = []string{
+	"access_enabled", "store_plex_tokens", "show_discover",
+	"visible_trust_score", "visible_violations", "visible_watch_history",
+	"visible_household", "visible_devices", "visible_isps",
 }
 
-func (s *Store) SetTrustScoreVisibility(enabled bool) error {
-	val := "false"
-	if enabled {
-		val = "true"
+func (s *Store) GetGuestSettings() (map[string]bool, error) {
+	result := make(map[string]bool, len(guestSettingKeys))
+	for _, k := range guestSettingKeys {
+		result[k] = true // default all true
 	}
-	return s.SetSetting(userTrustScoreVisibleKey, val)
+
+	rows, err := s.db.Query(`SELECT key, value FROM settings WHERE key LIKE 'guest.%'`)
+	if err != nil {
+		return nil, fmt.Errorf("querying guest settings: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, fmt.Errorf("scanning guest setting: %w", err)
+		}
+		short := strings.TrimPrefix(key, "guest.")
+		result[short] = value == "true"
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) SetGuestSettings(updates map[string]bool) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	for k, v := range updates {
+		val := "false"
+		if v {
+			val = "true"
+		}
+		if _, err := tx.Exec(settingUpsert, "guest."+k, val); err != nil {
+			return fmt.Errorf("setting guest.%s: %w", k, err)
+		}
+	}
+	return tx.Commit()
+}
+
+// GetGuestSetting returns a single guest setting value (defaults to true).
+func (s *Store) GetGuestSetting(key string) (bool, error) {
+	val, err := s.GetSetting("guest." + key)
+	if err != nil {
+		return true, err
+	}
+	if val == "" {
+		return true, nil
+	}
+	return val == "true", nil
 }
 
 const idleTimeoutKey = "session.idle_timeout_minutes"
@@ -284,23 +326,3 @@ func (s *Store) SetIdleTimeoutMinutes(min int) error {
 	return s.SetSetting(idleTimeoutKey, strconv.Itoa(min))
 }
 
-const showDiscoverKey = "display.show_discover"
-
-func (s *Store) GetShowDiscover() (bool, error) {
-	val, err := s.GetSetting(showDiscoverKey)
-	if err != nil {
-		return true, err
-	}
-	if val == "" {
-		return true, nil // default: show
-	}
-	return val == "true", nil
-}
-
-func (s *Store) SetShowDiscover(enabled bool) error {
-	val := "false"
-	if enabled {
-		val = "true"
-	}
-	return s.SetSetting(showDiscoverKey, val)
-}

@@ -10,7 +10,7 @@ type showDiscoverPayload struct {
 }
 
 func (s *Server) handleGetShowDiscover(w http.ResponseWriter, r *http.Request) {
-	enabled, err := s.store.GetShowDiscover()
+	enabled, err := s.store.GetGuestSetting("show_discover")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
@@ -25,7 +25,7 @@ func (s *Server) handleUpdateShowDiscover(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if err := s.store.SetShowDiscover(req.Enabled); err != nil {
+	if err := s.store.SetGuestSettings(map[string]bool{"show_discover": req.Enabled}); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}

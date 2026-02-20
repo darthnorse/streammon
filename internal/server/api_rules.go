@@ -303,7 +303,7 @@ func (s *Server) requireTrustScoreAccess(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
-	visible, err := s.store.GetTrustScoreVisibility()
+	visible, err := s.store.GetGuestSetting("visible_trust_score")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return false
