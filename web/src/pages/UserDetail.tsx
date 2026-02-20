@@ -43,14 +43,26 @@ export function UserDetail({ userName }: UserDetailProps) {
   const encodedName = encodeURIComponent(decodedName)
   const isOwnPage = currentUser?.name === decodedName
 
-  const { data: trustVisibility } = useFetch<{ enabled: boolean }>(
-    !isAdmin && isOwnPage ? '/api/settings/trust-visibility' : null
+  const { data: guestSettings } = useFetch<Record<string, boolean>>(
+    !isAdmin && isOwnPage ? '/api/settings/guest' : null
   )
-  const showTrustScore = isAdmin || (isOwnPage && trustVisibility?.enabled === true)
 
-  const tabs = showTrustScore ? allTabs : allTabs.filter(t => t.key !== 'violations')
+  const showTrustScore = isAdmin || (isOwnPage && guestSettings?.visible_trust_score !== false)
+  const showViolations = isAdmin || (isOwnPage && guestSettings?.visible_violations !== false)
+  const showWatchHistory = isAdmin || (isOwnPage && guestSettings?.visible_watch_history !== false)
+  const showHousehold = isAdmin || (isOwnPage && guestSettings?.visible_household !== false)
+  const showDevices = isAdmin || (isOwnPage && guestSettings?.visible_devices !== false)
+  const showISPs = isAdmin || (isOwnPage && guestSettings?.visible_isps !== false)
+  const showMap = showWatchHistory
+
+  const tabs = allTabs.filter(t => {
+    if (t.key === 'history' && !showWatchHistory) return false
+    if (t.key === 'violations' && !showViolations) return false
+    return true
+  })
 
   const [tab, setTab] = useState<Tab>('history')
+  const activeTab = tabs.some(t => t.key === tab) ? tab : tabs[0]?.key ?? 'history'
   const [page, setPage] = useState(1)
   const [violationsPage, setViolationsPage] = useState(1)
   const [sort, setSort] = useState<SortState | null>(null)
@@ -92,18 +104,18 @@ export function UserDetail({ userName }: UserDetailProps) {
   )
 
   const { data: locations, loading: locationsLoading, error: locationsError } = useFetch<GeoResult[]>(
-    userBaseUrl ? `${userBaseUrl}/locations` : null
+    showMap && userBaseUrl ? `${userBaseUrl}/locations` : null
   )
 
-  const historyUrl = decodedName
+  const historyUrl = showWatchHistory && decodedName
     ? `/api/history?user=${encodedName}&page=${page}&per_page=${PER_PAGE}${sortParams}`
     : null
   const { data: history, loading: historyLoading } = useFetch<PaginatedResult<WatchHistoryEntry>>(
-    tab === 'history' ? historyUrl : null
+    activeTab === 'history' ? historyUrl : null
   )
 
   const { data: violations, loading: violationsLoading } = useFetch<PaginatedResult<RuleViolation>>(
-    showTrustScore && tab === 'violations' && decodedName
+    showViolations && activeTab === 'violations' && decodedName
       ? `/api/users/${encodedName}/violations?page=${violationsPage}&per_page=${PER_PAGE}`
       : null
   )
@@ -173,12 +185,14 @@ export function UserDetail({ userName }: UserDetailProps) {
               <UserTrustScoreCard userName={decodedName} onViolationsClick={handleViolationsClick} />
             )}
           </div>
-          <div className={`grid grid-cols-1 md:grid-cols-2 ${isAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
-            {isAdmin && <UserHouseholdCard userName={decodedName} />}
-            <UserLocationsCard locations={stats.locations} />
-            <UserISPCard isps={stats.isps} />
-            <UserDevicesCard devices={stats.devices} />
-          </div>
+          {(showHousehold || showDevices || showISPs) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {showHousehold && <UserHouseholdCard userName={decodedName} />}
+              <UserLocationsCard locations={stats.locations} />
+              {showISPs && <UserISPCard isps={stats.isps} />}
+              {showDevices && <UserDevicesCard devices={stats.devices} />}
+            </div>
+          )}
         </>
       )}
 
@@ -188,7 +202,7 @@ export function UserDetail({ userName }: UserDetailProps) {
         </div>
       )}
 
-      {locations && locations.length > 0 && (
+      {showMap && locations && locations.length > 0 && (
         <div>
           <div className="flex justify-end mb-2">
             <ViewModeToggle viewMode={mapViewMode} onChange={setMapViewMode} />
@@ -210,7 +224,7 @@ export function UserDetail({ userName }: UserDetailProps) {
             key={t.key}
             onClick={() => handleTabChange(t.key)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors
-              ${tab === t.key
+              ${activeTab === t.key
                 ? 'border-accent text-accent-dim dark:text-accent'
                 : 'border-transparent text-muted dark:text-muted-dark hover:text-gray-800 dark:hover:text-gray-200'
               }`}
@@ -220,7 +234,7 @@ export function UserDetail({ userName }: UserDetailProps) {
         ))}
       </div>
 
-      {tab === 'history' && (
+      {activeTab === 'history' && (
         <div>
           {historyLoading ? (
             <div className="py-12 text-center text-muted dark:text-muted-dark text-sm">
@@ -241,7 +255,7 @@ export function UserDetail({ userName }: UserDetailProps) {
         </div>
       )}
 
-      {showTrustScore && tab === 'violations' && (
+      {showViolations && activeTab === 'violations' && (
         <div>
           {!violations && violationsLoading ? (
             <div className="py-12 text-center text-muted dark:text-muted-dark text-sm">

@@ -97,18 +97,18 @@ function mockFetchSequence(...values: ReturnType<typeof noData>[]) {
 }
 
 // useFetch calls in UserDetail, in hook order:
-//   1. trust-visibility (null URL for admin or non-own-page viewer → falls through to default noData mock)
+//   1. guest settings (null URL for admin or non-own-page viewer → falls through to default noData mock)
 //   2. user
 //   3. stats
-//   4. locations (always fetched)
-//   5. history (only when tab === 'history')
-//   6. violations (null URL unless showTrustScore && tab === 'violations')
-// Admin and non-own-page viewer tests don't need a trust-visibility mock;
+//   4. locations (conditional on showMap)
+//   5. history (only when activeTab === 'history' && showWatchHistory)
+//   6. violations (null URL unless showViolations && activeTab === 'violations')
+// Admin and non-own-page viewer tests don't need a guest settings mock;
 // the default noData() handles the null-URL call.
 function mockStandardPage(userOverride?: Partial<typeof baseUser>) {
   const user = userOverride ? { ...baseUser, ...userOverride } : baseUser
   mockFetchSequence(
-    noData(),           // trust-visibility (null URL for admin)
+    noData(),           // guest settings (null URL for admin)
     fetchResult(user),
     fetchResult(testStats),
     noData(),           // locations
@@ -125,7 +125,7 @@ describe('UserDetail', () => {
 
   it('shows page with username when user record not found (404)', () => {
     mockFetchSequence(
-      noData(),           // trust-visibility (null URL for admin)
+      noData(),           // guest settings (null URL for admin)
       fetchResult(null, new ApiError(404, 'not found')),
       fetchResult(testStats),
       noData(),           // locations
@@ -137,7 +137,7 @@ describe('UserDetail', () => {
 
   it('shows generic error for non-404', () => {
     mockFetchSequence(
-      noData(),           // trust-visibility (null URL for admin)
+      noData(),           // guest settings (null URL for admin)
       fetchResult(null, new ApiError(500, 'server error')),
     )
     renderAtRoute('/users/alice')
@@ -198,7 +198,7 @@ describe('UserDetail', () => {
 
   it('shows error message when stats fetch fails', () => {
     mockFetchSequence(
-      noData(),           // trust-visibility (null URL for admin)
+      noData(),           // guest settings (null URL for admin)
       fetchResult(baseUser),
       fetchResult(null, new ApiError(500, 'server error')),
       noData(),           // locations
@@ -221,18 +221,18 @@ describe('UserDetail', () => {
     expect(screen.queryByText('Violations')).toBeNull()
   })
 
-  it('hides household card for non-admin users', () => {
+  it('hides detail cards grid for non-admin users viewing other profiles', () => {
     mockUseAuth.mockReturnValue(viewerAuth)
     mockStandardPage()
     renderAtRoute('/users/alice')
     const grid = document.querySelector('.lg\\:grid-cols-3')
-    expect(grid).not.toBeNull()
+    expect(grid).toBeNull()
   })
 
-  it('uses 4-column grid for admin users', () => {
+  it('uses 3-column grid for cards', () => {
     mockStandardPage()
     renderAtRoute('/users/alice')
-    const grid = document.querySelector('.lg\\:grid-cols-4')
+    const grid = document.querySelector('.lg\\:grid-cols-3')
     expect(grid).not.toBeNull()
   })
 
