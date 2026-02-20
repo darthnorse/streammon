@@ -47,7 +47,9 @@ export function UserDetail({ userName }: UserDetailProps) {
     !isAdmin && isOwnPage ? '/api/settings/guest' : null
   )
 
-  const canShow = (key: string) => isAdmin || (isOwnPage && guestSettings?.[key] !== false)
+  type VisibilityKey = 'visible_trust_score' | 'visible_violations' | 'visible_watch_history' | 'visible_household' | 'visible_devices' | 'visible_isps'
+  const profileVisible = isAdmin || (isOwnPage && guestSettings?.visible_profile !== false)
+  const canShow = (key: VisibilityKey) => profileVisible && (isAdmin || (isOwnPage && guestSettings?.[key] !== false))
   const showTrustScore = canShow('visible_trust_score')
   const showViolations = canShow('visible_violations')
   const showWatchHistory = canShow('visible_watch_history')

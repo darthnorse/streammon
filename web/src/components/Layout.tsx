@@ -28,6 +28,7 @@ export function Layout() {
     sonarr: sonarrStatus?.configured ?? false,
     overseerr: overseerrConfigured,
     discover: isAdmin || (guestSettings?.show_discover ?? true),
+    profile: isAdmin || (guestSettings?.visible_profile ?? true),
   }), [sonarrStatus, overseerrConfigured, guestSettings, isAdmin])
 
   return (

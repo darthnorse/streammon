@@ -284,10 +284,6 @@ func (s *Server) handleTestNotificationChannel(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-// requireGuestVisibility checks that the current user is allowed to view
-// a particular section. Admins always pass. Non-admins must be viewing
-// their own data and the corresponding guest setting must be enabled.
-// Returns true if the request should continue; false means an error was written.
 func (s *Server) requireGuestVisibility(w http.ResponseWriter, r *http.Request, userName, settingKey string) bool {
 	user := UserFromContext(r.Context())
 	if user == nil {
@@ -298,6 +294,15 @@ func (s *Server) requireGuestVisibility(w http.ResponseWriter, r *http.Request, 
 		return true
 	}
 	if user.Name != userName {
+		writeError(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	profileVisible, err := s.store.GetGuestSetting("visible_profile")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return false
+	}
+	if !profileVisible {
 		writeError(w, http.StatusForbidden, "forbidden")
 		return false
 	}
@@ -529,7 +534,6 @@ func (s *Server) handleGetRuleChannels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, channels)
 }
 
-// invalidateRulesCache notifies the rules engine to clear its cache.
 func (s *Server) invalidateRulesCache() {
 	if s.rulesEngine != nil {
 		s.rulesEngine.InvalidateCache()

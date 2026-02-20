@@ -8,6 +8,7 @@ interface GuestSettings {
   access_enabled: boolean
   store_plex_tokens: boolean
   show_discover: boolean
+  visible_profile: boolean
   visible_trust_score: boolean
   visible_violations: boolean
   visible_watch_history: boolean
@@ -26,21 +27,23 @@ interface ToggleRowProps {
   saving: boolean
   settingKey: SettingKey
   onToggle: (key: SettingKey) => void
+  disabled?: boolean
 }
 
-function ToggleRow({ title, description, enabled, saving, settingKey, onToggle }: ToggleRowProps) {
+function ToggleRow({ title, description, enabled, saving, settingKey, onToggle, disabled }: ToggleRowProps) {
+  const isDisabled = saving || disabled
   return (
-    <div className="p-4 flex items-center justify-between">
+    <div className={`p-4 flex items-center justify-between ${disabled ? 'opacity-50' : ''}`}>
       <div>
         <h4 className="font-medium text-sm">{title}</h4>
         <p className="text-sm text-muted dark:text-muted-dark mt-0.5">{description}</p>
       </div>
       <button
         onClick={() => onToggle(settingKey)}
-        disabled={saving}
+        disabled={isDisabled}
         className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
           enabled ? 'bg-accent' : 'bg-gray-300 dark:bg-white/20'
-        } ${saving ? 'opacity-50 cursor-not-allowed' : ''}`}
+        } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
         role="switch"
         aria-checked={enabled}
       >
@@ -152,10 +155,18 @@ export function GuestAccessSettings() {
         <div className="p-4 border-b border-border dark:border-border-dark">
           <h3 className="font-semibold">Profile Visibility</h3>
           <p className="text-sm text-muted dark:text-muted-dark mt-0.5">
-            Control which sections viewers can see on their own profile page.
+            Control whether viewers can access their profile page and which sections are visible.
           </p>
         </div>
         <div className="divide-y divide-border dark:divide-border-dark">
+          <ToggleRow
+            settingKey="visible_profile"
+            title="Profile Access"
+            description="Allow viewers to access their profile page (My Stats). When disabled, hides the link and blocks all profile data."
+            enabled={get('visible_profile')}
+            saving={saving === 'visible_profile'}
+            onToggle={toggle}
+          />
           {visibilityToggles.map(t => (
             <ToggleRow
               key={t.key}
@@ -165,6 +176,7 @@ export function GuestAccessSettings() {
               enabled={get(t.key)}
               saving={saving === t.key}
               onToggle={toggle}
+              disabled={!get('visible_profile')}
             />
           ))}
         </div>

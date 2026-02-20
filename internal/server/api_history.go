@@ -41,13 +41,7 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 	userFilter := r.URL.Query().Get("user")
 	if vn := viewerName(r); vn != "" {
 		userFilter = vn
-		visible, err := s.store.GetGuestSetting("visible_watch_history")
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-		if !visible {
-			writeError(w, http.StatusForbidden, "forbidden")
+		if !s.requireGuestVisibility(w, r, vn, "visible_watch_history") {
 			return
 		}
 	}
@@ -107,13 +101,7 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if vn := viewerName(r); vn != "" {
-		visible, err := s.store.GetGuestSetting("visible_watch_history")
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-		if !visible {
-			writeError(w, http.StatusForbidden, "forbidden")
+		if !s.requireGuestVisibility(w, r, vn, "visible_watch_history") {
 			return
 		}
 		owner, err := s.store.GetHistoryOwner(id)
@@ -157,13 +145,7 @@ func (s *Server) handleDailyHistory(w http.ResponseWriter, r *http.Request) {
 
 	userFilter := viewerName(r)
 	if userFilter != "" {
-		visible, err := s.store.GetGuestSetting("visible_watch_history")
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
-		if !visible {
-			writeError(w, http.StatusForbidden, "forbidden")
+		if !s.requireGuestVisibility(w, r, userFilter, "visible_watch_history") {
 			return
 		}
 	}

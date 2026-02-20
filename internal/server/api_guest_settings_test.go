@@ -41,6 +41,9 @@ func TestGuestSettingsAPI(t *testing.T) {
 		if resp.StorePlexTokens {
 			t.Error("expected store_plex_tokens default false")
 		}
+		if !resp.VisibleProfile {
+			t.Error("expected visible_profile default true")
+		}
 	})
 
 	t.Run("put partial update", func(t *testing.T) {
@@ -190,6 +193,65 @@ func TestGuestVisibilityEnforcement(t *testing.T) {
 		})
 	}
 
+	t.Run("visible_profile=false blocks all profile endpoints", func(t *testing.T) {
+		profileEndpoints := []struct {
+			name        string
+			viewerName  string
+			urlSuffix   string
+			urlOverride string
+		}{
+			{"trust score", "prof-trust", "/trust", ""},
+			{"violations", "prof-viol", "/violations?page=1&per_page=10", ""},
+			{"stats", "prof-stats", "/stats", ""},
+			{"household", "prof-hh", "/household", ""},
+			{"locations", "prof-loc", "/locations", ""},
+			{"history", "prof-hist", "", "/api/history?user=%s&page=1&per_page=10"},
+			{"daily history", "prof-daily", "", "/api/history/daily?start=2025-01-01&end=2025-01-31"},
+			{"sessions", "prof-sess", "", "/api/history/1/sessions"},
+		}
+		for _, ep := range profileEndpoints {
+			t.Run(ep.name, func(t *testing.T) {
+				srv, st := newTestServer(t)
+				viewerToken := createViewerSession(t, st, ep.viewerName)
+				if err := st.SetGuestSettings(map[string]bool{"visible_profile": false}); err != nil {
+					t.Fatalf("SetGuestSettings: %v", err)
+				}
+
+				url := "/api/users/" + ep.viewerName + ep.urlSuffix
+				if ep.urlOverride != "" {
+					if strings.Contains(ep.urlOverride, "%s") {
+						url = fmt.Sprintf(ep.urlOverride, ep.viewerName)
+					} else {
+						url = ep.urlOverride
+					}
+				}
+				req := httptest.NewRequest(http.MethodGet, url, nil)
+				req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+				w := httptest.NewRecorder()
+				srv.ServeHTTP(w, req)
+
+				if w.Code != http.StatusForbidden {
+					t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+				}
+			})
+		}
+	})
+
+	t.Run("admin bypasses visible_profile=false", func(t *testing.T) {
+		srv, st := newTestServerWrapped(t)
+		if err := st.SetGuestSettings(map[string]bool{"visible_profile": false}); err != nil {
+			t.Fatalf("SetGuestSettings: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/users/test-admin/trust", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code == http.StatusForbidden {
+			t.Fatal("admin should not get 403 when visible_profile is false")
+		}
+	})
+
 	t.Run("viewer allowed trust score when enabled", func(t *testing.T) {
 		srv, st := newTestServer(t)
 		viewerToken := createViewerSession(t, st, "bob-vis")
@@ -241,6 +303,7 @@ func TestGuestVisibilityEnforcement(t *testing.T) {
 	t.Run("admin always sees everything regardless of settings", func(t *testing.T) {
 		srv, st := newTestServerWrapped(t)
 		if err := st.SetGuestSettings(map[string]bool{
+			"visible_profile":       false,
 			"visible_trust_score":   false,
 			"visible_violations":    false,
 			"visible_watch_history": false,

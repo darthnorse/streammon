@@ -72,7 +72,7 @@ beforeEach(() => {
 })
 
 function mockStats(servers: Server[] | null = null) {
-  mockUseFetch.mockImplementation((url: string) => {
+  mockUseFetch.mockImplementation((url: string | null) => {
     if (url === '/api/servers') {
       return { data: servers, loading: false, error: null, refetch: vi.fn() }
     }
@@ -177,7 +177,7 @@ describe('Statistics', () => {
   })
 
   it('keeps filters visible during loading state', () => {
-    mockUseFetch.mockImplementation((url: string) => {
+    mockUseFetch.mockImplementation((url: string | null) => {
       if (url === '/api/servers') {
         return { data: null, loading: false, error: null, refetch: vi.fn() }
       }
@@ -190,7 +190,7 @@ describe('Statistics', () => {
   })
 
   it('keeps filters visible during error state', () => {
-    mockUseFetch.mockImplementation((url: string) => {
+    mockUseFetch.mockImplementation((url: string | null) => {
       if (url === '/api/servers') {
         return { data: null, loading: false, error: null, refetch: vi.fn() }
       }

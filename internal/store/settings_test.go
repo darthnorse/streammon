@@ -607,6 +607,7 @@ func TestGuestSettingsDefaults(t *testing.T) {
 	}
 	expected := []string{
 		"access_enabled", "store_plex_tokens", "show_discover",
+		"visible_profile",
 		"visible_trust_score", "visible_violations", "visible_watch_history",
 		"visible_household", "visible_devices", "visible_isps",
 	}

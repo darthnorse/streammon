@@ -20,7 +20,7 @@ afterEach(() => {
 const emptyFetch = { data: null, loading: false, error: null, refetch: vi.fn() }
 
 function mockHistory(data: PaginatedResult<WatchHistoryEntry> | null, opts?: { loading?: boolean; error?: Error | null }) {
-  mockUseFetch.mockImplementation((url: string) => {
+  mockUseFetch.mockImplementation((url: string | null) => {
     if (url === '/api/servers') return { ...emptyFetch, data: [] }
     return { data, loading: opts?.loading ?? false, error: opts?.error ?? null, refetch: vi.fn() }
   })
@@ -75,7 +75,7 @@ describe('History', () => {
       page: 1,
       per_page: 20,
     }
-    mockUseFetch.mockImplementation((url: string) => {
+    mockUseFetch.mockImplementation((url: string | null) => {
       if (url === '/api/servers') return { ...emptyFetch, data: servers }
       return { data, loading: false, error: null, refetch: vi.fn() }
     })
@@ -95,8 +95,8 @@ describe('History', () => {
       per_page: 20,
     }
     const calledUrls: string[] = []
-    mockUseFetch.mockImplementation((url: string) => {
-      calledUrls.push(url)
+    mockUseFetch.mockImplementation((url: string | null) => {
+      if (url) calledUrls.push(url)
       if (url === '/api/servers') return { ...emptyFetch, data: servers }
       return { data, loading: false, error: null, refetch: vi.fn() }
     })
@@ -120,7 +120,7 @@ describe('History', () => {
       page: 1,
       per_page: 20,
     }
-    mockUseFetch.mockImplementation((url: string) => {
+    mockUseFetch.mockImplementation((url: string | null) => {
       if (url === '/api/servers') return { ...emptyFetch, data: [baseServer] }
       return { data, loading: false, error: null, refetch: vi.fn() }
     })

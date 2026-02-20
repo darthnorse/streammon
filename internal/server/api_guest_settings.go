@@ -14,6 +14,7 @@ type guestSettingsResponse struct {
 	AccessEnabled       bool `json:"access_enabled"`
 	StorePlexTokens     bool `json:"store_plex_tokens"`
 	ShowDiscover        bool `json:"show_discover"`
+	VisibleProfile      bool `json:"visible_profile"`
 	VisibleTrustScore   bool `json:"visible_trust_score"`
 	VisibleViolations   bool `json:"visible_violations"`
 	VisibleWatchHistory bool `json:"visible_watch_history"`
@@ -33,6 +34,7 @@ func (s *Server) handleGetGuestSettings(w http.ResponseWriter, r *http.Request) 
 		AccessEnabled:       gs["access_enabled"],
 		StorePlexTokens:     gs["store_plex_tokens"],
 		ShowDiscover:        gs["show_discover"],
+		VisibleProfile:      gs["visible_profile"],
 		VisibleTrustScore:   gs["visible_trust_score"],
 		VisibleViolations:   gs["visible_violations"],
 		VisibleWatchHistory: gs["visible_watch_history"],
