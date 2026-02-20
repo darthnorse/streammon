@@ -8,7 +8,8 @@ import { useItemDetails } from '../hooks/useItemDetails'
 import { api, ApiError } from '../lib/api'
 import { PER_PAGE_OPTIONS, SERVER_ACCENT } from '../lib/constants'
 import { readSSEStream } from '../lib/sse'
-import { formatCount, formatSize } from '../lib/format'
+import { formatCount, formatSize, formatShortDate } from '../lib/format'
+import { useUnits } from '../hooks/useUnits'
 import { Pagination } from './Pagination'
 import { MediaDetailModal } from './MediaDetailModal'
 import { MaintenanceRuleForm } from './MaintenanceRuleForm'
@@ -115,6 +116,15 @@ function formatSyncProgress(state: SyncProgress, libraryName?: string): string {
     default:
       return `${prefix}Syncing...`
   }
+}
+
+function formatSeriesStatus(status: string | undefined): JSX.Element {
+  if (!status) return <span>-</span>
+  const label = status.charAt(0).toUpperCase() + status.slice(1)
+  let color: string | undefined
+  if (status === 'ended') color = 'text-red-400'
+  else if (status === 'continuing') color = 'text-green-400'
+  return <span className={color}>{label}</span>
 }
 
 type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at'
@@ -245,6 +255,7 @@ function CandidatesView({
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
   const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
   const mountedRef = useMountedRef()
+  const units = useUnits()
   const deleteAbortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
@@ -262,8 +273,34 @@ function CandidatesView({
     `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}${sortParam}${libraryFilterParam}`
   )
 
+  const isTV = rule.media_type === 'episode'
+  const { data: sonarrConfig } = useFetch<{ configured: boolean }>(isTV ? '/api/sonarr/configured' : null)
+  const sonarrConfigured = sonarrConfig?.configured === true
+
+  const [seriesStatuses, setSeriesStatuses] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    let ignore = false
+    if (!isTV || !sonarrConfigured || !data?.items?.length) {
+      setSeriesStatuses({})
+      return
+    }
+    const tvdbIds = [...new Set(
+      data.items.map(c => c.item?.tvdb_id).filter((id): id is string => !!id)
+    )]
+    if (!tvdbIds.length) {
+      setSeriesStatuses({})
+      return
+    }
+    api.post<Record<string, string>>('/api/sonarr/series/statuses', { tvdb_ids: tvdbIds })
+      .then(res => { if (!ignore && mountedRef.current) setSeriesStatuses(res) })
+      .catch((err: unknown) => { console.debug('Sonarr status fetch failed:', err) })
+    return () => { ignore = true }
+  }, [data?.items, isTV, sonarrConfigured])
+
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
   const filteredItems = data?.items || []
+  const showStatus = sonarrConfigured && Object.keys(seriesStatuses).length > 0
 
   const {
     selected,
@@ -614,8 +651,14 @@ function CandidatesView({
                     <SortHeader field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Title</SortHeader>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">Library</th>
                     <SortHeader field="year" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Year</SortHeader>
-                    <SortHeader field="resolution" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Resolution</SortHeader>
+                    {!isTV && (
+                      <SortHeader field="resolution" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Resolution</SortHeader>
+                    )}
                     <SortHeader field="size" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Size</SortHeader>
+                    <SortHeader field="added_at" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Added</SortHeader>
+                    {showStatus && (
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">Status</th>
+                    )}
                     <SortHeader field="reason" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Reason</SortHeader>
                     <th className="px-4 py-3 w-10"></th>
                   </tr>
@@ -653,12 +696,24 @@ function CandidatesView({
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {candidate.item?.year || '-'}
                       </td>
-                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
-                        {candidate.item?.video_resolution || '-'}
-                      </td>
+                      {!isTV && (
+                        <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                          {candidate.item?.video_resolution || '-'}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {candidate.item?.file_size ? formatSize(candidate.item.file_size) : '-'}
                       </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark whitespace-nowrap">
+                        {candidate.item?.added_at ? formatShortDate(candidate.item.added_at, units.isMetric) : '-'}
+                      </td>
+                      {showStatus && (
+                        <td className="px-4 py-3 text-muted dark:text-muted-dark whitespace-nowrap">
+                          {candidate.item?.tvdb_id
+                            ? formatSeriesStatus(seriesStatuses[candidate.item.tvdb_id])
+                            : '-'}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-sm text-amber-500">
                         {candidate.reason}
                       </td>

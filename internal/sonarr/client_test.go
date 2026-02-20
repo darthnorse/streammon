@@ -193,6 +193,51 @@ func TestDeleteSeriesFailure(t *testing.T) {
 	}
 }
 
+func TestListSeriesStatuses(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v3/series" {
+			t.Errorf("expected path /api/v3/series, got %s", r.URL.Path)
+		}
+		json.NewEncoder(w).Encode([]map[string]any{
+			{"tvdbId": 12345, "status": "continuing", "title": "Show A"},
+			{"tvdbId": 67890, "status": "ended", "title": "Show B"},
+			{"tvdbId": 0, "status": "deleted", "title": "No TVDB"},
+		})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	statuses, err := c.ListSeriesStatuses(context.Background())
+	if err != nil {
+		t.Fatalf("ListSeriesStatuses: %v", err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("expected 2 statuses (tvdbId=0 filtered), got %d", len(statuses))
+	}
+	if statuses[0].TVDBID != 12345 || statuses[0].Status != "continuing" {
+		t.Fatalf("expected {12345, continuing}, got %+v", statuses[0])
+	}
+	if statuses[1].TVDBID != 67890 || statuses[1].Status != "ended" {
+		t.Fatalf("expected {67890, ended}, got %+v", statuses[1])
+	}
+}
+
+func TestListSeriesStatusesEmpty(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]map[string]any{})
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	statuses, err := c.ListSeriesStatuses(context.Background())
+	if err != nil {
+		t.Fatalf("ListSeriesStatuses: %v", err)
+	}
+	if len(statuses) != 0 {
+		t.Fatalf("expected 0 statuses, got %d", len(statuses))
+	}
+}
+
 func TestGetCalendar(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v3/calendar" {

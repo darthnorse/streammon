@@ -37,7 +37,7 @@ func GetCriterionTypes() []models.CriterionTypeInfo {
 			Type:        models.CriterionLowResolution,
 			Name:        "Low Resolution",
 			Description: "Items with resolution at or below threshold",
-			MediaTypes:  []models.MediaType{models.MediaTypeMovie, models.MediaTypeTV},
+			MediaTypes:  []models.MediaType{models.MediaTypeMovie},
 			Parameters: []models.ParamSpec{
 				{Name: "max_height", Type: "int", Label: "Max resolution height", Default: DefaultMaxHeight, Min: &minHeight, Max: &maxHeight},
 			},

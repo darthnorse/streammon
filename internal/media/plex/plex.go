@@ -440,15 +440,15 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 		StartedAt:         time.Now().UTC(),
 		State:             plexPlayerState(item.Player.State),
 	}
-	// ThumbURL stores either a rating key (e.g., "55555") or a path fragment
-	// (e.g., "library/metadata/12345/thumb/123"). The thumb proxy handler
-	// (api_thumb.go) handles both: paths with "/" use the full path, otherwise
-	// it constructs /library/metadata/{id}/thumb. For episodes, we prefer the
-	// series poster (grandparentRatingKey) over the episode thumbnail.
+	// ThumbURL stores a rating key (e.g., "55555"), a local path fragment
+	// (e.g., "library/metadata/12345/thumb/123"), or an external HTTP URL.
+	// The thumb proxy handler (api_thumb.go) handles keys and paths; external
+	// URLs are passed through to the frontend directly. For episodes, we prefer
+	// the series poster (grandparentRatingKey) over the episode thumbnail.
 	if item.GrandparentThumb != "" && item.GrandparentRatingKey != "" {
 		as.ThumbURL = item.GrandparentRatingKey
 	} else if item.Thumb != "" {
-		as.ThumbURL = strings.TrimLeft(item.Thumb, "/")
+		as.ThumbURL = normalizeThumb(item.Thumb)
 	}
 
 	// Media element contains transcoded output during transcoding, not source
@@ -595,6 +595,13 @@ func plexSessionID(item plexItem) string {
 		return item.SessionKey
 	}
 	return item.Session.ID
+}
+
+func normalizeThumb(path string) string {
+	if path == "" || strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+	return strings.TrimLeft(path, "/")
 }
 
 func atoi(s string) int {

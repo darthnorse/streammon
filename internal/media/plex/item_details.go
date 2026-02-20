@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"streammon/internal/httputil"
 	"streammon/internal/models"
@@ -120,11 +119,11 @@ func parseItemDetails(data []byte, serverID int64, serverName string) (*models.I
 		cast = append(cast, models.CastMember{
 			Name:     r.Tag,
 			Role:     r.Role,
-			ThumbURL: strings.TrimLeft(r.Thumb, "/"),
+			ThumbURL: normalizeThumb(r.Thumb),
 		})
 	}
 
-	thumbURL := strings.TrimLeft(item.Thumb, "/")
+	thumbURL := normalizeThumb(item.Thumb)
 
 	details := &models.ItemDetails{
 		ID:            item.RatingKey,

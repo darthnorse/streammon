@@ -55,6 +55,14 @@ export function formatDate(iso: string): string {
   })
 }
 
+export function formatShortDate(iso: string, isMetric: boolean): string {
+  const d = new Date(iso)
+  const day = String(d.getDate()).padStart(2, '0')
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const year = d.getFullYear()
+  return isMetric ? `${day}/${month}/${year}` : `${month}/${day}/${year}`
+}
+
 export function formatRelativeTime(isoDate: string): string {
   const date = new Date(isoDate)
   const now = new Date()
@@ -185,6 +193,7 @@ export function localDaysAgo(n: number): string {
 }
 
 export function thumbUrl(serverId: number, thumbPath: string): string {
+  if (thumbPath.startsWith('http://') || thumbPath.startsWith('https://')) return thumbPath
   const normalized = thumbPath.replace(/^\/+/, '')
   return `/api/servers/${serverId}/thumb/${normalized}`
 }

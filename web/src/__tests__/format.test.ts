@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatTimestamp, formatDuration, formatDate, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, formatAudioCodec, formatVideoCodec, formatLocation, thumbUrl } from '../lib/format'
+import { formatTimestamp, formatDuration, formatDate, formatShortDate, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, formatAudioCodec, formatVideoCodec, formatLocation, thumbUrl } from '../lib/format'
 
 describe('formatTimestamp', () => {
   it('formats seconds only', () => {
@@ -52,6 +52,19 @@ describe('formatDate', () => {
   it('returns a formatted date string containing the year', () => {
     const result = formatDate('2024-06-15T12:00:00Z')
     expect(result).toContain('2024')
+  })
+})
+
+describe('formatShortDate', () => {
+  it('formats imperial MM/DD/YYYY', () => {
+    expect(formatShortDate('2024-06-05T12:00:00Z', false)).toBe('06/05/2024')
+  })
+  it('formats metric DD/MM/YYYY', () => {
+    expect(formatShortDate('2024-06-05T12:00:00Z', true)).toBe('05/06/2024')
+  })
+  it('pads single-digit day and month', () => {
+    expect(formatShortDate('2024-01-03T12:00:00Z', false)).toBe('01/03/2024')
+    expect(formatShortDate('2024-01-03T12:00:00Z', true)).toBe('03/01/2024')
   })
 })
 
@@ -160,6 +173,12 @@ describe('thumbUrl', () => {
   })
   it('handles numeric rating key', () => {
     expect(thumbUrl(1, '55555')).toBe('/api/servers/1/thumb/55555')
+  })
+  it('passes through http URLs directly', () => {
+    expect(thumbUrl(1, 'http://image.tmdb.org/t/p/original/actor.jpg')).toBe('http://image.tmdb.org/t/p/original/actor.jpg')
+  })
+  it('passes through https URLs directly', () => {
+    expect(thumbUrl(1, 'https://metadata-static.plex.tv/people/5d776/thumb.jpg')).toBe('https://metadata-static.plex.tv/people/5d776/thumb.jpg')
   })
 })
 

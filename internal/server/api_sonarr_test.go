@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,6 +30,11 @@ func mockSonarr(t *testing.T) *httptest.Server {
 					"hasFile": false, "monitored": true,
 					"series": map[string]any{"id": 10, "title": "Test Show"},
 				},
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v3/series" && r.URL.Query().Get("tvdbId") == "":
+			json.NewEncoder(w).Encode([]map[string]any{
+				{"tvdbId": 12345, "status": "continuing", "title": "Show A"},
+				{"tvdbId": 67890, "status": "ended", "title": "Show B"},
 			})
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v3/series/"):
 			json.NewEncoder(w).Encode(map[string]any{
@@ -313,6 +319,102 @@ func TestSonarrSeries_NotConfigured(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSonarrSeriesStatuses(t *testing.T) {
+	srv, _ := newSonarrTestServer(t)
+
+	body := `{"tvdb_ids":["12345","99999"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sonarr/series/statuses", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]string
+	json.NewDecoder(w.Body).Decode(&result)
+	if result["12345"] != "continuing" {
+		t.Fatalf("expected 12345=continuing, got %v", result["12345"])
+	}
+	if _, ok := result["99999"]; ok {
+		t.Fatalf("expected 99999 to be absent, got %v", result["99999"])
+	}
+}
+
+func TestSonarrSeriesStatusesNotConfigured(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	body := `{"tvdb_ids":["12345"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sonarr/series/statuses", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSonarrSeriesStatusesTooManyIDs(t *testing.T) {
+	srv, _ := newSonarrTestServer(t)
+
+	ids := make([]string, 501)
+	for i := range ids {
+		ids[i] = fmt.Sprintf(`"%d"`, i)
+	}
+	body := `{"tvdb_ids":[` + strings.Join(ids, ",") + `]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sonarr/series/statuses", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSonarrSeriesStatusesEmptyIDs(t *testing.T) {
+	srv, _ := newSonarrTestServer(t)
+
+	body := `{"tvdb_ids":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sonarr/series/statuses", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result map[string]string
+	json.NewDecoder(w.Body).Decode(&result)
+	if len(result) != 0 {
+		t.Fatalf("expected empty result, got %v", result)
+	}
+}
+
+func TestSonarrSeriesStatusesMalformedBody(t *testing.T) {
+	srv, _ := newSonarrTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sonarr/series/statuses", strings.NewReader("not json"))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestSonarrSeriesStatusesInvalidID(t *testing.T) {
+	srv, _ := newSonarrTestServer(t)
+
+	body := `{"tvdb_ids":["12345","not-a-number"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sonarr/series/statuses", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

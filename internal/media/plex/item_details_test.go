@@ -79,8 +79,8 @@ func TestGetItemDetails_Movie(t *testing.T) {
 		t.Errorf("directors = %v, want [Christopher Nolan]", details.Directors)
 	}
 
-	if len(details.Cast) != 3 {
-		t.Fatalf("cast count = %d, want 3", len(details.Cast))
+	if len(details.Cast) != 4 {
+		t.Fatalf("cast count = %d, want 4", len(details.Cast))
 	}
 	if details.ThumbURL != "library/metadata/12345/thumb/1699000000" {
 		t.Errorf("thumb_url = %q, want library/metadata/12345/thumb/1699000000", details.ThumbURL)
@@ -99,6 +99,9 @@ func TestGetItemDetails_Movie(t *testing.T) {
 	}
 	if details.Cast[2].ThumbURL != "" {
 		t.Errorf("cast[2].thumb_url = %q, want empty (no thumb)", details.Cast[2].ThumbURL)
+	}
+	if details.Cast[3].ThumbURL != "https://metadata-static.plex.tv/people/5d776/thumb.jpg" {
+		t.Errorf("cast[3].thumb_url = %q, want external HTTP URL preserved", details.Cast[3].ThumbURL)
 	}
 
 	if details.ServerID != 1 {
@@ -213,5 +216,26 @@ func TestGetItemDetails_TVSeries(t *testing.T) {
 	}
 	if details.Studio != "AMC" {
 		t.Errorf("studio = %q, want AMC", details.Studio)
+	}
+}
+
+func TestNormalizeThumb(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"", ""},
+		{"/library/metadata/12345/thumb/1699000000", "library/metadata/12345/thumb/1699000000"},
+		{"/library/metadata/actors/1/thumb", "library/metadata/actors/1/thumb"},
+		{"https://metadata-static.plex.tv/people/5d776/thumb.jpg", "https://metadata-static.plex.tv/people/5d776/thumb.jpg"},
+		{"http://image.tmdb.org/t/p/original/actor.jpg", "http://image.tmdb.org/t/p/original/actor.jpg"},
+		{"/httpfallback/thumb", "httpfallback/thumb"},
+	}
+
+	for _, tt := range tests {
+		got := normalizeThumb(tt.input)
+		if got != tt.want {
+			t.Errorf("normalizeThumb(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }
