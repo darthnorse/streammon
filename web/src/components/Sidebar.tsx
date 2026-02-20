@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { ThemeToggle } from './ThemeToggle'
 import { UserAvatar } from './UserAvatar'
-import { visibleNavLinks, navIconMap } from '../lib/constants'
+import { visibleNavLinks, navIconMap, resolveNavLabel } from '../lib/constants'
 import type { IntegrationStatus } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
 import { useFetch } from '../hooks/useFetch'
@@ -54,6 +54,7 @@ export function Sidebar({ onOpenProfile, integrations }: SidebarProps) {
       <nav className="flex-1 px-3 py-4 space-y-1">
         {visibleNavLinks(user?.role, integrations).map(link => {
             const Icon = navIconMap[link.icon]
+            const label = resolveNavLabel(link, integrations)
             return (
               <NavLink
                 key={link.to}
@@ -65,7 +66,7 @@ export function Sidebar({ onOpenProfile, integrations }: SidebarProps) {
                 }
               >
                 {Icon && <Icon className="w-5 h-5" />}
-                {link.label}
+                {label}
               </NavLink>
             )
           })}

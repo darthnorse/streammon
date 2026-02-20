@@ -214,6 +214,11 @@ export function UserManagement() {
         description="Store encrypted Plex tokens to attribute Overseerr / Seerr requests to the correct user. Requires TOKEN_ENCRYPTION_KEY."
         hideWhenUnavailable
       />
+      <SettingsToggle
+        endpoint="/api/settings/show-discover"
+        title="Show Discover/Requests Link"
+        description="Display the Discover (or Requests, if Overseerr is configured) page in the navigation for all users."
+      />
 
       {actionError && (
         <div className="card p-4 mb-4 text-center text-red-500 dark:text-red-400">

@@ -151,6 +151,16 @@ func (s *Server) routes() {
 
 		r.Get("/radarr/configured", s.handleIntegrationConfigured(s.radarrDeps()))
 
+		r.Route("/tmdb", func(sr chi.Router) {
+			sr.Use(s.tmdbRequired)
+			sr.Get("/search", s.handleTMDBSearch)
+			sr.Get("/discover/*", s.handleTMDBDiscover)
+			sr.Get("/movie/{id}", s.handleTMDBMovie)
+			sr.Get("/tv/{id}", s.handleTMDBTV)
+			sr.Get("/person/{id}", s.handleTMDBPerson)
+			sr.Get("/collection/{id}", s.handleTMDBCollection)
+		})
+
 		r.Route("/overseerr", func(sr chi.Router) {
 			sr.Get("/configured", s.handleIntegrationConfigured(s.overseerrDeps()))
 			sr.Get("/search", s.handleOverseerrSearch)
@@ -180,6 +190,11 @@ func (s *Server) routes() {
 			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleGetGuestAccess)
 			sr.Put("/", s.handleUpdateGuestAccess)
+		})
+
+		r.Route("/settings/show-discover", func(sr chi.Router) {
+			sr.Get("/", s.handleGetShowDiscover)
+			sr.With(RequireRole(models.RoleAdmin)).Put("/", s.handleUpdateShowDiscover)
 		})
 
 		r.Route("/settings/plex-tokens", func(sr chi.Router) {

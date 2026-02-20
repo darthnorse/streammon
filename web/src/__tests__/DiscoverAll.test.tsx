@@ -15,24 +15,24 @@ let triggerIntersection: () => void
 
 const page1Response = {
   results: [
-    { id: 1, mediaType: 'movie', title: 'Trending Movie', posterPath: '/p1.jpg', voteAverage: 7.5, releaseDate: '2024-01-01' },
-    { id: 2, mediaType: 'tv', name: 'Trending Show', posterPath: '/p2.jpg', voteAverage: 8.0, firstAirDate: '2024-06-01' },
+    { id: 1, media_type: 'movie', title: 'Trending Movie', poster_path: '/p1.jpg', vote_average: 7.5, release_date: '2024-01-01' },
+    { id: 2, media_type: 'tv', name: 'Trending Show', poster_path: '/p2.jpg', vote_average: 8.0, first_air_date: '2024-06-01' },
   ],
-  totalPages: 3,
+  total_pages: 3,
 }
 
 const page2Response = {
   results: [
-    { id: 3, mediaType: 'movie', title: 'Another Movie', posterPath: '/p3.jpg', voteAverage: 6.5, releaseDate: '2024-03-01' },
+    { id: 3, media_type: 'movie', title: 'Another Movie', poster_path: '/p3.jpg', vote_average: 6.5, release_date: '2024-03-01' },
   ],
-  totalPages: 3,
+  total_pages: 3,
 }
 
 function renderAtRoute(path: string) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/requests/discover/*" element={<DiscoverAll />} />
+        <Route path="/discover/*" element={<DiscoverAll />} />
       </Routes>
     </MemoryRouter>
   )
@@ -58,10 +58,10 @@ describe('DiscoverAll', () => {
 
   it('renders category title and results', async () => {
     mockGetHandler(url =>
-      url.startsWith('/api/overseerr/discover/trending') ? page1Response : null
+      url.startsWith('/api/tmdb/discover/trending') ? page1Response : null
     )
 
-    renderAtRoute('/requests/discover/trending')
+    renderAtRoute('/discover/trending')
 
     await waitFor(() => {
       expect(screen.getByText('Trending Movie')).toBeDefined()
@@ -71,21 +71,25 @@ describe('DiscoverAll', () => {
   })
 
   it('shows loading state', () => {
-    mockApi.get.mockImplementation((() => new Promise(() => {})) as typeof api.get)
+    mockApi.get.mockImplementation(((url: string) =>
+      url.includes('/api/overseerr/configured')
+        ? Promise.resolve({ configured: false })
+        : new Promise(() => {})
+    ) as typeof api.get)
 
-    renderAtRoute('/requests/discover/trending')
+    renderAtRoute('/discover/trending')
 
     expect(screen.getByText('Loading...')).toBeDefined()
   })
 
   it('shows empty state when no results', async () => {
     mockGetHandler(url =>
-      url.startsWith('/api/overseerr/discover/trending')
-        ? { results: [], totalPages: 0 }
+      url.startsWith('/api/tmdb/discover/trending')
+        ? { results: [], total_pages: 0 }
         : null
     )
 
-    renderAtRoute('/requests/discover/trending')
+    renderAtRoute('/discover/trending')
 
     await waitFor(() => {
       expect(screen.getByText('No results')).toBeDefined()
@@ -94,12 +98,12 @@ describe('DiscoverAll', () => {
 
   it('shows error state on API failure', async () => {
     mockGetHandler(url =>
-      url.startsWith('/api/overseerr/discover/trending')
+      url.startsWith('/api/tmdb/discover/trending')
         ? new Error('Server error')
         : null
     )
 
-    renderAtRoute('/requests/discover/trending')
+    renderAtRoute('/discover/trending')
 
     await waitFor(() => {
       expect(screen.getByText('Server error')).toBeDefined()
@@ -107,20 +111,27 @@ describe('DiscoverAll', () => {
   })
 
   it('shows category not found for invalid category', async () => {
-    renderAtRoute('/requests/discover/nonexistent')
+    mockGetHandler(() => ({ configured: false }))
+
+    renderAtRoute('/discover/nonexistent')
 
     expect(screen.getByText('Category not found')).toBeDefined()
-    expect(mockApi.get).not.toHaveBeenCalled()
+    // Only overseerr/configured should be fetched, not any discover endpoint
+    const discoverCalls = mockApi.get.mock.calls.filter(
+      ([url]) => typeof url === 'string' && url.includes('/api/tmdb/discover/')
+    )
+    expect(discoverCalls).toHaveLength(0)
   })
 
   it('accumulates items across pages on scroll', async () => {
-    let callCount = 0
-    mockApi.get.mockImplementation((() => {
-      callCount++
-      return Promise.resolve(callCount === 1 ? page1Response : page2Response)
+    let discoverCallCount = 0
+    mockApi.get.mockImplementation(((url: string) => {
+      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
+      discoverCallCount++
+      return Promise.resolve(discoverCallCount === 1 ? page1Response : page2Response)
     }) as typeof api.get)
 
-    renderAtRoute('/requests/discover/trending')
+    renderAtRoute('/discover/trending')
 
     await waitFor(() => {
       expect(screen.getByText('Trending Movie')).toBeDefined()
@@ -139,38 +150,42 @@ describe('DiscoverAll', () => {
 
   it('uses page=1 for initial fetch', async () => {
     mockGetHandler(url =>
-      url.startsWith('/api/overseerr/discover/trending') ? page1Response : null
+      url.startsWith('/api/tmdb/discover/trending') ? page1Response : null
     )
 
-    renderAtRoute('/requests/discover/trending')
+    renderAtRoute('/discover/trending')
 
     await waitFor(() => {
       expect(screen.getByText('Trending Movie')).toBeDefined()
     })
 
     expect(mockApi.get).toHaveBeenCalledWith(
-      '/api/overseerr/discover/trending?page=1',
+      '/api/tmdb/discover/trending?page=1',
       expect.any(AbortSignal),
     )
   })
 
-  it('has back link to /requests', async () => {
-    mockApi.get.mockImplementation((() => new Promise(() => {})) as typeof api.get)
+  it('has back link to /discover', async () => {
+    mockApi.get.mockImplementation(((url: string) =>
+      url.includes('/api/overseerr/configured')
+        ? Promise.resolve({ configured: false })
+        : new Promise(() => {})
+    ) as typeof api.get)
 
-    renderAtRoute('/requests/discover/trending')
+    renderAtRoute('/discover/trending')
 
-    const backLink = screen.getByLabelText('Back to Requests') as HTMLAnchorElement
-    expect(backLink.getAttribute('href')).toBe('/requests')
+    const backLink = screen.getByLabelText('Back to Discover') as HTMLAnchorElement
+    expect(backLink.getAttribute('href')).toBe('/discover')
   })
 
   it('renders correct title for nested category paths', async () => {
     mockGetHandler(url =>
-      url.startsWith('/api/overseerr/discover/movies/upcoming')
+      url.startsWith('/api/tmdb/discover/movies/upcoming')
         ? { ...page1Response, results: [page1Response.results[0]] }
         : null
     )
 
-    renderAtRoute('/requests/discover/movies/upcoming')
+    renderAtRoute('/discover/movies/upcoming')
 
     await waitFor(() => {
       expect(screen.getByText('Upcoming Movies')).toBeDefined()
@@ -179,18 +194,18 @@ describe('DiscoverAll', () => {
 
   it('filters out person results', async () => {
     mockGetHandler(url =>
-      url.startsWith('/api/overseerr/discover/trending')
+      url.startsWith('/api/tmdb/discover/trending')
         ? {
             ...page1Response,
             results: [
               ...page1Response.results,
-              { id: 99, mediaType: 'person', name: 'Famous Person' },
+              { id: 99, media_type: 'person', name: 'Famous Person' },
             ],
           }
         : null
     )
 
-    renderAtRoute('/requests/discover/trending')
+    renderAtRoute('/discover/trending')
 
     await waitFor(() => {
       expect(screen.getByText('Trending Movie')).toBeDefined()

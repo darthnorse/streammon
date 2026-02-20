@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { MoreHorizontal, X } from 'lucide-react'
-import { visibleNavLinks, navIconMap } from '../lib/constants'
+import { visibleNavLinks, navIconMap, resolveNavLabel } from '../lib/constants'
 import type { IntegrationStatus } from '../lib/constants'
 import { useAuth } from '../context/AuthContext'
 
@@ -50,6 +50,7 @@ export function MobileNav({ integrations }: MobileNavProps) {
         <nav className="flex items-center justify-around h-16">
           {primaryLinks.map(link => {
             const Icon = navIconMap[link.icon]
+            const label = resolveNavLabel(link, integrations)
             return (
               <NavLink
                 key={link.to}
@@ -61,7 +62,7 @@ export function MobileNav({ integrations }: MobileNavProps) {
                 }
               >
                 {Icon && <Icon className="w-5 h-5" />}
-                {link.label}
+                {label}
               </NavLink>
             )
           })}
@@ -91,6 +92,7 @@ export function MobileNav({ integrations }: MobileNavProps) {
           {moreLinks.map(link => {
             const Icon = navIconMap[link.icon]
             const isActive = location.pathname.startsWith(link.to)
+            const label = resolveNavLabel(link, integrations)
             return (
               <a
                 key={link.to}
@@ -99,7 +101,7 @@ export function MobileNav({ integrations }: MobileNavProps) {
                 className={`${navItemBase} ${isActive ? navItemActive : navItemInactive}`}
               >
                 {Icon && <Icon className="w-5 h-5" />}
-                {link.label}
+                {label}
               </a>
             )
           })}

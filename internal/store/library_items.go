@@ -421,6 +421,43 @@ func (s *Store) FindMatchingItems(ctx context.Context, item *models.LibraryItemC
 	return items, nil
 }
 
+// LibraryMatch is a lightweight struct for TMDB-to-library matching.
+type LibraryMatch struct {
+	ServerID   int64  `json:"server_id"`
+	ServerName string `json:"server_name"`
+	ItemID     string `json:"item_id"`
+}
+
+func (s *Store) FindLibraryItemsByTMDBID(ctx context.Context, tmdbID string) ([]LibraryMatch, error) {
+	if tmdbID == "" {
+		return []LibraryMatch{}, nil
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT li.server_id, srv.name, li.item_id FROM library_items li
+		JOIN servers srv ON li.server_id = srv.id
+		WHERE li.tmdb_id = ? AND srv.deleted_at IS NULL`, tmdbID)
+	if err != nil {
+		return nil, fmt.Errorf("find library items by tmdb id: %w", err)
+	}
+	defer rows.Close()
+
+	var matches []LibraryMatch
+	for rows.Next() {
+		var m LibraryMatch
+		if err := rows.Scan(&m.ServerID, &m.ServerName, &m.ItemID); err != nil {
+			return nil, fmt.Errorf("scan library match: %w", err)
+		}
+		matches = append(matches, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if matches == nil {
+		return []LibraryMatch{}, nil
+	}
+	return matches, nil
+}
+
 // GetAllLibraryTotalSizes returns total sizes for all libraries, keyed by "serverID-libraryID"
 func (s *Store) GetAllLibraryTotalSizes(ctx context.Context) (map[string]int64, error) {
 	rows, err := s.db.QueryContext(ctx,

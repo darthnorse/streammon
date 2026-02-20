@@ -11,7 +11,7 @@ import { Settings } from './pages/Settings'
 import { Statistics } from './pages/Statistics'
 import { Libraries } from './pages/Libraries'
 import { Rules } from './pages/Rules'
-import { Requests } from './pages/Requests'
+import { Discover } from './pages/Discover'
 import { Calendar } from './pages/Calendar'
 import { DiscoverAll } from './pages/DiscoverAll'
 import { Setup } from './pages/Setup'
@@ -31,7 +31,7 @@ function MyStats() {
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth()
-  if (user?.role !== 'admin') return <Navigate to="/requests" replace />
+  if (user?.role !== 'admin') return <Navigate to="/discover" replace />
   return <>{children}</>
 }
 
@@ -47,8 +47,9 @@ export default function App() {
           {/* Protected routes */}
           <Route element={<AuthGuard><Layout /></AuthGuard>}>
             <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
-            <Route path="/requests/discover/*" element={<DiscoverAll />} />
-            <Route path="/requests" element={<Requests />} />
+            <Route path="/discover" element={<Discover />} />
+            <Route path="/discover/*" element={<DiscoverAll />} />
+            <Route path="/requests" element={<Navigate to="/discover" replace />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
             <Route path="/users/:name" element={<UserDetail />} />

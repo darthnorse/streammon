@@ -30,9 +30,10 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'geoip', label: 'GeoIP' },
   { key: 'import', label: 'Import' },
   { key: 'display', label: 'Display' },
+  { key: 'about', label: 'About' },
 ]
 
-type TabKey = 'servers' | 'users' | 'auth' | 'integrations' | 'geoip' | 'import' | 'display'
+type TabKey = 'servers' | 'users' | 'auth' | 'integrations' | 'geoip' | 'import' | 'display' | 'about'
 
 export function Settings() {
   const [tab, setTab] = useState<TabKey>('servers')
@@ -611,6 +612,25 @@ export function Settings() {
 
       {tab === 'display' && (
         <DisplaySettings />
+      )}
+
+      {tab === 'about' && (
+        <div className="card p-6 space-y-4">
+          <div>
+            <h3 className="font-semibold mb-2">Media Data</h3>
+            <p className="text-sm text-muted dark:text-muted-dark">
+              Movie and TV show information provided by{' '}
+              <a href="https://www.themoviedb.org" target="_blank" rel="noopener noreferrer"
+                 className="hover:text-accent hover:underline">
+                The Movie Database (TMDB)
+              </a>.
+            </p>
+            <img src="/tmdb-logo.svg" alt="TMDB" className="mt-3 h-6" />
+            <p className="text-xs text-muted dark:text-muted-dark mt-2">
+              This product uses the TMDB API but is not endorsed or certified by TMDB.
+            </p>
+          </div>
+        </div>
       )}
     </div>
   )

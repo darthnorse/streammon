@@ -23,6 +23,7 @@ import (
 	"streammon/internal/scheduler"
 	"streammon/internal/server"
 	"streammon/internal/store"
+	"streammon/internal/tmdb"
 	"streammon/internal/version"
 )
 
@@ -69,6 +70,8 @@ func main() {
 	defer geoResolver.Close()
 
 	geoUpdater := geoip.NewUpdater(s, geoResolver, geoDBPath)
+
+	tmdbClient := tmdb.New(os.Getenv("TMDB_API_KEY"), s)
 
 	authMgr := auth.NewManager(s)
 	authMgr.RegisterProvider(auth.NewLocalProvider(s, authMgr))
@@ -159,6 +162,7 @@ func main() {
 		server.WithGeoUpdater(geoUpdater),
 		server.WithRulesEngine(rulesEngine),
 		server.WithVersion(vc),
+		server.WithTMDBClient(tmdbClient),
 		server.WithAppContext(ctx),
 	}
 	if corsOrigin != "" {

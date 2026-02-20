@@ -1,16 +1,42 @@
-import { TMDB_IMG, mediaStatusBadge } from '../lib/overseerr'
-import type { OverseerrMediaResult } from '../types'
+import { TMDB_IMG } from '../lib/tmdb'
+import { mediaStatusBadge } from '../lib/overseerr'
+import type { OverseerrMediaResult, TMDBMediaResult } from '../types'
+
+type MediaItem = OverseerrMediaResult | TMDBMediaResult
+
+function isTMDB(item: MediaItem): item is TMDBMediaResult {
+  return 'poster_path' in item
+}
+
+function normalize(item: MediaItem) {
+  if (isTMDB(item)) {
+    return {
+      title: item.title || item.name || 'Unknown',
+      year: item.release_date?.slice(0, 4) || item.first_air_date?.slice(0, 4),
+      posterPath: item.poster_path,
+      mediaType: item.media_type,
+      voteAverage: item.vote_average,
+      mediaStatus: undefined as number | undefined,
+    }
+  }
+  return {
+    title: item.title || item.name || 'Unknown',
+    year: item.releaseDate?.slice(0, 4) || item.firstAirDate?.slice(0, 4),
+    posterPath: item.posterPath,
+    mediaType: item.mediaType,
+    voteAverage: item.voteAverage,
+    mediaStatus: item.mediaInfo?.status,
+  }
+}
 
 interface MediaCardProps {
-  item: OverseerrMediaResult
+  item: MediaItem
   onClick: () => void
   className?: string
 }
 
 export function MediaCard({ item, onClick, className }: MediaCardProps) {
-  const title = item.title || item.name || 'Unknown'
-  const year = item.releaseDate?.slice(0, 4) || item.firstAirDate?.slice(0, 4)
-  const mediaStatus = item.mediaInfo?.status
+  const { title, year, posterPath, mediaType, voteAverage, mediaStatus } = normalize(item)
 
   return (
     <button
@@ -21,16 +47,16 @@ export function MediaCard({ item, onClick, className }: MediaCardProps) {
                  focus:ring-2 focus:ring-accent/50 ${className ?? ''}`}
     >
       <div className="aspect-[2/3] bg-gray-200 dark:bg-gray-800 relative">
-        {item.posterPath ? (
+        {posterPath ? (
           <img
-            src={`${TMDB_IMG}/w185${item.posterPath}`}
+            src={`${TMDB_IMG}/w185${posterPath}`}
             alt={title}
             className="w-full h-full object-cover"
             loading="lazy"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-muted dark:text-muted-dark text-xl">
-            {item.mediaType === 'movie' ? '🎬' : '📺'}
+            {mediaType === 'movie' ? '🎬' : '📺'}
           </div>
         )}
         {mediaStatus && mediaStatus > 1 && (
@@ -40,7 +66,7 @@ export function MediaCard({ item, onClick, className }: MediaCardProps) {
         )}
         <div className="absolute top-1 left-1">
           <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-black/60 text-white">
-            {item.mediaType === 'movie' ? 'Movie' : 'TV'}
+            {mediaType === 'movie' ? 'Movie' : 'TV'}
           </span>
         </div>
       </div>
@@ -50,9 +76,9 @@ export function MediaCard({ item, onClick, className }: MediaCardProps) {
         </h3>
         <div className="flex items-center gap-1.5 mt-0.5">
           {year && <span className="text-[10px] text-muted dark:text-muted-dark">{year}</span>}
-          {item.voteAverage != null && item.voteAverage > 0 && (
+          {voteAverage != null && voteAverage > 0 && (
             <span className="text-[10px] text-muted dark:text-muted-dark">
-              ★ {item.voteAverage.toFixed(1)}
+              ★ {voteAverage.toFixed(1)}
             </span>
           )}
         </div>

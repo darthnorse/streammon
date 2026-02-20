@@ -15,6 +15,7 @@ import (
 	"streammon/internal/models"
 	"streammon/internal/poller"
 	"streammon/internal/store"
+	"streammon/internal/tmdb"
 	"streammon/internal/version"
 )
 
@@ -43,6 +44,7 @@ type Server struct {
 	appCtx         context.Context
 	cascadeDeleter   *maintenance.CascadeDeleter
 	overseerrUsers   *overseerrUserCache
+	tmdbClient       *tmdb.Client
 	thumbProxyHTTP   *http.Client
 	sonarrPosterHTTP *http.Client
 }
@@ -101,6 +103,10 @@ func WithVersion(v *version.Checker) Option {
 
 func WithAppContext(ctx context.Context) Option {
 	return func(s *Server) { s.appCtx = ctx }
+}
+
+func WithTMDBClient(c *tmdb.Client) Option {
+	return func(s *Server) { s.tmdbClient = c }
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

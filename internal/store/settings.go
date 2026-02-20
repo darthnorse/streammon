@@ -283,3 +283,24 @@ func (s *Store) SetIdleTimeoutMinutes(min int) error {
 	}
 	return s.SetSetting(idleTimeoutKey, strconv.Itoa(min))
 }
+
+const showDiscoverKey = "display.show_discover"
+
+func (s *Store) GetShowDiscover() (bool, error) {
+	val, err := s.GetSetting(showDiscoverKey)
+	if err != nil {
+		return true, err
+	}
+	if val == "" {
+		return true, nil // default: show
+	}
+	return val == "true", nil
+}
+
+func (s *Store) SetShowDiscover(enabled bool) error {
+	val := "false"
+	if enabled {
+		val = "true"
+	}
+	return s.SetSetting(showDiscoverKey, val)
+}

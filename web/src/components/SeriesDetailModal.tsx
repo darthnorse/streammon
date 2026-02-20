@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
 import { TMDB_IMG, mediaStatusBadge } from '../lib/overseerr'
+import { CastChip } from './CastChip'
 import type {
   OverseerrTVDetails,
   OverseerrCast,
@@ -18,36 +19,6 @@ interface SeriesDetailModalProps {
 }
 
 type DataSource = 'overseerr' | 'sonarr'
-
-function getInitials(name: string): string {
-  if (!name) return '?'
-  return name.split(' ').filter(Boolean).map(n => n[0]).join('').slice(0, 2).toUpperCase()
-}
-
-function CastChip({ person }: { person: OverseerrCast }) {
-  return (
-    <div className="flex items-center gap-2 px-2 py-1.5 rounded-full bg-gray-100 dark:bg-white/10 shrink-0">
-      {person.profilePath ? (
-        <img
-          src={`${TMDB_IMG}/w92${person.profilePath}`}
-          alt={person.name}
-          className="w-7 h-7 rounded-full object-cover bg-gray-300 dark:bg-white/20"
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-7 h-7 rounded-full bg-gray-300 dark:bg-white/20 flex items-center justify-center text-[10px] font-medium text-gray-600 dark:text-gray-300">
-          {getInitials(person.name)}
-        </div>
-      )}
-      <div className="text-xs pr-1">
-        <div className="font-medium text-gray-900 dark:text-gray-100">{person.name}</div>
-        {person.character && (
-          <div className="text-gray-500 dark:text-gray-400 text-[10px]">{person.character}</div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 function regularSeasonNumbers(seasons: { seasonNumber: number }[]): number[] {
   return seasons.filter(s => s.seasonNumber > 0).map(s => s.seasonNumber)
@@ -402,7 +373,7 @@ export function SeriesDetailModal({ tmdbId, sonarrSeriesId, overseerrAvailable, 
                   <div className="text-sm font-medium">Cast</div>
                   <div className="flex gap-2 overflow-x-auto pb-2 -mx-5 px-5 sm:-mx-6 sm:px-6">
                     {d.cast.slice(0, 8).map(person => (
-                      <CastChip key={person.id} person={person} />
+                      <CastChip key={person.id} name={person.name} character={person.character} profilePath={person.profilePath} />
                     ))}
                   </div>
                 </div>

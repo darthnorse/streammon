@@ -3,50 +3,50 @@ import { visibleNavLinks } from '../lib/constants'
 import type { IntegrationStatus } from '../lib/constants'
 
 describe('visibleNavLinks', () => {
-  const both: IntegrationStatus = { sonarr: true, overseerr: true }
-  const none: IntegrationStatus = { sonarr: false, overseerr: false }
+  const all: IntegrationStatus = { sonarr: true, overseerr: true, discover: true }
+  const none: IntegrationStatus = { sonarr: false, overseerr: false, discover: false }
 
   describe('admin', () => {
-    it('shows Calendar and Requests when integrations configured', () => {
-      const labels = visibleNavLinks('admin', both).map(l => l.label)
+    it('shows Calendar and Discover when integrations configured', () => {
+      const labels = visibleNavLinks('admin', all).map(l => l.label)
       expect(labels).toContain('Calendar')
-      expect(labels).toContain('Requests')
+      expect(labels).toContain('Discover')
     })
 
     it('hides Calendar when Sonarr unconfigured', () => {
-      const labels = visibleNavLinks('admin', { sonarr: false, overseerr: true }).map(l => l.label)
+      const labels = visibleNavLinks('admin', { sonarr: false, overseerr: true, discover: true }).map(l => l.label)
       expect(labels).not.toContain('Calendar')
-      expect(labels).toContain('Requests')
+      expect(labels).toContain('Discover')
     })
 
-    it('hides Requests when Seerr unconfigured', () => {
-      const labels = visibleNavLinks('admin', { sonarr: true, overseerr: false }).map(l => l.label)
+    it('hides Discover when discover disabled', () => {
+      const labels = visibleNavLinks('admin', { sonarr: true, overseerr: false, discover: false }).map(l => l.label)
       expect(labels).toContain('Calendar')
-      expect(labels).not.toContain('Requests')
+      expect(labels).not.toContain('Discover')
     })
 
     it('hides both when neither configured', () => {
       const labels = visibleNavLinks('admin', none).map(l => l.label)
       expect(labels).not.toContain('Calendar')
-      expect(labels).not.toContain('Requests')
+      expect(labels).not.toContain('Discover')
     })
   })
 
   describe('viewer', () => {
-    it('shows Calendar and Requests when integrations configured', () => {
-      const labels = visibleNavLinks('viewer', both).map(l => l.label)
+    it('shows Calendar and Discover when integrations configured', () => {
+      const labels = visibleNavLinks('viewer', all).map(l => l.label)
       expect(labels).toContain('Calendar')
-      expect(labels).toContain('Requests')
+      expect(labels).toContain('Discover')
     })
 
     it('hides Calendar when Sonarr unconfigured', () => {
-      const labels = visibleNavLinks('viewer', { sonarr: false, overseerr: true }).map(l => l.label)
+      const labels = visibleNavLinks('viewer', { sonarr: false, overseerr: true, discover: true }).map(l => l.label)
       expect(labels).not.toContain('Calendar')
     })
 
-    it('hides Requests when Seerr unconfigured', () => {
-      const labels = visibleNavLinks('viewer', { sonarr: true, overseerr: false }).map(l => l.label)
-      expect(labels).not.toContain('Requests')
+    it('hides Discover when discover disabled', () => {
+      const labels = visibleNavLinks('viewer', { sonarr: true, overseerr: false, discover: false }).map(l => l.label)
+      expect(labels).not.toContain('Discover')
     })
   })
 
@@ -54,7 +54,7 @@ describe('visibleNavLinks', () => {
     it('includes integration links when status unknown', () => {
       const labels = visibleNavLinks('admin').map(l => l.label)
       expect(labels).toContain('Calendar')
-      expect(labels).toContain('Requests')
+      expect(labels).toContain('Discover')
     })
   })
 })

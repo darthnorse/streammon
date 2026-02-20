@@ -908,3 +908,143 @@ export interface SonarrEpisode {
   series: SonarrSeries
 }
 
+// TMDB native types (snake_case from API)
+
+export interface TMDBSearchResult {
+  page: number
+  total_pages: number
+  total_results: number
+  results: TMDBMediaResult[]
+}
+
+export interface TMDBMediaResult {
+  id: number
+  media_type: 'movie' | 'tv' | 'person'
+  title?: string
+  name?: string
+  poster_path?: string
+  backdrop_path?: string
+  release_date?: string
+  first_air_date?: string
+  vote_average?: number
+  overview?: string
+  genre_ids?: number[]
+}
+
+export interface TMDBMovieDetails {
+  id: number
+  title: string
+  overview?: string
+  poster_path?: string
+  backdrop_path?: string
+  release_date?: string
+  runtime?: number
+  vote_average?: number
+  tagline?: string
+  status?: string
+  genres?: { id: number; name: string }[]
+  credits?: { cast?: TMDBCast[]; crew?: TMDBCrew[] }
+  belongs_to_collection?: { id: number; name: string; poster_path?: string; backdrop_path?: string }
+}
+
+export interface TMDBTVDetails {
+  id: number
+  name: string
+  overview?: string
+  poster_path?: string
+  backdrop_path?: string
+  first_air_date?: string
+  last_air_date?: string
+  vote_average?: number
+  tagline?: string
+  status?: string
+  number_of_episodes?: number
+  number_of_seasons?: number
+  genres?: { id: number; name: string }[]
+  credits?: { cast?: TMDBCast[]; crew?: TMDBCrew[] }
+  seasons?: TMDBSeason[]
+  networks?: { id: number; name: string; logo_path?: string }[]
+}
+
+export interface TMDBCast {
+  id: number
+  name: string
+  character?: string
+  profile_path?: string
+  order?: number
+}
+
+export interface TMDBCrew {
+  id: number
+  name: string
+  job: string
+  department?: string
+  profile_path?: string
+}
+
+export interface TMDBSeason {
+  id: number
+  season_number: number
+  name: string
+  episode_count: number
+  air_date?: string
+  poster_path?: string
+}
+
+export interface TMDBPersonDetails {
+  id: number
+  name: string
+  biography?: string
+  profile_path?: string
+  birthday?: string
+  deathday?: string
+  place_of_birth?: string
+  known_for_department?: string
+  combined_credits?: {
+    cast?: TMDBPersonCredit[]
+    crew?: TMDBPersonCrewCredit[]
+  }
+}
+
+export interface TMDBPersonCredit {
+  id: number
+  media_type: 'movie' | 'tv'
+  title?: string
+  name?: string
+  character?: string
+  poster_path?: string
+  release_date?: string
+  first_air_date?: string
+  vote_average?: number
+  popularity?: number
+}
+
+export interface TMDBPersonCrewCredit {
+  id: number
+  media_type: 'movie' | 'tv'
+  title?: string
+  name?: string
+  job?: string
+  poster_path?: string
+  release_date?: string
+  first_air_date?: string
+}
+
+export interface TMDBMovieEnvelope {
+  tmdb: TMDBMovieDetails
+  library_items: LibraryMatch[]
+}
+
+export interface TMDBTVEnvelope {
+  tmdb: TMDBTVDetails
+  library_items: LibraryMatch[]
+}
+
+export interface LibraryMatch {
+  server_id: number
+  server_name: string
+  item_id: string
+}
+
+export type SelectedMedia = { mediaType: 'movie' | 'tv'; mediaId: number }
+

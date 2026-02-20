@@ -14,11 +14,13 @@ export function Layout() {
   const [showProfile, setShowProfile] = useState(false)
   const { data: sonarrStatus } = useFetch<{ configured: boolean }>('/api/sonarr/configured')
   const { data: overseerrStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
+  const { data: discoverSetting } = useFetch<{ enabled: boolean }>('/api/settings/show-discover')
 
   const integrations = useMemo<IntegrationStatus>(() => ({
     sonarr: sonarrStatus?.configured ?? false,
     overseerr: overseerrStatus?.configured ?? false,
-  }), [sonarrStatus, overseerrStatus])
+    discover: discoverSetting?.enabled ?? true,
+  }), [sonarrStatus, overseerrStatus, discoverSetting])
 
   return (
     <div className="flex min-h-screen scanlines">

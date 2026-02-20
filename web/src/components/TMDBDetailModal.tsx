@@ -1,29 +1,37 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
-import { TMDB_IMG, mediaStatusBadge } from '../lib/overseerr'
+import { TMDB_IMG } from '../lib/tmdb'
+import { mediaStatusBadge } from '../lib/overseerr'
 import { CastChip } from './CastChip'
 import type {
-  OverseerrMovieDetails,
-  OverseerrTVDetails,
-  OverseerrCrew,
+  TMDBMovieEnvelope,
+  TMDBTVEnvelope,
+  TMDBMovieDetails,
+  TMDBTVDetails,
+  TMDBCrew,
+  LibraryMatch,
 } from '../types'
 
-interface OverseerrDetailModalProps {
+interface TMDBDetailModalProps {
   mediaType: 'movie' | 'tv'
   mediaId: number
+  overseerrConfigured: boolean
   onClose: () => void
+  onPersonClick?: (personId: number) => void
 }
 
-function regularSeasonNumbers(seasons: { seasonNumber: number }[]): number[] {
-  return seasons.filter(s => s.seasonNumber > 0).map(s => s.seasonNumber)
+function regularSeasonNumbers(seasons: { season_number: number }[]): number[] {
+  return seasons.filter(s => s.season_number > 0).map(s => s.season_number)
 }
 
-export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrDetailModalProps) {
-  const [movie, setMovie] = useState<OverseerrMovieDetails | null>(null)
-  const [tv, setTv] = useState<OverseerrTVDetails | null>(null)
+export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClose, onPersonClick }: TMDBDetailModalProps) {
+  const [movie, setMovie] = useState<TMDBMovieDetails | null>(null)
+  const [tv, setTv] = useState<TMDBTVDetails | null>(null)
+  const [libraryItems, setLibraryItems] = useState<LibraryMatch[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  const [overseerrStatus, setOverseerrStatus] = useState<number | undefined>()
   const [requesting, setRequesting] = useState(false)
   const [requestSuccess, setRequestSuccess] = useState(false)
   const [requestError, setRequestError] = useState('')
@@ -31,7 +39,10 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
   const [allSeasons, setAllSeasons] = useState(true)
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') onClose()
+    if (e.key === 'Escape') {
+      e.stopImmediatePropagation()
+      onClose()
+    }
   }, [onClose])
 
   useEffect(() => {
@@ -48,15 +59,16 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
     setError('')
     const controller = new AbortController()
     const endpoint = mediaType === 'movie'
-      ? `/api/overseerr/movie/${mediaId}`
-      : `/api/overseerr/tv/${mediaId}`
+      ? `/api/tmdb/movie/${mediaId}`
+      : `/api/tmdb/tv/${mediaId}`
 
-    api.get<OverseerrMovieDetails | OverseerrTVDetails>(endpoint, controller.signal)
+    api.get<TMDBMovieEnvelope | TMDBTVEnvelope>(endpoint, controller.signal)
       .then(data => {
+        setLibraryItems(data.library_items ?? [])
         if (mediaType === 'movie') {
-          setMovie(data as OverseerrMovieDetails)
+          setMovie((data as TMDBMovieEnvelope).tmdb)
         } else {
-          const tvData = data as OverseerrTVDetails
+          const tvData = (data as TMDBTVEnvelope).tmdb
           setTv(tvData)
           if (tvData.seasons) {
             setSelectedSeasons(regularSeasonNumbers(tvData.seasons))
@@ -72,14 +84,23 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
     return () => controller.abort()
   }, [mediaType, mediaId])
 
+  useEffect(() => {
+    if (!overseerrConfigured) return
+    const controller = new AbortController()
+    const endpoint = mediaType === 'movie'
+      ? `/api/overseerr/movie/${mediaId}`
+      : `/api/overseerr/tv/${mediaId}`
+    api.get<{ mediaInfo?: { status?: number } }>(endpoint, controller.signal)
+      .then(data => setOverseerrStatus(data.mediaInfo?.status))
+      .catch(() => { /* ignore — just means no status badge */ })
+    return () => controller.abort()
+  }, [overseerrConfigured, mediaType, mediaId])
+
   async function handleRequest() {
     setRequesting(true)
     setRequestError('')
     try {
-      const body: Record<string, unknown> = {
-        mediaType,
-        mediaId,
-      }
+      const body: Record<string, unknown> = { mediaType, mediaId }
       if (mediaType === 'tv') {
         body.seasons = selectedSeasons
       }
@@ -118,20 +139,20 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
   const details = mediaType === 'movie' ? movie : tv
   const title = movie?.title || tv?.name || ''
   const overview = details?.overview
-  const backdrop = details?.backdropPath
-  const poster = details?.posterPath
+  const backdrop = details?.backdrop_path
+  const poster = details?.poster_path
   const genres = details?.genres
   const tagline = details?.tagline
-  const mediaStatus = details?.mediaInfo?.status
   const cast = details?.credits?.cast
   const crew = details?.credits?.crew
-  const directors = crew?.filter((c: OverseerrCrew) => c.job === 'Director')
-  const year = movie?.releaseDate?.slice(0, 4) || tv?.firstAirDate?.slice(0, 4)
+  const directors = crew?.filter((c: TMDBCrew) => c.job === 'Director')
+  const year = movie?.release_date?.slice(0, 4) || tv?.first_air_date?.slice(0, 4)
   const runtime = movie?.runtime
-  const rating = details?.voteAverage
+  const rating = details?.vote_average
+  const collection = movie?.belongs_to_collection
 
-  const alreadyRequested = mediaStatus && mediaStatus >= 2 && mediaStatus <= 5
-  const canRequest = !alreadyRequested && !requestSuccess
+  const alreadyRequested = overseerrStatus && overseerrStatus >= 2 && overseerrStatus <= 5
+  const canRequest = overseerrConfigured && !alreadyRequested && !requestSuccess
 
   return (
     <div
@@ -139,7 +160,7 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-labelledby="overseerr-modal-title"
+      aria-labelledby="tmdb-modal-title"
     >
       <div
         className="relative w-full max-w-3xl max-h-[90dvh] overflow-y-auto rounded-xl
@@ -193,7 +214,7 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
                 )}
 
                 <div className="flex-1 min-w-0">
-                  <h2 id="overseerr-modal-title" className="text-2xl font-bold">
+                  <h2 id="tmdb-modal-title" className="text-2xl font-bold">
                     {title}
                   </h2>
                   <div className="flex flex-wrap items-center gap-2 mt-1.5 text-sm text-muted dark:text-muted-dark">
@@ -204,10 +225,10 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
                         <span>{runtime} min</span>
                       </>
                     )}
-                    {tv?.numberOfEpisodes && (
+                    {tv?.number_of_episodes && (
                       <>
                         <span>&middot;</span>
-                        <span>{tv.numberOfEpisodes} episodes</span>
+                        <span>{tv.number_of_episodes} episodes</span>
                       </>
                     )}
                     {rating != null && rating > 0 && (
@@ -223,8 +244,21 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
                     )}
                   </div>
 
-                  {mediaStatus && mediaStatus > 1 && (
-                    <div className="mt-2">{mediaStatusBadge(mediaStatus)}</div>
+                  {overseerrStatus && overseerrStatus > 1 && (
+                    <div className="mt-2">{mediaStatusBadge(overseerrStatus)}</div>
+                  )}
+
+                  {libraryItems.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {libraryItems.map(li => (
+                        <span
+                          key={`${li.server_id}-${li.item_id}`}
+                          className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-green-600/20 text-green-500"
+                        >
+                          On {li.server_name}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
@@ -261,8 +295,32 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
                   <div className="text-sm font-medium">Cast</div>
                   <div className="flex gap-2 overflow-x-auto pb-2 -mx-5 px-5 sm:-mx-6 sm:px-6">
                     {cast.slice(0, 8).map(person => (
-                      <CastChip key={person.id} name={person.name} character={person.character} profilePath={person.profilePath} />
+                      <CastChip
+                        key={person.id}
+                        name={person.name}
+                        character={person.character}
+                        profilePath={person.profile_path}
+                        onClick={onPersonClick ? () => onPersonClick(person.id) : undefined}
+                      />
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {collection && (
+                <div className="border-t border-border dark:border-border-dark pt-4">
+                  <div className="flex items-center gap-3">
+                    {collection.poster_path && (
+                      <img
+                        src={`${TMDB_IMG}/w92${collection.poster_path}`}
+                        alt={collection.name}
+                        className="w-12 rounded shadow"
+                      />
+                    )}
+                    <div>
+                      <div className="text-sm text-muted dark:text-muted-dark">Part of</div>
+                      <div className="text-sm font-medium">{collection.name}</div>
+                    </div>
                   </div>
                 </div>
               )}
@@ -273,6 +331,7 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={toggleAllSeasons}
+                      aria-label="Select all seasons"
                       className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
                         allSeasons
                           ? 'bg-accent text-gray-900'
@@ -282,26 +341,27 @@ export function OverseerrDetailModal({ mediaType, mediaId, onClose }: OverseerrD
                       All Seasons
                     </button>
                     {tv.seasons
-                      .filter(s => s.seasonNumber > 0)
+                      .filter(s => s.season_number > 0)
                       .map(season => (
                         <button
-                          key={season.seasonNumber}
-                          onClick={() => toggleSeason(season.seasonNumber)}
+                          key={season.season_number}
+                          onClick={() => toggleSeason(season.season_number)}
+                          aria-label={`Season ${season.season_number}`}
                           className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${
-                            !allSeasons && selectedSeasons.includes(season.seasonNumber)
+                            !allSeasons && selectedSeasons.includes(season.season_number)
                               ? 'bg-accent text-gray-900'
                               : 'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/20'
                           }`}
                         >
-                          S{season.seasonNumber}
-                          <span className="ml-1 opacity-60">({season.episodeCount})</span>
+                          S{season.season_number}
+                          <span className="ml-1 opacity-60">({season.episode_count})</span>
                         </button>
                       ))}
                   </div>
                 </div>
               )}
 
-              {!alreadyRequested && (
+              {canRequest && (
                 <div className="border-t border-border dark:border-border-dark pt-4">
                   {requestSuccess ? (
                     <div className="text-sm text-green-600 dark:text-green-400 font-medium">

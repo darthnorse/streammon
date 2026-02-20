@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
-import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS } from '../lib/constants'
+import { useFetch } from '../hooks/useFetch'
+import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS, isSelectableMedia } from '../lib/constants'
 import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
-import { OverseerrDetailModal } from '../components/OverseerrDetailModal'
+import { TMDBDetailModal } from '../components/TMDBDetailModal'
+import { PersonModal } from '../components/PersonModal'
 import { EmptyState } from '../components/EmptyState'
-import type { OverseerrMediaResult } from '../types'
-
-type SelectedItem = OverseerrMediaResult & { mediaType: 'movie' | 'tv' }
+import type { TMDBMediaResult, SelectedMedia } from '../types'
 
 function ErrorBanner({ message }: { message: string }) {
   return (
@@ -24,7 +24,7 @@ const backLinkClass = `p-1.5 rounded-md text-gray-500 dark:text-gray-300
 
 function BackLink() {
   return (
-    <Link to="/requests" className={backLinkClass} aria-label="Back to Requests">
+    <Link to="/discover" className={backLinkClass} aria-label="Back to Discover">
       <ChevronIcon direction="left" />
     </Link>
   )
@@ -41,13 +41,17 @@ export function DiscoverAll() {
   const valid = !!cat
   const title = cat?.title ?? category
 
-  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
+  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(null)
+  const [selectedPerson, setSelectedPerson] = useState<number | null>(null)
 
-  const url = valid ? `/api/overseerr/discover/${category}` : null
+  const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
+  const overseerrConfigured = !!configStatus?.configured
+
+  const url = valid ? `/api/tmdb/discover/${category}` : null
   const { items, loading, loadingMore, hasMore, error, sentinelRef } =
-    useInfiniteFetch<OverseerrMediaResult>(url, 20, 'page')
+    useInfiniteFetch<TMDBMediaResult>(url, 20, 'page')
 
-  const filtered = items.filter((r): r is SelectedItem => r.mediaType === 'movie' || r.mediaType === 'tv')
+  const filtered = items.filter(isSelectableMedia)
 
   if (!valid) {
     return (
@@ -81,16 +85,16 @@ export function DiscoverAll() {
           <div className={MEDIA_GRID_CLASS}>
             {filtered.map(item => (
               <MediaCard
-                key={`${item.mediaType}-${item.id}`}
+                key={`${item.media_type}-${item.id}`}
                 item={item}
-                onClick={() => setSelectedItem(item)}
+                onClick={() => setSelectedMedia({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
               />
             ))}
           </div>
           <div ref={sentinelRef} />
           {loadingMore && (
             <div className="flex justify-center py-6">
-              <div className="animate-spin h-6 w-6 border-2 border-blue-500 border-t-transparent rounded-full" />
+              <div className="h-6 w-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
             </div>
           )}
           {error && <ErrorBanner message={error} />}
@@ -100,11 +104,27 @@ export function DiscoverAll() {
         </>
       )}
 
-      {selectedItem && (
-        <OverseerrDetailModal
-          mediaType={selectedItem.mediaType}
-          mediaId={selectedItem.id}
-          onClose={() => setSelectedItem(null)}
+      {selectedMedia && (
+        <TMDBDetailModal
+          mediaType={selectedMedia.mediaType}
+          mediaId={selectedMedia.mediaId}
+          overseerrConfigured={overseerrConfigured}
+          onClose={() => setSelectedMedia(null)}
+          onPersonClick={id => {
+            setSelectedMedia(null)
+            setSelectedPerson(id)
+          }}
+        />
+      )}
+
+      {selectedPerson && (
+        <PersonModal
+          personId={selectedPerson}
+          onClose={() => setSelectedPerson(null)}
+          onMediaClick={(type, id) => {
+            setSelectedPerson(null)
+            setSelectedMedia({ mediaType: type, mediaId: id })
+          }}
         />
       )}
     </div>

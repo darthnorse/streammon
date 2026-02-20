@@ -1,4 +1,4 @@
-export const TMDB_IMG = 'https://image.tmdb.org/t/p'
+export { TMDB_IMG } from './tmdb'
 
 export const OVERSEERR_MEDIA_STATUS: Record<number, { label: string; color: string }> = {
   1: { label: 'Unknown', color: 'bg-gray-500/80 text-white' },

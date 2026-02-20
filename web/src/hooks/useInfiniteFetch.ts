@@ -8,7 +8,8 @@ interface OffsetResponse<T> {
 
 interface PageResponse<T> {
   results: T[]
-  totalPages: number
+  totalPages?: number
+  total_pages?: number // TMDB API uses snake_case
 }
 
 type PagedResponse<T> = OffsetResponse<T> | PageResponse<T>
@@ -71,8 +72,9 @@ export function useInfiniteFetch<T>(
         if (controller.signal.aborted) return
         if (isFirst) setItems(data.results)
         else setItems(prev => [...prev, ...data.results])
+        const pageData = data as PageResponse<T>
         const totalPages = mode === 'page'
-          ? (data as PageResponse<T>).totalPages
+          ? (pageData.totalPages ?? pageData.total_pages ?? 0)
           : (data as OffsetResponse<T>).pageInfo.pages
         setHasMore((pageNum + 1) < totalPages)
         pageRef.current = pageNum
