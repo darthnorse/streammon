@@ -39,10 +39,17 @@ func TestGetSettingNotFound(t *testing.T) {
 func TestSetSettingOverwrite(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	s.SetSetting("key", "v1")
-	s.SetSetting("key", "v2")
+	if err := s.SetSetting("key", "v1"); err != nil {
+		t.Fatalf("SetSetting v1: %v", err)
+	}
+	if err := s.SetSetting("key", "v2"); err != nil {
+		t.Fatalf("SetSetting v2: %v", err)
+	}
 
-	val, _ := s.GetSetting("key")
+	val, err := s.GetSetting("key")
+	if err != nil {
+		t.Fatalf("GetSetting: %v", err)
+	}
 	if val != "v2" {
 		t.Fatalf("expected v2, got %s", val)
 	}
@@ -126,12 +133,14 @@ func TestOIDCConfigSecretPreservation(t *testing.T) {
 func TestDeleteOIDCConfig(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	s.SetOIDCConfig(OIDCConfig{
+	if err := s.SetOIDCConfig(OIDCConfig{
 		Issuer:       "https://issuer.example.com",
 		ClientID:     "my-client",
 		ClientSecret: "my-secret",
 		RedirectURL:  "https://app.example.com/callback",
-	})
+	}); err != nil {
+		t.Fatalf("SetOIDCConfig: %v", err)
+	}
 
 	if err := s.DeleteOIDCConfig(); err != nil {
 		t.Fatalf("DeleteOIDCConfig: %v", err)
@@ -146,68 +155,118 @@ func TestDeleteOIDCConfig(t *testing.T) {
 	}
 }
 
-func TestTautulliConfigRoundTrip(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	cfg := TautulliConfig{
-		URL:     "http://localhost:8181",
-		APIKey:  "my-tautulli-api-key",
-		Enabled: true,
-	}
-	if err := s.SetTautulliConfig(cfg); err != nil {
-		t.Fatalf("SetTautulliConfig: %v", err)
+func TestIntegrationConfigs(t *testing.T) {
+	type configOps struct {
+		get    func(*Store) (IntegrationConfig, error)
+		set    func(*Store, IntegrationConfig) error
+		delete func(*Store) error
 	}
 
-	got, err := s.GetTautulliConfig()
-	if err != nil {
-		t.Fatalf("GetTautulliConfig: %v", err)
+	integrations := []struct {
+		name string
+		url  string
+		ops  configOps
+	}{
+		{"tautulli", "http://localhost:8181", configOps{
+			func(s *Store) (IntegrationConfig, error) { return s.GetTautulliConfig() },
+			func(s *Store, c IntegrationConfig) error { return s.SetTautulliConfig(c) },
+			func(s *Store) error { return s.DeleteTautulliConfig() },
+		}},
+		{"overseerr", "http://localhost:5055", configOps{
+			func(s *Store) (IntegrationConfig, error) { return s.GetOverseerrConfig() },
+			func(s *Store, c IntegrationConfig) error { return s.SetOverseerrConfig(c) },
+			func(s *Store) error { return s.DeleteOverseerrConfig() },
+		}},
+		{"sonarr", "http://localhost:8989", configOps{
+			func(s *Store) (IntegrationConfig, error) { return s.GetSonarrConfig() },
+			func(s *Store, c IntegrationConfig) error { return s.SetSonarrConfig(c) },
+			func(s *Store) error { return s.DeleteSonarrConfig() },
+		}},
+		{"radarr", "http://localhost:7878", configOps{
+			func(s *Store) (IntegrationConfig, error) { return s.GetRadarrConfig() },
+			func(s *Store, c IntegrationConfig) error { return s.SetRadarrConfig(c) },
+			func(s *Store) error { return s.DeleteRadarrConfig() },
+		}},
 	}
-	if got != cfg {
-		t.Fatalf("expected %+v, got %+v", cfg, got)
+
+	for _, ic := range integrations {
+		t.Run(ic.name+"/round trip", func(t *testing.T) {
+			s := newTestStoreWithMigrations(t)
+			cfg := IntegrationConfig{URL: ic.url, APIKey: "my-" + ic.name + "-key", Enabled: true}
+			if err := ic.ops.set(s, cfg); err != nil {
+				t.Fatalf("Set: %v", err)
+			}
+			got, err := ic.ops.get(s)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if got != cfg {
+				t.Fatalf("expected %+v, got %+v", cfg, got)
+			}
+		})
+
+		t.Run(ic.name+"/api key preservation", func(t *testing.T) {
+			s := newTestStoreWithMigrations(t)
+			cfg := IntegrationConfig{URL: ic.url, APIKey: "original-key", Enabled: true}
+			if err := ic.ops.set(s, cfg); err != nil {
+				t.Fatalf("Set: %v", err)
+			}
+			updated := IntegrationConfig{URL: "http://newhost:9999", APIKey: "", Enabled: true}
+			if err := ic.ops.set(s, updated); err != nil {
+				t.Fatalf("Set updated: %v", err)
+			}
+			got, err := ic.ops.get(s)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if got.URL != "http://newhost:9999" {
+				t.Fatalf("expected updated URL, got %s", got.URL)
+			}
+			if got.APIKey != "original-key" {
+				t.Fatalf("expected preserved API key, got %s", got.APIKey)
+			}
+		})
+
+		t.Run(ic.name+"/delete", func(t *testing.T) {
+			s := newTestStoreWithMigrations(t)
+			if err := ic.ops.set(s, IntegrationConfig{URL: ic.url, APIKey: "my-key", Enabled: true}); err != nil {
+				t.Fatalf("Set: %v", err)
+			}
+			if err := ic.ops.delete(s); err != nil {
+				t.Fatalf("Delete: %v", err)
+			}
+			got, err := ic.ops.get(s)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if got.URL != "" || got.APIKey != "" {
+				t.Fatalf("expected empty URL/APIKey after delete, got %+v", got)
+			}
+		})
+
+		t.Run(ic.name+"/empty defaults", func(t *testing.T) {
+			s := newTestStoreWithMigrations(t)
+			got, err := ic.ops.get(s)
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if got.URL != "" || got.APIKey != "" {
+				t.Fatalf("expected empty URL/APIKey, got %+v", got)
+			}
+			if !got.Enabled {
+				t.Fatal("expected Enabled=true (default) for unconfigured integration")
+			}
+		})
 	}
 }
 
 func TestTautulliConfigOverwrite(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	cfg1 := TautulliConfig{
-		URL:     "http://localhost:8181",
-		APIKey:  "key1",
-		Enabled: true,
-	}
-	s.SetTautulliConfig(cfg1)
-
-	cfg2 := TautulliConfig{
-		URL:     "http://newhost:8181",
-		APIKey:  "key2",
-		Enabled: true,
-	}
-	s.SetTautulliConfig(cfg2)
-
-	got, _ := s.GetTautulliConfig()
-	if got != cfg2 {
-		t.Fatalf("expected %+v, got %+v", cfg2, got)
-	}
-}
-
-func TestTautulliConfigAPIKeyPreservation(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	cfg := TautulliConfig{
-		URL:     "http://localhost:8181",
-		APIKey:  "original-key",
-		Enabled: true,
-	}
-	if err := s.SetTautulliConfig(cfg); err != nil {
+	if err := s.SetTautulliConfig(TautulliConfig{URL: "http://localhost:8181", APIKey: "key1", Enabled: true}); err != nil {
 		t.Fatalf("SetTautulliConfig: %v", err)
 	}
-
-	updated := TautulliConfig{
-		URL:     "http://newhost:8181",
-		APIKey:  "",
-		Enabled: true,
-	}
-	if err := s.SetTautulliConfig(updated); err != nil {
+	if err := s.SetTautulliConfig(TautulliConfig{URL: "http://newhost:8181", APIKey: "key2", Enabled: true}); err != nil {
 		t.Fatalf("SetTautulliConfig: %v", err)
 	}
 
@@ -215,139 +274,8 @@ func TestTautulliConfigAPIKeyPreservation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTautulliConfig: %v", err)
 	}
-	if got.URL != "http://newhost:8181" {
-		t.Fatalf("expected updated URL, got %s", got.URL)
-	}
-	if got.APIKey != "original-key" {
-		t.Fatalf("expected preserved API key, got %s", got.APIKey)
-	}
-}
-
-func TestTautulliConfigDelete(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	s.SetTautulliConfig(TautulliConfig{
-		URL:     "http://localhost:8181",
-		APIKey:  "my-key",
-		Enabled: true,
-	})
-
-	if err := s.DeleteTautulliConfig(); err != nil {
-		t.Fatalf("DeleteTautulliConfig: %v", err)
-	}
-
-	got, err := s.GetTautulliConfig()
-	if err != nil {
-		t.Fatalf("GetTautulliConfig: %v", err)
-	}
-	if got.URL != "" || got.APIKey != "" {
-		t.Fatalf("expected empty URL/APIKey after delete, got %+v", got)
-	}
-}
-
-func TestTautulliConfigEmpty(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	got, err := s.GetTautulliConfig()
-	if err != nil {
-		t.Fatalf("GetTautulliConfig: %v", err)
-	}
-	if got.URL != "" || got.APIKey != "" {
-		t.Fatalf("expected empty URL/APIKey, got %+v", got)
-	}
-	if !got.Enabled {
-		t.Fatal("expected Enabled=true (default) for unconfigured integration")
-	}
-}
-
-func TestOverseerrConfigRoundTrip(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	cfg := OverseerrConfig{
-		URL:     "http://localhost:5055",
-		APIKey:  "my-overseerr-api-key",
-		Enabled: true,
-	}
-	if err := s.SetOverseerrConfig(cfg); err != nil {
-		t.Fatalf("SetOverseerrConfig: %v", err)
-	}
-
-	got, err := s.GetOverseerrConfig()
-	if err != nil {
-		t.Fatalf("GetOverseerrConfig: %v", err)
-	}
-	if got != cfg {
-		t.Fatalf("expected %+v, got %+v", cfg, got)
-	}
-}
-
-func TestOverseerrConfigAPIKeyPreservation(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	cfg := OverseerrConfig{
-		URL:     "http://localhost:5055",
-		APIKey:  "original-key",
-		Enabled: true,
-	}
-	if err := s.SetOverseerrConfig(cfg); err != nil {
-		t.Fatalf("SetOverseerrConfig: %v", err)
-	}
-
-	updated := OverseerrConfig{
-		URL:     "http://newhost:5055",
-		APIKey:  "",
-		Enabled: true,
-	}
-	if err := s.SetOverseerrConfig(updated); err != nil {
-		t.Fatalf("SetOverseerrConfig: %v", err)
-	}
-
-	got, err := s.GetOverseerrConfig()
-	if err != nil {
-		t.Fatalf("GetOverseerrConfig: %v", err)
-	}
-	if got.URL != "http://newhost:5055" {
-		t.Fatalf("expected updated URL, got %s", got.URL)
-	}
-	if got.APIKey != "original-key" {
-		t.Fatalf("expected preserved API key, got %s", got.APIKey)
-	}
-}
-
-func TestOverseerrConfigDelete(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	s.SetOverseerrConfig(OverseerrConfig{
-		URL:     "http://localhost:5055",
-		APIKey:  "my-key",
-		Enabled: true,
-	})
-
-	if err := s.DeleteOverseerrConfig(); err != nil {
-		t.Fatalf("DeleteOverseerrConfig: %v", err)
-	}
-
-	got, err := s.GetOverseerrConfig()
-	if err != nil {
-		t.Fatalf("GetOverseerrConfig: %v", err)
-	}
-	if got.URL != "" || got.APIKey != "" {
-		t.Fatalf("expected empty URL/APIKey after delete, got %+v", got)
-	}
-}
-
-func TestOverseerrConfigEmpty(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	got, err := s.GetOverseerrConfig()
-	if err != nil {
-		t.Fatalf("GetOverseerrConfig: %v", err)
-	}
-	if got.URL != "" || got.APIKey != "" {
-		t.Fatalf("expected empty URL/APIKey, got %+v", got)
-	}
-	if !got.Enabled {
-		t.Fatal("expected Enabled=true (default) for unconfigured integration")
+	if got.URL != "http://newhost:8181" || got.APIKey != "key2" {
+		t.Fatalf("expected overwritten config, got %+v", got)
 	}
 }
 
@@ -359,7 +287,6 @@ func TestIntegrationConfigEncryptedRoundTrip(t *testing.T) {
 		t.Fatalf("SetSonarrConfig: %v", err)
 	}
 
-	// Verify the raw stored value is encrypted (has enc: prefix)
 	raw, err := s.GetSetting("sonarr.api_key")
 	if err != nil {
 		t.Fatal(err)
@@ -371,7 +298,6 @@ func TestIntegrationConfigEncryptedRoundTrip(t *testing.T) {
 		t.Fatalf("expected enc: prefix, got %q", raw[:10])
 	}
 
-	// Round-trip should decrypt transparently
 	got, err := s.GetSonarrConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -384,76 +310,22 @@ func TestIntegrationConfigEncryptedRoundTrip(t *testing.T) {
 func TestIntegrationConfigPlaintextUpgrade(t *testing.T) {
 	s := newTestStoreWithMigrations(t, WithEncryptor(testEncryptor(t)))
 
-	// Simulate pre-encryption data: store API key in plaintext directly
-	s.SetSetting("overseerr.url", "http://localhost:5055")
-	s.SetSetting("overseerr.api_key", "plaintext-key")
-	s.SetSetting("overseerr.enabled", "1")
+	if err := s.SetSetting("overseerr.url", "http://localhost:5055"); err != nil {
+		t.Fatalf("SetSetting url: %v", err)
+	}
+	if err := s.SetSetting("overseerr.api_key", "plaintext-key"); err != nil {
+		t.Fatalf("SetSetting api_key: %v", err)
+	}
+	if err := s.SetSetting("overseerr.enabled", "1"); err != nil {
+		t.Fatalf("SetSetting enabled: %v", err)
+	}
 
-	// Should read plaintext fine even with encryptor
 	got, err := s.GetOverseerrConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.APIKey != "plaintext-key" {
 		t.Fatalf("expected plaintext-key, got %s", got.APIKey)
-	}
-}
-
-func TestSonarrConfigRoundTrip(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	cfg := SonarrConfig{
-		URL:     "http://localhost:8989",
-		APIKey:  "my-sonarr-api-key",
-		Enabled: true,
-	}
-	if err := s.SetSonarrConfig(cfg); err != nil {
-		t.Fatalf("SetSonarrConfig: %v", err)
-	}
-
-	got, err := s.GetSonarrConfig()
-	if err != nil {
-		t.Fatalf("GetSonarrConfig: %v", err)
-	}
-	if got != cfg {
-		t.Fatalf("expected %+v, got %+v", cfg, got)
-	}
-}
-
-func TestSonarrConfigDelete(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	s.SetSonarrConfig(SonarrConfig{
-		URL:     "http://localhost:8989",
-		APIKey:  "my-key",
-		Enabled: true,
-	})
-
-	if err := s.DeleteSonarrConfig(); err != nil {
-		t.Fatalf("DeleteSonarrConfig: %v", err)
-	}
-
-	got, err := s.GetSonarrConfig()
-	if err != nil {
-		t.Fatalf("GetSonarrConfig: %v", err)
-	}
-	if got.URL != "" || got.APIKey != "" {
-		t.Fatalf("expected empty URL/APIKey after delete, got %+v", got)
-	}
-}
-
-func TestSonarrConfigEmpty(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-
-	got, err := s.GetSonarrConfig()
-	if err != nil {
-		t.Fatalf("GetSonarrConfig: %v", err)
-	}
-	if got.URL != "" || got.APIKey != "" {
-		t.Fatalf("expected empty URL/APIKey, got %+v", got)
-	}
-	if !got.Enabled {
-		t.Fatal("expected Enabled=true (default) for unconfigured integration")
 	}
 }
 
@@ -544,10 +416,17 @@ func TestWatchedThresholdRoundTrip(t *testing.T) {
 func TestWatchedThresholdOverwrite(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	s.SetWatchedThreshold(60)
-	s.SetWatchedThreshold(90)
+	if err := s.SetWatchedThreshold(60); err != nil {
+		t.Fatalf("SetWatchedThreshold(60): %v", err)
+	}
+	if err := s.SetWatchedThreshold(90); err != nil {
+		t.Fatalf("SetWatchedThreshold(90): %v", err)
+	}
 
-	val, _ := s.GetWatchedThreshold()
+	val, err := s.GetWatchedThreshold()
+	if err != nil {
+		t.Fatalf("GetWatchedThreshold: %v", err)
+	}
 	if val != 90 {
 		t.Fatalf("expected 90, got %d", val)
 	}
@@ -620,7 +499,6 @@ func TestIdleTimeoutInvalidValues(t *testing.T) {
 	if err := s.SetIdleTimeoutMinutes(1441); err == nil {
 		t.Fatal("expected error for 1441 (exceeds max 1440)")
 	}
-	// Boundary: 1440 should be valid
 	if err := s.SetIdleTimeoutMinutes(1440); err != nil {
 		t.Fatalf("expected 1440 to be valid, got error: %v", err)
 	}
@@ -629,36 +507,36 @@ func TestIdleTimeoutInvalidValues(t *testing.T) {
 func TestCleanupZombieSessions(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	// Create a server for the foreign key
 	srv := &models.Server{Name: "srv", Type: models.ServerTypePlex, URL: "http://x", APIKey: "k", Enabled: true}
 	if err := s.CreateServer(srv); err != nil {
 		t.Fatal(err)
 	}
 
-	// Insert a zombie session: started 2 days ago, stopped now, but only watched 30 min
-	s.InsertHistory(&models.WatchHistoryEntry{
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID:  srv.ID,
 		UserName:  "alice",
 		Title:     "Zombie Movie",
 		MediaType: models.MediaTypeMovie,
 		StartedAt: time.Now().UTC().Add(-48 * time.Hour),
 		StoppedAt: time.Now().UTC(),
-		WatchedMs: 1800000, // 30 min
-	})
+		WatchedMs: 1800000,
+	}); err != nil {
+		t.Fatalf("InsertHistory zombie: %v", err)
+	}
 
-	// Insert a normal session
-	s.InsertHistory(&models.WatchHistoryEntry{
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID:  srv.ID,
 		UserName:  "bob",
 		Title:     "Normal Movie",
 		MediaType: models.MediaTypeMovie,
 		StartedAt: time.Now().UTC().Add(-2 * time.Hour),
 		StoppedAt: time.Now().UTC().Add(-30 * time.Minute),
-		WatchedMs: 5400000, // 90 min
-	})
+		WatchedMs: 5400000,
+	}); err != nil {
+		t.Fatalf("InsertHistory normal: %v", err)
+	}
 
-	// Insert a zero-progress zombie: started 3 days ago, stopped now, watched nothing
-	s.InsertHistory(&models.WatchHistoryEntry{
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID:  srv.ID,
 		UserName:  "charlie",
 		Title:     "Zero Progress Zombie",
@@ -666,7 +544,9 @@ func TestCleanupZombieSessions(t *testing.T) {
 		StartedAt: time.Now().UTC().Add(-72 * time.Hour),
 		StoppedAt: time.Now().UTC(),
 		WatchedMs: 0,
-	})
+	}); err != nil {
+		t.Fatalf("InsertHistory zero-progress: %v", err)
+	}
 
 	if err := s.CleanupZombieSessions(); err != nil {
 		t.Fatalf("CleanupZombieSessions: %v", err)
@@ -696,7 +576,6 @@ func TestCleanupZombieSessions(t *testing.T) {
 		}
 	}
 
-	// Second call should be a no-op (flag set)
 	if err := s.CleanupZombieSessions(); err != nil {
 		t.Fatalf("second CleanupZombieSessions: %v", err)
 	}
@@ -709,9 +588,21 @@ func TestGuestSettingsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetGuestSettings: %v", err)
 	}
+
+	optInKeys := map[string]bool{
+		"access_enabled":    true,
+		"store_plex_tokens": true,
+	}
+
 	for key, val := range gs {
-		if !val {
-			t.Errorf("expected %s to default true, got false", key)
+		if optInKeys[key] {
+			if val {
+				t.Errorf("expected %s to default false (opt-in), got true", key)
+			}
+		} else {
+			if !val {
+				t.Errorf("expected %s to default true, got false", key)
+			}
 		}
 	}
 	expected := []string{
@@ -737,7 +628,10 @@ func TestGuestSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("SetGuestSettings: %v", err)
 	}
 
-	gs, _ := s.GetGuestSettings()
+	gs, err := s.GetGuestSettings()
+	if err != nil {
+		t.Fatalf("GetGuestSettings: %v", err)
+	}
 	if gs["visible_devices"] {
 		t.Fatal("expected visible_devices=false")
 	}
@@ -752,7 +646,6 @@ func TestGuestSettingsRoundTrip(t *testing.T) {
 func TestGuestSettingSingle(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	// Default
 	val, err := s.GetGuestSetting("visible_devices")
 	if err != nil {
 		t.Fatal(err)
@@ -761,10 +654,37 @@ func TestGuestSettingSingle(t *testing.T) {
 		t.Fatal("expected default true")
 	}
 
-	// After setting false
-	s.SetGuestSettings(map[string]bool{"visible_devices": false})
-	val, _ = s.GetGuestSetting("visible_devices")
+	if err = s.SetGuestSettings(map[string]bool{"visible_devices": false}); err != nil {
+		t.Fatalf("SetGuestSettings: %v", err)
+	}
+	val, err = s.GetGuestSetting("visible_devices")
+	if err != nil {
+		t.Fatalf("GetGuestSetting: %v", err)
+	}
 	if val {
 		t.Fatal("expected false after update")
+	}
+}
+
+func TestGuestSettingSingleFalseDefaults(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	for _, key := range []string{"access_enabled", "store_plex_tokens"} {
+		val, err := s.GetGuestSetting(key)
+		if err != nil {
+			t.Fatalf("GetGuestSetting(%s): %v", key, err)
+		}
+		if val {
+			t.Errorf("expected %s to default false, got true", key)
+		}
+	}
+}
+
+func TestGuestSettingsRejectUnknownKey(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	err := s.SetGuestSettings(map[string]bool{"bogus_key": true})
+	if err == nil {
+		t.Fatal("expected error for unknown key")
 	}
 }

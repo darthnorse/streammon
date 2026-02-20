@@ -12,28 +12,31 @@ import (
 	"streammon/internal/store"
 )
 
-func createViewerSession(t *testing.T, st *store.Store, name string) string {
-	return createViewerSessionWithEmail(t, st, name, name+"@test.local")
+func setupItemDetailsHistory(t *testing.T) *store.Store {
+	t.Helper()
+	_, st := newTestServer(t)
+	s := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k", MachineID: "m1", Enabled: true}
+	if err := st.CreateServer(s); err != nil {
+		t.Fatalf("CreateServer: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Test Movie", StartedAt: now, StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+	if err := st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s.ID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Test Movie", StartedAt: now.Add(-time.Hour), StoppedAt: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+	return st
 }
 
 func TestItemDetailsHistoryAdminSeesAllUsers(t *testing.T) {
-	_, st := newTestServer(t)
-
-	// Create server and history for multiple users
-	s := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k", MachineID: "m1", Enabled: true}
-	st.CreateServer(s)
-	now := time.Now().UTC()
-
-	st.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: s.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
-		Title: "Test Movie", StartedAt: now, StoppedAt: now,
-	})
-	st.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: s.ID, UserName: "bob", MediaType: models.MediaTypeMovie,
-		Title: "Test Movie", StartedAt: now.Add(-time.Hour), StoppedAt: now.Add(-time.Hour),
-	})
-
-	// Admin (no user filter) should see all users' history
+	st := setupItemDetailsHistory(t)
 	history, err := st.HistoryForTitleByUser("Test Movie", "", 10)
 	if err != nil {
 		t.Fatalf("HistoryForTitleByUser: %v", err)
@@ -44,23 +47,7 @@ func TestItemDetailsHistoryAdminSeesAllUsers(t *testing.T) {
 }
 
 func TestItemDetailsHistoryViewerSeesOnlyOwnHistory(t *testing.T) {
-	_, st := newTestServer(t)
-
-	// Create server and history for multiple users
-	s := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k", MachineID: "m1", Enabled: true}
-	st.CreateServer(s)
-	now := time.Now().UTC()
-
-	st.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: s.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
-		Title: "Test Movie", StartedAt: now, StoppedAt: now,
-	})
-	st.InsertHistory(&models.WatchHistoryEntry{
-		ServerID: s.ID, UserName: "bob", MediaType: models.MediaTypeMovie,
-		Title: "Test Movie", StartedAt: now.Add(-time.Hour), StoppedAt: now.Add(-time.Hour),
-	})
-
-	// Viewer should only see their own history
+	st := setupItemDetailsHistory(t)
 	history, err := st.HistoryForTitleByUser("Test Movie", "alice", 10)
 	if err != nil {
 		t.Fatalf("HistoryForTitleByUser: %v", err)
@@ -77,12 +64,12 @@ func TestServerListRedactsURLForViewer(t *testing.T) {
 	srv, st := newTestServer(t)
 
 	s := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://internal:32400", APIKey: "k", MachineID: "secret-machine-id", Enabled: true}
-	st.CreateServer(s)
+	if err := st.CreateServer(s); err != nil {
+		t.Fatalf("CreateServer: %v", err)
+	}
 
-	// Create viewer user and session
 	viewerToken := createViewerSession(t, st, "viewer")
 
-	// Make request as viewer
 	req := httptest.NewRequest(http.MethodGet, "/api/servers", nil)
 	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 	w := httptest.NewRecorder()
@@ -114,9 +101,10 @@ func TestServerListShowsURLForAdmin(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
 	s := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://internal:32400", APIKey: "k", MachineID: "secret-machine-id", Enabled: true}
-	st.CreateServer(s)
+	if err := st.CreateServer(s); err != nil {
+		t.Fatalf("CreateServer: %v", err)
+	}
 
-	// Admin request (default test user)
 	req := httptest.NewRequest(http.MethodGet, "/api/servers", nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -144,7 +132,9 @@ func TestServerGetRedactsURLForViewer(t *testing.T) {
 	srv, st := newTestServer(t)
 
 	s := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://internal:32400", APIKey: "k", MachineID: "secret-machine-id", Enabled: true}
-	st.CreateServer(s)
+	if err := st.CreateServer(s); err != nil {
+		t.Fatalf("CreateServer: %v", err)
+	}
 
 	viewerToken := createViewerSession(t, st, "viewer")
 

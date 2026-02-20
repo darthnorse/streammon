@@ -77,6 +77,10 @@ func newTestServerWrapped(t *testing.T, storeOpts ...store.Option) (*testServer,
 	return &testServer{srv}, s
 }
 
+func createViewerSession(t *testing.T, st *store.Store, name string) string {
+	return createViewerSessionWithEmail(t, st, name, name+"@test.local")
+}
+
 func createViewerSessionWithEmail(t *testing.T, st *store.Store, name, email string) string {
 	t.Helper()
 	user, err := st.CreateLocalUser(name, email, "", models.RoleViewer)

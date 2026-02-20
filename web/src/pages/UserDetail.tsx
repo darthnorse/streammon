@@ -47,12 +47,13 @@ export function UserDetail({ userName }: UserDetailProps) {
     !isAdmin && isOwnPage ? '/api/settings/guest' : null
   )
 
-  const showTrustScore = isAdmin || (isOwnPage && guestSettings?.visible_trust_score !== false)
-  const showViolations = isAdmin || (isOwnPage && guestSettings?.visible_violations !== false)
-  const showWatchHistory = isAdmin || (isOwnPage && guestSettings?.visible_watch_history !== false)
-  const showHousehold = isAdmin || (isOwnPage && guestSettings?.visible_household !== false)
-  const showDevices = isAdmin || (isOwnPage && guestSettings?.visible_devices !== false)
-  const showISPs = isAdmin || (isOwnPage && guestSettings?.visible_isps !== false)
+  const canShow = (key: string) => isAdmin || (isOwnPage && guestSettings?.[key] !== false)
+  const showTrustScore = canShow('visible_trust_score')
+  const showViolations = canShow('visible_violations')
+  const showWatchHistory = canShow('visible_watch_history')
+  const showHousehold = canShow('visible_household')
+  const showDevices = canShow('visible_devices')
+  const showISPs = canShow('visible_isps')
   const showMap = showWatchHistory
 
   const tabs = allTabs.filter(t => {
@@ -185,10 +186,10 @@ export function UserDetail({ userName }: UserDetailProps) {
               <UserTrustScoreCard userName={decodedName} onViolationsClick={handleViolationsClick} />
             )}
           </div>
-          {(showHousehold || showDevices || showISPs) && (
+          {(showHousehold || showDevices || showISPs || showWatchHistory) && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {showHousehold && <UserHouseholdCard userName={decodedName} />}
-              <UserLocationsCard locations={stats.locations} />
+              {showWatchHistory && <UserLocationsCard locations={stats.locations} />}
               {showISPs && <UserISPCard isps={stats.isps} />}
               {showDevices && <UserDevicesCard devices={stats.devices} />}
             </div>

@@ -69,7 +69,6 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify rule exists
 	if _, err := s.store.GetRule(id); err != nil {
 		writeStoreError(w, err)
 		return
@@ -103,7 +102,6 @@ func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Verify rule exists
 	if _, err := s.store.GetRule(id); err != nil {
 		writeStoreError(w, err)
 		return

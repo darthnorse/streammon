@@ -2,7 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
+
+	"streammon/internal/models"
+	"streammon/internal/store"
 )
 
 type guestSettingsResponse struct {
@@ -34,7 +39,10 @@ func (s *Server) handleGetGuestSettings(w http.ResponseWriter, r *http.Request) 
 		VisibleHousehold:    gs["visible_household"],
 		VisibleDevices:      gs["visible_devices"],
 		VisibleISPs:         gs["visible_isps"],
-		PlexTokensAvailable: s.store.HasEncryptor(),
+	}
+	user := UserFromContext(r.Context())
+	if user != nil && user.Role == models.RoleAdmin {
+		resp.PlexTokensAvailable = s.store.HasEncryptor()
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -49,10 +57,22 @@ func (s *Server) handleUpdateGuestSettings(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "no updates provided")
 		return
 	}
+	for k := range updates {
+		if !store.ValidGuestSettingKey(k) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown setting key: %q", k))
+			return
+		}
+	}
 	if err := s.store.SetGuestSettings(updates); err != nil {
+		log.Printf("SetGuestSettings error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	// Return full current state
+	if enabled, ok := updates["store_plex_tokens"]; ok && !enabled {
+		if err := s.store.DeleteProviderTokensByProvider(store.ProviderPlex); err != nil {
+			log.Printf("DeleteProviderTokensByProvider error: %v", err)
+		}
+	}
+	log.Printf("Guest settings updated: %v", updates)
 	s.handleGetGuestSettings(w, r)
 }

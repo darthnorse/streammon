@@ -54,6 +54,15 @@ function ToggleRow({ title, description, enabled, saving, settingKey, onToggle }
   )
 }
 
+const visibilityToggles: { key: SettingKey; title: string; description: string }[] = [
+  { key: 'visible_trust_score', title: 'Trust Score', description: 'Allow viewers to see their trust score on their profile.' },
+  { key: 'visible_violations', title: 'Violations', description: 'Allow viewers to see their rule violations on their profile.' },
+  { key: 'visible_watch_history', title: 'Watch History', description: 'Allow viewers to see their watch history and location map on their profile.' },
+  { key: 'visible_household', title: 'Household Locations', description: 'Allow viewers to see their household locations on their profile.' },
+  { key: 'visible_devices', title: 'Devices', description: 'Allow viewers to see their devices on their profile.' },
+  { key: 'visible_isps', title: 'ISPs', description: 'Allow viewers to see their ISP information on their profile.' },
+]
+
 export function GuestAccessSettings() {
   const { data, loading, error, refetch } = useFetch<GuestSettings>('/api/settings/guest')
   const [optimistic, setOptimistic] = useState<Partial<Record<SettingKey, boolean>>>({})
@@ -61,7 +70,7 @@ export function GuestAccessSettings() {
   const [saveError, setSaveError] = useState('')
 
   const get = useCallback((key: SettingKey): boolean => {
-    if (key in optimistic) return optimistic[key] as boolean
+    if (key in optimistic) return optimistic[key]!
     return data ? data[key] : false
   }, [data, optimistic])
 
@@ -73,20 +82,15 @@ export function GuestAccessSettings() {
     setSaveError('')
     try {
       await api.put('/api/settings/guest', { [key]: newValue })
-      setOptimistic(prev => {
-        const next = { ...prev }
-        delete next[key]
-        return next
-      })
       refetch()
     } catch (err) {
+      setSaveError(errorMessage(err))
+    } finally {
       setOptimistic(prev => {
         const next = { ...prev }
         delete next[key]
         return next
       })
-      setSaveError(errorMessage(err))
-    } finally {
       setSaving(null)
     }
   }, [data, get, refetch])
@@ -152,54 +156,17 @@ export function GuestAccessSettings() {
           </p>
         </div>
         <div className="divide-y divide-border dark:divide-border-dark">
-          <ToggleRow
-            settingKey="visible_trust_score"
-            title="Trust Score"
-            description="Allow viewers to see their trust score on their profile."
-            enabled={get('visible_trust_score')}
-            saving={saving === 'visible_trust_score'}
-            onToggle={toggle}
-          />
-          <ToggleRow
-            settingKey="visible_violations"
-            title="Violations"
-            description="Allow viewers to see their rule violations on their profile."
-            enabled={get('visible_violations')}
-            saving={saving === 'visible_violations'}
-            onToggle={toggle}
-          />
-          <ToggleRow
-            settingKey="visible_watch_history"
-            title="Watch History"
-            description="Allow viewers to see their watch history and location map on their profile."
-            enabled={get('visible_watch_history')}
-            saving={saving === 'visible_watch_history'}
-            onToggle={toggle}
-          />
-          <ToggleRow
-            settingKey="visible_household"
-            title="Household Locations"
-            description="Allow viewers to see their household locations on their profile."
-            enabled={get('visible_household')}
-            saving={saving === 'visible_household'}
-            onToggle={toggle}
-          />
-          <ToggleRow
-            settingKey="visible_devices"
-            title="Devices"
-            description="Allow viewers to see their devices on their profile."
-            enabled={get('visible_devices')}
-            saving={saving === 'visible_devices'}
-            onToggle={toggle}
-          />
-          <ToggleRow
-            settingKey="visible_isps"
-            title="ISPs"
-            description="Allow viewers to see their ISP information on their profile."
-            enabled={get('visible_isps')}
-            saving={saving === 'visible_isps'}
-            onToggle={toggle}
-          />
+          {visibilityToggles.map(t => (
+            <ToggleRow
+              key={t.key}
+              settingKey={t.key}
+              title={t.title}
+              description={t.description}
+              enabled={get(t.key)}
+              saving={saving === t.key}
+              onToggle={toggle}
+            />
+          ))}
         </div>
       </div>
     </div>

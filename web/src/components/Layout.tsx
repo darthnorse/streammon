@@ -27,8 +27,8 @@ export function Layout() {
   const integrations = useMemo<IntegrationStatus>(() => ({
     sonarr: sonarrStatus?.configured ?? false,
     overseerr: overseerrConfigured,
-    discover: guestSettings?.show_discover ?? true,
-  }), [sonarrStatus, overseerrConfigured, guestSettings])
+    discover: isAdmin || (guestSettings?.show_discover ?? true),
+  }), [sonarrStatus, overseerrConfigured, guestSettings, isAdmin])
 
   return (
     <div className="flex min-h-screen scanlines">

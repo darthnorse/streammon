@@ -31,7 +31,6 @@ type OIDCConfig struct {
 	RedirectURL  string
 }
 
-
 func (s *Store) GetOIDCConfig() (OIDCConfig, error) {
 	var cfg OIDCConfig
 	var err error
@@ -245,10 +244,34 @@ var guestSettingKeys = []string{
 	"visible_household", "visible_devices", "visible_isps",
 }
 
+var guestSettingDefaults = map[string]bool{
+	"access_enabled":    false,
+	"store_plex_tokens": false,
+}
+
+func guestSettingDefault(key string) bool {
+	if d, ok := guestSettingDefaults[key]; ok {
+		return d
+	}
+	return true
+}
+
+var guestSettingKeySet = func() map[string]bool {
+	m := make(map[string]bool, len(guestSettingKeys))
+	for _, k := range guestSettingKeys {
+		m[k] = true
+	}
+	return m
+}()
+
+func ValidGuestSettingKey(key string) bool {
+	return guestSettingKeySet[key]
+}
+
 func (s *Store) GetGuestSettings() (map[string]bool, error) {
 	result := make(map[string]bool, len(guestSettingKeys))
 	for _, k := range guestSettingKeys {
-		result[k] = true // default all true
+		result[k] = guestSettingDefault(k)
 	}
 
 	rows, err := s.db.Query(`SELECT key, value FROM settings WHERE key LIKE 'guest.%'`)
@@ -269,6 +292,12 @@ func (s *Store) GetGuestSettings() (map[string]bool, error) {
 }
 
 func (s *Store) SetGuestSettings(updates map[string]bool) error {
+	for k := range updates {
+		if !guestSettingKeySet[k] {
+			return fmt.Errorf("unknown guest setting key: %q", k)
+		}
+	}
+
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -287,14 +316,13 @@ func (s *Store) SetGuestSettings(updates map[string]bool) error {
 	return tx.Commit()
 }
 
-// GetGuestSetting returns a single guest setting value (defaults to true).
 func (s *Store) GetGuestSetting(key string) (bool, error) {
 	val, err := s.GetSetting("guest." + key)
 	if err != nil {
-		return true, err
+		return false, err
 	}
 	if val == "" {
-		return true, nil
+		return guestSettingDefault(key), nil
 	}
 	return val == "true", nil
 }

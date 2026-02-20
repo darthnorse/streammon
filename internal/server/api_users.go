@@ -202,14 +202,23 @@ func (s *Server) handleGetUserStats(w http.ResponseWriter, r *http.Request) {
 
 	user := UserFromContext(r.Context())
 	if user != nil && user.Role != models.RoleAdmin {
-		gs, err := s.store.GetGuestSettings()
-		if err == nil {
-			if !gs["visible_devices"] {
-				stats.Devices = nil
-			}
-			if !gs["visible_isps"] {
-				stats.ISPs = nil
-			}
+		devicesVisible, err := s.store.GetGuestSetting("visible_devices")
+		if err != nil {
+			log.Printf("GetGuestSetting error: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal")
+			return
+		}
+		ispsVisible, err := s.store.GetGuestSetting("visible_isps")
+		if err != nil {
+			log.Printf("GetGuestSetting error: %v", err)
+			writeError(w, http.StatusInternalServerError, "internal")
+			return
+		}
+		if !devicesVisible {
+			stats.Devices = nil
+		}
+		if !ispsVisible {
+			stats.ISPs = nil
 		}
 	}
 

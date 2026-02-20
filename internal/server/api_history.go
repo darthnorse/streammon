@@ -107,6 +107,15 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if vn := viewerName(r); vn != "" {
+		visible, err := s.store.GetGuestSetting("visible_watch_history")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal")
+			return
+		}
+		if !visible {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
 		owner, err := s.store.GetHistoryOwner(id)
 		if err != nil || owner != vn {
 			writeJSON(w, http.StatusOK, []models.WatchSession{})
@@ -147,6 +156,17 @@ func (s *Server) handleDailyHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userFilter := viewerName(r)
+	if userFilter != "" {
+		visible, err := s.store.GetGuestSetting("visible_watch_history")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal")
+			return
+		}
+		if !visible {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+	}
 
 	serverIDs, err := parseServerIDs(r.URL.Query().Get("server_ids"))
 	if err != nil {

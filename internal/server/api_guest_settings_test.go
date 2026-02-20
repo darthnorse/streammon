@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,14 +29,17 @@ func TestGuestSettingsAPI(t *testing.T) {
 			t.Fatalf("decode: %v", err)
 		}
 
-		if !resp.AccessEnabled {
-			t.Error("expected access_enabled default true")
+		if resp.AccessEnabled {
+			t.Error("expected access_enabled default false")
 		}
 		if !resp.VisibleTrustScore {
 			t.Error("expected visible_trust_score default true")
 		}
 		if !resp.ShowDiscover {
 			t.Error("expected show_discover default true")
+		}
+		if resp.StorePlexTokens {
+			t.Error("expected store_plex_tokens default false")
 		}
 	})
 
@@ -51,13 +55,14 @@ func TestGuestSettingsAPI(t *testing.T) {
 			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 
-		// Verify via GET
 		req2 := httptest.NewRequest(http.MethodGet, "/api/settings/guest", nil)
 		w2 := httptest.NewRecorder()
 		srv.ServeHTTP(w2, req2)
 
 		var resp guestSettingsResponse
-		json.NewDecoder(w2.Body).Decode(&resp)
+		if err := json.NewDecoder(w2.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
 
 		if resp.VisibleDevices {
 			t.Error("expected visible_devices=false")
@@ -74,7 +79,6 @@ func TestGuestSettingsAPI(t *testing.T) {
 		srv, st := newTestServer(t)
 		viewerToken := createViewerSession(t, st, "viewer-gs")
 
-		// GET should work for viewers
 		req := httptest.NewRequest(http.MethodGet, "/api/settings/guest", nil)
 		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 		w := httptest.NewRecorder()
@@ -83,7 +87,6 @@ func TestGuestSettingsAPI(t *testing.T) {
 			t.Fatalf("viewer GET: expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 
-		// PUT should be 403
 		req2 := httptest.NewRequest(http.MethodPut, "/api/settings/guest", strings.NewReader(`{"visible_devices":false}`))
 		req2.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 		w2 := httptest.NewRecorder()
@@ -105,6 +108,30 @@ func TestGuestSettingsAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("put empty body returns 400", func(t *testing.T) {
+		srv, _ := newTestServerWrapped(t)
+
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/guest", strings.NewReader("{}"))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("put unknown key returns 400", func(t *testing.T) {
+		srv, _ := newTestServerWrapped(t)
+
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/guest", strings.NewReader(`{"bogus_key":true}`))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
 	t.Run("unauthenticated returns 401", func(t *testing.T) {
 		srv, _ := newTestServer(t)
 
@@ -119,25 +146,56 @@ func TestGuestSettingsAPI(t *testing.T) {
 }
 
 func TestGuestVisibilityEnforcement(t *testing.T) {
-	t.Run("viewer blocked from trust score when disabled", func(t *testing.T) {
-		srv, st := newTestServer(t)
-		viewerToken := createViewerSession(t, st, "alice-vis")
-		st.SetGuestSettings(map[string]bool{"visible_trust_score": false})
+	blockedCases := []struct {
+		name        string
+		viewerName  string
+		setting     string
+		urlSuffix   string
+		urlOverride string
+	}{
+		{"trust score", "alice-vis", "visible_trust_score", "/trust", ""},
+		{"violations", "carol-vis", "visible_violations", "/violations?page=1&per_page=10", ""},
+		{"history", "dave-vis", "visible_watch_history", "", "/api/history?user=%s&page=1&per_page=10"},
+		{"daily history", "daily-vis", "visible_watch_history", "", "/api/history/daily?start=2025-01-01&end=2025-01-31"},
+		{"sessions", "sess-vis", "visible_watch_history", "", "/api/history/1/sessions"},
+		{"household", "eve-vis", "visible_household", "/household", ""},
+		{"locations", "geo-vis", "visible_watch_history", "/locations", ""},
+	}
 
-		req := httptest.NewRequest(http.MethodGet, "/api/users/alice-vis/trust", nil)
-		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, req)
+	for _, tc := range blockedCases {
+		t.Run("viewer blocked from "+tc.name+" when disabled", func(t *testing.T) {
+			srv, st := newTestServer(t)
+			viewerName := tc.viewerName
+			viewerToken := createViewerSession(t, st, viewerName)
+			if err := st.SetGuestSettings(map[string]bool{tc.setting: false}); err != nil {
+				t.Fatalf("SetGuestSettings: %v", err)
+			}
 
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-		}
-	})
+			url := "/api/users/" + viewerName + tc.urlSuffix
+			if tc.urlOverride != "" {
+				if strings.Contains(tc.urlOverride, "%s") {
+					url = fmt.Sprintf(tc.urlOverride, viewerName)
+				} else {
+					url = tc.urlOverride
+				}
+			}
+			req := httptest.NewRequest(http.MethodGet, url, nil)
+			req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
 
 	t.Run("viewer allowed trust score when enabled", func(t *testing.T) {
 		srv, st := newTestServer(t)
 		viewerToken := createViewerSession(t, st, "bob-vis")
-		st.SetGuestSettings(map[string]bool{"visible_trust_score": true})
+		if err := st.SetGuestSettings(map[string]bool{"visible_trust_score": true}); err != nil {
+			t.Fatalf("SetGuestSettings: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/users/bob-vis/trust", nil)
 		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
@@ -149,61 +207,15 @@ func TestGuestVisibilityEnforcement(t *testing.T) {
 		}
 	})
 
-	t.Run("viewer blocked from violations when disabled", func(t *testing.T) {
-		srv, st := newTestServer(t)
-		viewerToken := createViewerSession(t, st, "carol-vis")
-		st.SetGuestSettings(map[string]bool{"visible_violations": false})
-
-		req := httptest.NewRequest(http.MethodGet, "/api/users/carol-vis/violations?page=1&per_page=10", nil)
-		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-		}
-	})
-
-	t.Run("viewer blocked from history when disabled", func(t *testing.T) {
-		srv, st := newTestServer(t)
-		viewerToken := createViewerSession(t, st, "dave-vis")
-		st.SetGuestSettings(map[string]bool{"visible_watch_history": false})
-
-		req := httptest.NewRequest(http.MethodGet, "/api/history?user=dave-vis&page=1&per_page=10", nil)
-		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-		}
-	})
-
-	t.Run("viewer blocked from household when disabled", func(t *testing.T) {
-		srv, st := newTestServer(t)
-		viewerToken := createViewerSession(t, st, "eve-vis")
-		st.SetGuestSettings(map[string]bool{"visible_household": false})
-
-		req := httptest.NewRequest(http.MethodGet, "/api/users/eve-vis/household", nil)
-		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
-		w := httptest.NewRecorder()
-		srv.ServeHTTP(w, req)
-
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
-		}
-	})
-
 	t.Run("viewer stats filters devices and ISPs when disabled", func(t *testing.T) {
 		srv, st := newTestServer(t)
 		viewerToken := createViewerSession(t, st, "frank-vis")
-		st.SetGuestSettings(map[string]bool{
+		if err := st.SetGuestSettings(map[string]bool{
 			"visible_devices": false,
 			"visible_isps":    false,
-		})
-
-		// Create a user record so stats endpoint does not 404
-		st.CreateLocalUser("frank-vis-data", "frank-data@test.local", "", models.RoleViewer)
+		}); err != nil {
+			t.Fatalf("SetGuestSettings: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/users/frank-vis/stats", nil)
 		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
@@ -228,14 +240,16 @@ func TestGuestVisibilityEnforcement(t *testing.T) {
 
 	t.Run("admin always sees everything regardless of settings", func(t *testing.T) {
 		srv, st := newTestServerWrapped(t)
-		st.SetGuestSettings(map[string]bool{
+		if err := st.SetGuestSettings(map[string]bool{
 			"visible_trust_score":   false,
 			"visible_violations":    false,
 			"visible_watch_history": false,
 			"visible_household":     false,
 			"visible_devices":       false,
 			"visible_isps":          false,
-		})
+		}); err != nil {
+			t.Fatalf("SetGuestSettings: %v", err)
+		}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/users/test-admin/trust", nil)
 		w := httptest.NewRecorder()
@@ -246,12 +260,11 @@ func TestGuestVisibilityEnforcement(t *testing.T) {
 		}
 	})
 
-	t.Run("viewer blocked from locations when watch history disabled", func(t *testing.T) {
+	t.Run("viewer blocked from other user household", func(t *testing.T) {
 		srv, st := newTestServer(t)
-		viewerToken := createViewerSession(t, st, "geo-vis")
-		st.SetGuestSettings(map[string]bool{"visible_watch_history": false})
+		viewerToken := createViewerSession(t, st, "hh-viewer")
 
-		req := httptest.NewRequest(http.MethodGet, "/api/users/geo-vis/locations", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/users/test-admin/household", nil)
 		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
