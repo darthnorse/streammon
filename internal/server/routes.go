@@ -188,28 +188,9 @@ func (s *Server) routes() {
 			sr.Put("/", s.handleUpdateIdleTimeout)
 		})
 
-		r.Route("/settings/guest-access", func(sr chi.Router) {
-			sr.Use(RequireRole(models.RoleAdmin))
-			sr.Get("/", s.handleGetGuestAccess)
-			sr.Put("/", s.handleUpdateGuestAccess)
-		})
-
-		r.Route("/settings/show-discover", func(sr chi.Router) {
-			sr.Get("/", s.handleGetShowDiscover)
-			sr.With(RequireRole(models.RoleAdmin)).Put("/", s.handleUpdateShowDiscover)
-		})
-
-		r.Route("/settings/plex-tokens", func(sr chi.Router) {
-			sr.Use(RequireRole(models.RoleAdmin))
-			sr.Get("/", s.handleGetPlexTokensSetting)
-			sr.Put("/", s.handleUpdatePlexTokensSetting)
-		})
-
-		// GET is open to all authenticated users so the frontend can decide
-		// whether to render trust-score UI; only PUT requires admin.
-		r.Route("/settings/trust-visibility", func(sr chi.Router) {
-			sr.Get("/", s.handleGetTrustScoreVisibility)
-			sr.With(RequireRole(models.RoleAdmin)).Put("/", s.handleUpdateTrustScoreVisibility)
+		r.Route("/settings/guest", func(sr chi.Router) {
+			sr.Get("/", s.handleGetGuestSettings)
+			sr.With(RequireRole(models.RoleAdmin)).Put("/", s.handleUpdateGuestSettings)
 		})
 
 		r.Route("/rules", func(sr chi.Router) {

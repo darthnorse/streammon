@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -9,6 +11,7 @@ import (
 	"time"
 
 	"streammon/internal/auth"
+	"streammon/internal/crypto"
 	"streammon/internal/models"
 	"streammon/internal/store"
 )
@@ -85,6 +88,24 @@ func createViewerSessionWithEmail(t *testing.T, st *store.Store, name, email str
 		t.Fatalf("creating viewer session: %v", err)
 	}
 	return token
+}
+
+func testEncryptor(t *testing.T) *crypto.Encryptor {
+	t.Helper()
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		t.Fatal(err)
+	}
+	enc, err := crypto.NewEncryptor(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return enc
+}
+
+func newTestServerWithEncryptor(t *testing.T) (*Server, *store.Store) {
+	t.Helper()
+	return newTestServer(t, store.WithEncryptor(testEncryptor(t)))
 }
 
 // newEmptyStore creates a store with migrations but no users.
