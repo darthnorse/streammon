@@ -13,6 +13,7 @@ import { RadarrForm } from '../components/RadarrForm'
 import { EmptyState } from '../components/EmptyState'
 import { IntegrationCard } from '../components/IntegrationCard'
 import { UserManagement } from '../components/UserManagement'
+import { GuestAccessSettings } from '../components/GuestAccessSettings'
 import { ServerDeleteDialog } from '../components/ServerDeleteDialog'
 import { btnOutline, btnDanger } from '../lib/constants'
 
@@ -25,6 +26,7 @@ const serverTypeColors: Record<string, string> = {
 const tabs: { key: TabKey; label: string }[] = [
   { key: 'servers', label: 'Servers' },
   { key: 'users', label: 'Users' },
+  { key: 'guest', label: 'Guest Access' },
   { key: 'auth', label: 'Authentication' },
   { key: 'integrations', label: 'Integrations' },
   { key: 'geoip', label: 'GeoIP' },
@@ -33,7 +35,7 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'about', label: 'About' },
 ]
 
-type TabKey = 'servers' | 'users' | 'auth' | 'integrations' | 'geoip' | 'import' | 'display' | 'about'
+type TabKey = 'servers' | 'users' | 'guest' | 'auth' | 'integrations' | 'geoip' | 'import' | 'display' | 'about'
 
 export function Settings() {
   const [tab, setTab] = useState<TabKey>('servers')
@@ -408,6 +410,10 @@ export function Settings() {
 
       {tab === 'users' && (
         <UserManagement />
+      )}
+
+      {tab === 'guest' && (
+        <GuestAccessSettings />
       )}
 
       {tab === 'auth' && (
