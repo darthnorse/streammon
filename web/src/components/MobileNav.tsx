@@ -17,9 +17,10 @@ const navItemInactive = 'text-muted dark:text-muted-dark'
 
 interface MobileNavProps {
   integrations: IntegrationStatus
+  pendingCount: number
 }
 
-export function MobileNav({ integrations }: MobileNavProps) {
+export function MobileNav({ integrations, pendingCount }: MobileNavProps) {
   const [showMore, setShowMore] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
@@ -61,7 +62,14 @@ export function MobileNav({ integrations }: MobileNavProps) {
                   `${navItemBase} ${isActive ? navItemActive : navItemInactive}`
                 }
               >
-                {Icon && <Icon className="w-5 h-5" />}
+                <span className="relative">
+                  {Icon && <Icon className="w-5 h-5" />}
+                  {label === 'Requests' && pendingCount > 0 && (
+                    <span className="absolute -top-1.5 -right-3 text-[8px] font-bold leading-none px-1 py-0.5 rounded-full bg-yellow-500 text-gray-900">
+                      {pendingCount}
+                    </span>
+                  )}
+                </span>
                 {label}
               </NavLink>
             )

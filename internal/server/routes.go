@@ -161,6 +161,8 @@ func (s *Server) routes() {
 			sr.Get("/collection/{id}", s.handleTMDBCollection)
 		})
 
+		r.Get("/library/tmdb-ids", s.handleLibraryTMDBIDs)
+
 		r.Route("/overseerr", func(sr chi.Router) {
 			sr.Get("/configured", s.handleIntegrationConfigured(s.overseerrDeps()))
 			sr.Get("/search", s.handleOverseerrSearch)

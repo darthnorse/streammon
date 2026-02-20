@@ -422,6 +422,27 @@ func (s *Store) FindMatchingItems(ctx context.Context, item *models.LibraryItemC
 }
 
 // LibraryMatch is a lightweight struct for TMDB-to-library matching.
+func (s *Store) GetLibraryTMDBIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT li.tmdb_id FROM library_items li
+		JOIN servers srv ON li.server_id = srv.id
+		WHERE li.tmdb_id != '' AND srv.deleted_at IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("get library tmdb ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan tmdb id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 type LibraryMatch struct {
 	ServerID   int64  `json:"server_id"`
 	ServerName string `json:"server_name"`

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
 import { useFetch } from '../hooks/useFetch'
@@ -46,6 +46,8 @@ export function DiscoverAll() {
 
   const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
   const overseerrConfigured = !!configStatus?.configured
+  const { data: libraryData } = useFetch<{ ids: string[] }>('/api/library/tmdb-ids')
+  const libraryIds = useMemo(() => new Set(libraryData?.ids ?? []), [libraryData])
 
   const url = valid ? `/api/tmdb/discover/${category}` : null
   const { items, loading, loadingMore, hasMore, error, sentinelRef } =
@@ -88,6 +90,7 @@ export function DiscoverAll() {
                 key={`${item.media_type}-${item.id}`}
                 item={item}
                 onClick={() => setSelectedMedia({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
+                available={libraryIds.has(String(item.id))}
               />
             ))}
           </div>
@@ -125,6 +128,7 @@ export function DiscoverAll() {
             setSelectedPerson(null)
             setSelectedMedia({ mediaType: type, mediaId: id })
           }}
+          libraryIds={libraryIds}
         />
       )}
     </div>

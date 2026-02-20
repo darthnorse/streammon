@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
@@ -41,9 +41,10 @@ type DiscoverSectionProps = {
   data: TMDBSearchResult | null
   loading: boolean
   onSelect: (item: SelectedMedia) => void
+  libraryIds: Set<string>
 }
 
-function DiscoverSection({ path, title, data, loading, onSelect }: DiscoverSectionProps) {
+function DiscoverSection({ path, title, data, loading, onSelect, libraryIds }: DiscoverSectionProps) {
   const { canScrollLeft, canScrollRight, scrollBy, ...scrollHandlers } = useHorizontalScroll()
   const items = data?.results?.filter(isSelectableMedia)
   if (!loading && (!items || items.length === 0)) return null
@@ -94,6 +95,7 @@ function DiscoverSection({ path, title, data, loading, onSelect }: DiscoverSecti
               item={item}
               onClick={() => onSelect({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
               className="shrink-0 w-24 sm:w-[150px]"
+              available={libraryIds.has(String(item.id))}
             />
           ))}
         </div>
@@ -102,11 +104,11 @@ function DiscoverSection({ path, title, data, loading, onSelect }: DiscoverSecti
   )
 }
 
-type DiscoverFetchSectionProps = Pick<DiscoverSectionProps, 'path' | 'title' | 'onSelect'>
+type DiscoverFetchSectionProps = Pick<DiscoverSectionProps, 'path' | 'title' | 'onSelect' | 'libraryIds'>
 
-function DiscoverFetchSection({ path, title, onSelect }: DiscoverFetchSectionProps) {
+function DiscoverFetchSection({ path, title, onSelect, libraryIds }: DiscoverFetchSectionProps) {
   const { data, loading } = useFetch<TMDBSearchResult>(`/api/tmdb/discover/${path}`)
-  return <DiscoverSection path={path} title={title} data={data} loading={loading} onSelect={onSelect} />
+  return <DiscoverSection path={path} title={title} data={data} loading={loading} onSelect={onSelect} libraryIds={libraryIds} />
 }
 
 function matchesRequester(req: OverseerrRequest, query: string): boolean {
@@ -122,6 +124,8 @@ export function Discover() {
 
   const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
   const overseerrConfigured = !!configStatus?.configured
+  const { data: libraryData } = useFetch<{ ids: string[] }>('/api/library/tmdb-ids')
+  const libraryIds = useMemo(() => new Set(libraryData?.ids ?? []), [libraryData])
 
   const [tab, setTab] = useState<Tab>('discover')
   const [searchResults, setSearchResults] = useState<TMDBSearchResult | null>(null)
@@ -219,11 +223,6 @@ export function Discover() {
             {pageSubtitle}
           </p>
         </div>
-        {overseerrConfigured && counts && counts.pending > 0 && isAdmin && (
-          <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-yellow-500/20 text-yellow-500">
-            {counts.pending} pending
-          </span>
-        )}
       </div>
 
       {overseerrConfigured && (
@@ -233,8 +232,10 @@ export function Discover() {
           </button>
           <button onClick={() => setTab('requests')} className={tabClass(tab === 'requests')}>
             Requests
-            {counts && counts.total > 0 && isAdmin && (
-              <span className="ml-1.5 text-xs text-muted dark:text-muted-dark">({counts.total})</span>
+            {counts && counts.pending > 0 && isAdmin && (
+              <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-500">
+                {counts.pending}
+              </span>
             )}
           </button>
         </div>
@@ -277,6 +278,7 @@ export function Discover() {
                       key={`${item.media_type}-${item.id}`}
                       item={item}
                       onClick={() => setSelectedMedia({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
+                      available={libraryIds.has(String(item.id))}
                     />
                   ))}
                 </div>
@@ -285,7 +287,7 @@ export function Discover() {
           ) : (
             <div className="space-y-8">
               {DISCOVER_CATEGORIES.map(cat => (
-                <DiscoverFetchSection key={cat.path} path={cat.path} title={cat.title} onSelect={setSelectedMedia} />
+                <DiscoverFetchSection key={cat.path} path={cat.path} title={cat.title} onSelect={setSelectedMedia} libraryIds={libraryIds} />
               ))}
             </div>
           )}
@@ -390,6 +392,7 @@ export function Discover() {
             setSelectedPerson(null)
             setSelectedMedia({ mediaType: type, mediaId: id })
           }}
+          libraryIds={libraryIds}
         />
       )}
     </div>

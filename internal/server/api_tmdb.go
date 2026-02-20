@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -77,7 +78,48 @@ func (s *Server) handleTMDBDiscover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if category != "trending" {
+		mediaType := "movie"
+		if strings.HasPrefix(category, "tv") {
+			mediaType = "tv"
+		}
+		data = injectMediaType(data, mediaType)
+	}
+
 	writeRawJSON(w, http.StatusOK, data)
+}
+
+func injectMediaType(raw json.RawMessage, mediaType string) json.RawMessage {
+	var page struct {
+		Results []json.RawMessage `json:"results"`
+	}
+	if err := json.Unmarshal(raw, &page); err != nil {
+		return raw
+	}
+
+	mtBytes, _ := json.Marshal(mediaType)
+	for i, item := range page.Results {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(item, &obj); err != nil {
+			continue
+		}
+		obj["media_type"] = mtBytes
+		if modified, err := json.Marshal(obj); err == nil {
+			page.Results[i] = modified
+		}
+	}
+
+	var full map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &full); err != nil {
+		return raw
+	}
+	if resultsBytes, err := json.Marshal(page.Results); err == nil {
+		full["results"] = resultsBytes
+	}
+	if out, err := json.Marshal(full); err == nil {
+		return out
+	}
+	return raw
 }
 
 type tmdbEnvelope struct {
@@ -174,4 +216,16 @@ func (s *Server) handleTMDBCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeRawJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleLibraryTMDBIDs(w http.ResponseWriter, r *http.Request) {
+	ids, err := s.store.GetLibraryTMDBIDs(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to fetch library IDs")
+		return
+	}
+	if ids == nil {
+		ids = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string][]string{"ids": ids})
 }

@@ -33,9 +33,10 @@ interface MediaCardProps {
   item: MediaItem
   onClick: () => void
   className?: string
+  available?: boolean
 }
 
-export function MediaCard({ item, onClick, className }: MediaCardProps) {
+export function MediaCard({ item, onClick, className, available }: MediaCardProps) {
   const { title, year, posterPath, mediaType, voteAverage, mediaStatus } = normalize(item)
 
   return (
@@ -59,11 +60,17 @@ export function MediaCard({ item, onClick, className }: MediaCardProps) {
             {mediaType === 'movie' ? '🎬' : '📺'}
           </div>
         )}
-        {mediaStatus && mediaStatus > 1 && (
+        {mediaStatus && mediaStatus > 1 ? (
           <div className="absolute top-1 right-1">
             {mediaStatusBadge(mediaStatus)}
           </div>
-        )}
+        ) : available ? (
+          <div className="absolute top-1 right-1">
+            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-600/90 text-white">
+              Available
+            </span>
+          </div>
+        ) : null}
         <div className="absolute top-1 left-1">
           <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-black/60 text-white">
             {mediaType === 'movie' ? 'Movie' : 'TV'}

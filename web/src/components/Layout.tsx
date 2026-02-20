@@ -8,6 +8,7 @@ import { UserAvatar } from './UserAvatar'
 import { useAuth } from '../context/AuthContext'
 import { useFetch } from '../hooks/useFetch'
 import type { IntegrationStatus } from '../lib/constants'
+import type { OverseerrRequestCount } from '../types'
 
 export function Layout() {
   const { user } = useAuth()
@@ -16,15 +17,22 @@ export function Layout() {
   const { data: overseerrStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
   const { data: discoverSetting } = useFetch<{ enabled: boolean }>('/api/settings/show-discover')
 
+  const overseerrConfigured = overseerrStatus?.configured ?? false
+  const isAdmin = user?.role === 'admin'
+  const { data: requestCounts } = useFetch<OverseerrRequestCount>(
+    overseerrConfigured && isAdmin ? '/api/overseerr/requests/count' : null,
+  )
+  const pendingCount = requestCounts?.pending ?? 0
+
   const integrations = useMemo<IntegrationStatus>(() => ({
     sonarr: sonarrStatus?.configured ?? false,
-    overseerr: overseerrStatus?.configured ?? false,
+    overseerr: overseerrConfigured,
     discover: discoverSetting?.enabled ?? true,
-  }), [sonarrStatus, overseerrStatus, discoverSetting])
+  }), [sonarrStatus, overseerrConfigured, discoverSetting])
 
   return (
     <div className="flex min-h-screen scanlines">
-      <Sidebar onOpenProfile={() => setShowProfile(true)} integrations={integrations} />
+      <Sidebar onOpenProfile={() => setShowProfile(true)} integrations={integrations} pendingCount={pendingCount} />
 
       <div className="flex-1 flex flex-col min-w-0">
         <header className="lg:hidden flex items-center justify-between px-4 h-14
@@ -55,7 +63,7 @@ export function Layout() {
         </main>
       </div>
 
-      <MobileNav integrations={integrations} />
+      <MobileNav integrations={integrations} pendingCount={pendingCount} />
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
     </div>

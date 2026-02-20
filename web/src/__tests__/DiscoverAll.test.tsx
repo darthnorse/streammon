@@ -40,6 +40,7 @@ function renderAtRoute(path: string) {
 
 function mockGetHandler(handler: (url: string) => unknown) {
   mockApi.get.mockImplementation(((url: string) => {
+    if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: [] })
     const result = handler(url)
     return result instanceof Error ? Promise.reject(result) : Promise.resolve(result)
   }) as typeof api.get)
@@ -74,7 +75,9 @@ describe('DiscoverAll', () => {
     mockApi.get.mockImplementation(((url: string) =>
       url.includes('/api/overseerr/configured')
         ? Promise.resolve({ configured: false })
-        : new Promise(() => {})
+        : url === '/api/library/tmdb-ids'
+          ? Promise.resolve({ ids: [] })
+          : new Promise(() => {})
     ) as typeof api.get)
 
     renderAtRoute('/discover/trending')
@@ -127,6 +130,7 @@ describe('DiscoverAll', () => {
     let discoverCallCount = 0
     mockApi.get.mockImplementation(((url: string) => {
       if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: [] })
       discoverCallCount++
       return Promise.resolve(discoverCallCount === 1 ? page1Response : page2Response)
     }) as typeof api.get)
@@ -169,7 +173,9 @@ describe('DiscoverAll', () => {
     mockApi.get.mockImplementation(((url: string) =>
       url.includes('/api/overseerr/configured')
         ? Promise.resolve({ configured: false })
-        : new Promise(() => {})
+        : url === '/api/library/tmdb-ids'
+          ? Promise.resolve({ ids: [] })
+          : new Promise(() => {})
     ) as typeof api.get)
 
     renderAtRoute('/discover/trending')

@@ -11,9 +11,10 @@ import type { VersionInfo } from '../types'
 interface SidebarProps {
   onOpenProfile: () => void
   integrations: IntegrationStatus
+  pendingCount: number
 }
 
-export function Sidebar({ onOpenProfile, integrations }: SidebarProps) {
+export function Sidebar({ onOpenProfile, integrations, pendingCount }: SidebarProps) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -67,6 +68,11 @@ export function Sidebar({ onOpenProfile, integrations }: SidebarProps) {
               >
                 {Icon && <Icon className="w-5 h-5" />}
                 {label}
+                {label === 'Requests' && pendingCount > 0 && (
+                  <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-500">
+                    {pendingCount}
+                  </span>
+                )}
               </NavLink>
             )
           })}

@@ -9,13 +9,14 @@ interface PersonModalProps {
   personId: number
   onClose: () => void
   onMediaClick?: (mediaType: 'movie' | 'tv', mediaId: number) => void
+  libraryIds?: Set<string>
 }
 
 function sortByPopularity(credits: TMDBPersonCredit[]): TMDBPersonCredit[] {
   return [...credits].sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
 }
 
-export function PersonModal({ personId, onClose, onMediaClick }: PersonModalProps) {
+export function PersonModal({ personId, onClose, onMediaClick, libraryIds }: PersonModalProps) {
   const [person, setPerson] = useState<TMDBPersonDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -177,6 +178,7 @@ export function PersonModal({ personId, onClose, onMediaClick }: PersonModalProp
                         vote_average: credit.vote_average,
                       }}
                       onClick={() => onMediaClick?.(credit.media_type, credit.id)}
+                      available={libraryIds?.has(String(credit.id))}
                     />
                   ))}
                 </div>
