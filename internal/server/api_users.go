@@ -107,6 +107,19 @@ func (s *Server) handleGetUserLocations(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	user := UserFromContext(r.Context())
+	if user != nil && user.Role != models.RoleAdmin {
+		visible, err := s.store.GetGuestSetting("visible_watch_history")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal")
+			return
+		}
+		if !visible {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+	}
+
 	ipResults, err := s.store.DistinctIPsForUser(name)
 	if err != nil {
 		log.Printf("DistinctIPsForUser error: %v", err)
@@ -184,6 +197,19 @@ func (s *Server) handleGetUserStats(w http.ResponseWriter, r *http.Request) {
 			log.Printf("GetUser error: %v", err)
 			writeError(w, http.StatusInternalServerError, "internal")
 			return
+		}
+	}
+
+	user := UserFromContext(r.Context())
+	if user != nil && user.Role != models.RoleAdmin {
+		gs, err := s.store.GetGuestSettings()
+		if err == nil {
+			if !gs["visible_devices"] {
+				stats.Devices = nil
+			}
+			if !gs["visible_isps"] {
+				stats.ISPs = nil
+			}
 		}
 	}
 

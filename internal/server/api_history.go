@@ -41,6 +41,15 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 	userFilter := r.URL.Query().Get("user")
 	if vn := viewerName(r); vn != "" {
 		userFilter = vn
+		visible, err := s.store.GetGuestSetting("visible_watch_history")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal")
+			return
+		}
+		if !visible {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
 	}
 
 	sortBy := r.URL.Query().Get("sort_by")

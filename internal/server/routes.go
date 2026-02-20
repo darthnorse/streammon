@@ -249,11 +249,10 @@ func (s *Server) routes() {
 		r.Get("/users/{name}/trust", s.handleGetUserTrustScore)
 		r.Get("/users/{name}/violations", s.handleGetUserViolations)
 		r.Route("/users/{name}/household", func(sr chi.Router) {
-			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleListHouseholdLocations)
-			sr.Post("/", s.handleCreateHouseholdLocation)
-			sr.Put("/{id}", s.handleUpdateHouseholdTrusted)
-			sr.Delete("/{id}", s.handleDeleteHouseholdLocation)
+			sr.With(RequireRole(models.RoleAdmin)).Post("/", s.handleCreateHouseholdLocation)
+			sr.With(RequireRole(models.RoleAdmin)).Put("/{id}", s.handleUpdateHouseholdTrusted)
+			sr.With(RequireRole(models.RoleAdmin)).Delete("/{id}", s.handleDeleteHouseholdLocation)
 		})
 
 		r.With(RequireRole(models.RoleAdmin)).Post("/household/calculate", s.handleCalculateHouseholdLocations)
