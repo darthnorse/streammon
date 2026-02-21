@@ -16,7 +16,7 @@ const navItemActive = 'text-accent-dim dark:text-accent'
 const navItemInactive = 'text-muted dark:text-muted-dark'
 
 interface MobileNavProps {
-  integrations: IntegrationStatus
+  integrations?: IntegrationStatus
   pendingCount: number
 }
 

@@ -10,7 +10,7 @@ import type { VersionInfo } from '../types'
 
 interface SidebarProps {
   onOpenProfile: () => void
-  integrations: IntegrationStatus
+  integrations?: IntegrationStatus
   pendingCount: number
 }
 

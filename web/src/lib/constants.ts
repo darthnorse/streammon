@@ -115,8 +115,8 @@ export function isSelectableMedia(r: TMDBMediaResult): boolean {
   return r.media_type === 'movie' || r.media_type === 'tv'
 }
 
-export function resolveNavLabel(link: { to: string; label: string }, integrations: IntegrationStatus): string {
-  return link.to === '/discover' && integrations.overseerr ? 'Requests' : link.label
+export function resolveNavLabel(link: { to: string; label: string }, integrations?: IntegrationStatus): string {
+  return link.to === '/discover' && integrations?.overseerr ? 'Requests' : link.label
 }
 
 export const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'

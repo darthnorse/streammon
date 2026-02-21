@@ -26,13 +26,17 @@ export function Layout() {
   )
   const pendingCount = requestCounts?.pending ?? 0
 
-  const integrations = useMemo<IntegrationStatus>(() => ({
-    sonarr: sonarrConfigured,
-    overseerr: overseerrConfigured,
-    discover: isAdmin || (guestSettings?.show_discover ?? true),
-    profile: isAdmin || (guestSettings?.visible_profile ?? true),
-    calendar: sonarrConfigured && (isAdmin || (guestSettings?.show_calendar ?? true)),
-  }), [sonarrConfigured, overseerrConfigured, guestSettings, isAdmin])
+  const integrationsLoaded = sonarrStatus !== null && overseerrStatus !== null && guestResp !== null
+  const integrations = useMemo<IntegrationStatus | undefined>(() => {
+    if (!integrationsLoaded) return undefined
+    return {
+      sonarr: sonarrConfigured,
+      overseerr: overseerrConfigured,
+      discover: isAdmin || (guestSettings?.show_discover ?? true),
+      profile: isAdmin || (guestSettings?.visible_profile ?? true),
+      calendar: sonarrConfigured && (isAdmin || (guestSettings?.show_calendar ?? true)),
+    }
+  }, [integrationsLoaded, sonarrConfigured, overseerrConfigured, guestSettings, isAdmin])
 
   return (
     <div className="flex min-h-screen scanlines">
