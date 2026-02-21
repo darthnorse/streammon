@@ -205,6 +205,7 @@ interface ItemContentProps {
 function ItemContent({ item, accent, tmdbMovie, tmdbTV, tmdbLoading, onPersonClick }: ItemContentProps) {
   const tmdbCast = tmdbMovie?.credits?.cast || tmdbTV?.credits?.cast
   const tmdbCrew = tmdbMovie?.credits?.crew || tmdbTV?.credits?.crew
+  const tmdbGenres = tmdbMovie?.genres || tmdbTV?.genres
   const tmdbDirectors = tmdbCrew?.filter((c: TMDBCrew) => c.job === 'Director')
   const directorNames = tmdbDirectors && tmdbDirectors.length > 0
     ? tmdbDirectors.map(d => d.name)
@@ -301,18 +302,27 @@ function ItemContent({ item, accent, tmdbMovie, tmdbTV, tmdbLoading, onPersonCli
           )}
         </div>
 
-        {item.genres && item.genres.length > 0 && (
+        {(tmdbGenres || item.genres) && (tmdbGenres?.length || item.genres?.length) ? (
           <div className="flex flex-wrap gap-2">
-            {item.genres.map(genre => (
-              <span
-                key={genre}
-                className={`px-2.5 py-1 text-xs font-medium rounded-full ${accent.badge}`}
-              >
-                {genre}
-              </span>
-            ))}
+            {tmdbGenres
+              ? tmdbGenres.map(g => (
+                  <span
+                    key={g.id}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-full ${accent.badge}`}
+                  >
+                    {g.name}
+                  </span>
+                ))
+              : item.genres!.map(genre => (
+                  <span
+                    key={genre}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-full ${accent.badge}`}
+                  >
+                    {genre}
+                  </span>
+                ))}
           </div>
-        )}
+        ) : null}
 
         {item.summary && (
           <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
