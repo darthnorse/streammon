@@ -606,10 +606,13 @@ func TestGuestSettingsDefaults(t *testing.T) {
 		}
 	}
 	expected := []string{
-		"access_enabled", "store_plex_tokens", "show_discover",
+		"access_enabled", "store_plex_tokens", "show_discover", "show_calendar",
 		"visible_profile",
 		"visible_trust_score", "visible_violations", "visible_watch_history",
 		"visible_household", "visible_devices", "visible_isps",
+	}
+	if len(gs) != len(expected) {
+		t.Fatalf("expected %d guest settings, got %d", len(expected), len(gs))
 	}
 	for _, k := range expected {
 		if _, ok := gs[k]; !ok {

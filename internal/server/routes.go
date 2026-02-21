@@ -146,7 +146,7 @@ func (s *Server) routes() {
 			sr.Get("/configured", s.handleIntegrationConfigured(s.sonarrDeps()))
 			sr.Get("/calendar", s.handleSonarrCalendar)
 			sr.Get("/series/{id}", s.handleSonarrSeries)
-			sr.Post("/series/statuses", s.handleSonarrSeriesStatuses)
+			sr.With(RequireRole(models.RoleAdmin)).Post("/series/statuses", s.handleSonarrSeriesStatuses)
 		})
 
 		r.Get("/radarr/configured", s.handleIntegrationConfigured(s.radarrDeps()))

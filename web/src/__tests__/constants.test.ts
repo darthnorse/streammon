@@ -3,8 +3,8 @@ import { visibleNavLinks } from '../lib/constants'
 import type { IntegrationStatus } from '../lib/constants'
 
 describe('visibleNavLinks', () => {
-  const all: IntegrationStatus = { sonarr: true, overseerr: true, discover: true, profile: true }
-  const none: IntegrationStatus = { sonarr: false, overseerr: false, discover: false, profile: true }
+  const all: IntegrationStatus = { sonarr: true, overseerr: true, discover: true, profile: true, calendar: true }
+  const none: IntegrationStatus = { sonarr: false, overseerr: false, discover: false, profile: true, calendar: false }
 
   describe('admin', () => {
     it('shows Calendar and Discover when integrations configured', () => {
@@ -13,14 +13,14 @@ describe('visibleNavLinks', () => {
       expect(labels).toContain('Discover')
     })
 
-    it('hides Calendar when Sonarr unconfigured', () => {
-      const labels = visibleNavLinks('admin', { sonarr: false, overseerr: true, discover: true, profile: true }).map(l => l.label)
+    it('hides Calendar when calendar disabled', () => {
+      const labels = visibleNavLinks('admin', { ...all, calendar: false }).map(l => l.label)
       expect(labels).not.toContain('Calendar')
       expect(labels).toContain('Discover')
     })
 
     it('hides Discover when discover disabled', () => {
-      const labels = visibleNavLinks('admin', { sonarr: true, overseerr: false, discover: false, profile: true }).map(l => l.label)
+      const labels = visibleNavLinks('admin', { ...all, discover: false }).map(l => l.label)
       expect(labels).toContain('Calendar')
       expect(labels).not.toContain('Discover')
     })
@@ -45,13 +45,13 @@ describe('visibleNavLinks', () => {
       expect(labels).not.toContain('My Stats')
     })
 
-    it('hides Calendar when Sonarr unconfigured', () => {
-      const labels = visibleNavLinks('viewer', { sonarr: false, overseerr: true, discover: true, profile: true }).map(l => l.label)
+    it('hides Calendar when calendar disabled', () => {
+      const labels = visibleNavLinks('viewer', { ...all, calendar: false }).map(l => l.label)
       expect(labels).not.toContain('Calendar')
     })
 
     it('hides Discover when discover disabled', () => {
-      const labels = visibleNavLinks('viewer', { sonarr: true, overseerr: false, discover: false, profile: true }).map(l => l.label)
+      const labels = visibleNavLinks('viewer', { ...all, discover: false }).map(l => l.label)
       expect(labels).not.toContain('Discover')
     })
   })

@@ -43,9 +43,10 @@ export function UserDetail({ userName }: UserDetailProps) {
   const encodedName = encodeURIComponent(decodedName)
   const isOwnPage = currentUser?.name === decodedName
 
-  const { data: guestSettings } = useFetch<Record<string, boolean>>(
+  const { data: guestResp } = useFetch<{ settings: Record<string, boolean> }>(
     !isAdmin && isOwnPage ? '/api/settings/guest' : null
   )
+  const guestSettings = guestResp?.settings
 
   type VisibilityKey = 'visible_trust_score' | 'visible_violations' | 'visible_watch_history' | 'visible_household' | 'visible_devices' | 'visible_isps'
   const profileVisible = isAdmin || (isOwnPage && guestSettings?.visible_profile !== false)

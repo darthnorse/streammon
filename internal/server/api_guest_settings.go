@@ -11,17 +11,8 @@ import (
 )
 
 type guestSettingsResponse struct {
-	AccessEnabled       bool `json:"access_enabled"`
-	StorePlexTokens     bool `json:"store_plex_tokens"`
-	ShowDiscover        bool `json:"show_discover"`
-	VisibleProfile      bool `json:"visible_profile"`
-	VisibleTrustScore   bool `json:"visible_trust_score"`
-	VisibleViolations   bool `json:"visible_violations"`
-	VisibleWatchHistory bool `json:"visible_watch_history"`
-	VisibleHousehold    bool `json:"visible_household"`
-	VisibleDevices      bool `json:"visible_devices"`
-	VisibleISPs         bool `json:"visible_isps"`
-	PlexTokensAvailable bool `json:"plex_tokens_available"`
+	Settings            map[string]bool `json:"settings"`
+	PlexTokensAvailable bool            `json:"plex_tokens_available"`
 }
 
 func (s *Server) handleGetGuestSettings(w http.ResponseWriter, r *http.Request) {
@@ -30,18 +21,7 @@ func (s *Server) handleGetGuestSettings(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	resp := guestSettingsResponse{
-		AccessEnabled:       gs["access_enabled"],
-		StorePlexTokens:     gs["store_plex_tokens"],
-		ShowDiscover:        gs["show_discover"],
-		VisibleProfile:      gs["visible_profile"],
-		VisibleTrustScore:   gs["visible_trust_score"],
-		VisibleViolations:   gs["visible_violations"],
-		VisibleWatchHistory: gs["visible_watch_history"],
-		VisibleHousehold:    gs["visible_household"],
-		VisibleDevices:      gs["visible_devices"],
-		VisibleISPs:         gs["visible_isps"],
-	}
+	resp := guestSettingsResponse{Settings: gs}
 	user := UserFromContext(r.Context())
 	if user != nil && user.Role == models.RoleAdmin {
 		resp.PlexTokensAvailable = s.store.HasEncryptor()

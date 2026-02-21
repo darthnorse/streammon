@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"streammon/internal/models"
 	"streammon/internal/sonarr"
 	"streammon/internal/store"
 )
@@ -64,7 +65,25 @@ func validDateParam(s string) bool {
 	return err == nil
 }
 
+func (s *Server) calendarAccessBlocked(w http.ResponseWriter, r *http.Request) bool {
+	if user := UserFromContext(r.Context()); user != nil && user.Role != models.RoleAdmin {
+		allowed, err := s.store.GetGuestSetting("show_calendar")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal")
+			return true
+		}
+		if !allowed {
+			writeError(w, http.StatusForbidden, "calendar access disabled")
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Server) handleSonarrSeries(w http.ResponseWriter, r *http.Request) {
+	if s.calendarAccessBlocked(w, r) {
+		return
+	}
 	id, err := strconv.Atoi(chi.URLParam(r, "id"))
 	if err != nil || id <= 0 {
 		writeError(w, http.StatusBadRequest, "invalid series ID")
@@ -84,6 +103,10 @@ func (s *Server) handleSonarrSeries(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSonarrCalendar(w http.ResponseWriter, r *http.Request) {
+	if s.calendarAccessBlocked(w, r) {
+		return
+	}
+
 	start := r.URL.Query().Get("start")
 	end := r.URL.Query().Get("end")
 
@@ -159,6 +182,9 @@ func (s *Server) handleSonarrSeriesStatuses(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleSonarrPoster(w http.ResponseWriter, r *http.Request) {
+	if s.calendarAccessBlocked(w, r) {
+		return
+	}
 	seriesID := chi.URLParam(r, "seriesId")
 	if _, err := strconv.Atoi(seriesID); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid series ID")

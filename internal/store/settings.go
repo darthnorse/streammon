@@ -239,7 +239,7 @@ func (s *Store) SetWatchedThreshold(pct int) error {
 }
 
 var guestSettingKeys = []string{
-	"access_enabled", "store_plex_tokens", "show_discover",
+	"access_enabled", "store_plex_tokens", "show_discover", "show_calendar",
 	"visible_profile",
 	"visible_trust_score", "visible_violations", "visible_watch_history",
 	"visible_household", "visible_devices", "visible_isps",
@@ -287,6 +287,9 @@ func (s *Store) GetGuestSettings() (map[string]bool, error) {
 			return nil, fmt.Errorf("scanning guest setting: %w", err)
 		}
 		short := strings.TrimPrefix(key, "guest.")
+		if !guestSettingKeySet[short] {
+			continue
+		}
 		result[short] = value == "true"
 	}
 	return result, rows.Err()

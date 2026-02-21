@@ -15,8 +15,10 @@ export function Layout() {
   const [showProfile, setShowProfile] = useState(false)
   const { data: sonarrStatus } = useFetch<{ configured: boolean }>('/api/sonarr/configured')
   const { data: overseerrStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
-  const { data: guestSettings } = useFetch<Record<string, boolean>>('/api/settings/guest')
+  const { data: guestResp } = useFetch<{ settings: Record<string, boolean> }>('/api/settings/guest')
+  const guestSettings = guestResp?.settings
 
+  const sonarrConfigured = sonarrStatus?.configured ?? false
   const overseerrConfigured = overseerrStatus?.configured ?? false
   const isAdmin = user?.role === 'admin'
   const { data: requestCounts } = useFetch<OverseerrRequestCount>(
@@ -25,11 +27,12 @@ export function Layout() {
   const pendingCount = requestCounts?.pending ?? 0
 
   const integrations = useMemo<IntegrationStatus>(() => ({
-    sonarr: sonarrStatus?.configured ?? false,
+    sonarr: sonarrConfigured,
     overseerr: overseerrConfigured,
     discover: isAdmin || (guestSettings?.show_discover ?? true),
     profile: isAdmin || (guestSettings?.visible_profile ?? true),
-  }), [sonarrStatus, overseerrConfigured, guestSettings, isAdmin])
+    calendar: sonarrConfigured && (isAdmin || (guestSettings?.show_calendar ?? true)),
+  }), [sonarrConfigured, overseerrConfigured, guestSettings, isAdmin])
 
   return (
     <div className="flex min-h-screen scanlines">

@@ -29,19 +29,22 @@ func TestGuestSettingsAPI(t *testing.T) {
 			t.Fatalf("decode: %v", err)
 		}
 
-		if resp.AccessEnabled {
+		if resp.Settings["access_enabled"] {
 			t.Error("expected access_enabled default false")
 		}
-		if !resp.VisibleTrustScore {
+		if !resp.Settings["visible_trust_score"] {
 			t.Error("expected visible_trust_score default true")
 		}
-		if !resp.ShowDiscover {
+		if !resp.Settings["show_discover"] {
 			t.Error("expected show_discover default true")
 		}
-		if resp.StorePlexTokens {
+		if !resp.Settings["show_calendar"] {
+			t.Error("expected show_calendar default true")
+		}
+		if resp.Settings["store_plex_tokens"] {
 			t.Error("expected store_plex_tokens default false")
 		}
-		if !resp.VisibleProfile {
+		if !resp.Settings["visible_profile"] {
 			t.Error("expected visible_profile default true")
 		}
 	})
@@ -67,13 +70,13 @@ func TestGuestSettingsAPI(t *testing.T) {
 			t.Fatalf("decode: %v", err)
 		}
 
-		if resp.VisibleDevices {
+		if resp.Settings["visible_devices"] {
 			t.Error("expected visible_devices=false")
 		}
-		if resp.VisibleISPs {
+		if resp.Settings["visible_isps"] {
 			t.Error("expected visible_isps=false")
 		}
-		if !resp.VisibleTrustScore {
+		if !resp.Settings["visible_trust_score"] {
 			t.Error("expected visible_trust_score=true (unchanged)")
 		}
 	})
@@ -334,6 +337,66 @@ func TestGuestVisibilityEnforcement(t *testing.T) {
 
 		if w.Code != http.StatusForbidden {
 			t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	calendarBlockedEndpoints := []struct {
+		name string
+		url  string
+	}{
+		{"calendar", "/api/sonarr/calendar?start=2025-03-01&end=2025-03-07"},
+		{"series", "/api/sonarr/series/10"},
+		{"poster", "/api/sonarr/poster/10"},
+	}
+	for _, ep := range calendarBlockedEndpoints {
+		t.Run("viewer blocked from "+ep.name+" when show_calendar disabled", func(t *testing.T) {
+			mock := mockSonarr(t)
+			srv, st := newTestServer(t)
+			configureSonarr(t, st, mock.URL)
+			viewerToken := createViewerSession(t, st, ep.name+"-viewer")
+			if err := st.SetGuestSettings(map[string]bool{"show_calendar": false}); err != nil {
+				t.Fatalf("SetGuestSettings: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, ep.url, nil)
+			req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+
+	t.Run("viewer allowed calendar when show_calendar enabled", func(t *testing.T) {
+		mock := mockSonarr(t)
+		srv, st := newTestServer(t)
+		configureSonarr(t, st, mock.URL)
+		viewerToken := createViewerSession(t, st, "cal-allowed")
+
+		req := httptest.NewRequest(http.MethodGet, "/api/sonarr/calendar?start=2025-03-01&end=2025-03-07", nil)
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("admin bypasses show_calendar=false", func(t *testing.T) {
+		srv, st := newSonarrTestServer(t)
+		if err := st.SetGuestSettings(map[string]bool{"show_calendar": false}); err != nil {
+			t.Fatalf("SetGuestSettings: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/sonarr/calendar?start=2025-03-01&end=2025-03-07", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }

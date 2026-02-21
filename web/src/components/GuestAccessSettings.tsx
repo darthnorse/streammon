@@ -4,21 +4,12 @@ import { api } from '../lib/api'
 import { errorMessage } from '../lib/utils'
 import { EmptyState } from './EmptyState'
 
-interface GuestSettings {
-  access_enabled: boolean
-  store_plex_tokens: boolean
-  show_discover: boolean
-  visible_profile: boolean
-  visible_trust_score: boolean
-  visible_violations: boolean
-  visible_watch_history: boolean
-  visible_household: boolean
-  visible_devices: boolean
-  visible_isps: boolean
+interface GuestSettingsResponse {
+  settings: Record<string, boolean>
   plex_tokens_available: boolean
 }
 
-type SettingKey = Exclude<keyof GuestSettings, 'plex_tokens_available'>
+type SettingKey = string
 
 interface ToggleRowProps {
   title: string
@@ -67,14 +58,14 @@ const visibilityToggles: { key: SettingKey; title: string; description: string }
 ]
 
 export function GuestAccessSettings() {
-  const { data, loading, error, refetch } = useFetch<GuestSettings>('/api/settings/guest')
-  const [optimistic, setOptimistic] = useState<Partial<Record<SettingKey, boolean>>>({})
+  const { data, loading, error, refetch } = useFetch<GuestSettingsResponse>('/api/settings/guest')
+  const [optimistic, setOptimistic] = useState<Record<string, boolean>>({})
   const [saving, setSaving] = useState<SettingKey | null>(null)
   const [saveError, setSaveError] = useState('')
 
   const get = useCallback((key: SettingKey): boolean => {
     if (key in optimistic) return optimistic[key]!
-    return data ? data[key] : false
+    return data ? data.settings[key] ?? false : false
   }, [data, optimistic])
 
   const toggle = useCallback(async (key: SettingKey) => {
@@ -130,7 +121,7 @@ export function GuestAccessSettings() {
             saving={saving === 'access_enabled'}
             onToggle={toggle}
           />
-          {data.plex_tokens_available && (
+          {data?.plex_tokens_available && (
             <ToggleRow
               settingKey="store_plex_tokens"
               title="Store Plex Tokens"
@@ -146,6 +137,14 @@ export function GuestAccessSettings() {
             description="Display the Discover (or Requests, if Overseerr is configured) page in the navigation for all users."
             enabled={get('show_discover')}
             saving={saving === 'show_discover'}
+            onToggle={toggle}
+          />
+          <ToggleRow
+            settingKey="show_calendar"
+            title="Show Calendar Link"
+            description="Display the Calendar page in the navigation for all users. The link only appears when Sonarr is also configured."
+            enabled={get('show_calendar')}
+            saving={saving === 'show_calendar'}
             onToggle={toggle}
           />
         </div>

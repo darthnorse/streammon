@@ -57,7 +57,7 @@ export interface NavLink {
   label: string
   icon: keyof typeof navIconMap
   visibility: 'all' | Role
-  requires?: 'sonarr' | 'overseerr' | 'discover' | 'profile'
+  requires?: 'sonarr' | 'overseerr' | 'discover' | 'profile' | 'calendar'
 }
 
 export interface IntegrationStatus {
@@ -65,6 +65,7 @@ export interface IntegrationStatus {
   overseerr: boolean
   discover: boolean
   profile: boolean
+  calendar: boolean
 }
 
 export const navLinks: NavLink[] = [
@@ -73,7 +74,7 @@ export const navLinks: NavLink[] = [
   { to: '/history', label: 'History', icon: 'History', visibility: 'admin' },
   { to: '/my-stats', label: 'My Stats', icon: 'User', visibility: 'viewer', requires: 'profile' },
   { to: '/statistics', label: 'Statistics', icon: 'BarChart3', visibility: 'admin' },
-  { to: '/calendar', label: 'Calendar', icon: 'CalendarDays', visibility: 'all', requires: 'sonarr' },
+  { to: '/calendar', label: 'Calendar', icon: 'CalendarDays', visibility: 'all', requires: 'calendar' },
   { to: '/library', label: 'Library', icon: 'Library', visibility: 'admin' },
   { to: '/users', label: 'Users', icon: 'Users', visibility: 'admin' },
   { to: '/rules', label: 'Rules', icon: 'ShieldAlert', visibility: 'admin' },
