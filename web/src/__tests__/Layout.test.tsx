@@ -7,6 +7,15 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: vi.fn(),
 }))
 
+vi.mock('../hooks/useFetch', () => ({
+  useFetch: vi.fn((url: string | null) => {
+    if (url === '/api/sonarr/configured') return { data: { configured: false }, loading: false, error: null, refetch: vi.fn() }
+    if (url === '/api/overseerr/configured') return { data: { configured: false }, loading: false, error: null, refetch: vi.fn() }
+    if (url === '/api/settings/guest') return { data: { settings: {}, plex_tokens_available: false }, loading: false, error: null, refetch: vi.fn() }
+    return { data: null, loading: false, error: null, refetch: vi.fn() }
+  }),
+}))
+
 import { useAuth } from '../context/AuthContext'
 
 const mockUseAuth = vi.mocked(useAuth)

@@ -84,7 +84,7 @@ export const navLinks: NavLink[] = [
 export function visibleNavLinks(role: Role | undefined, integrations?: IntegrationStatus): NavLink[] {
   return navLinks.filter(link => {
     if (link.visibility !== 'all' && link.visibility !== role) return false
-    if (link.requires && integrations && !integrations[link.requires]) return false
+    if (link.requires && (!integrations || !integrations[link.requires])) return false
     return true
   })
 }

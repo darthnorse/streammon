@@ -57,10 +57,10 @@ describe('visibleNavLinks', () => {
   })
 
   describe('no integrations provided', () => {
-    it('includes integration links when status unknown', () => {
+    it('hides integration links when status unknown', () => {
       const labels = visibleNavLinks('admin').map(l => l.label)
-      expect(labels).toContain('Calendar')
-      expect(labels).toContain('Discover')
+      expect(labels).not.toContain('Calendar')
+      expect(labels).not.toContain('Discover')
     })
   })
 })
