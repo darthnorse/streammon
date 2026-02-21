@@ -410,6 +410,13 @@ func (s *Store) FindMatchingItems(ctx context.Context, item *models.LibraryItemC
 		if err != nil {
 			return nil, fmt.Errorf("scan matching item: %w", err)
 		}
+		// Reject matches where a shared external ID contradicts. The OR query
+		// finds candidates that share at least one ID, but if both source and
+		// match have a different value for another ID, that signals bad metadata
+		// and the match is unsafe (could delete the wrong item).
+		if externalIDsContradict(item, &matched) {
+			continue
+		}
 		items = append(items, matched)
 	}
 	if err := rows.Err(); err != nil {
@@ -419,6 +426,22 @@ func (s *Store) FindMatchingItems(ctx context.Context, item *models.LibraryItemC
 		return []models.LibraryItemCache{}, nil
 	}
 	return items, nil
+}
+
+// externalIDsContradict returns true if both items have a non-empty value for
+// the same external ID field but the values differ. This catches bad-metadata
+// scenarios where e.g. two items share an IMDB ID but have different TMDB IDs.
+func externalIDsContradict(a, b *models.LibraryItemCache) bool {
+	if a.TMDBID != "" && b.TMDBID != "" && a.TMDBID != b.TMDBID {
+		return true
+	}
+	if a.TVDBID != "" && b.TVDBID != "" && a.TVDBID != b.TVDBID {
+		return true
+	}
+	if a.IMDBID != "" && b.IMDBID != "" && a.IMDBID != b.IMDBID {
+		return true
+	}
+	return false
 }
 
 // LibraryMatch is a lightweight struct for TMDB-to-library matching.

@@ -334,17 +334,19 @@ func (e *Evaluator) evaluateKeepLatestSeasons(ctx context.Context, rule *models.
 						ID int `json:"id"`
 					} `json:"genres"`
 				}
-				if jsonErr := json.Unmarshal(raw, &parsed); jsonErr == nil {
-					matched := false
-					for _, g := range parsed.Genres {
-						if genreFilter[g.ID] {
-							matched = true
-							break
-						}
+				if jsonErr := json.Unmarshal(raw, &parsed); jsonErr != nil {
+					log.Printf("keep_latest_seasons: unmarshal genres for %q (tmdb=%d): %v", item.Title, tmdbID, jsonErr)
+					continue // can't verify genre, skip to be safe
+				}
+				matched := false
+				for _, g := range parsed.Genres {
+					if genreFilter[g.ID] {
+						matched = true
+						break
 					}
-					if !matched {
-						continue
-					}
+				}
+				if !matched {
+					continue
 				}
 			}
 		}

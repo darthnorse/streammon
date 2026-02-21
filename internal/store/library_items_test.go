@@ -805,6 +805,59 @@ func TestFindMatchingItems(t *testing.T) {
 		}
 	})
 
+	t.Run("contradicting external IDs rejected", func(t *testing.T) {
+		// Insert two items that share IMDB but have different TMDB IDs (bad metadata).
+		// The OR query would match them, but the contradiction filter should reject.
+		now := time.Now().UTC()
+		badItems := []models.LibraryItemCache{
+			{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-bad-1", MediaType: models.MediaTypeMovie, Title: "Movie A", Year: 2020, TMDBID: "111", IMDBID: "tt9999", AddedAt: now, SyncedAt: now},
+			{ServerID: srvJelly.ID, LibraryID: "lib1", ItemID: "jelly-bad-1", MediaType: models.MediaTypeMovie, Title: "Movie B", Year: 2020, TMDBID: "222", IMDBID: "tt9999", AddedAt: now, SyncedAt: now},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, badItems); err != nil {
+			t.Fatal(err)
+		}
+
+		plexItems, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
+		plexBad := findByItemID(t, plexItems, "plex-bad-1")
+		matches, err := s.FindMatchingItems(ctx, &plexBad)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range matches {
+			if m.ItemID == "jelly-bad-1" {
+				t.Error("should NOT match jelly-bad-1: shared IMDB but contradicting TMDB")
+			}
+		}
+	})
+
+	t.Run("consistent partial IDs still match", func(t *testing.T) {
+		// Source has tmdb+imdb, match has only imdb (no tmdb set) → should still match.
+		now := time.Now().UTC()
+		partialItems := []models.LibraryItemCache{
+			{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-partial-1", MediaType: models.MediaTypeMovie, Title: "Partial A", Year: 2021, TMDBID: "333", IMDBID: "tt8888", AddedAt: now, SyncedAt: now},
+			{ServerID: srvJelly.ID, LibraryID: "lib1", ItemID: "jelly-partial-1", MediaType: models.MediaTypeMovie, Title: "Partial A", Year: 2021, IMDBID: "tt8888", AddedAt: now, SyncedAt: now},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, partialItems); err != nil {
+			t.Fatal(err)
+		}
+
+		plexItems, _ := s.ListLibraryItems(ctx, srvPlex.ID, "lib1")
+		plexPartial := findByItemID(t, plexItems, "plex-partial-1")
+		matches, err := s.FindMatchingItems(ctx, &plexPartial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, m := range matches {
+			if m.ItemID == "jelly-partial-1" {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("should match jelly-partial-1: IMDB matches, no contradicting IDs")
+		}
+	})
+
 }
 
 func TestGetStreamMonWatchTimes(t *testing.T) {

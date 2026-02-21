@@ -377,6 +377,7 @@ func TestListCandidatesAPI(t *testing.T) {
 type mockDeleteServer struct {
 	deleteErr error
 	deleted   []string
+	seasons   []models.Season // returned by GetSeasons
 }
 
 func (m *mockDeleteServer) Name() string                                            { return "mock" }
@@ -409,7 +410,7 @@ func (m *mockDeleteServer) DeleteItem(ctx context.Context, itemID string) error 
 	return nil
 }
 func (m *mockDeleteServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
-	return nil, nil
+	return m.seasons, nil
 }
 
 // setupDeleteCandidateTest creates server, library item, rule, and candidate for delete tests.
@@ -1107,5 +1108,161 @@ func TestExcludedCandidatesFilteredFromListAPI(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp["total"].(float64) != 0 {
 		t.Errorf("expected 0 candidates after exclusion, got %v", resp["total"])
+	}
+}
+
+// --- Keep Latest Seasons safety tests ---
+
+// setupKeepLatestSeasonsTest creates a TV show with a keep_latest_seasons rule and candidate,
+// along with a mock server that returns 5 seasons (including Specials).
+func setupKeepLatestSeasonsTest(t *testing.T) (*testServer, *store.Store, *mockDeleteServer) {
+	t.Helper()
+	srv, s := newTestServerWrapped(t)
+	ctx := context.Background()
+
+	server := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "key1", Enabled: true}
+	if err := s.CreateServer(server); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: server.ID, LibraryID: "lib1", ItemID: "show-1", MediaType: models.MediaTypeTV, Title: "Talk Show", Year: 2020, TMDBID: "12345", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		Name:          "Keep Latest 2",
+		CriterionType: models.CriterionKeepLatestSeasons,
+		MediaType:     models.MediaTypeTV,
+		Parameters:    json.RawMessage(`{"keep_seasons":2}`),
+		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: server.ID, LibraryID: "lib1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	libItems, _ := s.ListLibraryItems(ctx, server.ID, "lib1")
+	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, libItems[0].ID, "5 seasons — keeping latest 2"); err != nil {
+		t.Fatal(err)
+	}
+
+	p := setupTestPoller(t, srv.Unwrap(), s)
+	mock := &mockDeleteServer{
+		seasons: []models.Season{
+			{ID: "specials-id", Number: 0, Title: "Specials"},
+			{ID: "season-1-id", Number: 1, Title: "Season 1"},
+			{ID: "season-2-id", Number: 2, Title: "Season 2"},
+			{ID: "season-3-id", Number: 3, Title: "Season 3"},
+			{ID: "season-4-id", Number: 4, Title: "Season 4"},
+		},
+	}
+	p.AddServer(server.ID, mock)
+
+	return srv, s, mock
+}
+
+// TestDeleteCandidateKeepLatestSeasonsDeletesOldSeasons verifies that
+// single-delete of a keep_latest_seasons candidate deletes only old seasons,
+// not the entire show.
+func TestDeleteCandidateKeepLatestSeasonsDeletesOldSeasons(t *testing.T) {
+	srv, s, mock := setupKeepLatestSeasonsTest(t)
+	ctx := context.Background()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Should have deleted seasons 1 and 2 (keeping 3 and 4), NOT the show itself
+	if len(mock.deleted) != 2 {
+		t.Fatalf("expected 2 season deletes, got %d: %v", len(mock.deleted), mock.deleted)
+	}
+	if mock.deleted[0] != "season-1-id" {
+		t.Errorf("expected first delete to be season-1-id, got %s", mock.deleted[0])
+	}
+	if mock.deleted[1] != "season-2-id" {
+		t.Errorf("expected second delete to be season-2-id, got %s", mock.deleted[1])
+	}
+
+	// Show's item ID "show-1" must NOT appear in deletes
+	for _, d := range mock.deleted {
+		if d == "show-1" {
+			t.Fatal("CRITICAL: show itself was deleted instead of just old seasons")
+		}
+	}
+
+	// Candidate should be cleaned up
+	_, err := s.GetMaintenanceCandidate(ctx, 1)
+	if !errors.Is(err, models.ErrNotFound) {
+		t.Errorf("expected candidate to be cleaned up, got err: %v", err)
+	}
+}
+
+// TestBulkDeleteKeepLatestSeasonsRoutesToSeasonDelete verifies that
+// bulk delete with a keep_latest_seasons candidate deletes seasons, not shows.
+func TestBulkDeleteKeepLatestSeasonsRoutesToSeasonDelete(t *testing.T) {
+	srv, _, mock := setupKeepLatestSeasonsTest(t)
+
+	resp := doBulkDelete(t, srv, `{"candidate_ids":[1]}`)
+
+	if resp.Deleted != 1 {
+		t.Errorf("deleted = %d, want 1", resp.Deleted)
+	}
+	if resp.Failed != 0 {
+		t.Errorf("failed = %d, want 0", resp.Failed)
+	}
+
+	// Verify season IDs were deleted (not the show ID)
+	if len(mock.deleted) != 2 {
+		t.Fatalf("expected 2 season deletes, got %d: %v", len(mock.deleted), mock.deleted)
+	}
+	for _, d := range mock.deleted {
+		if d == "show-1" {
+			t.Fatal("CRITICAL: bulk delete sent show ID instead of season IDs")
+		}
+	}
+}
+
+// TestDeleteLibraryItemBlocksKeepLatestSeasons verifies that the
+// cross-server delete endpoint (handleDeleteLibraryItem) rejects requests
+// for items that have a keep_latest_seasons candidate.
+func TestDeleteLibraryItemBlocksKeepLatestSeasons(t *testing.T) {
+	srv, s, _ := setupKeepLatestSeasonsTest(t)
+	ctx := context.Background()
+
+	// Add a second server with a matching item (same TMDB ID)
+	server2 := &models.Server{Name: "Jellyfin", Type: models.ServerTypeJellyfin, URL: "http://jelly", APIKey: "key2", Enabled: true}
+	if err := s.CreateServer(server2); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: server2.ID, LibraryID: "lib2", ItemID: "jelly-show-1", MediaType: models.MediaTypeTV, Title: "Talk Show", Year: 2020, TMDBID: "12345", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// Plex item is ID 1 (source), Jellyfin item is ID 2 (target).
+	// sourceItem is the Plex item which has the keep_latest_seasons candidate.
+	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/library-items/2?source_item_id=1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 (keep_latest_seasons block), got %d: %s", w.Code, w.Body.String())
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "keep_latest_seasons") {
+		t.Errorf("expected error message to mention keep_latest_seasons, got: %s", body)
 	}
 }
