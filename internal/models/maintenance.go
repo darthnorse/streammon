@@ -163,6 +163,7 @@ type MaintenanceCandidate struct {
 	ComputedAt    time.Time         `json:"computed_at"`
 	Item          *LibraryItemCache `json:"item,omitempty"`
 	OtherCopies   []RuleLibrary     `json:"other_copies,omitempty"`
+	PlayCount     int               `json:"play_count"`
 }
 
 type BatchCandidate struct {

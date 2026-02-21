@@ -15,7 +15,8 @@ const candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
 	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url,
-	i.tmdb_id, i.tvdb_id, i.imdb_id, i.synced_at`
+	i.tmdb_id, i.tvdb_id, i.imdb_id, i.synced_at,
+	(SELECT COUNT(*) FROM watch_history wh WHERE wh.server_id = i.server_id AND (wh.item_id = i.item_id OR wh.grandparent_item_id = i.item_id)) as play_count`
 
 func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
 	var c models.MaintenanceCandidate
@@ -27,6 +28,7 @@ func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceC
 		&item.Title, &item.Year, &item.AddedAt, &lastWatchedAt, &item.VideoResolution, &item.FileSize,
 		&item.EpisodeCount, &item.ThumbURL,
 		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.SyncedAt,
+		&c.PlayCount,
 	)
 	if err != nil {
 		return c, err
@@ -71,6 +73,7 @@ var validCandidateSortColumns = map[string]string{
 	"size":       "i.file_size",
 	"reason":     "c.reason",
 	"added_at":   "i.added_at",
+	"watches":    "play_count",
 }
 
 // ListCandidatesForRule returns candidates with their library items, excluding excluded items.

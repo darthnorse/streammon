@@ -832,6 +832,192 @@ func TestOtherCopiesSameServerExcluded(t *testing.T) {
 	}
 }
 
+func TestListCandidatesPlayCount(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	// Insert 3 watch_history entries for item1
+	for i := 0; i < 3; i++ {
+		_, err := s.db.Exec(
+			`INSERT INTO watch_history (server_id, item_id, user_name, title, media_type, started_at, stopped_at)
+			 VALUES (?, 'item1', 'alice', 'Test Movie', 'movie', '2024-01-01T00:00:00Z', '2024-01-01T02:00:00Z')`,
+			serverID)
+		if err != nil {
+			t.Fatalf("insert watch history %d: %v", i, err)
+		}
+	}
+
+	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result.Items))
+	}
+	if result.Items[0].PlayCount != 3 {
+		t.Errorf("play_count = %d, want 3", result.Items[0].PlayCount)
+	}
+}
+
+func TestListCandidatesPlayCountTVShow(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "show1",
+		MediaType: models.MediaTypeTV,
+		Title:     "Test Show",
+		Year:      2024,
+		AddedAt:   time.Now().UTC().AddDate(0, 0, -100),
+		SyncedAt:  time.Now().UTC(),
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	libItems, err := s.ListLibraryItems(ctx, srv.ID, "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		Name:          "TV Rule",
+		MediaType:     models.MediaTypeTV,
+		CriterionType: models.CriterionUnwatchedTVNone,
+		Parameters:    json.RawMessage(`{}`),
+		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: srv.ID, LibraryID: "lib1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Episodes reference the show via grandparent_item_id
+	for i := 0; i < 4; i++ {
+		_, err := s.db.Exec(
+			`INSERT INTO watch_history (server_id, item_id, grandparent_item_id, user_name, title, grandparent_title, media_type, started_at, stopped_at)
+			 VALUES (?, ?, 'show1', 'alice', 'Episode', 'Test Show', 'episode', '2024-01-01T00:00:00Z', '2024-01-01T00:30:00Z')`,
+			srv.ID, fmt.Sprintf("ep%d", i))
+		if err != nil {
+			t.Fatalf("insert watch history %d: %v", i, err)
+		}
+	}
+
+	candidates := []models.BatchCandidate{{LibraryItemID: libItems[0].ID, Reason: "No episodes watched"}}
+	if err := s.BatchUpsertCandidates(ctx, rule.ID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 10, "", "", "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(result.Items))
+	}
+	if result.Items[0].PlayCount != 4 {
+		t.Errorf("play_count = %d, want 4", result.Items[0].PlayCount)
+	}
+}
+
+func TestListCandidatesPlayCountZero(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+
+	candidates := []models.BatchCandidate{{LibraryItemID: itemID, Reason: "Test"}}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Items[0].PlayCount != 0 {
+		t.Errorf("play_count = %d, want 0", result.Items[0].PlayCount)
+	}
+}
+
+func TestListCandidatesSortByWatches(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
+
+	now := time.Now().UTC()
+	// Add a second item
+	items := []models.LibraryItemCache{{
+		ServerID:  serverID,
+		LibraryID: "lib1",
+		ItemID:    "item2",
+		MediaType: models.MediaTypeMovie,
+		Title:     "Movie Two",
+		Year:      2024,
+		AddedAt:   now.AddDate(0, 0, -50),
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	// item1 gets 5 watches, item2 gets 1 watch
+	for i := 0; i < 5; i++ {
+		_, err := s.db.Exec(
+			`INSERT INTO watch_history (server_id, item_id, user_name, title, media_type, started_at, stopped_at)
+			 VALUES (?, 'item1', 'alice', 'Test Movie', 'movie', '2024-01-01T00:00:00Z', '2024-01-01T02:00:00Z')`,
+			serverID)
+		if err != nil {
+			t.Fatalf("insert watch history for item1 (%d): %v", i, err)
+		}
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO watch_history (server_id, item_id, user_name, title, media_type, started_at, stopped_at)
+		 VALUES (?, 'item2', 'alice', 'Movie Two', 'movie', '2024-01-01T00:00:00Z', '2024-01-01T02:00:00Z')`,
+		serverID)
+	if err != nil {
+		t.Fatalf("insert watch history for item2: %v", err)
+	}
+
+	seedCandidatesFromItems(t, s, ctx, serverID, ruleID)
+
+	// Sort ascending: least watches first
+	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "watches", "asc", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) < 2 {
+		t.Fatalf("expected at least 2 items, got %d", len(result.Items))
+	}
+	if result.Items[0].PlayCount > result.Items[1].PlayCount {
+		t.Errorf("ascending: first (%d) should be <= second (%d)", result.Items[0].PlayCount, result.Items[1].PlayCount)
+	}
+
+	// Sort descending: most watches first
+	result, err = s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "watches", "desc", 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Items[0].PlayCount < result.Items[1].PlayCount {
+		t.Errorf("descending: first (%d) should be >= second (%d)", result.Items[0].PlayCount, result.Items[1].PlayCount)
+	}
+}
+
 func TestListCandidatesForRuleSearchEscapesWildcards(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

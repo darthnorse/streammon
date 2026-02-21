@@ -127,7 +127,7 @@ function formatSeriesStatus(status: string | undefined): JSX.Element {
   return <span className={color}>{status}</span>
 }
 
-type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at'
+type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at' | 'watches'
 type SortDir = 'asc' | 'desc'
 
 function SortHeader({
@@ -654,6 +654,7 @@ function CandidatesView({
                     )}
                     <SortHeader field="size" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Size</SortHeader>
                     <SortHeader field="added_at" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Added</SortHeader>
+                    <SortHeader field="watches" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Watches</SortHeader>
                     {showStatus && (
                       <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">Status</th>
                     )}
@@ -704,6 +705,9 @@ function CandidatesView({
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark whitespace-nowrap">
                         {candidate.item?.added_at ? formatShortDate(candidate.item.added_at, units.isMetric) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {candidate.play_count}
                       </td>
                       {showStatus && (
                         <td className="px-4 py-3 text-muted dark:text-muted-dark whitespace-nowrap">

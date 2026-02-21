@@ -615,6 +615,7 @@ export interface MaintenanceCandidate {
   computed_at: string
   item?: LibraryItemCache
   other_copies?: RuleLibrary[]
+  play_count: number
 }
 
 export interface LibraryMaintenance {

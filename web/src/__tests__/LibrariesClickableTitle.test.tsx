@@ -89,6 +89,7 @@ const candidatesResponse: MaintenanceCandidatesResponse = {
     reason: 'Not watched in 90+ days',
     computed_at: '2024-06-01T00:00:00Z',
     item: baseLibraryItem,
+    play_count: 0,
   }],
   total: 1,
   total_size: 4000000000,

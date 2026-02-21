@@ -570,7 +570,7 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 	}
 	sortBy := r.URL.Query().Get("sort_by")
 	switch sortBy {
-	case "title", "year", "resolution", "size", "reason", "added_at":
+	case "title", "year", "resolution", "size", "reason", "added_at", "watches":
 	default:
 		sortBy = ""
 	}
