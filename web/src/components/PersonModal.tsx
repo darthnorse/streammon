@@ -48,13 +48,16 @@ export function PersonModal({ personId, onClose, onMediaClick, libraryIds }: Per
     const controller = new AbortController()
 
     api.get<TMDBPersonDetails>(`/api/tmdb/person/${personId}`, controller.signal)
-      .then(data => setPerson(data))
-      .catch(err => {
-        if ((err as Error).name !== 'AbortError') {
-          setError((err as Error).message)
-        }
+      .then(data => {
+        if (!controller.signal.aborted) setPerson(data)
       })
-      .finally(() => setLoading(false))
+      .catch(err => {
+        if (err instanceof Error && err.name === 'AbortError') return
+        if (!controller.signal.aborted) setError((err as Error).message)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
     return () => controller.abort()
   }, [personId])
 
