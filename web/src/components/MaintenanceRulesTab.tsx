@@ -283,6 +283,7 @@ function CandidatesView({
   )
 
   const isTV = rule.media_type === 'episode'
+  const isKeepLatest = rule.criterion_type === 'keep_latest_seasons'
 
   const [seriesStatuses, setSeriesStatuses] = useState<Record<string, string>>({})
 
@@ -581,14 +582,16 @@ function CandidatesView({
             {formatCount(hasSelection ? selected.size : (data?.total ?? 0))}
           </div>
         </div>
-        <div className="card p-4">
-          <div className="text-sm text-muted dark:text-muted-dark mb-1">
-            {hasSelection ? 'Selected Size' : 'Total Size'}
+        {!isKeepLatest && (
+          <div className="card p-4">
+            <div className="text-sm text-muted dark:text-muted-dark mb-1">
+              {hasSelection ? 'Selected Size' : 'Total Size'}
+            </div>
+            <div className="text-2xl font-semibold">
+              {formatSize(hasSelection ? selectedSize : (data?.total_size ?? 0))}
+            </div>
           </div>
-          <div className="text-2xl font-semibold">
-            {formatSize(hasSelection ? selectedSize : (data?.total_size ?? 0))}
-          </div>
-        </div>
+        )}
         <div className="card p-4">
           <div className="text-sm text-muted dark:text-muted-dark mb-1">Exclusions</div>
           <div className="text-2xl font-semibold">
@@ -661,7 +664,9 @@ function CandidatesView({
                     {!isTV && (
                       <SortHeader field="resolution" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Resolution</SortHeader>
                     )}
-                    <SortHeader field="size" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Size</SortHeader>
+                    {!isKeepLatest && (
+                      <SortHeader field="size" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Size</SortHeader>
+                    )}
                     <SortHeader field="added_at" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Added</SortHeader>
                     <SortHeader field="watches" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Watches</SortHeader>
                     {showStatus && (
@@ -709,9 +714,11 @@ function CandidatesView({
                           {candidate.item?.video_resolution || '-'}
                         </td>
                       )}
-                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
-                        {candidate.item?.file_size ? formatSize(candidate.item.file_size) : '-'}
-                      </td>
+                      {!isKeepLatest && (
+                        <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                          {candidate.item?.file_size ? formatSize(candidate.item.file_size) : '-'}
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-muted dark:text-muted-dark whitespace-nowrap">
                         {candidate.item?.added_at ? formatShortDate(candidate.item.added_at, units.isMetric) : '-'}
                       </td>
@@ -796,9 +803,11 @@ function CandidatesView({
                   ? 'This will permanently delete these files and all matching copies on other servers. Cannot be undone.'
                   : 'This will permanently delete these files from your media server. Cannot be undone.'}
               </p>
-              <p className="text-sm font-medium">
-                Total size: {formatSize(deleteDialog.candidates.reduce((sum, c) => sum + (c.item?.file_size || 0), 0))}
-              </p>
+              {!isKeepLatest && (
+                <p className="text-sm font-medium">
+                  Total size: {formatSize(deleteDialog.candidates.reduce((sum, c) => sum + (c.item?.file_size || 0), 0))}
+                </p>
+              )}
             </>
           }
           confirmLabel={operating ? 'Deleting...' : `Delete ${deleteDialog.candidates.length} Item${deleteDialog.candidates.length > 1 ? 's' : ''}`}
@@ -826,7 +835,7 @@ function CandidatesView({
             <div className="max-h-40 overflow-y-auto mb-4 p-2 rounded bg-surface dark:bg-surface-dark text-sm">
               {deleteDialog.candidates.map(c => (
                 <div key={c.id} className="py-1">
-                  {'\u2022'} {c.item?.title} ({c.item?.year}) - {formatSize(c.item?.file_size || 0)}
+                  {'\u2022'} {c.item?.title} ({c.item?.year}){!isKeepLatest && ` - ${formatSize(c.item?.file_size || 0)}`}
                 </div>
               ))}
             </div>
