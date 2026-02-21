@@ -484,10 +484,13 @@ function CandidatesView({
   const handleSingleDelete = (candidate: MaintenanceCandidate) => {
     closeRowMenu()
     const item = candidate.item
-    if (item && (item.tmdb_id || item.tvdb_id || item.imdb_id)) {
+    // Skip cross-server dialog for keep_latest_seasons — the library-items
+    // endpoint deletes the whole show, not just old seasons. Cross-server
+    // season cleanup is handled correctly via the bulk delete path.
+    if (!isKeepLatest && item && (item.tmdb_id || item.tvdb_id || item.imdb_id)) {
       setCrossServerCandidate(candidate)
     } else {
-      setDeleteDialog({ candidates: [candidate], showDetails: false, includeCrossServer: true })
+      setDeleteDialog({ candidates: [candidate], showDetails: false, includeCrossServer: !isKeepLatest })
     }
   }
 

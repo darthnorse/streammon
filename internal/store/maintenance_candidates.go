@@ -295,6 +295,22 @@ func (s *Store) CountCandidatesForRule(ctx context.Context, ruleID int64) (int, 
 	return count, nil
 }
 
+// HasKeepLatestSeasonsCandidate returns true if the given library item is a
+// candidate for any maintenance rule with criterion_type = 'keep_latest_seasons'.
+func (s *Store) HasKeepLatestSeasonsCandidate(ctx context.Context, libraryItemID int64) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM maintenance_candidates c
+			JOIN maintenance_rules r ON r.id = c.rule_id
+			WHERE c.library_item_id = ? AND r.criterion_type = 'keep_latest_seasons'
+		)`, libraryItemID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("check keep_latest_seasons candidate: %w", err)
+	}
+	return exists, nil
+}
+
 // BatchUpsertCandidates replaces all candidates for a rule in a transaction
 func (s *Store) BatchUpsertCandidates(ctx context.Context, ruleID int64, candidates []models.BatchCandidate) error {
 	tx, err := s.db.BeginTx(ctx, nil)

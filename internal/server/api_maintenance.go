@@ -147,9 +147,11 @@ func (s *Server) deleteOldSeasons(candidate models.MaintenanceCandidate, rule *m
 	sort.Slice(regular, func(i, j int) bool { return regular[i].Number < regular[j].Number })
 
 	if len(regular) <= params.KeepSeasons {
-		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		_ = s.store.DeleteMaintenanceCandidate(cleanCtx, candidate.ID)
-		cleanCancel()
+		if candidate.ID > 0 {
+			cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = s.store.DeleteMaintenanceCandidate(cleanCtx, candidate.ID)
+			cleanCancel()
+		}
 		result.ServerDeleted = true
 		result.DBCleaned = true
 		return result
@@ -196,6 +198,13 @@ func (s *Server) deleteOldSeasons(candidate models.MaintenanceCandidate, rule *m
 	sonarrResult := s.cascadeDeleter.UpdateSonarrMonitoring(context.Background(), candidate.Item)
 	if sonarrResult.Error != "" {
 		log.Printf("sonarr monitoring update for %q: %s", candidate.Item.Title, sonarrResult.Error)
+	}
+
+	// Cross-server synthetic candidates (ID == 0) have no maintenance candidate
+	// to clean up, and the library item must remain since the show still exists.
+	if candidate.ID == 0 {
+		result.DBCleaned = true
+		return result
 	}
 
 	cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -813,6 +822,20 @@ func (s *Server) handleDeleteLibraryItem(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Refuse to full-delete cross-server copies of keep_latest_seasons items.
+	// This endpoint deletes the entire item; season-only cleanup must go through
+	// the bulk-delete path which routes keep_latest_seasons to deleteOldSeasons.
+	isSeasonRule, err := s.store.HasKeepLatestSeasonsCandidate(r.Context(), sourceID)
+	if err != nil {
+		log.Printf("check keep_latest_seasons for source %d: %v", sourceID, err)
+		writeError(w, http.StatusInternalServerError, "failed to verify rule type")
+		return
+	}
+	if isSeasonRule {
+		writeError(w, http.StatusBadRequest, "cross-server delete of keep_latest_seasons items must use bulk delete")
+		return
+	}
+
 	// Check if the target item is excluded from any maintenance rule.
 	// Exclusions are per-rule, but a cross-server delete has no rule context —
 	// honour any exclusion as a signal the user wants to protect this item.
@@ -1257,22 +1280,35 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 			continue
 		}
 
-		var delResult deleteItemResult
+		var rule *models.MaintenanceRule
 		if candidate.RuleID > 0 {
-			rule, ok := ruleCache[candidate.RuleID]
+			cached, ok := ruleCache[candidate.RuleID]
 			if !ok {
 				fetchedRule, ruleErr := s.store.GetMaintenanceRule(ctx, candidate.RuleID)
 				if ruleErr != nil {
 					log.Printf("bulk delete: get rule %d: %v", candidate.RuleID, ruleErr)
 				}
-				rule = fetchedRule
-				ruleCache[candidate.RuleID] = rule
+				cached = fetchedRule
+				ruleCache[candidate.RuleID] = cached
 			}
-			if rule != nil && rule.CriterionType == models.CriterionKeepLatestSeasons {
-				delResult = s.deleteOldSeasons(candidate, rule, deletedBy)
-			} else {
-				delResult = s.deleteItemFromServer(candidate, deletedBy)
-			}
+			rule = cached
+		}
+
+		// Safety: if the rule cannot be fetched, skip the candidate rather than
+		// risking the wrong delete path (e.g. full-show delete for keep_latest_seasons).
+		if rule == nil && candidate.RuleID > 0 {
+			result.Failed++
+			result.Errors = append(result.Errors, models.BulkDeleteError{
+				CandidateID: candidateID,
+				Title:       candidate.Item.Title,
+				Error:       "rule not found — skipping to prevent unintended deletion",
+			})
+			continue
+		}
+
+		var delResult deleteItemResult
+		if rule != nil && rule.CriterionType == models.CriterionKeepLatestSeasons {
+			delResult = s.deleteOldSeasons(candidate, rule, deletedBy)
 		} else {
 			delResult = s.deleteItemFromServer(candidate, deletedBy)
 		}
@@ -1287,7 +1323,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 			deletedItemIDs[candidate.LibraryItemID] = true
 
 			if includeCrossServer {
-				s.deleteCrossServerCopies(candidate, deletedBy, deletedItemIDs, &result)
+				s.deleteCrossServerCopies(candidate, rule, deletedBy, deletedItemIDs, &result)
 				if onProgress != nil {
 					onProgress(BulkDeleteProgress{
 						Current:   i + 1,
@@ -1330,7 +1366,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 	return result
 }
 
-func (s *Server) deleteCrossServerCopies(candidate models.MaintenanceCandidate, deletedBy string, deletedItemIDs map[int64]bool, result *models.BulkDeleteResult) {
+func (s *Server) deleteCrossServerCopies(candidate models.MaintenanceCandidate, rule *models.MaintenanceRule, deletedBy string, deletedItemIDs map[int64]bool, result *models.BulkDeleteResult) {
 	findCtx, findCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	matches, err := s.store.FindMatchingItems(findCtx, candidate.Item)
 	findCancel()
@@ -1353,7 +1389,12 @@ func (s *Server) deleteCrossServerCopies(candidate models.MaintenanceCandidate, 
 			LibraryItemID: match.ID,
 			Item:          &match,
 		}
-		crossResult := s.deleteItemFromServer(syntheticCandidate, deletedBy)
+		var crossResult deleteItemResult
+		if rule != nil && rule.CriterionType == models.CriterionKeepLatestSeasons {
+			crossResult = s.deleteOldSeasons(syntheticCandidate, rule, deletedBy)
+		} else {
+			crossResult = s.deleteItemFromServer(syntheticCandidate, deletedBy)
+		}
 
 		if crossResult.ServerDeleted {
 			result.TotalSize += crossResult.FileSize
