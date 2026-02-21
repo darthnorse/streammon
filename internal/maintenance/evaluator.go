@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"streammon/internal/media"
+	"streammon/internal/mediautil"
 	"streammon/internal/models"
 	"streammon/internal/store"
 	"streammon/internal/tmdb"
@@ -249,7 +250,15 @@ func (e *Evaluator) evaluateKeepLatestSeasons(ctx context.Context, rule *models.
 		genreFilter[gid] = true
 	}
 
+	tvCount := 0
+	for _, item := range items {
+		if item.MediaType == models.MediaTypeTV {
+			tvCount++
+		}
+	}
+
 	var results []models.BatchCandidate
+	processed := 0
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
@@ -257,6 +266,14 @@ func (e *Evaluator) evaluateKeepLatestSeasons(ctx context.Context, rule *models.
 		if item.MediaType != models.MediaTypeTV {
 			continue
 		}
+
+		processed++
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseEvaluating,
+			Current: processed,
+			Total:   tvCount,
+			Library: item.LibraryID,
+		})
 
 		if len(genreFilter) > 0 {
 			if item.TMDBID == "" {

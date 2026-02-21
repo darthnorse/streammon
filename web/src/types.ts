@@ -665,7 +665,7 @@ export interface BulkDeleteError {
 }
 
 export interface SyncProgress {
-  phase: 'items' | 'history' | 'enriching' | 'done' | 'error'
+  phase: 'items' | 'history' | 'enriching' | 'evaluating' | 'done' | 'error'
   current?: number
   total?: number
   library: string

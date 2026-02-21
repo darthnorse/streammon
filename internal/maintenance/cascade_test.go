@@ -435,31 +435,19 @@ func TestDeleteExternalReferences_DBRoundTrip(t *testing.T) {
 }
 
 func TestUpdateSonarrMonitoring(t *testing.T) {
-	var updatedBody []byte
+	var seasonPassBody []byte
 	sonarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/api/v3/series" && r.Method == "GET":
 			json.NewEncoder(w).Encode([]map[string]any{{"id": 77}})
-		case r.URL.Path == "/api/v3/series/77" && r.Method == "GET":
-			json.NewEncoder(w).Encode(map[string]any{
-				"id":    77,
-				"title": "Long Show",
-				"seasons": []map[string]any{
-					{"seasonNumber": 0, "monitored": true},
-					{"seasonNumber": 1, "monitored": true},
-					{"seasonNumber": 2, "monitored": true},
-					{"seasonNumber": 3, "monitored": true},
-					{"seasonNumber": 4, "monitored": true},
-				},
-			})
-		case r.URL.Path == "/api/v3/series/77" && r.Method == "PUT":
+		case r.URL.Path == "/api/v3/seasonpass" && r.Method == "PUT":
 			var err error
-			updatedBody, err = io.ReadAll(r.Body)
+			seasonPassBody, err = io.ReadAll(r.Body)
 			if err != nil {
 				t.Fatalf("read body: %v", err)
 			}
 			w.WriteHeader(http.StatusOK)
-			w.Write(updatedBody)
+			w.Write([]byte(`{}`))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -476,7 +464,7 @@ func TestUpdateSonarrMonitoring(t *testing.T) {
 		TVDBID:    "67890",
 	}
 
-	result := cd.UpdateSonarrMonitoring(context.Background(), item, 2)
+	result := cd.UpdateSonarrMonitoring(context.Background(), item)
 
 	if !result.Success {
 		t.Fatalf("expected success, got error: %s", result.Error)
@@ -485,82 +473,23 @@ func TestUpdateSonarrMonitoring(t *testing.T) {
 		t.Errorf("expected service sonarr, got %s", result.Service)
 	}
 
-	if updatedBody == nil {
-		t.Fatal("expected PUT request to be made")
+	if seasonPassBody == nil {
+		t.Fatal("expected seasonpass PUT request to be made")
 	}
 
-	var updated struct {
-		Seasons []struct {
-			SeasonNumber int  `json:"seasonNumber"`
-			Monitored    bool `json:"monitored"`
-		} `json:"seasons"`
+	var body struct {
+		Series            []struct{ ID int `json:"id"` } `json:"series"`
+		MonitoringOptions struct{ Monitor string `json:"monitor"` } `json:"monitoringOptions"`
 	}
-	if err := json.Unmarshal(updatedBody, &updated); err != nil {
-		t.Fatalf("unmarshal updated body: %v", err)
+	if err := json.Unmarshal(seasonPassBody, &body); err != nil {
+		t.Fatalf("unmarshal seasonpass body: %v", err)
 	}
 
-	for _, s := range updated.Seasons {
-		switch s.SeasonNumber {
-		case 0:
-			if !s.Monitored {
-				t.Error("specials (season 0) should be left alone")
-			}
-		case 1, 2:
-			if s.Monitored {
-				t.Errorf("season %d should be unmonitored", s.SeasonNumber)
-			}
-		case 3, 4:
-			if !s.Monitored {
-				t.Errorf("season %d should remain monitored", s.SeasonNumber)
-			}
-		}
+	if len(body.Series) != 1 || body.Series[0].ID != 77 {
+		t.Errorf("expected series [{id:77}], got %v", body.Series)
 	}
-}
-
-func TestUpdateSonarrMonitoringAlreadyCorrect(t *testing.T) {
-	putCalled := false
-	sonarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.URL.Path == "/api/v3/series" && r.Method == "GET":
-			json.NewEncoder(w).Encode([]map[string]any{{"id": 77}})
-		case r.URL.Path == "/api/v3/series/77" && r.Method == "GET":
-			json.NewEncoder(w).Encode(map[string]any{
-				"id":    77,
-				"title": "Short Show",
-				"seasons": []map[string]any{
-					{"seasonNumber": 0, "monitored": true},
-					{"seasonNumber": 1, "monitored": false},
-					{"seasonNumber": 2, "monitored": true},
-					{"seasonNumber": 3, "monitored": true},
-				},
-			})
-		case r.URL.Path == "/api/v3/series/77" && r.Method == "PUT":
-			putCalled = true
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{}`))
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	}))
-	defer sonarrSrv.Close()
-
-	s := newTestStoreWithMigrations(t)
-	configureIntegration(t, s, "sonarr", sonarrSrv.URL)
-
-	cd := NewCascadeDeleter(s)
-	item := &models.LibraryItemCache{
-		Title:     "Short Show",
-		MediaType: models.MediaTypeTV,
-		TVDBID:    "11111",
-	}
-
-	result := cd.UpdateSonarrMonitoring(context.Background(), item, 2)
-
-	if !result.Success {
-		t.Fatalf("expected success, got error: %s", result.Error)
-	}
-	if putCalled {
-		t.Error("PUT should not be called when monitoring is already correct")
+	if body.MonitoringOptions.Monitor != "future" {
+		t.Errorf("expected monitor=future, got %q", body.MonitoringOptions.Monitor)
 	}
 }
 
@@ -579,7 +508,7 @@ func TestUpdateSonarrMonitoringNoTVDBID(t *testing.T) {
 		TVDBID:    "",
 	}
 
-	result := cd.UpdateSonarrMonitoring(context.Background(), item, 2)
+	result := cd.UpdateSonarrMonitoring(context.Background(), item)
 
 	if result.Success {
 		t.Error("expected no success for item without TVDB ID")

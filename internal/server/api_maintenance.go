@@ -193,7 +193,7 @@ func (s *Server) deleteOldSeasons(candidate models.MaintenanceCandidate, rule *m
 
 	result.ServerDeleted = true
 
-	sonarrResult := s.cascadeDeleter.UpdateSonarrMonitoring(context.Background(), candidate.Item, params.KeepSeasons)
+	sonarrResult := s.cascadeDeleter.UpdateSonarrMonitoring(context.Background(), candidate.Item)
 	if sonarrResult.Error != "" {
 		log.Printf("sonarr monitoring update for %q: %s", candidate.Item.Title, sonarrResult.Error)
 	}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"streammon/internal/media"
+	"streammon/internal/mediautil"
 	"streammon/internal/models"
 	"streammon/internal/store"
 	"streammon/internal/tmdb"
@@ -1212,7 +1213,6 @@ func TestEvaluateKeepLatestSeasonsIgnoresSpecials(t *testing.T) {
 }
 
 // setupKeepLatestSeasonsGenreTest creates a common test fixture for genre filter tests.
-// Returns the store, server, mock resolver, and a cleanup function.
 func setupKeepLatestSeasonsGenreTest(t *testing.T, tmdbID string) (*store.Store, *models.Server, *mockServerResolver) {
 	t.Helper()
 	s := newTestStoreWithMigrations(t)
@@ -1344,5 +1344,75 @@ func TestEvaluateKeepLatestSeasonsGenreNoTMDBID(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Errorf("got %d results, want 0 (no TMDB ID should skip when genre filter active)", len(results))
+	}
+}
+
+func TestEvaluateKeepLatestSeasonsProgress(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show1", MediaType: models.MediaTypeTV, Title: "Show A", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show2", MediaType: models.MediaTypeTV, Title: "Show B", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "A Movie", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(context.Background(), items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{
+		seasons: map[string][]models.Season{
+			"show1": {{ID: "s1", Number: 1}, {ID: "s2", Number: 2}},
+			"show2": {{ID: "s1", Number: 1}, {ID: "s2", Number: 2}},
+		},
+	}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{srv.ID: ms}}
+
+	progressCtx, progressCh := mediautil.ContextWithProgress(context.Background())
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 3}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+
+	var msgs []mediautil.SyncProgress
+	done := make(chan struct{})
+	go func() {
+		for p := range progressCh {
+			msgs = append(msgs, p)
+		}
+		close(done)
+	}()
+
+	_, err := e.EvaluateRule(progressCtx, rule)
+	mediautil.CloseProgress(progressCtx)
+	<-done
+
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+
+	// Should have 2 progress messages (one per TV item; movie is skipped)
+	if len(msgs) != 2 {
+		t.Fatalf("got %d progress messages, want 2", len(msgs))
+	}
+
+	for i, msg := range msgs {
+		if msg.Phase != mediautil.PhaseEvaluating {
+			t.Errorf("msg[%d].Phase = %q, want %q", i, msg.Phase, mediautil.PhaseEvaluating)
+		}
+		if msg.Total != 2 {
+			t.Errorf("msg[%d].Total = %d, want 2", i, msg.Total)
+		}
+		if msg.Current != i+1 {
+			t.Errorf("msg[%d].Current = %d, want %d", i, msg.Current, i+1)
+		}
+		if msg.Library != "lib1" {
+			t.Errorf("msg[%d].Library = %q, want %q", i, msg.Library, "lib1")
+		}
 	}
 }
