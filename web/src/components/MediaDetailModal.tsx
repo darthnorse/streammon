@@ -1,8 +1,14 @@
-import { useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import type { ItemDetails } from '../types'
+import type { ItemDetails, TMDBMovieDetails, TMDBTVDetails, TMDBCrew, SelectedMedia } from '../types'
 import { formatDuration, formatBitrate, formatAudioCodec, formatVideoCodec, formatDate, thumbUrl } from '../lib/format'
 import { getAudioCodecIcon, getVideoCodecIcon, getResolutionIcon, getChannelsIcon } from '../lib/mediaFlags'
+import { useTMDBEnrichment } from '../hooks/useTMDBEnrichment'
+import { useFetch } from '../hooks/useFetch'
+import { TMDB_IMG } from '../lib/tmdb'
+import { CastChip } from './CastChip'
+import { PersonModal } from './PersonModal'
+import { TMDBDetailModal } from './TMDBDetailModal'
 
 const serverAccent: Record<string, { bar: string; badge: string }> = {
   plex: { bar: 'bg-warn', badge: 'bg-warn/20 text-amber-700 dark:text-amber-300' },
@@ -13,10 +19,10 @@ const serverAccent: Record<string, { bar: string; badge: string }> = {
 const defaultAccent = { bar: 'bg-accent', badge: 'bg-accent/20 text-blue-700 dark:text-blue-300' }
 
 const mediaTypeIcons: Record<string, string> = {
-  movie: '🎬',
-  episode: '📺',
+  movie: '\uD83C\uDFAC',
+  episode: '\uD83D\uDCFA',
 }
-const defaultMediaIcon = '🎵'
+const defaultMediaIcon = '\uD83C\uDFB5'
 
 interface MediaDetailModalProps {
   item: ItemDetails | null
@@ -33,37 +39,11 @@ function LoadingSpinner() {
 }
 
 function StarRating({ rating }: { rating: number }) {
-  const stars = Math.round(rating / 2)
+  const stars = Math.max(0, Math.min(5, Math.round(rating / 2)))
   return (
     <span className="text-amber-500" title={`${rating.toFixed(1)} / 10`}>
       {'★'.repeat(stars)}{'☆'.repeat(5 - stars)}
     </span>
-  )
-}
-
-function CastChip({ name, role, thumb, serverId }: { name: string; role?: string; thumb?: string; serverId: number }) {
-  if (!name) return null
-  const initials = name.split(' ').filter(n => n.length > 0).map(n => n[0]).join('').slice(0, 2).toUpperCase()
-  const imgSrc = thumb && serverId ? thumbUrl(serverId, thumb) : undefined
-  return (
-    <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-100 dark:bg-white/10 shrink-0">
-      {imgSrc ? (
-        <img
-          src={imgSrc}
-          alt={name}
-          className="w-6 h-6 rounded-full object-cover bg-gray-300 dark:bg-white/20"
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-6 h-6 rounded-full bg-gray-300 dark:bg-white/20 flex items-center justify-center text-[10px] font-medium text-gray-600 dark:text-gray-300">
-          {initials}
-        </div>
-      )}
-      <div className="text-xs">
-        <div className="font-medium text-gray-900 dark:text-gray-100">{name}</div>
-        {role && <div className="text-gray-500 dark:text-gray-400 text-[10px]">{role}</div>}
-      </div>
-    </div>
   )
 }
 
@@ -173,14 +153,68 @@ function WatchHistory({ item }: { item: ItemDetails }) {
   )
 }
 
+const tvStatusColors: Record<string, string> = {
+  'Ended': 'bg-red-500/15 text-red-600 dark:text-red-400',
+  'Canceled': 'bg-red-500/15 text-red-600 dark:text-red-400',
+  'Returning Series': 'bg-green-500/15 text-green-600 dark:text-green-400',
+  'In Production': 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+  'Planned': 'bg-amber-500/15 text-amber-600 dark:text-amber-400',
+}
+
+function TVStatusBadge({ status }: { status: string }) {
+  const color = tvStatusColors[status] || 'bg-gray-500/15 text-gray-600 dark:text-gray-400'
+  return (
+    <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${color}`}>
+      {status}
+    </span>
+  )
+}
+
+function NetworkLogos({ networks }: { networks: { id: number; name: string; logo_path?: string }[] }) {
+  if (!networks.length) return null
+  return (
+    <div className="flex items-center gap-3">
+      {networks.map(net => (
+        net.logo_path ? (
+          <img
+            key={net.id}
+            src={`${TMDB_IMG}/w92${net.logo_path}`}
+            alt={net.name}
+            title={net.name}
+            className="h-5 object-contain dark:invert dark:brightness-200"
+            loading="lazy"
+          />
+        ) : (
+          <span key={net.id} className="text-xs text-muted dark:text-muted-dark">{net.name}</span>
+        )
+      ))}
+    </div>
+  )
+}
+
 interface ItemContentProps {
   item: ItemDetails
   accent: { bar: string; badge: string }
+  tmdbMovie: TMDBMovieDetails | null
+  tmdbTV: TMDBTVDetails | null
+  tmdbLoading: boolean
+  onPersonClick: (personId: number) => void
 }
 
-function ItemContent({ item, accent }: ItemContentProps) {
+function ItemContent({ item, accent, tmdbMovie, tmdbTV, tmdbLoading, onPersonClick }: ItemContentProps) {
+  const tmdbCast = tmdbMovie?.credits?.cast || tmdbTV?.credits?.cast
+  const tmdbCrew = tmdbMovie?.credits?.crew || tmdbTV?.credits?.crew
+  const tmdbDirectors = tmdbCrew?.filter((c: TMDBCrew) => c.job === 'Director')
+  const directorNames = tmdbDirectors && tmdbDirectors.length > 0
+    ? tmdbDirectors.map(d => d.name)
+    : item.directors && item.directors.length > 0
+      ? item.directors
+      : null
+  const hasTMDBCast = tmdbCast && tmdbCast.length > 0
+  const collection = tmdbMovie?.belongs_to_collection
+
   return (
-    <div className="flex flex-col md:flex-row overflow-y-auto max-h-[calc(90vh-4px)]">
+    <div className="flex flex-col md:flex-row overflow-y-auto max-h-[calc(90dvh-4px)]">
       <div className="shrink-0 p-4 md:p-6 flex justify-center md:block md:w-1/3">
         {item.thumb_url ? (
           <img
@@ -232,7 +266,28 @@ function ItemContent({ item, accent }: ItemContentProps) {
                 <StarRating rating={item.rating} />
               </>
             )}
+            {tmdbTV?.status && (
+              <>
+                <span>&middot;</span>
+                <TVStatusBadge status={tmdbTV.status} />
+              </>
+            )}
           </div>
+
+          {tmdbTV?.networks && tmdbTV.networks.length > 0 && (
+            <div className="mt-2">
+              <NetworkLogos networks={tmdbTV.networks} />
+            </div>
+          )}
+
+          {tmdbTV?.number_of_seasons != null && (
+            <div className="text-sm text-muted dark:text-muted-dark mt-1">
+              {tmdbTV.number_of_seasons} season{tmdbTV.number_of_seasons !== 1 ? 's' : ''}
+              {tmdbTV.number_of_episodes != null && (
+                <span> &middot; {tmdbTV.number_of_episodes} episodes</span>
+              )}
+            </div>
+          )}
         </div>
 
         {item.genres && item.genres.length > 0 && (
@@ -254,22 +309,63 @@ function ItemContent({ item, accent }: ItemContentProps) {
           </p>
         )}
 
-        {item.directors && item.directors.length > 0 && (
+        {directorNames && (
           <div className="text-sm">
             <span className="text-muted dark:text-muted-dark">Directed by </span>
             <span className="text-gray-900 dark:text-gray-100">
-              {item.directors.join(', ')}
+              {directorNames.join(', ')}
             </span>
           </div>
         )}
 
-        {item.cast && item.cast.length > 0 && (
+        {(hasTMDBCast || (item.cast && item.cast.length > 0)) && (
           <div className="space-y-2">
             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Cast</div>
             <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
-              {item.cast.slice(0, 6).map((member, idx) => (
-                <CastChip key={`${member.name}-${idx}`} name={member.name} role={member.role} thumb={member.thumb_url} serverId={item.server_id} />
-              ))}
+              {hasTMDBCast
+                ? tmdbCast.slice(0, 8).map(person => (
+                    <CastChip
+                      key={person.id}
+                      name={person.name}
+                      character={person.character}
+                      profilePath={person.profile_path}
+                      onClick={() => onPersonClick(person.id)}
+                    />
+                  ))
+                : item.cast!.slice(0, 6).map((member, idx) => (
+                    <CastChip
+                      key={`${member.name}-${idx}`}
+                      name={member.name}
+                      character={member.role}
+                      imgSrc={member.thumb_url ? thumbUrl(item.server_id, member.thumb_url) : undefined}
+                    />
+                  ))
+              }
+            </div>
+          </div>
+        )}
+
+        {tmdbLoading && !hasTMDBCast && item.tmdb_id && (
+          <div className="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
+            <div className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin" />
+            Loading additional details...
+          </div>
+        )}
+
+        {collection && (
+          <div className="bg-gray-50 dark:bg-white/5 rounded-lg p-3">
+            <div className="flex items-center gap-3">
+              {collection.poster_path && (
+                <img
+                  src={`${TMDB_IMG}/w92${collection.poster_path}`}
+                  alt={collection.name}
+                  className="w-12 rounded shadow"
+                />
+              )}
+              <div>
+                <div className="text-xs text-muted dark:text-muted-dark">Part of</div>
+                <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{collection.name}</div>
+              </div>
             </div>
           </div>
         )}
@@ -287,9 +383,26 @@ function ItemContent({ item, accent }: ItemContentProps) {
 }
 
 export function MediaDetailModal({ item, loading, onClose }: MediaDetailModalProps) {
+  const [selectedPerson, setSelectedPerson] = useState<number | null>(null)
+  const [selectedTMDB, setSelectedTMDB] = useState<SelectedMedia | null>(null)
+
+  const { movie: tmdbMovie, tv: tmdbTV, loading: tmdbLoading } = useTMDBEnrichment(
+    item?.tmdb_id,
+    item?.media_type
+  )
+
+  const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
+  const overseerrConfigured = !!configStatus?.configured
+
+  const { data: libraryData } = useFetch<{ ids: string[] }>('/api/library/tmdb-ids')
+  const libraryIds = useMemo(() => new Set(libraryData?.ids ?? []), [libraryData])
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') onClose()
-  }, [onClose])
+    if (e.key === 'Escape' && !selectedPerson && !selectedTMDB) {
+      e.stopImmediatePropagation()
+      onClose()
+    }
+  }, [onClose, selectedPerson, selectedTMDB])
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)
@@ -303,33 +416,69 @@ export function MediaDetailModal({ item, loading, onClose }: MediaDetailModalPro
   const accent = item ? (serverAccent[item.server_type] ?? defaultAccent) : defaultAccent
 
   return (
-    <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="modal-title"
-    >
+    <>
       <div
-        className="relative w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-xl bg-panel dark:bg-panel-dark shadow-2xl animate-slide-up"
-        onClick={e => e.stopPropagation()}
+        className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in"
+        onClick={onClose}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="modal-title"
       >
-        <div className={`h-1 ${accent.bar}`} />
-
-        <button
-          onClick={onClose}
-          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
-          aria-label="Close"
+        <div
+          className="relative w-full max-w-6xl max-h-[90dvh] overflow-hidden rounded-xl bg-panel dark:bg-panel-dark shadow-2xl animate-slide-up"
+          onClick={e => e.stopPropagation()}
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+          <div className={`h-1 ${accent.bar}`} />
 
-        {loading && <LoadingSpinner />}
-        {!loading && item && <ItemContent item={item} accent={accent} />}
-        {!loading && !item && <ErrorState />}
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-black/40 hover:bg-black/60 text-white transition-colors"
+            aria-label="Close"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          {loading && <LoadingSpinner />}
+          {!loading && item && (
+            <ItemContent
+              item={item}
+              accent={accent}
+              tmdbMovie={tmdbMovie}
+              tmdbTV={tmdbTV}
+              tmdbLoading={tmdbLoading}
+              onPersonClick={setSelectedPerson}
+            />
+          )}
+          {!loading && !item && <ErrorState />}
+        </div>
       </div>
-    </div>
+
+      {selectedPerson && (
+        <PersonModal
+          personId={selectedPerson}
+          onClose={() => setSelectedPerson(null)}
+          onMediaClick={(type, id) => {
+            setSelectedPerson(null)
+            setSelectedTMDB({ mediaType: type, mediaId: id })
+          }}
+          libraryIds={libraryIds}
+        />
+      )}
+
+      {selectedTMDB && (
+        <TMDBDetailModal
+          mediaType={selectedTMDB.mediaType}
+          mediaId={selectedTMDB.mediaId}
+          overseerrConfigured={overseerrConfigured}
+          onClose={() => setSelectedTMDB(null)}
+          onPersonClick={id => {
+            setSelectedTMDB(null)
+            setSelectedPerson(id)
+          }}
+        />
+      )}
+    </>
   )
 }

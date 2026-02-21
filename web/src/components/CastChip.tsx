@@ -9,11 +9,13 @@ interface CastChipProps {
   name: string
   character?: string
   profilePath?: string
+  imgSrc?: string
   onClick?: () => void
 }
 
-export function CastChip({ name, character, profilePath, onClick }: CastChipProps) {
+export function CastChip({ name, character, profilePath, imgSrc, onClick }: CastChipProps) {
   const Wrapper = onClick ? 'button' : 'div'
+  const resolvedImg = imgSrc ?? (profilePath ? `${TMDB_IMG}/w92${profilePath}` : undefined)
   return (
     <Wrapper
       onClick={onClick}
@@ -21,9 +23,9 @@ export function CastChip({ name, character, profilePath, onClick }: CastChipProp
         onClick ? ' cursor-pointer hover:bg-gray-200 dark:hover:bg-white/15 transition-colors' : ''
       }`}
     >
-      {profilePath ? (
+      {resolvedImg ? (
         <img
-          src={`${TMDB_IMG}/w92${profilePath}`}
+          src={resolvedImg}
           alt={name}
           className="w-7 h-7 rounded-full object-cover bg-gray-300 dark:bg-white/20"
           loading="lazy"

@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -9,6 +10,8 @@ import (
 
 	"streammon/internal/models"
 )
+
+const maxWatchHistoryEntries = 10
 
 type itemDetailsResponse struct {
 	*models.ItemDetails
@@ -49,6 +52,12 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if tmdbID, err := s.store.GetLibraryItemTMDBID(r.Context(), serverID, itemID); err != nil {
+		log.Printf("WARN: GetLibraryItemTMDBID server=%d item=%s: %v", serverID, itemID, err)
+	} else if tmdbID != "" {
+		details.TMDBID = tmdbID
+	}
+
 	searchTitle := details.Title
 	if details.SeriesTitle != "" {
 		searchTitle = details.SeriesTitle
@@ -59,7 +68,10 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 	if user := UserFromContext(r.Context()); user != nil && user.Role == models.RoleViewer {
 		userFilter = user.Name
 	}
-	history, _ := s.store.HistoryForTitleByUser(searchTitle, userFilter, 10)
+	history, err := s.store.HistoryForTitleByUser(searchTitle, userFilter, maxWatchHistoryEntries)
+	if err != nil {
+		log.Printf("WARN: HistoryForTitleByUser title=%q user=%q: %v", searchTitle, userFilter, err)
+	}
 
 	resp := itemDetailsResponse{
 		ItemDetails:  details,

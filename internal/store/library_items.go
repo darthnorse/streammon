@@ -479,6 +479,20 @@ func (s *Store) FindLibraryItemsByTMDBID(ctx context.Context, tmdbID string) ([]
 	return matches, nil
 }
 
+func (s *Store) GetLibraryItemTMDBID(ctx context.Context, serverID int64, itemID string) (string, error) {
+	var tmdbID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT tmdb_id FROM library_items WHERE server_id = ? AND item_id = ? LIMIT 1`,
+		serverID, itemID).Scan(&tmdbID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get tmdb id: %w", err)
+	}
+	return tmdbID, nil
+}
+
 // GetAllLibraryTotalSizes returns total sizes for all libraries, keyed by "serverID-libraryID"
 func (s *Store) GetAllLibraryTotalSizes(ctx context.Context) (map[string]int64, error) {
 	rows, err := s.db.QueryContext(ctx,

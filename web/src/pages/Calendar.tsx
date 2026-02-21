@@ -2,9 +2,10 @@ import { useState, useMemo, useCallback } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useAuth } from '../context/AuthContext'
 import { EmptyState } from '../components/EmptyState'
-import { SeriesDetailModal } from '../components/SeriesDetailModal'
+import { TMDBDetailModal } from '../components/TMDBDetailModal'
+import { PersonModal } from '../components/PersonModal'
 import { MEDIA_GRID_CLASS } from '../lib/constants'
-import type { SonarrEpisode } from '../types'
+import type { SonarrEpisode, SelectedMedia } from '../types'
 
 type CalendarView = 'week' | 'month'
 
@@ -15,7 +16,7 @@ function getStoredView(): CalendarView {
   return stored === 'month' ? 'month' : 'week'
 }
 
-function formatDate(d: Date): string {
+function toDateKey(d: Date): string {
   const y = d.getFullYear()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
@@ -35,6 +36,7 @@ function addDays(date: Date, n: number): Date {
   return d
 }
 
+// Noon avoids off-by-one date shifts near midnight in negative-offset timezones
 function parseDate(dateStr: string): Date {
   return new Date(dateStr + 'T12:00:00')
 }
@@ -43,7 +45,7 @@ function getDatesInRange(start: Date, end: Date): string[] {
   const dates: string[] = []
   const d = new Date(start)
   while (d <= end) {
-    dates.push(formatDate(d))
+    dates.push(toDateKey(d))
     d.setDate(d.getDate() + 1)
   }
   return dates
@@ -62,12 +64,19 @@ export function Calendar() {
   const sonarrReady = configured?.configured ?? false
   const { data: overseerrStatus } = useFetch<{ configured: boolean }>(sonarrReady ? '/api/overseerr/configured' : null)
   const overseerrAvailable = overseerrStatus?.configured ?? false
-  const [selectedSeries, setSelectedSeries] = useState<{ tmdbId: number | null; sonarrSeriesId: number } | null>(null)
-  const closeModal = useCallback(() => setSelectedSeries(null), [])
+  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(null)
+  const [selectedPerson, setSelectedPerson] = useState<number | null>(null)
+
+  const { data: libraryData } = useFetch<{ ids: string[] }>(
+    selectedPerson ? '/api/library/tmdb-ids' : null
+  )
+  const libraryIds = useMemo(() => new Set(libraryData?.ids ?? []), [libraryData])
+
+  const closeModal = useCallback(() => setSelectedMedia(null), [])
 
   const { today, start, end, label } = useMemo(() => {
     const now = new Date()
-    const todayStr = formatDate(now)
+    const todayStr = toDateKey(now)
     if (view === 'week') {
       const ws = startOfWeek(now)
       ws.setDate(ws.getDate() + offset * 7)
@@ -75,8 +84,8 @@ export function Calendar() {
       const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       return {
         today: todayStr,
-        start: formatDate(ws),
-        end: formatDate(we),
+        start: toDateKey(ws),
+        end: toDateKey(we),
         label: `${fmt(ws)} \u2013 ${fmt(we)}, ${we.getFullYear()}`,
       }
     }
@@ -84,8 +93,8 @@ export function Calendar() {
     const me = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0)
     return {
       today: todayStr,
-      start: formatDate(ms),
-      end: formatDate(me),
+      start: toDateKey(ms),
+      end: toDateKey(me),
       label: ms.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
     }
   }, [view, offset])
@@ -114,6 +123,10 @@ export function Calendar() {
     setView(v)
     setOffset(0)
     localStorage.setItem(VIEW_STORAGE_KEY, v)
+  }
+
+  function handleSeriesClick(tmdbId: number) {
+    setSelectedMedia({ mediaType: 'tv', mediaId: tmdbId })
   }
 
   if (configured && !configured.configured) {
@@ -199,7 +212,7 @@ export function Calendar() {
                 date={date}
                 episodes={dayEps ?? []}
                 isToday={date === today}
-                onSeriesClick={(tmdbId, sonarrSeriesId) => setSelectedSeries({ tmdbId, sonarrSeriesId })}
+                onSeriesClick={handleSeriesClick}
               />
             )
           })}
@@ -213,12 +226,28 @@ export function Calendar() {
         </div>
       )}
 
-      {selectedSeries !== null && (
-        <SeriesDetailModal
-          tmdbId={selectedSeries.tmdbId}
-          sonarrSeriesId={selectedSeries.sonarrSeriesId}
-          overseerrAvailable={overseerrAvailable}
+      {selectedMedia && (
+        <TMDBDetailModal
+          mediaType={selectedMedia.mediaType}
+          mediaId={selectedMedia.mediaId}
+          overseerrConfigured={overseerrAvailable}
           onClose={closeModal}
+          onPersonClick={id => {
+            setSelectedMedia(null)
+            setSelectedPerson(id)
+          }}
+        />
+      )}
+
+      {selectedPerson && (
+        <PersonModal
+          personId={selectedPerson}
+          onClose={() => setSelectedPerson(null)}
+          onMediaClick={(type, id) => {
+            setSelectedPerson(null)
+            setSelectedMedia({ mediaType: type, mediaId: id })
+          }}
+          libraryIds={libraryIds}
         />
       )}
     </div>
@@ -229,7 +258,7 @@ interface CalendarDayProps {
   date: string
   episodes: SonarrEpisode[]
   isToday: boolean
-  onSeriesClick: (tmdbId: number | null, sonarrSeriesId: number) => void
+  onSeriesClick: (tmdbId: number) => void
 }
 
 function CalendarDay({ date, episodes, isToday, onSeriesClick }: CalendarDayProps) {
@@ -269,7 +298,7 @@ function CalendarDay({ date, episodes, isToday, onSeriesClick }: CalendarDayProp
 
 interface EpisodeCardProps {
   episode: SonarrEpisode
-  onSeriesClick: (tmdbId: number | null, sonarrSeriesId: number) => void
+  onSeriesClick: (tmdbId: number) => void
 }
 
 function episodeStatus(ep: SonarrEpisode): { className: string; label: string } {
@@ -286,6 +315,7 @@ function EpisodeCard({ episode, onSeriesClick }: EpisodeCardProps) {
   const posterUrl = `/api/sonarr/poster/${episode.seriesId}`
   const status = episodeStatus(episode)
   const tmdbId = episode.series.tmdbId ?? null
+  const clickable = tmdbId !== null
 
   const epCode = `S${String(episode.seasonNumber).padStart(2, '0')}E${String(episode.episodeNumber).padStart(2, '0')}`
 
@@ -295,17 +325,24 @@ function EpisodeCard({ episode, onSeriesClick }: EpisodeCardProps) {
   })
 
   function handleClick() {
-    onSeriesClick(tmdbId, episode.seriesId)
+    onSeriesClick(tmdbId!)
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      handleClick()
+    }
   }
 
   return (
     <div
-      className="card overflow-hidden group hover:ring-1 hover:ring-accent/30 transition-all cursor-pointer"
-      onClick={handleClick}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick() } }}
-      role="button"
-      tabIndex={0}
-      aria-label={`View details for ${episode.series.title}`}
+      className={`card overflow-hidden group transition-all${clickable ? ' hover:ring-1 hover:ring-accent/30 cursor-pointer' : ''}`}
+      onClick={clickable ? handleClick : undefined}
+      onKeyDown={clickable ? handleKeyDown : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      aria-label={clickable ? `View details for ${episode.series.title}` : undefined}
     >
       <div className="aspect-[2/3] bg-surface dark:bg-surface-dark relative overflow-hidden">
         <img

@@ -232,6 +232,7 @@ export interface ItemDetails {
   audio_channels?: number
   container?: string
   bitrate?: number
+  tmdb_id?: string
   watch_history?: WatchHistoryEntry[]
 }
 

@@ -1008,6 +1008,44 @@ func TestGetStreamMonWatchTimes(t *testing.T) {
 	})
 }
 
+func TestGetLibraryItemTMDBID(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "item1", MediaType: models.MediaTypeMovie, Title: "A", AddedAt: now, SyncedAt: now, TMDBID: "550"},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("found", func(t *testing.T) {
+		id, err := s.GetLibraryItemTMDBID(ctx, srv.ID, "item1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "550" {
+			t.Errorf("got %q, want 550", id)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		id, err := s.GetLibraryItemTMDBID(ctx, srv.ID, "missing")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "" {
+			t.Errorf("got %q, want empty", id)
+		}
+	})
+}
+
 func TestGetAllLibraryTotalSizes(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

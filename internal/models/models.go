@@ -358,6 +358,7 @@ type ItemDetails struct {
 	AudioChannels   int    `json:"audio_channels,omitempty"`
 	Container       string `json:"container,omitempty"`
 	Bitrate         int64  `json:"bitrate,omitempty"`
+	TMDBID          string `json:"tmdb_id,omitempty"`
 }
 
 type MediaStat struct {

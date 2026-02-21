@@ -3,6 +3,31 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { MediaDetailModal } from '../components/MediaDetailModal'
 import type { ItemDetails } from '../types'
 
+vi.mock('../lib/api', () => ({
+  api: {
+    get: vi.fn().mockRejectedValue(new Error('not configured')),
+    post: vi.fn(),
+    put: vi.fn(),
+    del: vi.fn(),
+  },
+}))
+
+vi.mock('../hooks/useTMDBEnrichment', () => ({
+  useTMDBEnrichment: () => ({ movie: null, tv: null, loading: false }),
+}))
+
+vi.mock('../hooks/useFetch', () => ({
+  useFetch: () => ({ data: null, loading: false, error: null }),
+}))
+
+vi.mock('../components/PersonModal', () => ({
+  PersonModal: () => null,
+}))
+
+vi.mock('../components/TMDBDetailModal', () => ({
+  TMDBDetailModal: () => null,
+}))
+
 const mockItem: ItemDetails = {
   id: '12345',
   title: 'Oppenheimer',

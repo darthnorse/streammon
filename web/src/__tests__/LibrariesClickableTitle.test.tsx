@@ -14,6 +14,18 @@ vi.mock('../hooks/useItemDetails', () => ({
   })),
 }))
 
+vi.mock('../hooks/useTMDBEnrichment', () => ({
+  useTMDBEnrichment: () => ({ movie: null, tv: null, loading: false }),
+}))
+
+vi.mock('../components/PersonModal', () => ({
+  PersonModal: () => null,
+}))
+
+vi.mock('../components/TMDBDetailModal', () => ({
+  TMDBDetailModal: () => null,
+}))
+
 import { useFetch } from '../hooks/useFetch'
 import { useItemDetails } from '../hooks/useItemDetails'
 import { MaintenanceRulesTab } from '../components/MaintenanceRulesTab'
