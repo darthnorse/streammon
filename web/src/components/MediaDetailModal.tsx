@@ -213,6 +213,16 @@ function ItemContent({ item, accent, tmdbMovie, tmdbTV, tmdbLoading, onPersonCli
   const hasTMDBCast = tmdbCast && tmdbCast.length > 0
   const collection = tmdbMovie?.belongs_to_collection
 
+  const serverThumbByName = useMemo(() => {
+    const map = new Map<string, string>()
+    if (item.cast) {
+      for (const m of item.cast) {
+        if (m.thumb_url) map.set(m.name, m.thumb_url)
+      }
+    }
+    return map
+  }, [item.cast])
+
   return (
     <div className="flex flex-col md:flex-row overflow-y-auto max-h-[calc(90dvh-4px)]">
       <div className="shrink-0 p-4 md:p-6 flex justify-center md:block md:w-1/3">
@@ -323,15 +333,19 @@ function ItemContent({ item, accent, tmdbMovie, tmdbTV, tmdbLoading, onPersonCli
             <div className="text-sm font-medium text-gray-900 dark:text-gray-100">Cast</div>
             <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
               {hasTMDBCast
-                ? tmdbCast.slice(0, 8).map(person => (
-                    <CastChip
-                      key={person.id}
-                      name={person.name}
-                      character={person.character}
-                      profilePath={person.profile_path}
-                      onClick={() => onPersonClick(person.id)}
-                    />
-                  ))
+                ? tmdbCast.slice(0, 8).map(person => {
+                    const serverThumb = !person.profile_path ? serverThumbByName.get(person.name) : undefined
+                    return (
+                      <CastChip
+                        key={person.id}
+                        name={person.name}
+                        character={person.character}
+                        profilePath={person.profile_path}
+                        imgSrc={serverThumb ? thumbUrl(item.server_id, serverThumb) : undefined}
+                        onClick={() => onPersonClick(person.id)}
+                      />
+                    )
+                  })
                 : item.cast!.slice(0, 6).map((member, idx) => (
                     <CastChip
                       key={`${member.name}-${idx}`}
