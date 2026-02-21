@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"streammon/internal/tmdb"
@@ -157,9 +159,91 @@ func TestTMDBCollection(t *testing.T) {
 	}
 }
 
+func TestTMDBTVStatuses(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		srv, _ := newTestServerWithTMDB(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/tv/123") {
+				w.Write([]byte(`{"id":123,"name":"Test Show","status":"Ended"}`))
+			} else if strings.Contains(r.URL.Path, "/tv/456") {
+				w.Write([]byte(`{"id":456,"name":"Another Show","status":"Returning Series"}`))
+			}
+		}))
+
+		body := `{"tmdb_ids":[123,456]}`
+		req := httptest.NewRequest(http.MethodPost, "/api/tmdb/tv/statuses", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var result map[string]string
+		if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if result["123"] != "Ended" {
+			t.Fatalf("expected 123=Ended, got %v", result["123"])
+		}
+		if result["456"] != "Returning Series" {
+			t.Fatalf("expected 456=Returning Series, got %v", result["456"])
+		}
+	})
+
+	t.Run("empty IDs returns empty map", func(t *testing.T) {
+		srv, _ := newTestServerWithTMDB(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+		body := `{"tmdb_ids":[]}`
+		req := httptest.NewRequest(http.MethodPost, "/api/tmdb/tv/statuses", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var result map[string]string
+		if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(result) != 0 {
+			t.Fatalf("expected empty result, got %v", result)
+		}
+	})
+
+	t.Run("too many IDs returns 400", func(t *testing.T) {
+		srv, _ := newTestServerWithTMDB(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+		ids := make([]string, 101)
+		for i := range ids {
+			ids[i] = strconv.Itoa(i)
+		}
+		body := `{"tmdb_ids":[` + strings.Join(ids, ",") + `]}`
+		req := httptest.NewRequest(http.MethodPost, "/api/tmdb/tv/statuses", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("nil TMDB client returns 503", func(t *testing.T) {
+		srv, _ := newTestServerWrapped(t)
+
+		body := `{"tmdb_ids":[123]}`
+		req := httptest.NewRequest(http.MethodPost, "/api/tmdb/tv/statuses", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusServiceUnavailable {
+			t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+}
+
 func TestTMDBNoClient(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
-	// tmdbClient is nil by default
 
 	req := httptest.NewRequest(http.MethodGet, "/api/tmdb/search?query=test", nil)
 	w := httptest.NewRecorder()

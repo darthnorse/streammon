@@ -120,11 +120,11 @@ function formatSyncProgress(state: SyncProgress, libraryName?: string): string {
 
 function formatSeriesStatus(status: string | undefined): JSX.Element {
   if (!status) return <span>-</span>
-  const label = status.charAt(0).toUpperCase() + status.slice(1)
   let color: string | undefined
-  if (status === 'ended') color = 'text-red-400'
-  else if (status === 'continuing') color = 'text-green-400'
-  return <span className={color}>{label}</span>
+  if (status === 'Ended' || status === 'Canceled') color = 'text-red-400'
+  else if (status === 'Returning Series') color = 'text-green-400'
+  else if (status === 'In Production' || status === 'Planned') color = 'text-amber-400'
+  return <span className={color}>{status}</span>
 }
 
 type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at'
@@ -274,33 +274,31 @@ function CandidatesView({
   )
 
   const isTV = rule.media_type === 'episode'
-  const { data: sonarrConfig } = useFetch<{ configured: boolean }>(isTV ? '/api/sonarr/configured' : null)
-  const sonarrConfigured = sonarrConfig?.configured === true
 
   const [seriesStatuses, setSeriesStatuses] = useState<Record<string, string>>({})
 
   useEffect(() => {
     let ignore = false
-    if (!isTV || !sonarrConfigured || !data?.items?.length) {
+    if (!isTV || !data?.items?.length) {
       setSeriesStatuses({})
       return
     }
-    const tvdbIds = [...new Set(
-      data.items.map(c => c.item?.tvdb_id).filter((id): id is string => !!id)
+    const tmdbIds = [...new Set(
+      data.items.map(c => c.item?.tmdb_id).filter((id): id is string => !!id)
     )]
-    if (!tvdbIds.length) {
+    if (!tmdbIds.length) {
       setSeriesStatuses({})
       return
     }
-    api.post<Record<string, string>>('/api/sonarr/series/statuses', { tvdb_ids: tvdbIds })
+    api.post<Record<string, string>>('/api/tmdb/tv/statuses', { tmdb_ids: tmdbIds.map(Number) })
       .then(res => { if (!ignore && mountedRef.current) setSeriesStatuses(res) })
-      .catch((err: unknown) => { console.debug('Sonarr status fetch failed:', err) })
+      .catch((err: unknown) => { console.debug('TMDB status fetch failed:', err) })
     return () => { ignore = true }
-  }, [data?.items, isTV, sonarrConfigured])
+  }, [data?.items, isTV])
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
   const filteredItems = data?.items || []
-  const showStatus = sonarrConfigured && Object.keys(seriesStatuses).length > 0
+  const showStatus = Object.keys(seriesStatuses).length > 0
 
   const {
     selected,
@@ -709,8 +707,8 @@ function CandidatesView({
                       </td>
                       {showStatus && (
                         <td className="px-4 py-3 text-muted dark:text-muted-dark whitespace-nowrap">
-                          {candidate.item?.tvdb_id
-                            ? formatSeriesStatus(seriesStatuses[candidate.item.tvdb_id])
+                          {candidate.item?.tmdb_id
+                            ? formatSeriesStatus(seriesStatuses[candidate.item.tmdb_id])
                             : '-'}
                         </td>
                       )}

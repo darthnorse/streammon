@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"streammon/internal/store"
 )
 
@@ -45,6 +47,7 @@ func newTestClient(t *testing.T, handler http.Handler, s *store.Store) *Client {
 		baseURL: srv.URL,
 		http:    srv.Client(),
 		store:   s,
+		limiter: rate.NewLimiter(rate.Inf, 0),
 	}
 }
 
@@ -137,7 +140,7 @@ func TestNilStore(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	c := &Client{apiKey: "test-key", baseURL: srv.URL, http: srv.Client(), store: nil}
+	c := &Client{apiKey: "test-key", baseURL: srv.URL, http: srv.Client(), store: nil, limiter: rate.NewLimiter(rate.Inf, 0)}
 
 	data, err := c.GetMovie(context.Background(), 1)
 	if err != nil {

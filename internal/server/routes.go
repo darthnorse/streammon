@@ -146,7 +146,6 @@ func (s *Server) routes() {
 			sr.Get("/configured", s.handleIntegrationConfigured(s.sonarrDeps()))
 			sr.Get("/calendar", s.handleSonarrCalendar)
 			sr.Get("/series/{id}", s.handleSonarrSeries)
-			sr.With(RequireRole(models.RoleAdmin)).Post("/series/statuses", s.handleSonarrSeriesStatuses)
 		})
 
 		r.Get("/radarr/configured", s.handleIntegrationConfigured(s.radarrDeps()))
@@ -157,6 +156,7 @@ func (s *Server) routes() {
 			sr.Get("/discover/*", s.handleTMDBDiscover)
 			sr.Get("/movie/{id}", s.handleTMDBMovie)
 			sr.Get("/tv/{id}", s.handleTMDBTV)
+			sr.Post("/tv/statuses", s.handleTMDBTVStatuses)
 			sr.Get("/person/{id}", s.handleTMDBPerson)
 			sr.Get("/collection/{id}", s.handleTMDBCollection)
 		})

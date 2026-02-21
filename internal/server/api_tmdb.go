@@ -3,12 +3,15 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"golang.org/x/sync/errgroup"
 
 	"streammon/internal/store"
 )
@@ -216,6 +219,56 @@ func (s *Server) handleTMDBCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeRawJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleTMDBTVStatuses(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TMDBIDs []int `json:"tmdb_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.TMDBIDs) > 100 {
+		writeError(w, http.StatusBadRequest, "too many IDs (max 100)")
+		return
+	}
+	if len(req.TMDBIDs) == 0 {
+		writeJSON(w, http.StatusOK, map[string]string{})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), tmdbTimeout)
+	defer cancel()
+
+	var mu sync.Mutex
+	result := make(map[string]string, len(req.TMDBIDs))
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.SetLimit(10)
+
+	for _, id := range req.TMDBIDs {
+		g.Go(func() error {
+			data, err := s.tmdbClient.GetTV(ctx, id)
+			if err != nil {
+				log.Printf("tmdb tv status %d: %v", id, err)
+				return nil
+			}
+			var parsed struct {
+				Status string `json:"status"`
+			}
+			if err := json.Unmarshal(data, &parsed); err == nil && parsed.Status != "" {
+				mu.Lock()
+				result[strconv.Itoa(id)] = parsed.Status
+				mu.Unlock()
+			}
+			return nil
+		})
+	}
+
+	_ = g.Wait()
+
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleLibraryTMDBIDs(w http.ResponseWriter, r *http.Request) {

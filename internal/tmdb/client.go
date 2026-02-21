@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 
+	"golang.org/x/time/rate"
+
 	"streammon/internal/httputil"
 	"streammon/internal/store"
 )
@@ -24,6 +26,7 @@ type Client struct {
 	baseURL string
 	http    *http.Client
 	store   *store.Store
+	limiter *rate.Limiter
 }
 
 func New(apiKey string, store *store.Store) *Client {
@@ -35,16 +38,21 @@ func New(apiKey string, store *store.Store) *Client {
 		baseURL: defaultBaseURL,
 		http:    httputil.NewClientWithTimeout(httputil.IntegrationTimeout),
 		store:   store,
+		limiter: rate.NewLimiter(35, 10),
 	}
 }
 
 func NewWithBaseURL(apiKey string, store *store.Store, baseURL string) *Client {
 	c := New(apiKey, store)
 	c.baseURL = baseURL
+	c.limiter = rate.NewLimiter(rate.Inf, 0)
 	return c
 }
 
 func (c *Client) do(ctx context.Context, path string, query url.Values) (json.RawMessage, error) {
+	if err := c.limiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limit: %w", err)
+	}
 	if query == nil {
 		query = url.Values{}
 	}

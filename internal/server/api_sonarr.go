@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -128,57 +127,6 @@ func (s *Server) handleSonarrCalendar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeRawJSON(w, http.StatusOK, data)
-}
-
-func (s *Server) handleSonarrSeriesStatuses(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		TVDBIDs []string `json:"tvdb_ids"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid request body")
-		return
-	}
-	if len(req.TVDBIDs) > 500 {
-		writeError(w, http.StatusBadRequest, "too many IDs (max 500)")
-		return
-	}
-	if len(req.TVDBIDs) == 0 {
-		writeJSON(w, http.StatusOK, map[string]string{})
-		return
-	}
-
-	for _, id := range req.TVDBIDs {
-		if _, err := strconv.Atoi(id); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid tvdb_id: "+id)
-			return
-		}
-	}
-
-	client, ctx, cancel, ok := s.sonarrClientWithTimeout(w, r)
-	if !ok {
-		return
-	}
-	defer cancel()
-
-	series, err := client.ListSeriesStatuses(ctx)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "upstream service error")
-		return
-	}
-
-	tvdbMap := make(map[string]string, len(series))
-	for _, sr := range series {
-		tvdbMap[strconv.Itoa(sr.TVDBID)] = sr.Status
-	}
-
-	result := make(map[string]string, len(req.TVDBIDs))
-	for _, id := range req.TVDBIDs {
-		if status, ok := tvdbMap[id]; ok {
-			result[id] = status
-		}
-	}
-
-	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleSonarrPoster(w http.ResponseWriter, r *http.Request) {

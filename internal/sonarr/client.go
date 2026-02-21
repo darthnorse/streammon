@@ -60,32 +60,6 @@ func (c *Client) GetSeries(ctx context.Context, seriesID int) (json.RawMessage, 
 	return c.DoGet(ctx, fmt.Sprintf("/series/%d", seriesID), nil)
 }
 
-type SeriesStatus struct {
-	TVDBID int    `json:"tvdbId"`
-	Status string `json:"status"`
-}
-
-// ListSeriesStatuses fetches all series from Sonarr, filtering out entries without a TVDB ID.
-func (c *Client) ListSeriesStatuses(ctx context.Context) ([]SeriesStatus, error) {
-	raw, err := c.DoGet(ctx, "/series", nil)
-	if err != nil {
-		return nil, err
-	}
-
-	var all []SeriesStatus
-	if err := json.Unmarshal(raw, &all); err != nil {
-		return nil, fmt.Errorf("parsing series list: %w", err)
-	}
-
-	filtered := make([]SeriesStatus, 0, len(all))
-	for _, s := range all {
-		if s.TVDBID != 0 {
-			filtered = append(filtered, s)
-		}
-	}
-	return filtered, nil
-}
-
 func (c *Client) GetCalendar(ctx context.Context, start, end string) (json.RawMessage, error) {
 	params := url.Values{}
 	if start != "" {
