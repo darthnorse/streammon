@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '../lib/api'
 import { TMDB_IMG } from '../lib/tmdb'
 import { MediaCard } from './MediaCard'
@@ -12,8 +12,12 @@ interface PersonModalProps {
   libraryIds?: Set<string>
 }
 
-function sortByPopularity(credits: TMDBPersonCredit[]): TMDBPersonCredit[] {
-  return [...credits].sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0))
+function sortByNewest(credits: TMDBPersonCredit[]): TMDBPersonCredit[] {
+  return [...credits].sort((a, b) => {
+    const dateA = a.release_date || a.first_air_date || ''
+    const dateB = b.release_date || b.first_air_date || ''
+    return dateB.localeCompare(dateA)
+  })
 }
 
 export function PersonModal({ personId, onClose, onMediaClick, libraryIds }: PersonModalProps) {
@@ -55,8 +59,27 @@ export function PersonModal({ personId, onClose, onMediaClick, libraryIds }: Per
   }, [personId])
 
   const cast = person?.combined_credits?.cast
-  const sortedCast = cast ? sortByPopularity(cast) : []
+  const sortedCast = cast ? sortByNewest(cast) : []
   const uniqueCast = sortedCast.filter((c, i, arr) => arr.findIndex(x => x.id === c.id) === i)
+  const [visibleCount, setVisibleCount] = useState(20)
+  const sentinelRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setVisibleCount(20)
+  }, [personId])
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current
+    if (!sentinel || visibleCount >= uniqueCast.length) return
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        setVisibleCount(prev => Math.min(prev + 20, uniqueCast.length))
+      }
+    }, { rootMargin: '200px' })
+    observer.observe(sentinel)
+    return () => observer.disconnect()
+  }, [visibleCount, uniqueCast.length])
+
   const biography = person?.biography
   const truncatedBio = biography && biography.length > 400 && !showFullBio
     ? biography.slice(0, 400) + '...'
@@ -164,7 +187,7 @@ export function PersonModal({ personId, onClose, onMediaClick, libraryIds }: Per
                   Known For ({uniqueCast.length})
                 </div>
                 <div className={MEDIA_GRID_CLASS}>
-                  {uniqueCast.slice(0, 20).map(credit => (
+                  {uniqueCast.slice(0, visibleCount).map(credit => (
                     <MediaCard
                       key={`${credit.media_type}-${credit.id}`}
                       item={{
@@ -182,6 +205,11 @@ export function PersonModal({ personId, onClose, onMediaClick, libraryIds }: Per
                     />
                   ))}
                 </div>
+                {visibleCount < uniqueCast.length && (
+                  <div ref={sentinelRef} className="flex justify-center py-4">
+                    <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                  </div>
+                )}
               </div>
             )}
           </div>
