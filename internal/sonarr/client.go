@@ -65,19 +65,32 @@ func (c *Client) UpdateSeries(ctx context.Context, seriesID int, data json.RawMe
 	return err
 }
 
+type seasonPassSeries struct {
+	ID int `json:"id"`
+}
+
+type seasonPassMonitor struct {
+	Monitor string `json:"monitor"`
+}
+
+type seasonPassRequest struct {
+	Series            []seasonPassSeries `json:"series"`
+	MonitoringOptions seasonPassMonitor  `json:"monitoringOptions"`
+}
+
 // SetMonitorFuture sets a series to "Future Episodes" monitoring via the
 // seasonpass endpoint, unmonitoring all aired episodes and only monitoring
 // future ones. This prevents Sonarr from re-downloading deleted seasons.
 func (c *Client) SetMonitorFuture(ctx context.Context, seriesID int) error {
-	body := map[string]interface{}{
-		"series":            []map[string]int{{"id": seriesID}},
-		"monitoringOptions": map[string]string{"monitor": "future"},
+	body := seasonPassRequest{
+		Series:            []seasonPassSeries{{ID: seriesID}},
+		MonitoringOptions: seasonPassMonitor{Monitor: "future"},
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
 		return fmt.Errorf("marshal seasonpass: %w", err)
 	}
-	_, err = c.DoPut(ctx, "/seasonpass", json.RawMessage(data))
+	_, err = c.DoPost(ctx, "/seasonpass", data)
 	return err
 }
 

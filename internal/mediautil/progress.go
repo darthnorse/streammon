@@ -11,7 +11,6 @@ const (
 	PhaseError      = "error"
 )
 
-// SyncProgress represents a progress update during library sync.
 type SyncProgress struct {
 	Phase   string `json:"phase"`
 	Current int    `json:"current,omitempty"`

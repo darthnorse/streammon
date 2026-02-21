@@ -38,6 +38,16 @@ func NewEvaluator(s *store.Store, tmdb *tmdb.Client, servers MediaServerResolver
 	return &Evaluator{store: s, tmdb: tmdb, servers: servers}
 }
 
+func countByMediaType(items []models.LibraryItemCache, mt models.MediaType) int {
+	n := 0
+	for _, item := range items {
+		if item.MediaType == mt {
+			n++
+		}
+	}
+	return n
+}
+
 func getItemRefTime(item models.LibraryItemCache) (time.Time, bool) {
 	if item.LastWatchedAt != nil {
 		return *item.LastWatchedAt, true
@@ -125,7 +135,10 @@ func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.Maintena
 		}
 	}
 
+	total := countByMediaType(items, mediaType)
+
 	var results []models.BatchCandidate
+	processed := 0
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
@@ -133,6 +146,14 @@ func (e *Evaluator) evaluateUnwatched(ctx context.Context, rule *models.Maintena
 		if item.MediaType != mediaType {
 			continue
 		}
+
+		processed++
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseEvaluating,
+			Current: processed,
+			Total:   total,
+			Library: item.LibraryID,
+		})
 
 		refTime, wasWatched := getItemRefTime(item)
 		if refTime.After(cutoff) {
@@ -169,7 +190,10 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 		return nil, nil, err
 	}
 
+	total := countByMediaType(items, rule.MediaType)
+
 	var results []models.BatchCandidate
+	processed := 0
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
@@ -177,6 +201,15 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 		if item.MediaType != rule.MediaType {
 			continue
 		}
+
+		processed++
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseEvaluating,
+			Current: processed,
+			Total:   total,
+			Library: item.LibraryID,
+		})
+
 		if item.VideoResolution == "" {
 			continue
 		}
@@ -208,7 +241,10 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 		return nil, nil, err
 	}
 
+	total := countByMediaType(items, rule.MediaType)
+
 	var results []models.BatchCandidate
+	processed := 0
 	for _, item := range items {
 		if ctx.Err() != nil {
 			return nil, nil, ctx.Err()
@@ -216,6 +252,15 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 		if item.MediaType != rule.MediaType {
 			continue
 		}
+
+		processed++
+		mediautil.SendProgress(ctx, mediautil.SyncProgress{
+			Phase:   mediautil.PhaseEvaluating,
+			Current: processed,
+			Total:   total,
+			Library: item.LibraryID,
+		})
+
 		if item.FileSize <= 0 {
 			continue
 		}
@@ -250,12 +295,7 @@ func (e *Evaluator) evaluateKeepLatestSeasons(ctx context.Context, rule *models.
 		genreFilter[gid] = true
 	}
 
-	tvCount := 0
-	for _, item := range items {
-		if item.MediaType == models.MediaTypeTV {
-			tvCount++
-		}
-	}
+	total := countByMediaType(items, models.MediaTypeTV)
 
 	var results []models.BatchCandidate
 	processed := 0
@@ -271,7 +311,7 @@ func (e *Evaluator) evaluateKeepLatestSeasons(ctx context.Context, rule *models.
 		mediautil.SendProgress(ctx, mediautil.SyncProgress{
 			Phase:   mediautil.PhaseEvaluating,
 			Current: processed,
-			Total:   tvCount,
+			Total:   total,
 			Library: item.LibraryID,
 		})
 

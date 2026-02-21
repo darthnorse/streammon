@@ -438,13 +438,14 @@ func TestUpdateSonarrMonitoring(t *testing.T) {
 	var seasonPassBody []byte
 	sonarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/api/v3/series" && r.Method == "GET":
+		case r.URL.Path == "/api/v3/series" && r.Method == http.MethodGet:
 			json.NewEncoder(w).Encode([]map[string]any{{"id": 77}})
-		case r.URL.Path == "/api/v3/seasonpass" && r.Method == "PUT":
+		case r.URL.Path == "/api/v3/seasonpass" && r.Method == http.MethodPost:
 			var err error
 			seasonPassBody, err = io.ReadAll(r.Body)
 			if err != nil {
-				t.Fatalf("read body: %v", err)
+				t.Errorf("read body: %v", err)
+				return
 			}
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte(`{}`))
@@ -474,7 +475,7 @@ func TestUpdateSonarrMonitoring(t *testing.T) {
 	}
 
 	if seasonPassBody == nil {
-		t.Fatal("expected seasonpass PUT request to be made")
+		t.Fatal("expected seasonpass POST request to be made")
 	}
 
 	var body struct {
@@ -493,10 +494,42 @@ func TestUpdateSonarrMonitoring(t *testing.T) {
 	}
 }
 
+func TestUpdateSonarrMonitoringNotFoundInSonarr(t *testing.T) {
+	sonarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v3/series" && r.Method == http.MethodGet:
+			json.NewEncoder(w).Encode([]map[string]any{}) // empty result
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer sonarrSrv.Close()
+
+	s := newTestStoreWithMigrations(t)
+	configureIntegration(t, s, "sonarr", sonarrSrv.URL)
+
+	cd := NewCascadeDeleter(s)
+	item := &models.LibraryItemCache{
+		Title:     "Unknown Show",
+		MediaType: models.MediaTypeTV,
+		TVDBID:    "99999",
+	}
+
+	result := cd.UpdateSonarrMonitoring(context.Background(), item)
+
+	if result.Success {
+		t.Error("expected no success for series not found in Sonarr")
+	}
+	if result.Error != "" {
+		t.Errorf("expected no error for not-found, got %s", result.Error)
+	}
+}
+
 func TestUpdateSonarrMonitoringNoTVDBID(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	sonarrSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("should not make any requests when TVDBID is empty")
+		t.Error("should not make any requests when TVDBID is empty")
 	}))
 	defer sonarrSrv.Close()
 	configureIntegration(t, s, "sonarr", sonarrSrv.URL)

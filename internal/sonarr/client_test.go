@@ -3,6 +3,7 @@ package sonarr
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -230,6 +231,62 @@ func TestDeleteSeriesFailure(t *testing.T) {
 	c, _ := NewClient(ts.URL, "test-key")
 	if err := c.DeleteSeries(context.Background(), 999, true); err == nil {
 		t.Fatal("expected error for 404 response")
+	}
+}
+
+func TestSetMonitorFuture(t *testing.T) {
+	var receivedBody []byte
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("expected POST, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v3/seasonpass" {
+			t.Errorf("expected path /api/v3/seasonpass, got %s", r.URL.Path)
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("expected Content-Type application/json, got %s", r.Header.Get("Content-Type"))
+		}
+		var err error
+		receivedBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read body: %v", err)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{}`))
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	if err := c.SetMonitorFuture(context.Background(), 77); err != nil {
+		t.Fatalf("SetMonitorFuture: %v", err)
+	}
+
+	var body struct {
+		Series            []struct{ ID int `json:"id"` } `json:"series"`
+		MonitoringOptions struct{ Monitor string `json:"monitor"` } `json:"monitoringOptions"`
+	}
+	if err := json.Unmarshal(receivedBody, &body); err != nil {
+		t.Fatalf("unmarshal body: %v", err)
+	}
+	if len(body.Series) != 1 || body.Series[0].ID != 77 {
+		t.Errorf("expected series [{id:77}], got %v", body.Series)
+	}
+	if body.MonitoringOptions.Monitor != "future" {
+		t.Errorf("expected monitor=future, got %q", body.MonitoringOptions.Monitor)
+	}
+}
+
+func TestSetMonitorFutureFailure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"message":"server error"}`))
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	if err := c.SetMonitorFuture(context.Background(), 77); err == nil {
+		t.Fatal("expected error for 500 response")
 	}
 }
 

@@ -71,6 +71,10 @@ func (c *Client) DoGet(ctx context.Context, path string, query url.Values) (json
 	return c.do(ctx, http.MethodGet, path, query, nil)
 }
 
+func (c *Client) DoPost(ctx context.Context, path string, body json.RawMessage) (json.RawMessage, error) {
+	return c.do(ctx, http.MethodPost, path, nil, bytes.NewReader(body))
+}
+
 func (c *Client) DoPut(ctx context.Context, path string, body json.RawMessage) (json.RawMessage, error) {
 	return c.do(ctx, http.MethodPut, path, nil, bytes.NewReader(body))
 }
