@@ -1,14 +1,15 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useEffect, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
-import type { ItemDetails, TMDBMovieDetails, TMDBTVDetails, TMDBCrew, SelectedMedia } from '../types'
+import type { ItemDetails, TMDBMovieDetails, TMDBTVDetails, TMDBCrew } from '../types'
 import { formatDuration, formatBitrate, formatAudioCodec, formatVideoCodec, formatDate, thumbUrl } from '../lib/format'
 import { getAudioCodecIcon, getVideoCodecIcon, getResolutionIcon, getChannelsIcon } from '../lib/mediaFlags'
 import { useTMDBEnrichment } from '../hooks/useTMDBEnrichment'
 import { useFetch } from '../hooks/useFetch'
+import { useModalStack } from '../hooks/useModalStack'
+import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { TMDB_IMG } from '../lib/tmdb'
 import { CastChip } from './CastChip'
-import { PersonModal } from './PersonModal'
-import { TMDBDetailModal } from './TMDBDetailModal'
+import { ModalStackRenderer } from './ModalStackRenderer'
 
 const serverAccent: Record<string, { bar: string; badge: string }> = {
   plex: { bar: 'bg-warn', badge: 'bg-warn/20 text-amber-700 dark:text-amber-300' },
@@ -397,8 +398,7 @@ function ItemContent({ item, accent, tmdbMovie, tmdbTV, tmdbLoading, onPersonCli
 }
 
 export function MediaDetailModal({ item, loading, onClose }: MediaDetailModalProps) {
-  const [selectedPerson, setSelectedPerson] = useState<number | null>(null)
-  const [selectedTMDB, setSelectedTMDB] = useState<SelectedMedia | null>(null)
+  const { stack, current: currentModal, push: pushModal, pop: popModal } = useModalStack()
 
   const { movie: tmdbMovie, tv: tmdbTV, loading: tmdbLoading } = useTMDBEnrichment(
     item?.tmdb_id,
@@ -412,20 +412,21 @@ export function MediaDetailModal({ item, loading, onClose }: MediaDetailModalPro
   const libraryIds = useMemo(() => new Set(libraryData?.ids ?? []), [libraryData])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape' && !selectedPerson && !selectedTMDB) {
+    if (e.key === 'Escape' && !currentModal) {
       e.stopImmediatePropagation()
       onClose()
     }
-  }, [onClose, selectedPerson, selectedTMDB])
+  }, [onClose, currentModal])
 
   useEffect(() => {
     document.addEventListener('keydown', handleKeyDown)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = ''
-    }
+    return () => document.removeEventListener('keydown', handleKeyDown)
   }, [handleKeyDown])
+
+  useEffect(() => {
+    lockBodyScroll()
+    return () => unlockBodyScroll()
+  }, [])
 
   const accent = item ? (serverAccent[item.server_type] ?? defaultAccent) : defaultAccent
 
@@ -437,6 +438,7 @@ export function MediaDetailModal({ item, loading, onClose }: MediaDetailModalPro
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
+        aria-hidden={stack.length > 0 || undefined}
       >
         <div
           className="relative w-full max-w-6xl max-h-[90dvh] overflow-hidden rounded-xl bg-panel dark:bg-panel-dark shadow-2xl animate-slide-up"
@@ -462,35 +464,20 @@ export function MediaDetailModal({ item, loading, onClose }: MediaDetailModalPro
               tmdbMovie={tmdbMovie}
               tmdbTV={tmdbTV}
               tmdbLoading={tmdbLoading}
-              onPersonClick={setSelectedPerson}
+              onPersonClick={id => pushModal({ type: 'person', personId: id })}
             />
           )}
           {!loading && !item && <ErrorState />}
         </div>
       </div>
 
-      {selectedPerson && (
-        <PersonModal
-          personId={selectedPerson}
-          onClose={() => setSelectedPerson(null)}
-          onMediaClick={(type, id) => {
-            setSelectedPerson(null)
-            setSelectedTMDB({ mediaType: type, mediaId: id })
-          }}
-          libraryIds={libraryIds}
-        />
-      )}
-
-      {selectedTMDB && (
-        <TMDBDetailModal
-          mediaType={selectedTMDB.mediaType}
-          mediaId={selectedTMDB.mediaId}
+      {stack.length > 0 && (
+        <ModalStackRenderer
+          stack={stack}
+          pushModal={pushModal}
+          popModal={popModal}
           overseerrConfigured={overseerrConfigured}
-          onClose={() => setSelectedTMDB(null)}
-          onPersonClick={id => {
-            setSelectedTMDB(null)
-            setSelectedPerson(id)
-          }}
+          libraryIds={libraryIds}
         />
       )}
     </>

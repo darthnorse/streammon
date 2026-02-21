@@ -1,11 +1,11 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useAuth } from '../context/AuthContext'
+import { useModalStack } from '../hooks/useModalStack'
 import { EmptyState } from '../components/EmptyState'
-import { TMDBDetailModal } from '../components/TMDBDetailModal'
-import { PersonModal } from '../components/PersonModal'
+import { ModalStackRenderer } from '../components/ModalStackRenderer'
 import { MEDIA_GRID_CLASS } from '../lib/constants'
-import type { SonarrEpisode, SelectedMedia } from '../types'
+import type { SonarrEpisode } from '../types'
 
 type CalendarView = 'week' | 'month'
 
@@ -64,15 +64,12 @@ export function Calendar() {
   const sonarrReady = configured?.configured ?? false
   const { data: overseerrStatus } = useFetch<{ configured: boolean }>(sonarrReady ? '/api/overseerr/configured' : null)
   const overseerrAvailable = overseerrStatus?.configured ?? false
-  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(null)
-  const [selectedPerson, setSelectedPerson] = useState<number | null>(null)
+  const { stack, push: pushModal, pop: popModal } = useModalStack()
 
   const { data: libraryData } = useFetch<{ ids: string[] }>(
-    selectedPerson ? '/api/library/tmdb-ids' : null
+    stack.length > 0 ? '/api/library/tmdb-ids' : null
   )
   const libraryIds = useMemo(() => new Set(libraryData?.ids ?? []), [libraryData])
-
-  const closeModal = useCallback(() => setSelectedMedia(null), [])
 
   const { today, start, end, label } = useMemo(() => {
     const now = new Date()
@@ -126,7 +123,7 @@ export function Calendar() {
   }
 
   function handleSeriesClick(tmdbId: number) {
-    setSelectedMedia({ mediaType: 'tv', mediaId: tmdbId })
+    pushModal({ type: 'tmdb', mediaType: 'tv', mediaId: tmdbId })
   }
 
   if (configured && !configured.configured) {
@@ -226,27 +223,12 @@ export function Calendar() {
         </div>
       )}
 
-      {selectedMedia && (
-        <TMDBDetailModal
-          mediaType={selectedMedia.mediaType}
-          mediaId={selectedMedia.mediaId}
+      {stack.length > 0 && (
+        <ModalStackRenderer
+          stack={stack}
+          pushModal={pushModal}
+          popModal={popModal}
           overseerrConfigured={overseerrAvailable}
-          onClose={closeModal}
-          onPersonClick={id => {
-            setSelectedMedia(null)
-            setSelectedPerson(id)
-          }}
-        />
-      )}
-
-      {selectedPerson && (
-        <PersonModal
-          personId={selectedPerson}
-          onClose={() => setSelectedPerson(null)}
-          onMediaClick={(type, id) => {
-            setSelectedPerson(null)
-            setSelectedMedia({ mediaType: type, mediaId: id })
-          }}
           libraryIds={libraryIds}
         />
       )}

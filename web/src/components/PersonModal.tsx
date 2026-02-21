@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { api } from '../lib/api'
 import { TMDB_IMG } from '../lib/tmdb'
 import { MediaCard } from './MediaCard'
@@ -10,6 +11,7 @@ interface PersonModalProps {
   onClose: () => void
   onMediaClick?: (mediaType: 'movie' | 'tv', mediaId: number) => void
   libraryIds?: Set<string>
+  active?: boolean
 }
 
 function sortByNewest(credits: TMDBPersonCredit[]): TMDBPersonCredit[] {
@@ -20,7 +22,7 @@ function sortByNewest(credits: TMDBPersonCredit[]): TMDBPersonCredit[] {
   })
 }
 
-export function PersonModal({ personId, onClose, onMediaClick, libraryIds }: PersonModalProps) {
+export function PersonModal({ personId, onClose, onMediaClick, libraryIds, active = true }: PersonModalProps) {
   const [person, setPerson] = useState<TMDBPersonDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -34,13 +36,16 @@ export function PersonModal({ personId, onClose, onMediaClick, libraryIds }: Per
   }, [onClose])
 
   useEffect(() => {
+    if (!active) return
     document.addEventListener('keydown', handleKeyDown, true)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown, true)
-      document.body.style.overflow = ''
-    }
-  }, [handleKeyDown])
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [handleKeyDown, active])
+
+  useEffect(() => {
+    if (!active) return
+    lockBodyScroll()
+    return () => unlockBodyScroll()
+  }, [active])
 
   useEffect(() => {
     setLoading(true)

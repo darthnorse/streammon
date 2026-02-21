@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
@@ -6,14 +6,14 @@ import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { useHorizontalScroll } from '../hooks/useHorizontalScroll'
 import { useAuth } from '../context/AuthContext'
+import { useModalStack } from '../hooks/useModalStack'
 import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS, isSelectableMedia } from '../lib/constants'
 import { EmptyState } from '../components/EmptyState'
 import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
 import { RequestCard } from '../components/RequestCard'
 import { SearchInput } from '../components/shared/SearchInput'
-import { TMDBDetailModal } from '../components/TMDBDetailModal'
-import { PersonModal } from '../components/PersonModal'
+import { ModalStackRenderer } from '../components/ModalStackRenderer'
 import type {
   TMDBSearchResult,
   OverseerrRequestCount,
@@ -131,12 +131,14 @@ export function Discover() {
   const [searchResults, setSearchResults] = useState<TMDBSearchResult | null>(null)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
-  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(null)
-  const [selectedPerson, setSelectedPerson] = useState<number | null>(null)
+  const { stack, push: pushModal, pop: popModal } = useModalStack()
+
+  const handleSelectMedia = useCallback((item: SelectedMedia) => {
+    pushModal({ type: 'tmdb', mediaType: item.mediaType, mediaId: item.mediaId })
+  }, [pushModal])
 
   const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setSearchResults(null))
 
-  // Requests tab state (only used when Overseerr is configured)
   const [requestFilter, setRequestFilter] = useState('all')
   const {
     searchInput: reqSearchInput,
@@ -185,11 +187,13 @@ export function Discover() {
     const controller = new AbortController()
     api.get<TMDBSearchResult>(`/api/tmdb/search?query=${encodeURIComponent(search)}`, controller.signal)
       .then(data => {
+        if (controller.signal.aborted) return
         setSearchResults(data)
         setSearching(false)
       })
       .catch(err => {
-        if ((err as Error).name !== 'AbortError') {
+        if (err instanceof Error && err.name === 'AbortError') return
+        if (!controller.signal.aborted) {
           setError((err as Error).message)
           setSearching(false)
         }
@@ -277,7 +281,7 @@ export function Discover() {
                     <MediaCard
                       key={`${item.media_type}-${item.id}`}
                       item={item}
-                      onClick={() => setSelectedMedia({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
+                      onClick={() => handleSelectMedia({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
                       available={libraryIds.has(String(item.id))}
                     />
                   ))}
@@ -287,7 +291,7 @@ export function Discover() {
           ) : (
             <div className="space-y-8">
               {DISCOVER_CATEGORIES.map(cat => (
-                <DiscoverFetchSection key={cat.path} path={cat.path} title={cat.title} onSelect={setSelectedMedia} libraryIds={libraryIds} />
+                <DiscoverFetchSection key={cat.path} path={cat.path} title={cat.title} onSelect={handleSelectMedia} libraryIds={libraryIds} />
               ))}
             </div>
           )}
@@ -371,27 +375,12 @@ export function Discover() {
         </>
       )}
 
-      {selectedMedia && (
-        <TMDBDetailModal
-          mediaType={selectedMedia.mediaType}
-          mediaId={selectedMedia.mediaId}
+      {stack.length > 0 && (
+        <ModalStackRenderer
+          stack={stack}
+          pushModal={pushModal}
+          popModal={popModal}
           overseerrConfigured={overseerrConfigured}
-          onClose={() => setSelectedMedia(null)}
-          onPersonClick={id => {
-            setSelectedMedia(null)
-            setSelectedPerson(id)
-          }}
-        />
-      )}
-
-      {selectedPerson && (
-        <PersonModal
-          personId={selectedPerson}
-          onClose={() => setSelectedPerson(null)}
-          onMediaClick={(type, id) => {
-            setSelectedPerson(null)
-            setSelectedMedia({ mediaType: type, mediaId: id })
-          }}
           libraryIds={libraryIds}
         />
       )}

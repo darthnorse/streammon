@@ -1050,3 +1050,7 @@ export interface LibraryMatch {
 
 export type SelectedMedia = { mediaType: 'movie' | 'tv'; mediaId: number }
 
+export type ModalEntry =
+  | { type: 'person'; personId: number }
+  | ({ type: 'tmdb' } & SelectedMedia)
+

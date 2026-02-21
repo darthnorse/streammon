@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { api } from '../lib/api'
 import { TMDB_IMG } from '../lib/tmdb'
 import { mediaStatusBadge } from '../lib/overseerr'
@@ -18,13 +19,14 @@ interface TMDBDetailModalProps {
   overseerrConfigured: boolean
   onClose: () => void
   onPersonClick?: (personId: number) => void
+  active?: boolean
 }
 
 function regularSeasonNumbers(seasons: { season_number: number }[]): number[] {
   return seasons.filter(s => s.season_number > 0).map(s => s.season_number)
 }
 
-export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClose, onPersonClick }: TMDBDetailModalProps) {
+export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClose, onPersonClick, active = true }: TMDBDetailModalProps) {
   const [movie, setMovie] = useState<TMDBMovieDetails | null>(null)
   const [tv, setTv] = useState<TMDBTVDetails | null>(null)
   const [libraryItems, setLibraryItems] = useState<LibraryMatch[]>([])
@@ -46,13 +48,16 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
   }, [onClose])
 
   useEffect(() => {
-    document.addEventListener('keydown', handleKeyDown)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = ''
-    }
-  }, [handleKeyDown])
+    if (!active) return
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => document.removeEventListener('keydown', handleKeyDown, true)
+  }, [handleKeyDown, active])
+
+  useEffect(() => {
+    if (!active) return
+    lockBodyScroll()
+    return () => unlockBodyScroll()
+  }, [active])
 
   useEffect(() => {
     setLoading(true)
@@ -64,6 +69,7 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
 
     api.get<TMDBMovieEnvelope | TMDBTVEnvelope>(endpoint, controller.signal)
       .then(data => {
+        if (controller.signal.aborted) return
         setLibraryItems(data.library_items ?? [])
         if (mediaType === 'movie') {
           setMovie((data as TMDBMovieEnvelope).tmdb)
@@ -76,11 +82,12 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
         }
       })
       .catch(err => {
-        if ((err as Error).name !== 'AbortError') {
-          setError((err as Error).message)
-        }
+        if (err instanceof Error && err.name === 'AbortError') return
+        if (!controller.signal.aborted) setError((err as Error).message)
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
     return () => controller.abort()
   }, [mediaType, mediaId])
 
@@ -91,7 +98,9 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
       ? `/api/overseerr/movie/${mediaId}`
       : `/api/overseerr/tv/${mediaId}`
     api.get<{ mediaInfo?: { status?: number } }>(endpoint, controller.signal)
-      .then(data => setOverseerrStatus(data.mediaInfo?.status))
+      .then(data => {
+        if (!controller.signal.aborted) setOverseerrStatus(data.mediaInfo?.status)
+      })
       .catch(() => { /* ignore — just means no status badge */ })
     return () => controller.abort()
   }, [overseerrConfigured, mediaType, mediaId])
@@ -156,7 +165,7 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4 pb-20 lg:pb-4 bg-black/70 backdrop-blur-sm animate-fade-in"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 pb-20 lg:pb-4 bg-black/70 backdrop-blur-sm animate-fade-in"
       onClick={onClose}
       role="dialog"
       aria-modal="true"

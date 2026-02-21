@@ -81,6 +81,7 @@ export function useInfiniteFetch<T>(
       })
       .catch(err => {
         if ((err as Error).name === 'AbortError') return
+        if (controller.signal.aborted) return
         setHasMore(false)
         setError((err as Error).message || 'Failed to load')
       })

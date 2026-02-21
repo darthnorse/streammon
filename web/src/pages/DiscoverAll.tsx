@@ -1,14 +1,14 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
 import { useFetch } from '../hooks/useFetch'
+import { useModalStack } from '../hooks/useModalStack'
 import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS, isSelectableMedia } from '../lib/constants'
 import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
-import { TMDBDetailModal } from '../components/TMDBDetailModal'
-import { PersonModal } from '../components/PersonModal'
+import { ModalStackRenderer } from '../components/ModalStackRenderer'
 import { EmptyState } from '../components/EmptyState'
-import type { TMDBMediaResult, SelectedMedia } from '../types'
+import type { TMDBMediaResult } from '../types'
 
 function ErrorBanner({ message }: { message: string }) {
   return (
@@ -41,8 +41,7 @@ export function DiscoverAll() {
   const valid = !!cat
   const title = cat?.title ?? category
 
-  const [selectedMedia, setSelectedMedia] = useState<SelectedMedia | null>(null)
-  const [selectedPerson, setSelectedPerson] = useState<number | null>(null)
+  const { stack, push: pushModal, pop: popModal } = useModalStack()
 
   const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
   const overseerrConfigured = !!configStatus?.configured
@@ -89,7 +88,7 @@ export function DiscoverAll() {
               <MediaCard
                 key={`${item.media_type}-${item.id}`}
                 item={item}
-                onClick={() => setSelectedMedia({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
+                onClick={() => pushModal({ type: 'tmdb', mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
                 available={libraryIds.has(String(item.id))}
               />
             ))}
@@ -107,27 +106,12 @@ export function DiscoverAll() {
         </>
       )}
 
-      {selectedMedia && (
-        <TMDBDetailModal
-          mediaType={selectedMedia.mediaType}
-          mediaId={selectedMedia.mediaId}
+      {stack.length > 0 && (
+        <ModalStackRenderer
+          stack={stack}
+          pushModal={pushModal}
+          popModal={popModal}
           overseerrConfigured={overseerrConfigured}
-          onClose={() => setSelectedMedia(null)}
-          onPersonClick={id => {
-            setSelectedMedia(null)
-            setSelectedPerson(id)
-          }}
-        />
-      )}
-
-      {selectedPerson && (
-        <PersonModal
-          personId={selectedPerson}
-          onClose={() => setSelectedPerson(null)}
-          onMediaClick={(type, id) => {
-            setSelectedPerson(null)
-            setSelectedMedia({ mediaType: type, mediaId: id })
-          }}
           libraryIds={libraryIds}
         />
       )}

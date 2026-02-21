@@ -96,11 +96,11 @@ export function useSSE(url: string): SSEState {
         if (prev.length === 0) return prev
 
         return prev.map(session => {
+          if (session.state && session.state !== 'playing') return session
+
           const duration = session.duration_ms ?? 0
           const progress = session.progress_ms ?? 0
 
-          // For live TV (duration=0), always interpolate
-          // For regular media, interpolate until we reach the end
           if (duration === 0 || progress < duration) {
             const newProgress = progress + INTERPOLATION_INTERVAL_MS
             return {
