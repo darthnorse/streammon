@@ -2,6 +2,7 @@ package maintenance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -197,6 +198,99 @@ func (cd *CascadeDeleter) deleteFromOverseerr(ctx context.Context, tmdbID, media
 			}
 		}
 
+		return true, ""
+	})
+}
+
+// UpdateSonarrMonitoring unmonitors old seasons in Sonarr without deleting the series.
+func (cd *CascadeDeleter) UpdateSonarrMonitoring(ctx context.Context, item *models.LibraryItemCache, keepSeasons int) CascadeResult {
+	cfg, err := cd.store.GetSonarrConfig()
+	return cd.runCascade(ctx, "sonarr", item.Title, cfg, err, func(opCtx context.Context) (bool, string) {
+		client, err := sonarr.NewClient(cfg.URL, cfg.APIKey)
+		if err != nil {
+			return false, fmt.Sprintf("create client: %v", err)
+		}
+
+		if item.TVDBID == "" {
+			return false, ""
+		}
+
+		seriesID, err := client.LookupSeriesByTVDB(opCtx, item.TVDBID)
+		if err != nil {
+			return false, fmt.Sprintf("lookup TVDB %s: %v", item.TVDBID, err)
+		}
+		if seriesID == 0 {
+			log.Printf("cascade sonarr monitoring %q: not found (TVDB %s)", item.Title, item.TVDBID)
+			return false, ""
+		}
+
+		raw, err := client.GetSeries(opCtx, seriesID)
+		if err != nil {
+			return false, fmt.Sprintf("get series %d: %v", seriesID, err)
+		}
+
+		var fullSeries map[string]interface{}
+		if err := json.Unmarshal(raw, &fullSeries); err != nil {
+			return false, fmt.Sprintf("parse series: %v", err)
+		}
+
+		seasonsRaw, ok := fullSeries["seasons"].([]interface{})
+		if !ok {
+			return false, "unexpected seasons format"
+		}
+
+		maxSeason := 0
+		for _, sRaw := range seasonsRaw {
+			s, ok := sRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			numF, numOK := s["seasonNumber"].(float64)
+			if !numOK {
+				continue
+			}
+			if int(numF) > maxSeason {
+				maxSeason = int(numF)
+			}
+		}
+
+		cutoff := maxSeason - keepSeasons
+		changed := false
+		for _, sRaw := range seasonsRaw {
+			s, ok := sRaw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			numF, numOK := s["seasonNumber"].(float64)
+			if !numOK {
+				continue
+			}
+			seasonNum := int(numF)
+			if seasonNum == 0 {
+				continue
+			}
+			if seasonNum <= cutoff {
+				if monitored, _ := s["monitored"].(bool); monitored {
+					s["monitored"] = false
+					changed = true
+				}
+			}
+		}
+
+		if !changed {
+			return true, ""
+		}
+
+		updatedData, err := json.Marshal(fullSeries)
+		if err != nil {
+			return false, fmt.Sprintf("marshal series: %v", err)
+		}
+
+		if err := client.UpdateSeries(opCtx, seriesID, json.RawMessage(updatedData)); err != nil {
+			return false, fmt.Sprintf("update series monitoring: %v", err)
+		}
+
+		log.Printf("cascade sonarr monitoring %q: unmonitored seasons 1-%d (keeping %d-%d)", item.Title, cutoff, cutoff+1, maxSeason)
 		return true, ""
 	})
 }

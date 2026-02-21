@@ -9,17 +9,18 @@ import (
 func TestGetCriterionTypes(t *testing.T) {
 	types := GetCriterionTypes()
 
-	// Should have 4 criterion types
-	if len(types) != 4 {
-		t.Errorf("GetCriterionTypes() returned %d types, want 4", len(types))
+	// Should have 5 criterion types
+	if len(types) != 5 {
+		t.Errorf("GetCriterionTypes() returned %d types, want 5", len(types))
 	}
 
 	// Check each type exists
 	expectedTypes := map[models.CriterionType]bool{
-		models.CriterionUnwatchedMovie:  false,
-		models.CriterionUnwatchedTVNone: false,
-		models.CriterionLowResolution:   false,
-		models.CriterionLargeFiles:      false,
+		models.CriterionUnwatchedMovie:    false,
+		models.CriterionUnwatchedTVNone:   false,
+		models.CriterionLowResolution:     false,
+		models.CriterionLargeFiles:        false,
+		models.CriterionKeepLatestSeasons: false,
 	}
 
 	for _, ct := range types {
@@ -57,7 +58,7 @@ func TestGetCriterionTypes(t *testing.T) {
 			if param.Label == "" {
 				t.Errorf("Criterion type %s parameter %s has empty label", ct.Type, param.Name)
 			}
-			if param.Default == nil {
+			if param.Default == nil && param.Type != "genre_multi_select" {
 				t.Errorf("Criterion type %s parameter %s has nil default", ct.Type, param.Name)
 			}
 		}

@@ -4,27 +4,37 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"streammon/internal/media"
 	"streammon/internal/models"
 	"streammon/internal/store"
+	"streammon/internal/tmdb"
 )
 
 const (
-	DefaultDays      = 365
-	DefaultMaxHeight = 720
-	DefaultMinSizeGB = 10.0
+	DefaultDays        = 365
+	DefaultMaxHeight   = 720
+	DefaultMinSizeGB   = 10.0
+	DefaultKeepSeasons = 3
 )
 
-type Evaluator struct {
-	store *store.Store
+type MediaServerResolver interface {
+	GetServer(serverID int64) (media.MediaServer, bool)
 }
 
-func NewEvaluator(s *store.Store) *Evaluator {
-	return &Evaluator{store: s}
+type Evaluator struct {
+	store   *store.Store
+	tmdb    *tmdb.Client
+	servers MediaServerResolver
+}
+
+func NewEvaluator(s *store.Store, tmdb *tmdb.Client, servers MediaServerResolver) *Evaluator {
+	return &Evaluator{store: s, tmdb: tmdb, servers: servers}
 }
 
 func getItemRefTime(item models.LibraryItemCache) (time.Time, bool) {
@@ -50,6 +60,8 @@ func (e *Evaluator) EvaluateRule(ctx context.Context, rule *models.MaintenanceRu
 		candidates, items, err = e.evaluateLowResolution(ctx, rule)
 	case models.CriterionLargeFiles:
 		candidates, items, err = e.evaluateLargeFiles(ctx, rule)
+	case models.CriterionKeepLatestSeasons:
+		candidates, items, err = e.evaluateKeepLatestSeasons(ctx, rule)
 	default:
 		return nil, fmt.Errorf("unknown criterion type: %s", rule.CriterionType)
 	}
@@ -212,6 +224,100 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 			results = append(results, models.BatchCandidate{
 				LibraryItemID: item.ID,
 				Reason:        fmt.Sprintf("File size %.1f GB exceeds %.1f GB", sizeGB, params.MinSizeGB),
+			})
+		}
+	}
+	return results, items, nil
+}
+
+func (e *Evaluator) evaluateKeepLatestSeasons(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, []models.LibraryItemCache, error) {
+	var params models.KeepLatestSeasonsParams
+	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
+		return nil, nil, fmt.Errorf("parse params: %w", err)
+	}
+	if params.KeepSeasons <= 0 {
+		params.KeepSeasons = DefaultKeepSeasons
+	}
+
+	items, err := e.store.ListItemsForLibraries(ctx, rule.Libraries)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	genreFilter := make(map[int]bool, len(params.GenreIDs))
+	for _, gid := range params.GenreIDs {
+		genreFilter[gid] = true
+	}
+
+	var results []models.BatchCandidate
+	for _, item := range items {
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
+		if item.MediaType != models.MediaTypeTV {
+			continue
+		}
+
+		if len(genreFilter) > 0 {
+			if item.TMDBID == "" {
+				continue // unknown genre, skip when filtering
+			}
+			if e.tmdb != nil {
+				tmdbID, parseErr := strconv.Atoi(item.TMDBID)
+				if parseErr != nil {
+					continue
+				}
+				raw, tmdbErr := e.tmdb.GetTV(ctx, tmdbID)
+				if tmdbErr != nil {
+					log.Printf("keep_latest_seasons: tmdb lookup for %q (id=%d): %v", item.Title, tmdbID, tmdbErr)
+					continue // can't verify genre, skip to be safe
+				}
+				var parsed struct {
+					Genres []struct {
+						ID int `json:"id"`
+					} `json:"genres"`
+				}
+				if jsonErr := json.Unmarshal(raw, &parsed); jsonErr == nil {
+					matched := false
+					for _, g := range parsed.Genres {
+						if genreFilter[g.ID] {
+							matched = true
+							break
+						}
+					}
+					if !matched {
+						continue
+					}
+				}
+			}
+		}
+
+		if e.servers == nil {
+			continue
+		}
+
+		ms, ok := e.servers.GetServer(item.ServerID)
+		if !ok {
+			continue
+		}
+
+		seasons, seasonsErr := ms.GetSeasons(ctx, item.ItemID)
+		if seasonsErr != nil {
+			log.Printf("keep_latest_seasons: get seasons for %q (item=%s): %v", item.Title, item.ItemID, seasonsErr)
+			continue
+		}
+
+		regularCount := 0
+		for _, s := range seasons {
+			if s.Number > 0 {
+				regularCount++
+			}
+		}
+
+		if regularCount > params.KeepSeasons {
+			results = append(results, models.BatchCandidate{
+				LibraryItemID: item.ID,
+				Reason:        fmt.Sprintf("%d seasons \u2014 keeping latest %d", regularCount, params.KeepSeasons),
 			})
 		}
 	}

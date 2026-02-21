@@ -161,6 +161,10 @@ func (c *Client) GetCollection(ctx context.Context, id int) (json.RawMessage, er
 	return c.cached(ctx, fmt.Sprintf("collection:%d", id), fmt.Sprintf("/collection/%d", id), nil)
 }
 
+func (c *Client) GetTVGenres(ctx context.Context) (json.RawMessage, error) {
+	return c.cached(ctx, "genres:tv", "/genre/tv/list", nil)
+}
+
 func (c *Client) TestConnection(ctx context.Context) error {
 	_, err := c.do(ctx, "/configuration", nil)
 	return err

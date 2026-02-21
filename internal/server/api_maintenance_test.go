@@ -408,6 +408,9 @@ func (m *mockDeleteServer) DeleteItem(ctx context.Context, itemID string) error 
 	m.deleted = append(m.deleted, itemID)
 	return nil
 }
+func (m *mockDeleteServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
+	return nil, nil
+}
 
 // setupDeleteCandidateTest creates server, library item, rule, and candidate for delete tests.
 // Returns the server ID for poller setup.

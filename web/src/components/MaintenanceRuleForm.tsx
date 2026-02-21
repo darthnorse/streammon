@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useModal } from '../hooks/useModal'
 import { api } from '../lib/api'
@@ -10,6 +10,7 @@ import type {
   CriterionType,
   MediaType,
   RuleLibrary,
+  TMDBGenre,
 } from '../types'
 
 interface MaintenanceRuleFormProps {
@@ -32,12 +33,34 @@ export function MaintenanceRuleForm({ rule, onClose, onSaved }: MaintenanceRuleF
   const [name, setName] = useState(rule?.name ?? '')
   const [mediaType, setMediaType] = useState<MediaType | ''>(rule?.media_type ?? '')
   const [criterionType, setCriterionType] = useState<CriterionType | ''>(rule?.criterion_type ?? '')
-  const [parameters, setParameters] = useState<Record<string, string | number>>(
-    (rule?.parameters as Record<string, string | number>) ?? {}
+  const [parameters, setParameters] = useState<Record<string, string | number | number[]>>(
+    (rule?.parameters as Record<string, string | number | number[]>) ?? {}
   )
   const [libraries, setLibraries] = useState<RuleLibrary[]>(rule?.libraries ?? [])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [genres, setGenres] = useState<TMDBGenre[]>([])
+  const [genresLoading, setGenresLoading] = useState(false)
+
+  useEffect(() => {
+    if (criterionType !== 'keep_latest_seasons') return
+    setGenresLoading(true)
+    api.get<{ genres: TMDBGenre[] }>('/api/tmdb/genres/tv')
+      .then(data => setGenres(data.genres || []))
+      .catch(() => setGenres([]))
+      .finally(() => setGenresLoading(false))
+  }, [criterionType])
+
+  const toggleGenre = useCallback((genreId: number) => {
+    setParameters(prev => {
+      const current = (prev.genre_ids as number[]) || []
+      const next = current.includes(genreId)
+        ? current.filter(id => id !== genreId)
+        : [...current, genreId]
+      return { ...prev, genre_ids: next }
+    })
+  }, [])
 
   const availableTypes = useMemo(() => {
     if (!criterionTypes?.types || !mediaType) return []
@@ -61,9 +84,11 @@ export function MaintenanceRuleForm({ rule, onClose, onSaved }: MaintenanceRuleF
     if (!isEdit || (isEdit && criterionType !== rule?.criterion_type)) {
       const currentSelectedType = availableTypes.find(ct => ct.type === criterionType)
       if (currentSelectedType) {
-        const defaults: Record<string, string | number> = {}
+        const defaults: Record<string, string | number | number[]> = {}
         for (const param of currentSelectedType.parameters) {
-          defaults[param.name] = param.default
+          if (param.default !== null) {
+            defaults[param.name] = param.default
+          }
         }
         setParameters(defaults)
       } else {
@@ -206,14 +231,14 @@ export function MaintenanceRuleForm({ rule, onClose, onSaved }: MaintenanceRuleF
           {selectedType && selectedType.parameters.length > 0 && (
             <div className="space-y-4">
               <h3 className="text-sm font-medium">Parameters</h3>
-              {selectedType.parameters.map(param => (
+              {selectedType.parameters.filter(p => p.type !== 'genre_multi_select').map(param => (
                 <div key={param.name}>
                   <label className="block text-sm text-muted dark:text-muted-dark mb-1">
                     {param.label}
                   </label>
                   <input
                     type={param.type === 'int' ? 'number' : 'text'}
-                    value={parameters[param.name] ?? param.default}
+                    value={(parameters[param.name] as string | number) ?? param.default}
                     onChange={e =>
                       setParameters(prev => {
                         let value: string | number = e.target.value
@@ -230,6 +255,38 @@ export function MaintenanceRuleForm({ rule, onClose, onSaved }: MaintenanceRuleF
                   />
                 </div>
               ))}
+            </div>
+          )}
+
+          {criterionType === 'keep_latest_seasons' && (
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Genre Filter</label>
+              <p className="text-xs text-muted dark:text-muted-dark mb-2">
+                Select genres to target. Leave empty to match all shows.
+              </p>
+              {genresLoading ? (
+                <div className="text-sm text-muted dark:text-muted-dark animate-pulse">Loading genres...</div>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {genres.map(genre => {
+                    const selected = ((parameters.genre_ids as number[]) || []).includes(genre.id)
+                    return (
+                      <button
+                        key={genre.id}
+                        type="button"
+                        onClick={() => toggleGenre(genre.id)}
+                        className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+                          selected
+                            ? 'bg-accent text-gray-900 border-accent'
+                            : 'border-border dark:border-border-dark hover:border-accent/50'
+                        }`}
+                      >
+                        {genre.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 

@@ -49,6 +49,9 @@ func (m *mockLibraryServer) GetLibraryItems(ctx context.Context, libraryID strin
 func (m *mockLibraryServer) DeleteItem(ctx context.Context, itemID string) error {
 	return nil
 }
+func (m *mockLibraryServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
+	return nil, nil
+}
 
 func setupTestPoller(t *testing.T, srv *Server, st *store.Store) *poller.Poller {
 	t.Helper()

@@ -43,6 +43,9 @@ func (f *fakeMediaServer) GetUsers(context.Context) ([]models.MediaUser, error) 
 	return nil, nil
 }
 func (f *fakeMediaServer) DeleteItem(context.Context, string) error { return nil }
+func (f *fakeMediaServer) GetSeasons(context.Context, string) ([]models.Season, error) {
+	return nil, nil
+}
 
 func (f *fakeMediaServer) GetLibraries(ctx context.Context) ([]models.Library, error) {
 	return f.libraries, nil
@@ -174,7 +177,7 @@ func TestSyncAllTwoPhases(t *testing.T) {
 	p := poller.New(s, 5*time.Second)
 	p.AddServer(srv.ID, fake)
 
-	sch := New(s, p, WithSyncTimeout(1*time.Minute))
+	sch := New(s, p, nil, WithSyncTimeout(1*time.Minute))
 
 	// Create a maintenance rule targeting lib1
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
@@ -264,7 +267,7 @@ func TestSyncAllLibrariesBeforeRuleEvaluation(t *testing.T) {
 	p := poller.New(s, 5*time.Second)
 	p.AddServer(srv.ID, fake)
 
-	sch := New(s, p, WithSyncTimeout(1*time.Minute))
+	sch := New(s, p, nil, WithSyncTimeout(1*time.Minute))
 
 	// Create a rule that spans BOTH libraries
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
@@ -340,7 +343,7 @@ func TestSyncAllNoRulesDoesNotFail(t *testing.T) {
 	p := poller.New(s, 5*time.Second)
 	p.AddServer(srv.ID, fake)
 
-	sch := New(s, p, WithSyncTimeout(1*time.Minute))
+	sch := New(s, p, nil, WithSyncTimeout(1*time.Minute))
 
 	// SyncAll with no rules should succeed without error
 	if err := sch.SyncAll(ctx); err != nil {
@@ -386,7 +389,7 @@ func TestSyncAllDisabledRulesSkipped(t *testing.T) {
 	p := poller.New(s, 5*time.Second)
 	p.AddServer(srv.ID, fake)
 
-	sch := New(s, p, WithSyncTimeout(1*time.Minute))
+	sch := New(s, p, nil, WithSyncTimeout(1*time.Minute))
 
 	// Create a disabled rule
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
@@ -433,7 +436,7 @@ func TestSyncAllDisabledServerSkipped(t *testing.T) {
 	// Don't register server in poller - it should be skipped before that matters
 	p := poller.New(s, 5*time.Second)
 
-	sch := New(s, p, WithSyncTimeout(1*time.Minute))
+	sch := New(s, p, nil, WithSyncTimeout(1*time.Minute))
 
 	if err := sch.SyncAll(ctx); err != nil {
 		t.Fatalf("SyncAll() error: %v", err)
@@ -496,7 +499,7 @@ func TestSyncAllMultipleServers(t *testing.T) {
 	p.AddServer(srv1.ID, fake1)
 	p.AddServer(srv2.ID, fake2)
 
-	sch := New(s, p, WithSyncTimeout(1*time.Minute))
+	sch := New(s, p, nil, WithSyncTimeout(1*time.Minute))
 
 	// Create a rule spanning both servers
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
@@ -589,7 +592,7 @@ func TestEvaluateAllRulesIndependently(t *testing.T) {
 	}
 
 	p := poller.New(s, 5*time.Second)
-	sch := New(s, p)
+	sch := New(s, p, nil)
 
 	totalCandidates, totalErrors := sch.evaluateAllRules(ctx)
 	if totalErrors != 0 {

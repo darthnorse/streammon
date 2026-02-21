@@ -71,6 +71,7 @@ const criterionNames: Record<CriterionType, string> = {
   unwatched_tv_none: 'Unwatched TV Shows',
   low_resolution: 'Low Resolution',
   large_files: 'Large Files',
+  keep_latest_seasons: 'Keep Latest Seasons',
 }
 
 const criterionFormatters: Record<CriterionType, (params: Record<string, unknown>) => string> = {
@@ -78,6 +79,12 @@ const criterionFormatters: Record<CriterionType, (params: Record<string, unknown
   unwatched_tv_none: (p) => `TV shows with no watch activity for ${p.days || 365}+ days`,
   low_resolution: (p) => `Resolution at or below ${p.max_height || 720}p`,
   large_files: (p) => `Files larger than ${p.min_size_gb || 10} GB`,
+  keep_latest_seasons: (p) => {
+    const seasons = p.keep_seasons || 3
+    const genreIds = p.genre_ids as number[] | undefined
+    const genreStr = genreIds?.length ? ` (${genreIds.length} genre${genreIds.length > 1 ? 's' : ''} filtered)` : ''
+    return `Keep latest ${seasons} season${seasons !== 1 ? 's' : ''}${genreStr}`
+  },
 }
 
 function formatRuleParameters(rule: MaintenanceRuleWithCount): string {

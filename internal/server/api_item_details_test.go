@@ -91,6 +91,9 @@ func (m *mockItemDetailsServer) GetLibraryItems(ctx context.Context, libraryID s
 func (m *mockItemDetailsServer) DeleteItem(ctx context.Context, itemID string) error {
 	return nil
 }
+func (m *mockItemDetailsServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
+	return nil, nil
+}
 func (m *mockItemDetailsServer) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
 	if m.err != nil {
 		return nil, m.err

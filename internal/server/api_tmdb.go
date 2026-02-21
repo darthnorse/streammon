@@ -271,6 +271,19 @@ func (s *Server) handleTMDBTVStatuses(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Server) handleTMDBTVGenres(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), tmdbTimeout)
+	defer cancel()
+
+	data, err := s.tmdbClient.GetTVGenres(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "upstream service error")
+		return
+	}
+
+	writeRawJSON(w, http.StatusOK, data)
+}
+
 func (s *Server) handleLibraryTMDBIDs(w http.ResponseWriter, r *http.Request) {
 	ids, err := s.store.GetLibraryTMDBIDs(r.Context())
 	if err != nil {

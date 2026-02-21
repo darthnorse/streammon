@@ -159,6 +159,7 @@ func (s *Server) routes() {
 			sr.Post("/tv/statuses", s.handleTMDBTVStatuses)
 			sr.Get("/person/{id}", s.handleTMDBPerson)
 			sr.Get("/collection/{id}", s.handleTMDBCollection)
+			sr.Get("/genres/tv", s.handleTMDBTVGenres)
 		})
 
 		r.Get("/library/tmdb-ids", s.handleLibraryTMDBIDs)

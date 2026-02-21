@@ -3,6 +3,9 @@ package maintenance
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,8 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"streammon/internal/media"
 	"streammon/internal/models"
 	"streammon/internal/store"
+	"streammon/internal/tmdb"
 )
 
 func TestParseResolutionHeight(t *testing.T) {
@@ -161,7 +166,7 @@ func TestEvaluateUnwatchedMovie(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -203,7 +208,7 @@ func TestEvaluateUnwatchedMovieRecentNotFlagged(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -241,7 +246,7 @@ func TestEvaluateMovieWatchedLongAgoFlagged(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -282,7 +287,7 @@ func TestEvaluateMovieWatchedRecentlyNotFlagged(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -317,7 +322,7 @@ func TestEvaluateUnwatchedTVNoneNeverWatched(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -355,7 +360,7 @@ func TestEvaluateUnwatchedTVNoneRecentNotFlagged(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -392,7 +397,7 @@ func TestEvaluateUnwatchedTVNoneWatchedLongAgoFlagged(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -426,7 +431,7 @@ func TestEvaluateLowResolution(t *testing.T) {
 		Parameters:    json.RawMessage(`{"max_height": 720}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -457,7 +462,7 @@ func TestEvaluateLargeFiles(t *testing.T) {
 		Parameters:    json.RawMessage(`{"min_size_gb": 10}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -477,7 +482,7 @@ func TestEvaluateRuleUnknownCriterion(t *testing.T) {
 		Parameters:    json.RawMessage(`{}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	_, err := e.EvaluateRule(ctx, rule)
 	if err == nil {
 		t.Error("expected error for unknown criterion")
@@ -504,7 +509,7 @@ func TestEvaluateLowResolutionDefaultParams(t *testing.T) {
 		Parameters:    json.RawMessage(`{}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -534,7 +539,7 @@ func TestEvaluateLargeFilesDefaultParams(t *testing.T) {
 		Parameters:    json.RawMessage(`{}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -567,7 +572,7 @@ func TestEvaluateMultiLibraryRule(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -625,7 +630,7 @@ func TestEvaluateCrossServerWatch(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -683,7 +688,7 @@ func TestEvaluateCrossServerWatchNoExternalIDs(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -740,7 +745,7 @@ func TestEvaluateUnwatchedExcludesItemWithStreamMonHistory(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -790,7 +795,7 @@ func TestEvaluateUnwatchedMovieExcludesItemWithStreamMonHistory(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -968,7 +973,7 @@ func TestEvaluateRuleDeduplicatesCrossServer(t *testing.T) {
 		Parameters:    json.RawMessage(`{"days": 30}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -1003,7 +1008,7 @@ func TestEvaluateLowResolutionMultiLibrary(t *testing.T) {
 		Parameters:    json.RawMessage(`{"max_height": 720}`),
 	}
 
-	e := NewEvaluator(s)
+	e := NewEvaluator(s, nil, nil)
 	results, err := e.EvaluateRule(ctx, rule)
 	if err != nil {
 		t.Fatalf("EvaluateRule: %v", err)
@@ -1011,5 +1016,333 @@ func TestEvaluateLowResolutionMultiLibrary(t *testing.T) {
 	// 480p from lib1 and 576p from lib2 should be flagged; 1080p should not
 	if len(results) != 2 {
 		t.Fatalf("got %d results, want 2 (480p + 576p across two libraries)", len(results))
+	}
+}
+
+type mockMediaServer struct {
+	seasons map[string][]models.Season
+}
+
+func (m *mockMediaServer) Name() string                        { return "mock" }
+func (m *mockMediaServer) Type() models.ServerType             { return models.ServerTypePlex }
+func (m *mockMediaServer) ServerID() int64                     { return 0 }
+func (m *mockMediaServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) TestConnection(ctx context.Context) error { return nil }
+func (m *mockMediaServer) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetLibraries(ctx context.Context) ([]models.Library, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) DeleteItem(ctx context.Context, itemID string) error { return nil }
+func (m *mockMediaServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
+	return m.seasons[showID], nil
+}
+
+type mockServerResolver struct {
+	servers map[int64]media.MediaServer
+}
+
+func (m *mockServerResolver) GetServer(id int64) (media.MediaServer, bool) {
+	ms, ok := m.servers[id]
+	return ms, ok
+}
+
+func TestEvaluateKeepLatestSeasons(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "show1",
+		MediaType: models.MediaTypeTV,
+		Title:     "Long Running Show",
+		AddedAt:   now,
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{
+		seasons: map[string][]models.Season{
+			"show1": {
+				{ID: "s0", Number: 0, Title: "Specials"},
+				{ID: "s1", Number: 1, Title: "Season 1"},
+				{ID: "s2", Number: 2, Title: "Season 2"},
+				{ID: "s3", Number: 3, Title: "Season 3"},
+				{ID: "s4", Number: 4, Title: "Season 4"},
+			},
+		},
+	}
+	resolver := &mockServerResolver{
+		servers: map[int64]media.MediaServer{srv.ID: ms},
+	}
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 2}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if !strings.Contains(results[0].Reason, "4 seasons") {
+		t.Errorf("expected '4 seasons' in reason, got %q", results[0].Reason)
+	}
+	if !strings.Contains(results[0].Reason, "keeping latest 2") {
+		t.Errorf("expected 'keeping latest 2' in reason, got %q", results[0].Reason)
+	}
+}
+
+func TestEvaluateKeepLatestSeasonsNotEnoughSeasons(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "show1",
+		MediaType: models.MediaTypeTV,
+		Title:     "Short Show",
+		AddedAt:   now,
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{
+		seasons: map[string][]models.Season{
+			"show1": {
+				{ID: "s1", Number: 1, Title: "Season 1"},
+				{ID: "s2", Number: 2, Title: "Season 2"},
+			},
+		},
+	}
+	resolver := &mockServerResolver{
+		servers: map[int64]media.MediaServer{srv.ID: ms},
+	}
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 3}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (only 2 seasons, threshold 3)", len(results))
+	}
+}
+
+func TestEvaluateKeepLatestSeasonsIgnoresSpecials(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "show1",
+		MediaType: models.MediaTypeTV,
+		Title:     "Show With Specials",
+		AddedAt:   now,
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{
+		seasons: map[string][]models.Season{
+			"show1": {
+				{ID: "s0", Number: 0, Title: "Specials"},
+				{ID: "s1", Number: 1, Title: "Season 1"},
+				{ID: "s2", Number: 2, Title: "Season 2"},
+				{ID: "s3", Number: 3, Title: "Season 3"},
+			},
+		},
+	}
+	resolver := &mockServerResolver{
+		servers: map[int64]media.MediaServer{srv.ID: ms},
+	}
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 3}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (3 regular seasons + specials, threshold 3)", len(results))
+	}
+}
+
+// setupKeepLatestSeasonsGenreTest creates a common test fixture for genre filter tests.
+// Returns the store, server, mock resolver, and a cleanup function.
+func setupKeepLatestSeasonsGenreTest(t *testing.T, tmdbID string) (*store.Store, *models.Server, *mockServerResolver) {
+	t.Helper()
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "show1",
+		MediaType: models.MediaTypeTV,
+		Title:     "Genre Test Show",
+		TMDBID:    tmdbID,
+		AddedAt:   now,
+		SyncedAt:  now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{
+		seasons: map[string][]models.Season{
+			"show1": {
+				{ID: "s1", Number: 1, Title: "Season 1"},
+				{ID: "s2", Number: 2, Title: "Season 2"},
+				{ID: "s3", Number: 3, Title: "Season 3"},
+				{ID: "s4", Number: 4, Title: "Season 4"},
+			},
+		},
+	}
+	resolver := &mockServerResolver{
+		servers: map[int64]media.MediaServer{srv.ID: ms},
+	}
+	return s, srv, resolver
+}
+
+func TestEvaluateKeepLatestSeasonsGenreMatch(t *testing.T) {
+	s, srv, resolver := setupKeepLatestSeasonsGenreTest(t, "100")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":100,"genres":[{"id":10767,"name":"Talk"},{"id":18,"name":"Drama"}]}`)
+	}))
+	defer ts.Close()
+
+	tmdbClient := tmdb.NewWithBaseURL("", nil, ts.URL)
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 2, "genre_ids": [10767]}`),
+	}
+
+	e := NewEvaluator(s, tmdbClient, resolver)
+	results, err := e.EvaluateRule(context.Background(), rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1 (genre matches)", len(results))
+	}
+}
+
+func TestEvaluateKeepLatestSeasonsGenreNoMatch(t *testing.T) {
+	s, srv, resolver := setupKeepLatestSeasonsGenreTest(t, "100")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"id":100,"genres":[{"id":18,"name":"Drama"}]}`)
+	}))
+	defer ts.Close()
+
+	tmdbClient := tmdb.NewWithBaseURL("", nil, ts.URL)
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 2, "genre_ids": [10767]}`),
+	}
+
+	e := NewEvaluator(s, tmdbClient, resolver)
+	results, err := e.EvaluateRule(context.Background(), rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (genre does not match)", len(results))
+	}
+}
+
+func TestEvaluateKeepLatestSeasonsGenreTMDBFailure(t *testing.T) {
+	s, srv, resolver := setupKeepLatestSeasonsGenreTest(t, "100")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	tmdbClient := tmdb.NewWithBaseURL("", nil, ts.URL)
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 2, "genre_ids": [10767]}`),
+	}
+
+	e := NewEvaluator(s, tmdbClient, resolver)
+	results, err := e.EvaluateRule(context.Background(), rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (TMDB failure should skip item, not include it)", len(results))
+	}
+}
+
+func TestEvaluateKeepLatestSeasonsGenreNoTMDBID(t *testing.T) {
+	s, srv, resolver := setupKeepLatestSeasonsGenreTest(t, "") // empty TMDB ID
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 2, "genre_ids": [10767]}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+	results, err := e.EvaluateRule(context.Background(), rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0 (no TMDB ID should skip when genre filter active)", len(results))
 	}
 }

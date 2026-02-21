@@ -14,12 +14,14 @@ const (
 	CriterionUnwatchedTVNone CriterionType = "unwatched_tv_none"
 	CriterionLowResolution   CriterionType = "low_resolution"
 	CriterionLargeFiles      CriterionType = "large_files"
+	CriterionKeepLatestSeasons CriterionType = "keep_latest_seasons"
 )
 
 func (ct CriterionType) Valid() bool {
 	switch ct {
 	case CriterionUnwatchedMovie, CriterionUnwatchedTVNone,
-		CriterionLowResolution, CriterionLargeFiles:
+		CriterionLowResolution, CriterionLargeFiles,
+		CriterionKeepLatestSeasons:
 		return true
 	}
 	return false
@@ -198,6 +200,17 @@ type LowResolutionParams struct {
 
 type LargeFilesParams struct {
 	MinSizeGB float64 `json:"min_size_gb"`
+}
+
+type KeepLatestSeasonsParams struct {
+	KeepSeasons int   `json:"keep_seasons"`
+	GenreIDs    []int `json:"genre_ids"`
+}
+
+type Season struct {
+	ID     string `json:"id"`
+	Number int    `json:"number"`
+	Title  string `json:"title"`
 }
 
 type BulkDeleteResult struct {

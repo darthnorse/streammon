@@ -148,7 +148,7 @@ func main() {
 			schOpts = append(schOpts, scheduler.WithSyncTimeout(d))
 		}
 	}
-	sch := scheduler.New(s, p, schOpts...)
+	sch := scheduler.New(s, p, tmdbClient, schOpts...)
 
 	vc := version.NewChecker(Version)
 

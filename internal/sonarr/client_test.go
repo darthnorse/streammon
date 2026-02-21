@@ -159,6 +159,46 @@ func TestLookupSeriesByTVDBNotFound(t *testing.T) {
 	}
 }
 
+func TestUpdateSeries(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut {
+			t.Errorf("expected PUT, got %s", r.Method)
+		}
+		if r.URL.Path != "/api/v3/series/10" {
+			t.Errorf("expected path /api/v3/series/10, got %s", r.URL.Path)
+		}
+		if r.Header.Get("X-Api-Key") != "test-key" {
+			t.Errorf("expected X-Api-Key header test-key, got %s", r.Header.Get("X-Api-Key"))
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Errorf("expected Content-Type application/json, got %s", r.Header.Get("Content-Type"))
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":10}`))
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	data := json.RawMessage(`{"id":10,"title":"Updated","seasons":[]}`)
+	if err := c.UpdateSeries(context.Background(), 10, data); err != nil {
+		t.Fatalf("UpdateSeries: %v", err)
+	}
+}
+
+func TestUpdateSeriesFailure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"message":"server error"}`))
+	}))
+	defer ts.Close()
+
+	c, _ := NewClient(ts.URL, "test-key")
+	data := json.RawMessage(`{"id":10}`)
+	if err := c.UpdateSeries(context.Background(), 10, data); err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+}
+
 func TestDeleteSeries(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodDelete {

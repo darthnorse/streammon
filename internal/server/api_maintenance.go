@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -30,6 +31,18 @@ type deleteItemResult struct {
 	Error         string
 }
 
+// checkExclusion performs a final exclusion safety check as close to the
+// irreversible media server delete as possible, minimising the TOCTOU window.
+func (s *Server) checkExclusion(candidate models.MaintenanceCandidate) (excluded bool, err error) {
+	checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer checkCancel()
+
+	if candidate.RuleID > 0 {
+		return s.store.IsItemExcluded(checkCtx, candidate.RuleID, candidate.LibraryItemID)
+	}
+	return s.store.IsItemExcludedFromAnyRule(checkCtx, candidate.LibraryItemID)
+}
+
 // Uses background contexts to ensure operations complete even if request is cancelled.
 func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, deletedBy string) deleteItemResult {
 	result := deleteItemResult{FileSize: candidate.Item.FileSize}
@@ -40,34 +53,18 @@ func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, del
 		return result
 	}
 
-	// Final exclusion safety check as close to the irreversible media server
-	// delete as possible, minimising the TOCTOU window to microseconds.
-	if candidate.RuleID > 0 {
-		// Regular candidate — check the specific rule's exclusion list.
-		checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		excluded, err := s.store.IsItemExcluded(checkCtx, candidate.RuleID, candidate.LibraryItemID)
-		checkCancel()
-		if err != nil {
-			result.Error = "failed to verify exclusion status"
-			return result
-		}
-		if excluded {
+	excluded, err := s.checkExclusion(candidate)
+	if err != nil {
+		result.Error = "failed to verify exclusion status"
+		return result
+	}
+	if excluded {
+		if candidate.RuleID > 0 {
 			result.Error = "item was excluded since operation began"
-			return result
-		}
-	} else {
-		// Synthetic candidate (cross-server delete) — check all rules.
-		checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		excluded, err := s.store.IsItemExcludedFromAnyRule(checkCtx, candidate.LibraryItemID)
-		checkCancel()
-		if err != nil {
-			result.Error = "failed to verify exclusion status"
-			return result
-		}
-		if excluded {
+		} else {
 			result.Error = "item is excluded from a maintenance rule"
-			return result
 		}
+		return result
 	}
 
 	deleteCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -101,6 +98,115 @@ func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, del
 	}
 
 	s.recordDeleteAudit(candidate, deletedBy, result.ServerDeleted, result.Error)
+
+	return result
+}
+
+func (s *Server) deleteOldSeasons(candidate models.MaintenanceCandidate, rule *models.MaintenanceRule, deletedBy string) deleteItemResult {
+	result := deleteItemResult{} // individual season sizes unknown
+
+	var params models.KeepLatestSeasonsParams
+	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
+		result.Error = "invalid rule parameters"
+		return result
+	}
+	if params.KeepSeasons <= 0 {
+		params.KeepSeasons = maintenance.DefaultKeepSeasons
+	}
+
+	ms, ok := s.poller.GetServer(candidate.Item.ServerID)
+	if !ok {
+		result.Error = "server not configured"
+		return result
+	}
+
+	excluded, err := s.checkExclusion(candidate)
+	if err != nil {
+		result.Error = "failed to verify exclusion status"
+		return result
+	}
+	if excluded {
+		result.Error = "item was excluded since operation began"
+		return result
+	}
+
+	seasonsCtx, seasonsCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	seasons, err := ms.GetSeasons(seasonsCtx, candidate.Item.ItemID)
+	seasonsCancel()
+	if err != nil {
+		result.Error = fmt.Sprintf("failed to get seasons: %v", err)
+		return result
+	}
+
+	var regular []models.Season
+	for _, sea := range seasons {
+		if sea.Number > 0 {
+			regular = append(regular, sea)
+		}
+	}
+	sort.Slice(regular, func(i, j int) bool { return regular[i].Number < regular[j].Number })
+
+	if len(regular) <= params.KeepSeasons {
+		cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = s.store.DeleteMaintenanceCandidate(cleanCtx, candidate.ID)
+		cleanCancel()
+		result.ServerDeleted = true
+		result.DBCleaned = true
+		return result
+	}
+
+	toDelete := regular[:len(regular)-params.KeepSeasons]
+	deletedCount := 0
+	for i, season := range toDelete {
+		if i > 0 {
+			time.Sleep(500 * time.Millisecond)
+		}
+
+		deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := ms.DeleteItem(deleteCtx, season.ID)
+		deleteCancel()
+
+		if err != nil {
+			log.Printf("delete season %d (%q) of %q: %v", season.Number, season.Title, candidate.Item.Title, err)
+			result.Error = fmt.Sprintf("failed to delete season %d: %v", season.Number, err)
+		} else {
+			deletedCount++
+			s.recordDeleteAudit(models.MaintenanceCandidate{
+				Item: &models.LibraryItemCache{
+					ServerID:  candidate.Item.ServerID,
+					ItemID:    season.ID,
+					Title:     fmt.Sprintf("%s - %s", candidate.Item.Title, season.Title),
+					MediaType: models.MediaTypeTV,
+					FileSize:  0,
+				},
+				LibraryItemID: candidate.LibraryItemID,
+			}, deletedBy, true, "")
+		}
+	}
+
+	if deletedCount == 0 {
+		if result.Error == "" {
+			result.Error = "no seasons were deleted"
+		}
+		return result
+	}
+
+	result.ServerDeleted = true
+
+	sonarrResult := s.cascadeDeleter.UpdateSonarrMonitoring(context.Background(), candidate.Item, params.KeepSeasons)
+	if sonarrResult.Error != "" {
+		log.Printf("sonarr monitoring update for %q: %s", candidate.Item.Title, sonarrResult.Error)
+	}
+
+	cleanCtx, cleanCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	dbErr := s.store.DeleteMaintenanceCandidate(cleanCtx, candidate.ID)
+	cleanCancel()
+	if dbErr != nil {
+		log.Printf("delete candidate %d after season cleanup: %v", candidate.ID, dbErr)
+		result.Error = "seasons deleted but candidate cleanup failed - please refresh"
+	} else {
+		result.DBCleaned = true
+	}
 
 	return result
 }
@@ -390,7 +496,7 @@ func (s *Server) executeSyncLibrary(ctx context.Context, serverID int64, library
 	if err != nil {
 		log.Printf("list maintenance rules for %d/%s: %v", serverID, libraryID, err)
 	} else {
-		evaluator := maintenance.NewEvaluator(s.store)
+		evaluator := maintenance.NewEvaluator(s.store, s.tmdbClient, s.poller)
 		for _, rule := range rules {
 			if !rule.Enabled {
 				continue
@@ -539,7 +645,7 @@ func (s *Server) handleEvaluateRule(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 
-	evaluator := maintenance.NewEvaluator(s.store)
+	evaluator := maintenance.NewEvaluator(s.store, s.tmdbClient, s.poller)
 	candidates, err := evaluator.EvaluateRule(ctx, rule)
 	if err != nil {
 		log.Printf("evaluate rule %d: %v", id, err)
@@ -620,7 +726,19 @@ func (s *Server) handleDeleteCandidate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result := s.deleteItemFromServer(*candidate, getUserEmail(r))
+	rule, err := s.store.GetMaintenanceRule(r.Context(), candidate.RuleID)
+	if err != nil {
+		log.Printf("get rule for candidate %d: %v", id, err)
+		writeError(w, http.StatusInternalServerError, "failed to get rule")
+		return
+	}
+
+	var result deleteItemResult
+	if rule.CriterionType == models.CriterionKeepLatestSeasons {
+		result = s.deleteOldSeasons(*candidate, rule, getUserEmail(r))
+	} else {
+		result = s.deleteItemFromServer(*candidate, getUserEmail(r))
+	}
 
 	if !result.ServerDeleted {
 		log.Printf("delete candidate %d (%q): %s", id, candidate.Item.Title, result.Error)
@@ -1055,6 +1173,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 	// Track library item IDs already deleted so that two candidates pointing
 	// at the same library item don't attempt a redundant media-server delete.
 	deletedItemIDs := make(map[int64]bool)
+	ruleCache := make(map[int64]*models.MaintenanceRule)
 	consecutiveServerFailures := 0
 
 	for i, candidateID := range candidateIDs {
@@ -1138,7 +1257,25 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 			continue
 		}
 
-		delResult := s.deleteItemFromServer(candidate, deletedBy)
+		var delResult deleteItemResult
+		if candidate.RuleID > 0 {
+			rule, ok := ruleCache[candidate.RuleID]
+			if !ok {
+				fetchedRule, ruleErr := s.store.GetMaintenanceRule(ctx, candidate.RuleID)
+				if ruleErr != nil {
+					log.Printf("bulk delete: get rule %d: %v", candidate.RuleID, ruleErr)
+				}
+				rule = fetchedRule
+				ruleCache[candidate.RuleID] = rule
+			}
+			if rule != nil && rule.CriterionType == models.CriterionKeepLatestSeasons {
+				delResult = s.deleteOldSeasons(candidate, rule, deletedBy)
+			} else {
+				delResult = s.deleteItemFromServer(candidate, deletedBy)
+			}
+		} else {
+			delResult = s.deleteItemFromServer(candidate, deletedBy)
+		}
 
 		if delResult.ServerDeleted {
 			result.TotalSize += delResult.FileSize

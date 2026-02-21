@@ -11,6 +11,7 @@ import (
 	"streammon/internal/models"
 	"streammon/internal/poller"
 	"streammon/internal/store"
+	"streammon/internal/tmdb"
 )
 
 const DefaultSyncTimeout = 6 * time.Hour
@@ -18,6 +19,7 @@ const DefaultSyncTimeout = 6 * time.Hour
 type Scheduler struct {
 	store       *store.Store
 	poller      *poller.Poller
+	tmdb        *tmdb.Client
 	syncTimeout time.Duration
 
 	startOnce sync.Once
@@ -33,10 +35,11 @@ func WithSyncTimeout(d time.Duration) Option {
 	}
 }
 
-func New(s *store.Store, p *poller.Poller, opts ...Option) *Scheduler {
+func New(s *store.Store, p *poller.Poller, tmdbClient *tmdb.Client, opts ...Option) *Scheduler {
 	sch := &Scheduler{
 		store:       s,
 		poller:      p,
+		tmdb:        tmdbClient,
 		syncTimeout: DefaultSyncTimeout,
 		done:        make(chan struct{}),
 	}
@@ -191,7 +194,7 @@ func (sch *Scheduler) evaluateAllRules(ctx context.Context) (totalCandidates, to
 		return 0, 0
 	}
 
-	evaluator := maintenance.NewEvaluator(sch.store)
+	evaluator := maintenance.NewEvaluator(sch.store, sch.tmdb, sch.poller)
 
 	for _, rule := range rules {
 		if ctx.Err() != nil {

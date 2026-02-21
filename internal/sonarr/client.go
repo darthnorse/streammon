@@ -60,6 +60,11 @@ func (c *Client) GetSeries(ctx context.Context, seriesID int) (json.RawMessage, 
 	return c.DoGet(ctx, fmt.Sprintf("/series/%d", seriesID), nil)
 }
 
+func (c *Client) UpdateSeries(ctx context.Context, seriesID int, data json.RawMessage) error {
+	_, err := c.DoPut(ctx, fmt.Sprintf("/series/%d", seriesID), data)
+	return err
+}
+
 func (c *Client) GetCalendar(ctx context.Context, start, end string) (json.RawMessage, error) {
 	params := url.Values{}
 	if start != "" {

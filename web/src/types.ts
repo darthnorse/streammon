@@ -546,7 +546,7 @@ export const RULE_TYPE_LABELS: Record<RuleType, string> = Object.fromEntries(
 ) as Record<RuleType, string>
 
 // Maintenance types
-export type CriterionType = 'unwatched_movie' | 'unwatched_tv_none' | 'low_resolution' | 'large_files'
+export type CriterionType = 'unwatched_movie' | 'unwatched_tv_none' | 'low_resolution' | 'large_files' | 'keep_latest_seasons'
 
 export interface RuleLibrary {
   server_id: number
@@ -555,9 +555,9 @@ export interface RuleLibrary {
 
 export interface ParamSpec {
   name: string
-  type: 'int' | 'string'
+  type: 'int' | 'string' | 'genre_multi_select'
   label: string
-  default: number | string
+  default: number | string | null
   min?: number
   max?: number
 }
@@ -991,6 +991,11 @@ export interface TMDBSeason {
   episode_count: number
   air_date?: string
   poster_path?: string
+}
+
+export interface TMDBGenre {
+  id: number
+  name: string
 }
 
 export interface TMDBPersonDetails {
