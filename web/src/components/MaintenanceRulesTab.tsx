@@ -323,7 +323,7 @@ function CandidatesView({
   )
 
   const hasSelection = selected.size > 0
-  const selectedSize = hasSelection
+  const selectedSize = hasSelection && !isKeepLatest
     ? selectedItems.reduce((sum, c) => sum + (c.item?.file_size || 0), 0)
     : 0
   const menuCandidate = rowMenuOpen !== null ? filteredItems.find(c => c.id === rowMenuOpen) ?? null : null
@@ -573,7 +573,7 @@ function CandidatesView({
         />
       )}
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className={`grid ${isKeepLatest ? 'grid-cols-2' : 'grid-cols-3'} gap-4`}>
         <div className="card p-4">
           <div className="text-sm text-muted dark:text-muted-dark mb-1">
             {hasSelection ? 'Selected' : 'Items'}

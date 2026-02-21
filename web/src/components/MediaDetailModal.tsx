@@ -302,7 +302,7 @@ function ItemContent({ item, accent, tmdbMovie, tmdbTV, tmdbLoading, onPersonCli
           )}
         </div>
 
-        {(tmdbGenres || item.genres) && (tmdbGenres?.length || item.genres?.length) ? (
+        {(tmdbGenres?.length || item.genres?.length) ? (
           <div className="flex flex-wrap gap-2">
             {tmdbGenres
               ? tmdbGenres.map(g => (
