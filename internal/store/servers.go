@@ -46,12 +46,7 @@ func (s *Store) CreateServer(srv *models.Server) error {
 		return fmt.Errorf("creating server: %w", err)
 	}
 	*srv = created
-	if dec, err := s.decryptValue(srv.APIKey); err != nil {
-		return fmt.Errorf("decrypting api key after create: %w", err)
-	} else {
-		srv.APIKey = dec
-	}
-	return nil
+	return s.decryptServerKey(srv)
 }
 
 // GetServer returns a server by ID, including soft-deleted servers.
@@ -120,12 +115,7 @@ func (s *Store) UpdateServer(srv *models.Server) error {
 		return fmt.Errorf("updating server: %w", err)
 	}
 	*srv = updated
-	if dec, err := s.decryptValue(srv.APIKey); err != nil {
-		return fmt.Errorf("decrypting api key after update: %w", err)
-	} else {
-		srv.APIKey = dec
-	}
-	return nil
+	return s.decryptServerKey(srv)
 }
 
 // UpdateServerAtomic updates a server and clears maintenance data if identity changed.
@@ -177,12 +167,7 @@ func (s *Store) UpdateServerAtomic(existing, srv *models.Server) error {
 	}
 
 	*srv = updated
-	if dec, err := s.decryptValue(srv.APIKey); err != nil {
-		return fmt.Errorf("decrypting api key after update: %w", err)
-	} else {
-		srv.APIKey = dec
-	}
-	return nil
+	return s.decryptServerKey(srv)
 }
 
 // DeleteServer permanently removes a server and all its watch history.
