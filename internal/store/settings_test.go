@@ -401,6 +401,87 @@ func TestEncryptPlaintextKeys_NoEncryptor(t *testing.T) {
 	}
 }
 
+func TestEncryptPlaintextKeys_ServerKeys(t *testing.T) {
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	// Insert servers with plaintext API keys via raw SQL (simulating legacy data)
+	for _, name := range []string{"A", "B"} {
+		if _, err := s.db.Exec(
+			`INSERT INTO servers (name, type, url, api_key, enabled) VALUES (?, 'plex', 'http://x', ?, 1)`,
+			name, "plain-"+name,
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	n, err := s.EncryptPlaintextKeys()
+	if err != nil {
+		t.Fatalf("EncryptPlaintextKeys: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("expected 2 server keys encrypted, got %d", n)
+	}
+
+	// Verify stored values are encrypted
+	servers, err := s.ListServers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, srv := range servers {
+		if srv.APIKey != "plain-"+srv.Name {
+			t.Fatalf("expected plain-%s after decryption, got %s", srv.Name, srv.APIKey)
+		}
+	}
+
+	// Running again should encrypt 0
+	n, err = s.EncryptPlaintextKeys()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 on second run, got %d", n)
+	}
+}
+
+func TestPlaintextSecretWarnings_NoWarningsWhenEncrypted(t *testing.T) {
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	if err := s.SetSonarrConfig(SonarrConfig{URL: "http://x", APIKey: "secret", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	srv := &models.Server{Name: "X", Type: models.ServerTypePlex, URL: "http://x", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	warnings := s.PlaintextSecretWarnings()
+	if len(warnings) != 0 {
+		t.Fatalf("expected 0 warnings, got %v", warnings)
+	}
+}
+
+func TestPlaintextSecretWarnings_WarnsOnPlaintext(t *testing.T) {
+	s := newTestStoreWithMigrations(t) // no encryptor
+
+	// Plaintext setting key
+	if err := s.SetSetting("overseerr.api_key", "plain-key"); err != nil {
+		t.Fatal(err)
+	}
+	// Plaintext server key
+	if _, err := s.db.Exec(
+		`INSERT INTO servers (name, type, url, api_key, enabled) VALUES ('S', 'plex', 'http://x', 'plain', 1)`,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	warnings := s.PlaintextSecretWarnings()
+	if len(warnings) != 2 {
+		t.Fatalf("expected 2 warnings, got %d: %v", len(warnings), warnings)
+	}
+}
+
 func TestUnitSystemRoundTrip(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 

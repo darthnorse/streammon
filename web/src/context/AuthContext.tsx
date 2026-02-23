@@ -51,9 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api.get<SetupStatus>('/api/setup/status')
       .then(status => {
         if (!mounted) return
-        if (!status.encryption_configured) {
-          setEncryptionMissing(true)
-        }
+        setEncryptionMissing(!status.encryption_configured)
         if (status.setup_required) {
           setSetupRequired(true)
           setLoading(false)

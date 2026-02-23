@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"streammon/internal/models"
@@ -242,6 +243,66 @@ func TestRestoreActiveServer(t *testing.T) {
 	err := s.RestoreServer(srv.ID)
 	if !errors.Is(err, models.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for restoring active server, got %v", err)
+	}
+}
+
+func TestServerAPIKeyEncryptionRoundTrip(t *testing.T) {
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	srv := &models.Server{
+		Name: "Encrypted", Type: models.ServerTypePlex,
+		URL: "http://localhost:32400", APIKey: "my-secret-key", Enabled: true,
+	}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatalf("CreateServer: %v", err)
+	}
+
+	// Returned server should have the plaintext key
+	if srv.APIKey != "my-secret-key" {
+		t.Fatalf("CreateServer returned APIKey=%q, want my-secret-key", srv.APIKey)
+	}
+
+	// Database should store encrypted (enc: prefix)
+	var raw string
+	if err := s.db.QueryRow(`SELECT api_key FROM servers WHERE id = ?`, srv.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(raw, "enc:") {
+		t.Fatalf("DB api_key missing enc: prefix: %q", raw)
+	}
+
+	// GetServer should decrypt
+	got, err := s.GetServer(srv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.APIKey != "my-secret-key" {
+		t.Fatalf("GetServer returned APIKey=%q, want my-secret-key", got.APIKey)
+	}
+
+	// ListServers should also decrypt
+	servers, err := s.ListServers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(servers) != 1 || servers[0].APIKey != "my-secret-key" {
+		t.Fatalf("ListServers APIKey=%q, want my-secret-key", servers[0].APIKey)
+	}
+
+	// UpdateServer should re-encrypt
+	srv.APIKey = "new-secret"
+	if err := s.UpdateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.QueryRow(`SELECT api_key FROM servers WHERE id = ?`, srv.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(raw, "enc:") {
+		t.Fatalf("DB api_key after update missing enc: prefix: %q", raw)
+	}
+	if srv.APIKey != "new-secret" {
+		t.Fatalf("UpdateServer returned APIKey=%q, want new-secret", srv.APIKey)
 	}
 }
 
