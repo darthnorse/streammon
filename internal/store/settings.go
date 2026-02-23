@@ -12,8 +12,6 @@ import (
 
 const encryptedPrefix = "enc:"
 
-// encryptValue encrypts a value if an encryptor is configured, prepending "enc:".
-// Returns the value unchanged if no encryptor is available.
 func (s *Store) encryptValue(val string) (string, error) {
 	if s.encryptor == nil || val == "" {
 		return val, nil
@@ -25,8 +23,6 @@ func (s *Store) encryptValue(val string) (string, error) {
 	return encryptedPrefix + enc, nil
 }
 
-// decryptValue decrypts a value if it has the "enc:" prefix.
-// Returns the value unchanged if it isn't encrypted.
 func (s *Store) decryptValue(val string) (string, error) {
 	if !strings.HasPrefix(val, encryptedPrefix) {
 		return val, nil

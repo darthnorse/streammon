@@ -112,7 +112,6 @@ func newAuthRateLimiter(limit int, window time.Duration) *authRateLimiter {
 		window:   window,
 		stopCh:   make(chan struct{}),
 	}
-	// Start background cleanup goroutine to prevent memory growth
 	go rl.cleanupLoop()
 	return rl
 }
@@ -138,7 +137,6 @@ func (l *authRateLimiter) cleanupLoop() {
 	}
 }
 
-// filterValid returns only attempts within the time window
 func filterValid(attempts []time.Time, cutoff time.Time) []time.Time {
 	valid := attempts[:0]
 	for _, t := range attempts {
@@ -149,7 +147,6 @@ func filterValid(attempts []time.Time, cutoff time.Time) []time.Time {
 	return valid
 }
 
-// cleanup removes all expired entries
 func (l *authRateLimiter) cleanup() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -176,7 +173,6 @@ func (l *authRateLimiter) check(ip string) bool {
 	return len(valid) < l.limit
 }
 
-// record adds a failed attempt for the IP
 func (l *authRateLimiter) record(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
