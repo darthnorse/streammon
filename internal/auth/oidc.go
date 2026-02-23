@@ -116,7 +116,7 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	token, err := oauth2Cfg.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
-		log.Printf("OIDC token exchange error: %v", err)
+		log.Printf("login failed: oidc (token exchange error: %v)", err)
 		http.Error(w, "authentication failed", http.StatusUnauthorized)
 		return
 	}
@@ -129,7 +129,7 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	idToken, err := verifier.Verify(r.Context(), rawIDToken)
 	if err != nil {
-		log.Printf("OIDC token verify error: %v", err)
+		log.Printf("login failed: oidc (token verify error: %v)", err)
 		http.Error(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -165,6 +165,7 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !isAdmin {
+			log.Printf("login denied: oidc sub=%q (guest access disabled)", claims.Sub)
 			http.SetCookie(w, clearCookie(stateCookieName, "/", r))
 			http.Redirect(w, r, "/login?error=guest_access_disabled", http.StatusFound)
 			return
@@ -189,6 +190,7 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("login success: oidc user=%q role=%s", user.Name, user.Role)
 
 	http.SetCookie(w, clearCookie(stateCookieName, "/", r))
 	http.Redirect(w, r, "/", http.StatusFound)

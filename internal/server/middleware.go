@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log"
 	"net/http"
 	"sync"
 	"time"
@@ -100,6 +101,7 @@ func rateLimit(next http.Handler) http.Handler {
 		// Only rate limit GET requests with search parameter
 		if r.Method == http.MethodGet && r.URL.Query().Get("search") != "" {
 			if !searchRateLimiter.allow(r.RemoteAddr) {
+				log.Printf("search rate limit: ip=%s path=%s", r.RemoteAddr, r.URL.Path)
 				w.Header().Set("Retry-After", "60")
 				http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
 				return

@@ -100,7 +100,7 @@ func (p *MediaServerProvider) validateAndAuthenticate(w http.ResponseWriter, r *
 
 	authResp, err := p.authenticate(r, srv, req.Username, req.Password)
 	if err != nil {
-		log.Printf("%s auth error for %s: %v", p.serverType, req.Username, err)
+		log.Printf("login failed: %s user=%q server=%q (%v)", p.serverType, req.Username, srv.Name, err)
 		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
 		return nil, nil, nil, false
 	}
@@ -127,6 +127,7 @@ func (p *MediaServerProvider) HandleLogin(w http.ResponseWriter, r *http.Request
 	if !guestAccess {
 		isAdmin := existingUser != nil && existingUser.Role == models.RoleAdmin
 		if !isAdmin && !authResp.User.Policy.IsAdministrator {
+			log.Printf("login denied: %s user=%q (guest access disabled)", p.serverType, authResp.User.Name)
 			writeJSONError(w, "guest access is disabled", http.StatusForbidden)
 			return
 		}
@@ -156,6 +157,7 @@ func (p *MediaServerProvider) HandleLogin(w http.ResponseWriter, r *http.Request
 		writeJSONError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("login success: %s user=%q role=%s", p.serverType, user.Name, user.Role)
 }
 
 func (p *MediaServerProvider) HandleSetup(w http.ResponseWriter, r *http.Request) {
