@@ -12,6 +12,12 @@ import (
 
 const encryptedPrefix = "enc:"
 
+// ErrNoEncryptionKey is returned when a value is encrypted but no encryption key is configured.
+var ErrNoEncryptionKey = errors.New("value is encrypted but no encryption key configured")
+
+// EncryptedPlaceholder is a sentinel value for APIKey when the actual value can't be decrypted.
+const EncryptedPlaceholder = "\x00encrypted"
+
 func (s *Store) encryptValue(val string) (string, error) {
 	if s.encryptor == nil || val == "" {
 		return val, nil
@@ -28,9 +34,19 @@ func (s *Store) decryptValue(val string) (string, error) {
 		return val, nil
 	}
 	if s.encryptor == nil {
-		return "", fmt.Errorf("value is encrypted but no encryption key configured")
+		return "", ErrNoEncryptionKey
 	}
 	return s.encryptor.Decrypt(strings.TrimPrefix(val, encryptedPrefix))
+}
+
+// decryptOrPlaceholder decrypts a value, substituting EncryptedPlaceholder
+// when the encryption key is not configured. Other errors are returned as-is.
+func (s *Store) decryptOrPlaceholder(val string) (string, error) {
+	dec, err := s.decryptValue(val)
+	if errors.Is(err, ErrNoEncryptionKey) {
+		return EncryptedPlaceholder, nil
+	}
+	return dec, err
 }
 
 func (s *Store) GetSetting(key string) (string, error) {
@@ -65,7 +81,8 @@ func (s *Store) GetOIDCConfig() (OIDCConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	if cfg.ClientSecret, err = s.decryptValue(raw); err != nil {
+	cfg.ClientSecret, err = s.decryptOrPlaceholder(raw)
+	if err != nil {
 		return cfg, fmt.Errorf("decrypting oidc client secret: %w", err)
 	}
 	if cfg.RedirectURL, err = s.GetSetting("oidc.redirect_url"); err != nil {
@@ -133,6 +150,17 @@ type IntegrationConfig struct {
 	Enabled bool
 }
 
+// HasCredentials reports whether the integration has a URL and a real
+// (decryptable) API key, regardless of the Enabled flag.
+func (c IntegrationConfig) HasCredentials() bool {
+	return c.URL != "" && c.APIKey != "" && c.APIKey != EncryptedPlaceholder
+}
+
+// IsUsable reports whether the integration has credentials and is enabled.
+func (c IntegrationConfig) IsUsable() bool {
+	return c.HasCredentials() && c.Enabled
+}
+
 type OverseerrConfig = IntegrationConfig
 type SonarrConfig = IntegrationConfig
 
@@ -146,7 +174,7 @@ func (s *Store) getIntegrationConfig(prefix string) (IntegrationConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	cfg.APIKey, err = s.decryptValue(raw)
+	cfg.APIKey, err = s.decryptOrPlaceholder(raw)
 	if err != nil {
 		return cfg, fmt.Errorf("decrypting %s api key: %w", prefix, err)
 	}

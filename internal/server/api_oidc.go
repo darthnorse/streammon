@@ -83,7 +83,10 @@ func (s *Server) handleUpdateOIDCSettings(w http.ResponseWriter, r *http.Request
 				writeError(w, http.StatusInternalServerError, "internal")
 				return
 			}
-			cfg.ClientSecret = dbCfg.ClientSecret
+			// Skip if the stored secret can't be decrypted (placeholder).
+			if dbCfg.ClientSecret != store.EncryptedPlaceholder {
+				cfg.ClientSecret = dbCfg.ClientSecret
+			}
 		}
 		if err := cfg.Validate(); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())

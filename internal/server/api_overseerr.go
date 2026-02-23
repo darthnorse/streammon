@@ -71,7 +71,7 @@ func (s *Server) newOverseerrClient() (*overseerr.Client, error) {
 	if err != nil {
 		return nil, errors.New("overseerr/seerr not available")
 	}
-	if cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
+	if !cfg.IsUsable() {
 		return nil, errors.New("overseerr/seerr not configured")
 	}
 	return overseerr.NewClient(cfg.URL, cfg.APIKey)

@@ -75,7 +75,7 @@ func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if cfg.URL == "" || cfg.APIKey == "" {
+	if !cfg.HasCredentials() {
 		writeError(w, http.StatusBadRequest, "Tautulli settings not configured")
 		return
 	}
@@ -272,7 +272,7 @@ func (s *Server) handleStartEnrichment(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	if cfg.URL == "" || cfg.APIKey == "" {
+	if !cfg.HasCredentials() {
 		writeError(w, http.StatusBadRequest, "Tautulli settings not configured")
 		return
 	}

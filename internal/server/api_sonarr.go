@@ -32,7 +32,7 @@ func (s *Server) validSonarrConfig() (store.IntegrationConfig, error) {
 	if err != nil {
 		return cfg, errors.New("sonarr not available")
 	}
-	if cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
+	if !cfg.IsUsable() {
 		return cfg, errors.New("sonarr not configured")
 	}
 	return cfg, nil

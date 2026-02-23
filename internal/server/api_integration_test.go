@@ -464,4 +464,111 @@ func testIntegrationSettingsCRUD(t *testing.T, cfg integrationTestConfig) {
 			})
 		}
 	})
+
+	// Tests for encrypted API keys when TOKEN_ENCRYPTION_KEY is not set.
+
+	seedEncrypted := func(t *testing.T) (*testServer, *store.Store) {
+		t.Helper()
+		srv, st := newTestServerWrapped(t) // no encryptor
+		st.SetSetting(cfg.name+".url", "http://host:8080")
+		st.SetSetting(cfg.name+".api_key", "enc:someciphertext")
+		st.SetSetting(cfg.name+".enabled", "1")
+		return srv, st
+	}
+
+	t.Run("GetEncryptedWithoutKey", func(t *testing.T) {
+		srv, _ := seedEncrypted(t)
+
+		req := httptest.NewRequest(http.MethodGet, cfg.settingsPath, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp integrationSettings
+		json.NewDecoder(w.Body).Decode(&resp)
+		if resp.APIKey != maskedSecret {
+			t.Fatalf("expected masked key %q, got %q", maskedSecret, resp.APIKey)
+		}
+		if resp.URL != "http://host:8080" {
+			t.Fatalf("expected URL preserved, got %q", resp.URL)
+		}
+	})
+
+	t.Run("TestEncryptedWithoutKey_MaskedKey", func(t *testing.T) {
+		srv, _ := seedEncrypted(t)
+
+		body := `{"url":"http://host:8080","api_key":"` + maskedSecret + `"}`
+		req := httptest.NewRequest(http.MethodPost, cfg.testPath, strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("TestEncryptedWithoutKey_EmptyKey", func(t *testing.T) {
+		srv, _ := seedEncrypted(t)
+
+		body := `{"url":"http://host:8080"}`
+		req := httptest.NewRequest(http.MethodPost, cfg.testPath, strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("UpdatePreservesEncryptedKey", func(t *testing.T) {
+		srv, st := seedEncrypted(t)
+
+		body := `{"url":"http://host:8080","api_key":"` + maskedSecret + `","enabled":false}`
+		req := httptest.NewRequest(http.MethodPut, cfg.settingsPath, strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		// Verify the encrypted value in DB is unchanged.
+		raw, _ := st.GetSetting(cfg.name + ".api_key")
+		if raw != "enc:someciphertext" {
+			t.Fatalf("expected encrypted value preserved, got %q", raw)
+		}
+
+		// Verify enabled was updated.
+		icfg, _ := cfg.getConfig(st)
+		if icfg.Enabled {
+			t.Fatal("expected Enabled=false after update")
+		}
+		// Verify re-read still returns placeholder.
+		if icfg.APIKey != store.EncryptedPlaceholder {
+			t.Fatalf("expected EncryptedPlaceholder after update, got %q", icfg.APIKey)
+		}
+	})
+
+	if cfg.configuredPath != "" {
+		t.Run("Configured_EncryptedWithoutKey", func(t *testing.T) {
+			srv, _ := seedEncrypted(t)
+
+			req := httptest.NewRequest(http.MethodGet, cfg.configuredPath, nil)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d", w.Code)
+			}
+
+			var resp map[string]bool
+			json.NewDecoder(w.Body).Decode(&resp)
+			if resp["configured"] {
+				t.Fatal("expected configured=false when encryption key missing")
+			}
+		})
+	}
 }
