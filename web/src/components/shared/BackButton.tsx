@@ -1,8 +1,21 @@
 interface BackButtonProps {
   onClick: () => void
+  variant?: 'icon' | 'text'
 }
 
-export function BackButton({ onClick }: BackButtonProps) {
+export function BackButton({ onClick, variant = 'icon' }: BackButtonProps) {
+  if (variant === 'text') {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="text-sm hover:text-accent hover:underline"
+      >
+        &larr; Back
+      </button>
+    )
+  }
+
   return (
     <button
       onClick={onClick}

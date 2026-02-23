@@ -1,30 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../lib/api'
-import { inputClass } from '../lib/constants'
+import { inputClass, methodBtnClass } from '../lib/constants'
 import { errorMessage } from '../lib/utils'
 import { useAuth } from '../context/AuthContext'
 import { EncryptionWarning } from '../components/EncryptionWarning'
+import { BackButton } from '../components/shared/BackButton'
 import { PlexSignInSetup } from '../components/PlexSignInSetup'
 import { MediaServerSignIn } from '../components/MediaServerSignIn'
 import type { User } from '../types'
 
 type SetupMethod = 'local' | 'plex' | 'emby' | 'jellyfin' | null
-
-const methodBtnClass =
-  'w-full py-3 px-4 rounded-lg border border-border dark:border-border-dark hover:bg-panel-hover dark:hover:bg-panel-hover-dark transition-colors text-left'
-
-function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="text-sm text-accent hover:underline"
-    >
-      &larr; Back
-    </button>
-  )
-}
 
 export function Setup() {
   const navigate = useNavigate()
@@ -121,7 +107,7 @@ export function Setup() {
 
           {method === 'local' && (
             <form onSubmit={handleLocalSubmit} className="space-y-4">
-              <BackButton onClick={goBack} />
+              <BackButton onClick={goBack} variant="text" />
 
               <div>
                 <label className="block text-sm font-medium mb-1">Username</label>
@@ -191,14 +177,14 @@ export function Setup() {
 
           {method === 'plex' && (
             <div className="space-y-4">
-              <BackButton onClick={goBack} />
+              <BackButton onClick={goBack} variant="text" />
               <PlexSignInSetup onSuccess={handleSuccess} />
             </div>
           )}
 
           {method === 'emby' && (
             <div className="space-y-4">
-              <BackButton onClick={goBack} />
+              <BackButton onClick={goBack} variant="text" />
               <p className="text-sm text-muted dark:text-muted-dark">
                 Sign in with an Emby admin account to create the StreamMon admin.
               </p>
@@ -213,7 +199,7 @@ export function Setup() {
 
           {method === 'jellyfin' && (
             <div className="space-y-4">
-              <BackButton onClick={goBack} />
+              <BackButton onClick={goBack} variant="text" />
               <p className="text-sm text-muted dark:text-muted-dark">
                 Sign in with a Jellyfin admin account to create the StreamMon admin.
               </p>
