@@ -118,8 +118,9 @@ func (m *Manager) HandleGetStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"setup_required":    setupRequired,
-		"enabled_providers": m.GetEnabledProviders(),
+		"setup_required":         setupRequired,
+		"enabled_providers":      m.GetEnabledProviders(),
+		"encryption_configured":  m.store.HasEncryptor(),
 	})
 }
 

@@ -51,9 +51,8 @@ func main() {
 			log.Fatalf("invalid TOKEN_ENCRYPTION_KEY: %v", err)
 		}
 		storeOpts = append(storeOpts, store.WithEncryptor(enc))
-		log.Println("Token encryption enabled")
 	} else {
-		log.Println("TOKEN_ENCRYPTION_KEY not set — Plex token storage for Overseerr/Seerr disabled")
+		log.Println("WARNING: TOKEN_ENCRYPTION_KEY not set — secrets will be stored unencrypted. Generate one with: openssl rand -base64 32")
 	}
 
 	s, err := store.New(dbPath, storeOpts...)
