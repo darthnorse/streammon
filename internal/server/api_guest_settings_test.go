@@ -139,6 +139,19 @@ func TestGuestSettingsAPI(t *testing.T) {
 		}
 	})
 
+	t.Run("store_plex_tokens rejected without encryption key", func(t *testing.T) {
+		srv, _ := newTestServerWrapped(t)
+
+		body := `{"store_plex_tokens":true}`
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/guest", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
 	t.Run("unauthenticated returns 401", func(t *testing.T) {
 		srv, _ := newTestServer(t)
 

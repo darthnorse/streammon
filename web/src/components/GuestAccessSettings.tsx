@@ -121,16 +121,17 @@ export function GuestAccessSettings() {
             saving={saving === 'access_enabled'}
             onToggle={toggle}
           />
-          {data?.plex_tokens_available && (
-            <ToggleRow
-              settingKey="store_plex_tokens"
-              title="Store Plex Tokens"
-              description="Store encrypted Plex tokens to attribute Overseerr / Seerr requests to the correct user. Requires TOKEN_ENCRYPTION_KEY."
-              enabled={get('store_plex_tokens')}
-              saving={saving === 'store_plex_tokens'}
-              onToggle={toggle}
-            />
-          )}
+          <ToggleRow
+            settingKey="store_plex_tokens"
+            title="Store Plex Tokens"
+            description={data?.plex_tokens_available
+              ? 'Store encrypted Plex tokens to attribute Overseerr / Seerr requests to the correct user.'
+              : 'Requires TOKEN_ENCRYPTION_KEY to be set before this can be enabled.'}
+            enabled={get('store_plex_tokens')}
+            saving={saving === 'store_plex_tokens'}
+            onToggle={toggle}
+            disabled={!data?.plex_tokens_available}
+          />
           <ToggleRow
             settingKey="show_discover"
             title="Show Discover / Requests Link"

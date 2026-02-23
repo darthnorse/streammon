@@ -45,6 +45,10 @@ func (s *Server) handleUpdateGuestSettings(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
+	if enabled, ok := updates["store_plex_tokens"]; ok && enabled && !s.store.HasEncryptor() {
+		writeError(w, http.StatusBadRequest, "TOKEN_ENCRYPTION_KEY must be set to enable Plex token storage")
+		return
+	}
 	if err := s.store.SetGuestSettings(updates); err != nil {
 		log.Printf("SetGuestSettings error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
