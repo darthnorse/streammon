@@ -119,5 +119,8 @@ export function resolveNavLabel(link: { to: string; label: string }, integration
   return link.to === '/discover' && integrations?.overseerr ? 'Requests' : link.label
 }
 
+export const methodBtnClass =
+  'w-full py-3 px-4 rounded-lg border border-border dark:border-border-dark hover:bg-panel-hover dark:hover:bg-panel-hover-dark transition-colors text-left'
+
 export const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
 export const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'

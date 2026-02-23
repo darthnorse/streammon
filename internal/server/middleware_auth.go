@@ -38,7 +38,6 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 				return
 			}
 
-			// Update session activity
 			_ = mgr.Store().UpdateSessionActivity(cookie.Value)
 
 			ctx := context.WithValue(r.Context(), userContextKey, user)
@@ -219,7 +218,6 @@ func RateLimitAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		// Wrap response to capture status code
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 

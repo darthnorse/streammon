@@ -27,9 +27,8 @@ function makeAuthContext(role: Role = 'admin') {
 
 function makeMockApiGet(mockApi: { get: { mockImplementation: (fn: never) => void } }) {
   return function mockApiGet(overrides: Record<string, unknown> = {}) {
-    const defaults = overrides
     mockApi.get.mockImplementation(((url: string) => {
-      for (const [key, val] of Object.entries(defaults)) {
+      for (const [key, val] of Object.entries(overrides)) {
         if (url === key || url.startsWith(key + '?')) return Promise.resolve(val)
       }
       return Promise.resolve(null)

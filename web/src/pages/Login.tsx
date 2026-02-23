@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
-import { inputClass } from '../lib/constants'
+import { inputClass, methodBtnClass } from '../lib/constants'
 import { errorMessage } from '../lib/utils'
 import { useAuth } from '../context/AuthContext'
 import { EncryptionWarning } from '../components/EncryptionWarning'
+import { BackButton } from '../components/shared/BackButton'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { PlexSignInLogin } from '../components/PlexSignInLogin'
 import { MediaServerSignIn } from '../components/MediaServerSignIn'
@@ -16,21 +17,6 @@ interface Provider {
 }
 
 type LoginMethod = 'local' | 'plex' | 'emby' | 'jellyfin' | null
-
-const methodBtnClass =
-  'w-full py-3 px-4 rounded-lg border border-border dark:border-border-dark hover:bg-panel-hover dark:hover:bg-panel-hover-dark transition-colors text-left'
-
-function BackButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="text-sm text-accent hover:underline"
-    >
-      &larr; Back
-    </button>
-  )
-}
 
 export function Login() {
   const navigate = useNavigate()
@@ -163,7 +149,7 @@ export function Login() {
 
           {method === 'local' && (
             <form onSubmit={handleLocalSubmit} className="space-y-4">
-              <BackButton onClick={goBack} />
+              <BackButton onClick={goBack} variant="text" />
 
               <div>
                 <label className="block text-sm font-medium mb-1">Username</label>
@@ -206,14 +192,14 @@ export function Login() {
 
           {method === 'plex' && (
             <div className="space-y-4">
-              <BackButton onClick={goBack} />
+              <BackButton onClick={goBack} variant="text" />
               <PlexSignInLogin onSuccess={handleProviderSuccess} />
             </div>
           )}
 
           {method === 'emby' && (
             <div className="space-y-4">
-              <BackButton onClick={goBack} />
+              <BackButton onClick={goBack} variant="text" />
               <MediaServerSignIn
                 serverType="emby"
                 loginEndpoint="/auth/emby/login"
@@ -225,7 +211,7 @@ export function Login() {
 
           {method === 'jellyfin' && (
             <div className="space-y-4">
-              <BackButton onClick={goBack} />
+              <BackButton onClick={goBack} variant="text" />
               <MediaServerSignIn
                 serverType="jellyfin"
                 loginEndpoint="/auth/jellyfin/login"
