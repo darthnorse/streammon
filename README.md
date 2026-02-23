@@ -4,6 +4,12 @@ StreamMon is a self-hosted media server management and monitoring platform for P
 
 Typical memory footprint is around 15 MB. No runtime dependencies, no separate database process -- just a compiled Go binary with embedded SQLite and static frontend assets.
 
+## Screenshots
+
+| Dashboard | Statistics | Maintenance Rules |
+|:---------:|:----------:|:-----------------:|
+| ![Dashboard](screenshots/streammon_dashboard.png) | ![Statistics](screenshots/streammon_stats.png) | ![Maintenance Rules](screenshots/streammon_rules.png) |
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)
@@ -16,6 +22,7 @@ Typical memory footprint is around 15 MB. No runtime dependencies, no separate d
 - [Sharing Detection Rules](#sharing-detection-rules)
 - [Notifications](#notifications)
 - [Library Maintenance](#library-maintenance)
+- [Calendar](#calendar)
 - [Tautulli Import](#tautulli-import)
 - [Reverse Proxy](#reverse-proxy)
 - [Development](#development)
@@ -89,13 +96,18 @@ Open `http://localhost:7935` in your browser. On first launch you will be prompt
 **Library Maintenance**
 - Automated cleanup of unwatched, low-resolution, or oversized media
 - Five criterion types with configurable thresholds
+- Cascade deletion through Radarr, Sonarr, and Overseerr / Seerr
 - Daily evaluation with candidate review before deletion
-- Per-item exclusion lists
+- Per-item exclusion lists and multi-library rule scoping
 
 **Overseerr / Seerr Integration**
 - Search and discover movies and TV shows via Overseerr / Seerr (supports Plex, Jellyfin, and Emby)
 - Submit and manage media requests with per-user attribution
 - Admin approval and rejection workflow
+
+**Calendar**
+- TV episode calendar powered by Sonarr with week and month views
+- Episode cards with poster art, air times, and availability status
 
 **Multi-Server Support**
 - Plex, Emby, and Jellyfin from a single interface
@@ -111,7 +123,8 @@ Open `http://localhost:7935` in your browser. On first launch you will be prompt
 **User Interface**
 - Dark and light themes
 - Mobile-first responsive design
-- Non-admin users see only Requests and My Stats pages
+- Non-admin users see Discover/Requests, My Stats, and Calendar (each individually configurable)
+- Version update notifications in the sidebar
 
 ## Configuration
 
@@ -239,17 +252,25 @@ Each notification channel can be linked to specific rules and individually enabl
 
 ## Library Maintenance
 
-Automate cleanup of unwatched or low-quality media. Maintenance rules are managed per-library from the **Libraries** page.
+Automate cleanup of unwatched or low-quality media. Maintenance rules are managed from the **Rules** page under the **Maintenance** tab. Rules can span multiple libraries.
 
 | Criterion | Description |
 |-----------|-------------|
 | **Unwatched Movies** | Movies added more than N days ago that have never been watched. |
-| **Zero Episodes Watched** | TV shows with no episodes watched in more than N days. |
-| **Low Watch Percentage** | TV shows with less than X% of episodes watched after N days. |
+| **Unwatched TV Shows** | TV shows with no episodes watched in more than N days. |
 | **Low Resolution** | Items at or below a specified resolution (SD, 720p, 1080p, 4K). |
 | **Large Files** | Items exceeding a specified file size in GB. |
+| **Keep Latest Seasons** | Keeps only the latest N seasons of a TV show, with optional TMDB genre filtering. |
 
 Maintenance rules are evaluated daily at 3 AM (or manually on demand). Matched items appear as candidates for review before deletion. Individual items can be excluded from future evaluation.
+
+When items are deleted, StreamMon cascades the deletion through configured integrations -- removing from Radarr, Sonarr, and Overseerr / Seerr as applicable. For keep-latest-seasons deletions, Sonarr monitoring is updated to "Future Episodes" to prevent re-downloading.
+
+## Calendar
+
+StreamMon includes a TV episode calendar powered by Sonarr. When Sonarr is configured in **Settings > Integrations**, the Calendar page shows upcoming and recent episodes with poster art, air times, season/episode codes, and availability status (Available, Pending, Upcoming, Unmonitored).
+
+The calendar supports week and month views (preference is persisted). It is available to both admin and non-admin users (configurable via guest settings).
 
 ## Tautulli Import
 
@@ -285,7 +306,7 @@ The frontend dev server proxies API requests to the backend on port 7935.
 - **Backend:** Go, Chi router, SQLite (WAL mode), SSE
 - **Frontend:** React 18, TypeScript, Vite, Tailwind CSS, Recharts, Leaflet
 - **Auth:** Local, Plex, Emby, Jellyfin, OIDC
-- **Deployment:** Docker Compose, multi-stage build (Node > Go > Alpine)
+- **Deployment:** Docker Compose, multi-stage build (Node 20 > Go 1.24 > Alpine)
 
 ## Acknowledgments
 
