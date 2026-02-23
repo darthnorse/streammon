@@ -5,12 +5,14 @@ import type { User } from '../types'
 interface SetupStatus {
   setup_required: boolean
   enabled_providers: string[]
+  encryption_configured: boolean
 }
 
 interface AuthContextValue {
   user: User | null
   loading: boolean
   setupRequired: boolean
+  encryptionMissing: boolean
   setUser: (user: User) => void
   clearSetupRequired: () => void
   refreshUser: () => Promise<void>
@@ -21,6 +23,7 @@ const AuthContext = createContext<AuthContextValue>({
   user: null,
   loading: true,
   setupRequired: false,
+  encryptionMissing: false,
   setUser: () => {},
   clearSetupRequired: () => {},
   refreshUser: async () => {},
@@ -31,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [setupRequired, setSetupRequired] = useState(false)
+  const [encryptionMissing, setEncryptionMissing] = useState(false)
 
   useEffect(() => {
     let mounted = true
@@ -47,6 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     api.get<SetupStatus>('/api/setup/status')
       .then(status => {
         if (!mounted) return
+        if (!status.encryption_configured) {
+          setEncryptionMissing(true)
+        }
         if (status.setup_required) {
           setSetupRequired(true)
           setLoading(false)
@@ -83,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, setupRequired, setUser, clearSetupRequired, refreshUser, logout }}>
+    <AuthContext.Provider value={{ user, loading, setupRequired, encryptionMissing, setUser, clearSetupRequired, refreshUser, logout }}>
       {children}
     </AuthContext.Provider>
   )

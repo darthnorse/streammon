@@ -17,6 +17,7 @@ function makeAuthContext(role: Role = 'admin') {
     user: { id: role === 'admin' ? 1 : 2, name: role, email: '', role, thumb_url: '', has_password: false, created_at: '', updated_at: '' },
     loading: false,
     setupRequired: false,
+    encryptionMissing: false,
     setUser: vi.fn(),
     clearSetupRequired: vi.fn(),
     refreshUser: vi.fn(),

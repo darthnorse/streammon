@@ -35,6 +35,7 @@ function mockUser(overrides: Record<string, unknown> = {}) {
     },
     loading: false,
     setupRequired: false,
+    encryptionMissing: false,
     setUser: vi.fn(),
     clearSetupRequired: vi.fn(),
     refreshUser: vi.fn(),
