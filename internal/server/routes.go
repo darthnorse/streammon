@@ -50,9 +50,7 @@ func (s *Server) routes() {
 		r.Use(jsonContentType)
 		r.Use(corsMiddleware(s.corsOrigin))
 
-		if s.authManager != nil {
-			r.Use(RequireAuthManager(s.authManager))
-		}
+		r.Use(RequireAuthManager(s.authManager))
 
 		r.Get("/me", s.handleMe)
 		r.Put("/me", s.handleUpdateProfile)
@@ -151,6 +149,7 @@ func (s *Server) routes() {
 		r.Get("/radarr/configured", s.handleIntegrationConfigured(s.radarrDeps()))
 
 		r.Route("/tmdb", func(sr chi.Router) {
+			sr.Use(s.requireDiscover)
 			sr.Use(s.tmdbRequired)
 			sr.Get("/search", s.handleTMDBSearch)
 			sr.Get("/discover/*", s.handleTMDBDiscover)
@@ -162,9 +161,10 @@ func (s *Server) routes() {
 			sr.Get("/genres/tv", s.handleTMDBTVGenres)
 		})
 
-		r.Get("/library/tmdb-ids", s.handleLibraryTMDBIDs)
+		r.With(s.requireDiscover).Get("/library/tmdb-ids", s.handleLibraryTMDBIDs)
 
 		r.Route("/overseerr", func(sr chi.Router) {
+			sr.Use(s.requireDiscover)
 			sr.Get("/configured", s.handleIntegrationConfigured(s.overseerrDeps()))
 			sr.Get("/search", s.handleOverseerrSearch)
 			sr.Get("/discover/*", s.handleOverseerrDiscover)
@@ -272,9 +272,7 @@ func (s *Server) routes() {
 
 	s.router.Group(func(r chi.Router) {
 		r.Use(corsMiddleware(s.corsOrigin))
-		if s.authManager != nil {
-			r.Use(RequireAuthManager(s.authManager))
-		}
+		r.Use(RequireAuthManager(s.authManager))
 		r.Get("/api/servers/{id}/thumb/*", s.handleThumbProxy)
 		r.Get("/api/servers/{id}/items/*", s.handleGetItemDetails)
 		r.Get("/api/sonarr/poster/{seriesId}", s.handleSonarrPoster)

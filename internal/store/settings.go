@@ -12,6 +12,31 @@ import (
 
 const encryptedPrefix = "enc:"
 
+// encryptValue encrypts a value if an encryptor is configured, prepending "enc:".
+// Returns the value unchanged if no encryptor is available.
+func (s *Store) encryptValue(val string) (string, error) {
+	if s.encryptor == nil || val == "" {
+		return val, nil
+	}
+	enc, err := s.encryptor.Encrypt(val)
+	if err != nil {
+		return "", err
+	}
+	return encryptedPrefix + enc, nil
+}
+
+// decryptValue decrypts a value if it has the "enc:" prefix.
+// Returns the value unchanged if it isn't encrypted.
+func (s *Store) decryptValue(val string) (string, error) {
+	if !strings.HasPrefix(val, encryptedPrefix) {
+		return val, nil
+	}
+	if s.encryptor == nil {
+		return "", fmt.Errorf("value is encrypted but no encryption key configured")
+	}
+	return s.encryptor.Decrypt(strings.TrimPrefix(val, encryptedPrefix))
+}
+
 func (s *Store) GetSetting(key string) (string, error) {
 	var value string
 	err := s.db.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
@@ -40,8 +65,12 @@ func (s *Store) GetOIDCConfig() (OIDCConfig, error) {
 	if cfg.ClientID, err = s.GetSetting("oidc.client_id"); err != nil {
 		return cfg, err
 	}
-	if cfg.ClientSecret, err = s.GetSetting("oidc.client_secret"); err != nil {
+	raw, err := s.GetSetting("oidc.client_secret")
+	if err != nil {
 		return cfg, err
+	}
+	if cfg.ClientSecret, err = s.decryptValue(raw); err != nil {
+		return cfg, fmt.Errorf("decrypting oidc client secret: %w", err)
 	}
 	if cfg.RedirectURL, err = s.GetSetting("oidc.redirect_url"); err != nil {
 		return cfg, err
@@ -68,7 +97,11 @@ func (s *Store) SetOIDCConfig(cfg OIDCConfig) error {
 		}
 	}
 	if cfg.ClientSecret != "" {
-		if _, err := tx.Exec(settingUpsert, "oidc.client_secret", cfg.ClientSecret); err != nil {
+		encSecret, err := s.encryptValue(cfg.ClientSecret)
+		if err != nil {
+			return fmt.Errorf("encrypting oidc client secret: %w", err)
+		}
+		if _, err := tx.Exec(settingUpsert, "oidc.client_secret", encSecret); err != nil {
 			return fmt.Errorf("setting %q: %w", "oidc.client_secret", err)
 		}
 	}
@@ -193,20 +226,24 @@ func (s *Store) GetRadarrConfig() (RadarrConfig, error) { return s.getIntegratio
 func (s *Store) SetRadarrConfig(cfg RadarrConfig) error  { return s.setIntegrationConfig("radarr", cfg) }
 func (s *Store) DeleteRadarrConfig() error               { return s.deleteIntegrationConfig("radarr") }
 
-// integrationKeyPrefixes lists all integration prefixes that store API keys.
-var integrationKeyPrefixes = []string{"overseerr", "sonarr", "radarr", "tautulli"}
+// plaintextSecretKeys lists all settings keys that should be encrypted at rest.
+var plaintextSecretKeys = []string{
+	"overseerr.api_key", "sonarr.api_key", "radarr.api_key", "tautulli.api_key",
+	"oidc.client_secret",
+}
 
-// EncryptPlaintextKeys finds integration API keys stored without the "enc:" prefix
-// and re-encrypts them in place. Returns the number of keys encrypted.
-// This handles the migration case where keys were stored before encryption was configured.
+// EncryptPlaintextKeys finds secrets stored without the "enc:" prefix
+// and re-encrypts them in place. Also encrypts server API keys in the servers table.
+// Returns the number of keys encrypted.
 func (s *Store) EncryptPlaintextKeys() (int, error) {
 	if s.encryptor == nil {
 		return 0, nil
 	}
 
 	var count int
-	for _, prefix := range integrationKeyPrefixes {
-		key := prefix + ".api_key"
+
+	// Settings table secrets
+	for _, key := range plaintextSecretKeys {
 		raw, err := s.GetSetting(key)
 		if err != nil {
 			return count, fmt.Errorf("reading %s: %w", key, err)
@@ -223,7 +260,63 @@ func (s *Store) EncryptPlaintextKeys() (int, error) {
 		}
 		count++
 	}
+
+	// Server API keys
+	rows, err := s.db.Query(`SELECT id, api_key FROM servers WHERE api_key != '' AND api_key NOT LIKE 'enc:%'`)
+	if err != nil {
+		return count, fmt.Errorf("listing plaintext server keys: %w", err)
+	}
+	defer rows.Close()
+
+	type serverKey struct {
+		id  int64
+		key string
+	}
+	var toEncrypt []serverKey
+	for rows.Next() {
+		var sk serverKey
+		if err := rows.Scan(&sk.id, &sk.key); err != nil {
+			return count, fmt.Errorf("scanning server key: %w", err)
+		}
+		toEncrypt = append(toEncrypt, sk)
+	}
+	if err := rows.Err(); err != nil {
+		return count, err
+	}
+
+	for _, sk := range toEncrypt {
+		encrypted, err := s.encryptor.Encrypt(sk.key)
+		if err != nil {
+			return count, fmt.Errorf("encrypting server %d api key: %w", sk.id, err)
+		}
+		if _, err := s.db.Exec(`UPDATE servers SET api_key = ? WHERE id = ?`, encryptedPrefix+encrypted, sk.id); err != nil {
+			return count, fmt.Errorf("storing server %d api key: %w", sk.id, err)
+		}
+		count++
+	}
+
 	return count, nil
+}
+
+// PlaintextSecretWarnings returns a list of warning messages for secrets stored without encryption.
+func (s *Store) PlaintextSecretWarnings() []string {
+	var warnings []string
+
+	for _, key := range plaintextSecretKeys {
+		raw, err := s.GetSetting(key)
+		if err != nil || raw == "" || strings.HasPrefix(raw, encryptedPrefix) {
+			continue
+		}
+		warnings = append(warnings, key+" is stored in plaintext")
+	}
+
+	var count int
+	row := s.db.QueryRow(`SELECT COUNT(*) FROM servers WHERE api_key != '' AND api_key NOT LIKE 'enc:%'`)
+	if err := row.Scan(&count); err == nil && count > 0 {
+		warnings = append(warnings, fmt.Sprintf("%d server API key(s) stored in plaintext", count))
+	}
+
+	return warnings
 }
 
 const unitSystemKey = "display.units"

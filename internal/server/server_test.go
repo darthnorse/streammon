@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"streammon/internal/auth"
 	"streammon/internal/store"
 )
 
@@ -16,7 +17,8 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 	defer s.Close()
 
-	srv := NewServer(s)
+	authMgr := auth.NewManager(s)
+	srv := NewServer(s, WithAuthManager(authMgr))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
 	w := httptest.NewRecorder()
