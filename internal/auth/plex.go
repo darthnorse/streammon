@@ -76,7 +76,7 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	plexUser, err := p.verifyToken(r.Context(), req.AuthToken)
 	if err != nil {
-		log.Printf("Plex token verification error: %v", err)
+		log.Printf("login failed: plex (token verification error: %v)", err)
 		writeJSONError(w, "invalid token", http.StatusUnauthorized)
 		return
 	}
@@ -88,6 +88,7 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !hasAccess {
+		log.Printf("login denied: plex user=%q (no access to configured servers)", plexUser.Username)
 		writeJSONError(w, "no access to configured Plex servers", http.StatusForbidden)
 		return
 	}
@@ -106,6 +107,7 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		isAdmin := (existingUser != nil && existingUser.Role == models.RoleAdmin) ||
 			(emailUser != nil && emailUser.Role == models.RoleAdmin)
 		if !isAdmin {
+			log.Printf("login denied: plex user=%q (guest access disabled)", plexUser.Username)
 			writeJSONError(w, "guest access is disabled", http.StatusForbidden)
 			return
 		}
@@ -158,6 +160,7 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("login success: plex user=%q role=%s", user.Name, user.Role)
 }
 
 func (p *PlexProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {

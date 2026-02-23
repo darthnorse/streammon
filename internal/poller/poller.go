@@ -425,6 +425,7 @@ func (p *Poller) poll(ctx context.Context) {
 			} else {
 				updatePauseState(&s, "", s.State)
 				s.LastProgressChange = now
+				log.Printf("session start: user=%q title=%q server=%q", s.UserName, s.Title, s.ServerName)
 			}
 			s.LastPollSeen = now
 			newSessions[key] = s
@@ -516,6 +517,7 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 		watched = progressMs*100 >= s.DurationMs*int64(threshold)
 	}
 
+	log.Printf("session end: user=%q title=%q server=%q watched=%v", s.UserName, s.Title, s.ServerName, watched)
 	entry := p.buildHistoryEntry(s, progressMs, watched)
 	if err := p.store.InsertHistory(entry); err != nil {
 		log.Printf("persisting history for %s: %v (will retry)", s.Title, err)

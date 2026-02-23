@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -216,6 +217,7 @@ func RateLimitAuth(next http.Handler) http.Handler {
 		}
 
 		if !globalAuthRateLimiter.check(ip) {
+			log.Printf("auth rate limit: ip=%s path=%s", ip, r.URL.Path)
 			w.Header().Set("Retry-After", "900") // 15 minutes
 			http.Error(w, `{"error":"too many login attempts, try again later"}`, http.StatusTooManyRequests)
 			return

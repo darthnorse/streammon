@@ -81,6 +81,7 @@ func (p *LocalProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 
 	valid, _ := VerifyPassword(req.Password, hashToVerify)
 	if !userFound || !valid {
+		log.Printf("login failed: local user=%q (invalid credentials)", req.Username)
 		writeJSONError(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
@@ -88,6 +89,7 @@ func (p *LocalProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if user.Role != models.RoleAdmin {
 		guestAccess, _ := p.store.GetGuestAccess()
 		if !guestAccess {
+			log.Printf("login denied: local user=%q (guest access disabled)", req.Username)
 			writeJSONError(w, "guest access is disabled", http.StatusForbidden)
 			return
 		}
@@ -98,6 +100,7 @@ func (p *LocalProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSONError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("login success: local user=%q role=%s", user.Name, user.Role)
 }
 
 func (p *LocalProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
