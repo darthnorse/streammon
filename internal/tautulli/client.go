@@ -155,20 +155,7 @@ func NewClient(baseURL, apiKey string) (*Client, error) {
 }
 
 func ValidateURL(rawURL string) error {
-	if rawURL == "" {
-		return fmt.Errorf("URL is required")
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL format: %w", err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("URL must use http or https scheme")
-	}
-	if u.Host == "" {
-		return fmt.Errorf("URL must have a host")
-	}
-	return nil
+	return httputil.ValidateIntegrationURL(rawURL)
 }
 
 func (c *Client) doRequest(ctx context.Context, params url.Values, maxBodySize int64) ([]byte, error) {
