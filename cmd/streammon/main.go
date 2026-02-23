@@ -61,6 +61,12 @@ func main() {
 		log.Fatalf("running migrations: %v", err)
 	}
 
+	if n, err := s.EncryptPlaintextKeys(); err != nil {
+		log.Printf("encrypting plaintext API keys: %v", err)
+	} else if n > 0 {
+		log.Printf("encrypted %d plaintext API key(s)", n)
+	}
+
 	if err := s.CleanupZombieSessions(); err != nil {
 		log.Printf("zombie session cleanup: %v", err)
 	}

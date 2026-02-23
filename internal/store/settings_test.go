@@ -329,6 +329,78 @@ func TestIntegrationConfigPlaintextUpgrade(t *testing.T) {
 	}
 }
 
+func TestEncryptPlaintextKeys(t *testing.T) {
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	// Simulate legacy plaintext keys for all integrations.
+	for _, prefix := range []string{"overseerr", "sonarr", "radarr", "tautulli"} {
+		if err := s.SetSetting(prefix+".api_key", "plain-"+prefix); err != nil {
+			t.Fatalf("SetSetting %s: %v", prefix, err)
+		}
+	}
+
+	n, err := s.EncryptPlaintextKeys()
+	if err != nil {
+		t.Fatalf("EncryptPlaintextKeys: %v", err)
+	}
+	if n != 4 {
+		t.Fatalf("expected 4 keys encrypted, got %d", n)
+	}
+
+	// Verify all keys are now stored encrypted.
+	for _, prefix := range []string{"overseerr", "sonarr", "radarr", "tautulli"} {
+		raw, err := s.GetSetting(prefix + ".api_key")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if raw[:4] != "enc:" {
+			t.Fatalf("%s.api_key missing enc: prefix: %q", prefix, raw[:10])
+		}
+	}
+
+	// Verify decrypted values are correct.
+	for _, prefix := range []string{"overseerr", "sonarr", "radarr", "tautulli"} {
+		cfg, err := s.getIntegrationConfig(prefix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.APIKey != "plain-"+prefix {
+			t.Fatalf("expected plain-%s, got %s", prefix, cfg.APIKey)
+		}
+	}
+}
+
+func TestEncryptPlaintextKeys_SkipsAlreadyEncrypted(t *testing.T) {
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	// Store via normal path (already encrypted).
+	if err := s.SetSonarrConfig(SonarrConfig{URL: "http://localhost:8989", APIKey: "secret", Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.EncryptPlaintextKeys()
+	if err != nil {
+		t.Fatalf("EncryptPlaintextKeys: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 keys encrypted (already encrypted), got %d", n)
+	}
+}
+
+func TestEncryptPlaintextKeys_NoEncryptor(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	n, err := s.EncryptPlaintextKeys()
+	if err != nil {
+		t.Fatalf("EncryptPlaintextKeys: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("expected 0 (no encryptor), got %d", n)
+	}
+}
+
 func TestUnitSystemRoundTrip(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 

@@ -273,8 +273,7 @@ func TestOverseerrCreateRequest_PlexTokenDisabledFallsBack(t *testing.T) {
 }
 
 func TestOverseerrCreateRequest_NoTokenNoEmail(t *testing.T) {
-	var receivedBody map[string]any
-	mock := mockOverseerrWithPlexSession(t, 99, nil, &receivedBody)
+	mock := mockOverseerrWithUsers(t, nil)
 
 	srv, st := newTestServerWithEncryptor(t)
 	configureOverseerr(t, st, mock.URL)
@@ -294,12 +293,8 @@ func TestOverseerrCreateRequest_NoTokenNoEmail(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
-	}
-
-	if _, ok := receivedBody["userId"]; ok {
-		t.Fatal("expected no userId when user has no token and no email")
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422 when user has no token and no email, got %d: %s", w.Code, w.Body.String())
 	}
 }
 

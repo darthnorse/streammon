@@ -193,6 +193,39 @@ func (s *Store) GetRadarrConfig() (RadarrConfig, error) { return s.getIntegratio
 func (s *Store) SetRadarrConfig(cfg RadarrConfig) error  { return s.setIntegrationConfig("radarr", cfg) }
 func (s *Store) DeleteRadarrConfig() error               { return s.deleteIntegrationConfig("radarr") }
 
+// integrationKeyPrefixes lists all integration prefixes that store API keys.
+var integrationKeyPrefixes = []string{"overseerr", "sonarr", "radarr", "tautulli"}
+
+// EncryptPlaintextKeys finds integration API keys stored without the "enc:" prefix
+// and re-encrypts them in place. Returns the number of keys encrypted.
+// This handles the migration case where keys were stored before encryption was configured.
+func (s *Store) EncryptPlaintextKeys() (int, error) {
+	if s.encryptor == nil {
+		return 0, nil
+	}
+
+	var count int
+	for _, prefix := range integrationKeyPrefixes {
+		key := prefix + ".api_key"
+		raw, err := s.GetSetting(key)
+		if err != nil {
+			return count, fmt.Errorf("reading %s: %w", key, err)
+		}
+		if raw == "" || strings.HasPrefix(raw, encryptedPrefix) {
+			continue
+		}
+		encrypted, err := s.encryptor.Encrypt(raw)
+		if err != nil {
+			return count, fmt.Errorf("encrypting %s: %w", key, err)
+		}
+		if err := s.SetSetting(key, encryptedPrefix+encrypted); err != nil {
+			return count, fmt.Errorf("storing %s: %w", key, err)
+		}
+		count++
+	}
+	return count, nil
+}
+
 const unitSystemKey = "display.units"
 
 func (s *Store) GetUnitSystem() (string, error) {

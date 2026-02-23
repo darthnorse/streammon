@@ -429,7 +429,20 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 	}
 
 	// Fallback: use admin API key with userId attribution.
-	// Auto-approval settings may not be respected in this path.
+	// Non-admin users must be resolvable to an Overseerr account to
+	// prevent requests from being silently attributed to the admin.
+	isAdmin := user != nil && user.Role == models.RoleAdmin
+	if !isAdmin {
+		if user == nil || user.Email == "" {
+			writeError(w, http.StatusUnprocessableEntity, "cannot determine your Overseerr identity; ask an admin to link your account")
+			return
+		}
+		if _, ok := s.resolveOverseerrUserID(r.Context(), user.Email); !ok {
+			writeError(w, http.StatusUnprocessableEntity, "no matching Overseerr account found for your email")
+			return
+		}
+	}
+
 	payload := overseerrCreateRequestPayload{
 		overseerrCreateRequestBody: req,
 	}

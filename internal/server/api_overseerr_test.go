@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"streammon/internal/auth"
+	"streammon/internal/models"
 	"streammon/internal/store"
 )
 
@@ -99,8 +101,11 @@ func newMockOverseerr(t *testing.T, opts mockOverseerrOpts) *httptest.Server {
 	return ts
 }
 
+// defaultOverseerrUsers includes the test admin so create-request attribution works.
+var defaultOverseerrUsers = []map[string]any{{"id": 1, "email": "admin@test.local"}}
+
 func mockOverseerr(t *testing.T) *httptest.Server {
-	return newMockOverseerr(t, mockOverseerrOpts{})
+	return newMockOverseerr(t, mockOverseerrOpts{users: defaultOverseerrUsers})
 }
 
 func mockOverseerrWithUsers(t *testing.T, users []map[string]any) *httptest.Server {
@@ -448,7 +453,7 @@ func TestOverseerrCreateRequest_InvalidJSON(t *testing.T) {
 
 func TestOverseerrCreateRequest_ExtraFieldsStripped(t *testing.T) {
 	var receivedBody map[string]any
-	mock := mockOverseerrCaptureRequest(t, nil, &receivedBody)
+	mock := mockOverseerrCaptureRequest(t, defaultOverseerrUsers, &receivedBody)
 
 	srv, st := newTestServerWrapped(t)
 	configureOverseerr(t, st, mock.URL)
@@ -462,8 +467,13 @@ func TestOverseerrCreateRequest_ExtraFieldsStripped(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	if _, ok := receivedBody["userId"]; ok {
-		t.Fatal("expected userId to be stripped from forwarded body")
+	// Client-supplied userId=999 must be replaced by server-resolved userId=1.
+	userID, ok := receivedBody["userId"]
+	if !ok {
+		t.Fatal("expected server-resolved userId in request body")
+	}
+	if int(userID.(float64)) != 1 {
+		t.Fatalf("expected server-resolved userId=1, got %v", userID)
 	}
 	if _, ok := receivedBody["rootFolder"]; ok {
 		t.Fatal("expected rootFolder to be stripped from forwarded body")
@@ -539,11 +549,10 @@ func TestOverseerrCreateRequest_InjectsUserID(t *testing.T) {
 	}
 }
 
-func TestOverseerrCreateRequest_NoMatchFallsBack(t *testing.T) {
-	var receivedBody map[string]any
-	mock := mockOverseerrCaptureRequest(t, []map[string]any{
+func TestOverseerrCreateRequest_NoMatchRejects(t *testing.T) {
+	mock := mockOverseerrWithUsers(t, []map[string]any{
 		{"id": 99, "email": "someone-else@example.com"},
-	}, &receivedBody)
+	})
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
@@ -555,24 +564,38 @@ func TestOverseerrCreateRequest_NoMatchFallsBack(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
+}
 
-	if _, ok := receivedBody["userId"]; ok {
-		t.Fatal("expected no userId when user has no Overseerr match")
+func TestOverseerrCreateRequest_NoEmailRejects(t *testing.T) {
+	mock := mockOverseerr(t)
+
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer-noemail-req", "")
+
+	body := `{"mediaType":"movie","mediaId":27205}`
+	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("expected 422, got %d: %s", w.Code, w.Body.String())
 	}
 }
 
 func TestOverseerrCreateRequest_ClientUserIdStripped(t *testing.T) {
 	var receivedBody map[string]any
 	mock := mockOverseerrCaptureRequest(t, []map[string]any{
-		{"id": 99, "email": "someone-else@example.com"},
+		{"id": 42, "email": "viewer-strip@test.local"},
 	}, &receivedBody)
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
-	viewerToken := createViewerSessionWithEmail(t, st, "viewer-strip", "nomatch@test.local")
+	viewerToken := createViewerSessionWithEmail(t, st, "viewer-strip", "viewer-strip@test.local")
 
 	body := `{"mediaType":"movie","mediaId":27205,"userId":999}`
 	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
@@ -584,8 +607,12 @@ func TestOverseerrCreateRequest_ClientUserIdStripped(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	if uid, ok := receivedBody["userId"]; ok {
-		t.Fatalf("expected client userId to be stripped, but got userId=%v", uid)
+	userID, ok := receivedBody["userId"]
+	if !ok {
+		t.Fatal("expected userId in request body (server-resolved, not client-supplied)")
+	}
+	if int(userID.(float64)) != 42 {
+		t.Fatalf("expected userId=42 (server-resolved), got %v", userID)
 	}
 }
 
@@ -643,6 +670,38 @@ func TestOverseerrCreateRequest_AdminEmailResolved(t *testing.T) {
 	}
 	if int(userID.(float64)) != 5 {
 		t.Fatalf("expected userId=5, got %v", userID)
+	}
+}
+
+func TestOverseerrCreateRequest_AdminNoEmailAllowed(t *testing.T) {
+	var receivedBody map[string]any
+	mock := mockOverseerrCaptureRequest(t, nil, &receivedBody)
+
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+
+	// Create an admin with no email.
+	admin, err := st.CreateLocalUser("admin-noemail", "", "", models.RoleAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := st.CreateSession(admin.ID, time.Now().UTC().Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"mediaType":"movie","mediaId":27205}`
+	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: token})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201 for admin without email, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if _, ok := receivedBody["userId"]; ok {
+		t.Fatal("expected no userId when admin has no Overseerr match")
 	}
 }
 
