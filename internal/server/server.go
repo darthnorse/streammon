@@ -65,6 +65,9 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 	for _, o := range opts {
 		o(srv)
 	}
+	if srv.authManager == nil {
+		panic("server: authManager is required — use WithAuthManager")
+	}
 	srv.router.Use(middleware.Recoverer)
 	srv.router.Use(securityHeaders)
 	srv.routes()

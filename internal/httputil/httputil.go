@@ -3,6 +3,7 @@ package httputil
 import (
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -30,6 +31,9 @@ func DrainBody(resp *http.Response) {
 }
 
 // ValidateIntegrationURL checks that a URL is valid for use as an integration endpoint.
+// It rejects unspecified and link-local addresses to mitigate SSRF (e.g. cloud metadata
+// at 169.254.169.254). Loopback and private IPs are allowed since this is a self-hosted
+// application where services commonly run on the same host or local network.
 func ValidateIntegrationURL(rawURL string) error {
 	if rawURL == "" {
 		return fmt.Errorf("URL is required")
@@ -43,6 +47,15 @@ func ValidateIntegrationURL(rawURL string) error {
 	}
 	if u.Host == "" {
 		return fmt.Errorf("URL must have a host")
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsUnspecified() {
+			return fmt.Errorf("URL must not use an unspecified address")
+		}
+		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("URL must not use a link-local address")
+		}
 	}
 	return nil
 }

@@ -35,6 +35,11 @@ func main() {
 	migrationsDir := envOr("MIGRATIONS_DIR", "./migrations")
 	corsOrigin := os.Getenv("CORS_ORIGIN")
 
+	log.Printf("Database: %s", dbPath)
+	if corsOrigin != "" {
+		log.Printf("CORS origin: %s", corsOrigin)
+	}
+
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		log.Fatal(err)
 	}
@@ -65,6 +70,13 @@ func main() {
 		log.Printf("encrypting plaintext API keys: %v", err)
 	} else if n > 0 {
 		log.Printf("encrypted %d plaintext API key(s)", n)
+	}
+
+	if warnings := s.PlaintextSecretWarnings(); len(warnings) > 0 {
+		log.Println("WARNING: secrets stored without encryption (set TOKEN_ENCRYPTION_KEY to encrypt):")
+		for _, w := range warnings {
+			log.Printf("  - %s", w)
+		}
 	}
 
 	if err := s.CleanupZombieSessions(); err != nil {
@@ -112,8 +124,11 @@ func main() {
 	if v := os.Getenv("POLL_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d >= 2*time.Second {
 			pollInterval = d
+		} else {
+			log.Printf("WARNING: invalid POLL_INTERVAL %q, using default %s", v, pollInterval)
 		}
 	}
+	log.Printf("Poll interval: %s", pollInterval)
 
 	// Household auto-learning: enabled by default with 10 sessions threshold
 	// Set HOUSEHOLD_AUTOLEARN_MIN_SESSIONS=0 to disable auto-learning
@@ -134,6 +149,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("loading servers: %v", err)
 	}
+	var enabledCount int
 	for _, srv := range servers {
 		if !srv.Enabled {
 			continue
@@ -144,7 +160,9 @@ func main() {
 			continue
 		}
 		p.AddServer(srv.ID, ms)
+		enabledCount++
 	}
+	log.Printf("Loaded %d server(s) (%d total, %d enabled)", enabledCount, len(servers), enabledCount)
 
 	p.Start(context.Background())
 
@@ -209,6 +227,7 @@ func main() {
 	rulesEngine.WaitForNotifications()
 	server.StopRateLimiter()
 	server.StopAuthRateLimiter()
+	log.Println("Shutdown complete")
 }
 
 func envOr(key, fallback string) string {

@@ -13,10 +13,35 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/sync/errgroup"
 
+	"streammon/internal/models"
 	"streammon/internal/store"
 )
 
 const tmdbTimeout = 15 * time.Second
+
+func (s *Server) discoverAccessBlocked(w http.ResponseWriter, r *http.Request) bool {
+	if user := UserFromContext(r.Context()); user != nil && user.Role != models.RoleAdmin {
+		allowed, err := s.store.GetGuestSetting("show_discover")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "internal")
+			return true
+		}
+		if !allowed {
+			writeError(w, http.StatusForbidden, "discover access disabled")
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) requireDiscover(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.discoverAccessBlocked(w, r) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 func (s *Server) tmdbRequired(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"streammon/internal/models"
 )
@@ -20,15 +21,32 @@ func scanServer(scanner interface{ Scan(...any) error }) (models.Server, error) 
 	return srv, err
 }
 
+func (s *Store) decryptServerKey(srv *models.Server) error {
+	if !strings.HasPrefix(srv.APIKey, encryptedPrefix) {
+		return nil
+	}
+	dec, err := s.decryptValue(srv.APIKey)
+	if err != nil {
+		return fmt.Errorf("decrypting server api key: %w", err)
+	}
+	srv.APIKey = dec
+	return nil
+}
+
 func (s *Store) CreateServer(srv *models.Server) error {
+	encKey, err := s.encryptValue(srv.APIKey)
+	if err != nil {
+		return fmt.Errorf("encrypting api key: %w", err)
+	}
 	created, err := scanServer(s.db.QueryRow(
 		`INSERT INTO servers (name, type, url, api_key, machine_id, enabled, show_recent_media) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING `+serverColumns,
-		srv.Name, srv.Type, srv.URL, srv.APIKey, srv.MachineID, srv.Enabled, srv.ShowRecentMedia,
+		srv.Name, srv.Type, srv.URL, encKey, srv.MachineID, srv.Enabled, srv.ShowRecentMedia,
 	))
 	if err != nil {
 		return fmt.Errorf("creating server: %w", err)
 	}
 	*srv = created
+	srv.APIKey, _ = s.decryptValue(srv.APIKey)
 	return nil
 }
 
@@ -44,6 +62,9 @@ func (s *Store) GetServer(id int64) (*models.Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting server: %w", err)
 	}
+	if err := s.decryptServerKey(&srv); err != nil {
+		return nil, err
+	}
 	return &srv, nil
 }
 
@@ -58,6 +79,9 @@ func (s *Store) listServers(query string) ([]models.Server, error) {
 	for rows.Next() {
 		srv, err := scanServer(rows)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.decryptServerKey(&srv); err != nil {
 			return nil, err
 		}
 		servers = append(servers, srv)
@@ -76,10 +100,14 @@ func (s *Store) ListAllServers() ([]models.Server, error) {
 }
 
 func (s *Store) UpdateServer(srv *models.Server) error {
+	encKey, err := s.encryptValue(srv.APIKey)
+	if err != nil {
+		return fmt.Errorf("encrypting api key: %w", err)
+	}
 	updated, err := scanServer(s.db.QueryRow(
 		`UPDATE servers SET name = ?, type = ?, url = ?, api_key = ?, machine_id = ?, enabled = ?, show_recent_media = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? RETURNING `+serverColumns,
-		srv.Name, srv.Type, srv.URL, srv.APIKey, srv.MachineID, srv.Enabled, srv.ShowRecentMedia, srv.ID,
+		srv.Name, srv.Type, srv.URL, encKey, srv.MachineID, srv.Enabled, srv.ShowRecentMedia, srv.ID,
 	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("server %d: %w", srv.ID, models.ErrNotFound)
@@ -88,6 +116,7 @@ func (s *Store) UpdateServer(srv *models.Server) error {
 		return fmt.Errorf("updating server: %w", err)
 	}
 	*srv = updated
+	srv.APIKey, _ = s.decryptValue(srv.APIKey)
 	return nil
 }
 
@@ -118,10 +147,15 @@ func (s *Store) UpdateServerAtomic(existing, srv *models.Server) error {
 		}
 	}
 
+	encKey, err := s.encryptValue(srv.APIKey)
+	if err != nil {
+		return fmt.Errorf("encrypting api key: %w", err)
+	}
+
 	updated, err := scanServer(tx.QueryRow(
 		`UPDATE servers SET name = ?, type = ?, url = ?, api_key = ?, machine_id = ?, enabled = ?, show_recent_media = ?, updated_at = CURRENT_TIMESTAMP
 		WHERE id = ? RETURNING `+serverColumns,
-		srv.Name, srv.Type, srv.URL, srv.APIKey, srv.MachineID, srv.Enabled, srv.ShowRecentMedia, srv.ID,
+		srv.Name, srv.Type, srv.URL, encKey, srv.MachineID, srv.Enabled, srv.ShowRecentMedia, srv.ID,
 	))
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("server %d: %w", srv.ID, models.ErrNotFound)
@@ -135,6 +169,7 @@ func (s *Store) UpdateServerAtomic(existing, srv *models.Server) error {
 	}
 
 	*srv = updated
+	srv.APIKey, _ = s.decryptValue(srv.APIKey)
 	return nil
 }
 

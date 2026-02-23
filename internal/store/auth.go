@@ -445,7 +445,7 @@ func (s *Store) SetGuestAccess(allowed bool) error {
 func (s *Store) UpdateSessionActivity(token string) error {
 	_, err := s.db.Exec(
 		`UPDATE sessions SET last_used_at = ? WHERE id = ?`,
-		time.Now().UTC(), token,
+		time.Now().UTC(), hashToken(token),
 	)
 	return err
 }

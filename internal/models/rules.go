@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"net"
 	"net/url"
 	"time"
 )
@@ -343,6 +344,15 @@ func (c *WebhookConfig) Validate() error {
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return errors.New("url must use http or https scheme")
+	}
+	host := u.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsUnspecified() {
+			return errors.New("url must not use an unspecified address")
+		}
+		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return errors.New("url must not use a link-local address")
+		}
 	}
 	if c.Method == "" {
 		c.Method = "POST"

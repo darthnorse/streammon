@@ -10,6 +10,7 @@ import (
 
 	"streammon/internal/auth"
 	"streammon/internal/models"
+	"streammon/internal/tmdb"
 )
 
 func TestGuestSettingsAPI(t *testing.T) {
@@ -392,6 +393,80 @@ func TestGuestVisibilityEnforcement(t *testing.T) {
 		}
 
 		req := httptest.NewRequest(http.MethodGet, "/api/sonarr/calendar?start=2025-03-01&end=2025-03-07", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	// show_discover enforcement
+	discoverBlockedEndpoints := []struct {
+		name string
+		url  string
+	}{
+		{"tmdb-search", "/api/tmdb/search?query=test"},
+		{"tmdb-discover", "/api/tmdb/discover/trending"},
+		{"overseerr-search", "/api/overseerr/search?query=test"},
+		{"overseerr-discover", "/api/overseerr/discover/trending"},
+		{"library-tmdb-ids", "/api/library/tmdb-ids"},
+	}
+	for _, ep := range discoverBlockedEndpoints {
+		t.Run("viewer blocked from "+ep.name+" when show_discover disabled", func(t *testing.T) {
+			mock := mockOverseerr(t)
+			srv, st := newTestServer(t)
+			configureOverseerr(t, st, mock.URL)
+
+			tmdbMock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(`{"page":1,"results":[]}`))
+			}))
+			t.Cleanup(tmdbMock.Close)
+			srv.tmdbClient = tmdb.NewWithBaseURL("test-key", st, tmdbMock.URL)
+
+			viewerToken := createViewerSession(t, st, ep.name+"-viewer")
+			if err := st.SetGuestSettings(map[string]bool{"show_discover": false}); err != nil {
+				t.Fatalf("SetGuestSettings: %v", err)
+			}
+
+			req := httptest.NewRequest(http.MethodGet, ep.url, nil)
+			req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusForbidden {
+				t.Fatalf("expected 403, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+
+	t.Run("viewer allowed discover when show_discover enabled", func(t *testing.T) {
+		mock := mockOverseerr(t)
+		srv, st := newTestServer(t)
+		configureOverseerr(t, st, mock.URL)
+
+		viewerToken := createViewerSession(t, st, "disc-allowed")
+
+		req := httptest.NewRequest(http.MethodGet, "/api/overseerr/search?query=test", nil)
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("admin bypasses show_discover=false", func(t *testing.T) {
+		mock := mockOverseerr(t)
+		srv, st := newTestServerWrapped(t)
+		configureOverseerr(t, st, mock.URL)
+
+		if err := st.SetGuestSettings(map[string]bool{"show_discover": false}); err != nil {
+			t.Fatalf("SetGuestSettings: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/overseerr/search?query=test", nil)
 		w := httptest.NewRecorder()
 		srv.ServeHTTP(w, req)
 
