@@ -91,7 +91,7 @@ func (cd *CascadeDeleter) runCascade(ctx context.Context, service, title string,
 		log.Printf("cascade %s %q: config fetch error: %v", service, title, err)
 		return result
 	}
-	if cfg.URL == "" || cfg.APIKey == "" || !cfg.Enabled {
+	if !cfg.IsUsable() {
 		return result
 	}
 

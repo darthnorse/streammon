@@ -90,7 +90,12 @@ func (s *Server) handleUpdateIntegrationSettings(d integrationDeps) http.Handler
 				writeError(w, http.StatusBadRequest, "api_key is required when changing the URL")
 				return
 			}
-			req.APIKey = existing.APIKey
+			// When the stored key can't be decrypted (placeholder), keep APIKey
+			// empty so setIntegrationConfig skips the column and preserves the
+			// encrypted value in the database.
+			if existing.APIKey != store.EncryptedPlaceholder {
+				req.APIKey = existing.APIKey
+			}
 		}
 
 		enabled := existing.Enabled
@@ -150,6 +155,10 @@ func (s *Server) handleTestIntegrationConnection(d integrationDeps) http.Handler
 				writeError(w, http.StatusInternalServerError, "internal")
 				return
 			}
+			if cfg.APIKey == store.EncryptedPlaceholder {
+				writeError(w, http.StatusBadRequest, "stored API key is encrypted; provide the key or set TOKEN_ENCRYPTION_KEY")
+				return
+			}
 			apiKey = cfg.APIKey
 		}
 
@@ -190,7 +199,7 @@ func (s *Server) handleIntegrationConfigured(d integrationDeps) http.HandlerFunc
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{
-			"configured": cfg.URL != "" && cfg.APIKey != "" && cfg.Enabled,
+			"configured": cfg.IsUsable(),
 		})
 	}
 }

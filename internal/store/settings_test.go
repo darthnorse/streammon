@@ -734,6 +734,137 @@ func TestCleanupZombieSessions(t *testing.T) {
 	}
 }
 
+func TestIntegrationConfigEncryptedWithoutEncryptor(t *testing.T) {
+	// Store with encryptor to create the encrypted value.
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	cfg := OverseerrConfig{URL: "http://localhost:5055", APIKey: "super-secret", Enabled: true}
+	if err := s.SetOverseerrConfig(cfg); err != nil {
+		t.Fatalf("SetOverseerrConfig: %v", err)
+	}
+
+	// Grab the raw encrypted value for later verification.
+	raw, err := s.GetSetting("overseerr.api_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw[:4] != "enc:" {
+		t.Fatalf("expected enc: prefix, got %q", raw)
+	}
+
+	// Create a NEW store without an encryptor, pointing at the same DB.
+	s2 := newTestStoreWithMigrations(t)
+	// Seed the encrypted api_key via raw SetSetting (bypasses encryption).
+	if err := s2.SetSetting("overseerr.url", "http://localhost:5055"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.SetSetting("overseerr.api_key", raw); err != nil {
+		t.Fatal(err)
+	}
+	if err := s2.SetSetting("overseerr.enabled", "1"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s2.GetOverseerrConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if got.APIKey != EncryptedPlaceholder {
+		t.Fatalf("expected EncryptedPlaceholder, got %q", got.APIKey)
+	}
+	if got.URL != "http://localhost:5055" {
+		t.Fatalf("expected URL preserved, got %q", got.URL)
+	}
+	if !got.Enabled {
+		t.Fatal("expected Enabled=true")
+	}
+
+	// IsUsable should return false for the degraded config.
+	if got.IsUsable() {
+		t.Fatal("expected IsUsable()=false for EncryptedPlaceholder key")
+	}
+}
+
+func TestOIDCConfigEncryptedWithoutEncryptor(t *testing.T) {
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	cfg := OIDCConfig{
+		Issuer:       "https://issuer.example.com",
+		ClientID:     "my-client",
+		ClientSecret: "my-secret",
+		RedirectURL:  "https://app.example.com/callback",
+	}
+	if err := s.SetOIDCConfig(cfg); err != nil {
+		t.Fatalf("SetOIDCConfig: %v", err)
+	}
+
+	raw, err := s.GetSetting("oidc.client_secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Seed into a store without encryptor.
+	s2 := newTestStoreWithMigrations(t)
+	for _, kv := range []struct{ k, v string }{
+		{"oidc.issuer", "https://issuer.example.com"},
+		{"oidc.client_id", "my-client"},
+		{"oidc.client_secret", raw},
+		{"oidc.redirect_url", "https://app.example.com/callback"},
+	} {
+		if err := s2.SetSetting(kv.k, kv.v); err != nil {
+			t.Fatalf("SetSetting %s: %v", kv.k, err)
+		}
+	}
+
+	got, err := s2.GetOIDCConfig()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if got.ClientSecret != EncryptedPlaceholder {
+		t.Fatalf("expected EncryptedPlaceholder, got %q", got.ClientSecret)
+	}
+	if got.Issuer != "https://issuer.example.com" {
+		t.Fatalf("expected issuer preserved, got %q", got.Issuer)
+	}
+}
+
+func TestServerKeyEncryptedWithoutEncryptor(t *testing.T) {
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	srv := &models.Server{Name: "test", Type: models.ServerTypePlex, URL: "http://x", APIKey: "secret-key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read without encryptor.
+	s2 := newTestStoreWithMigrations(t)
+	// Copy the encrypted server row via raw SQL.
+	var rawKey string
+	if err := s.db.QueryRow(`SELECT api_key FROM servers WHERE id = ?`, srv.ID).Scan(&rawKey); err != nil {
+		t.Fatalf("scanning raw key: %v", err)
+	}
+	if _, err := s2.db.Exec(
+		`INSERT INTO servers (name, type, url, api_key, enabled) VALUES (?, ?, ?, ?, ?)`,
+		"test", "plex", "http://x", rawKey, 1,
+	); err != nil {
+		t.Fatalf("inserting server: %v", err)
+	}
+
+	servers, err := s2.ListServers()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if len(servers) != 1 {
+		t.Fatalf("expected 1 server, got %d", len(servers))
+	}
+	if servers[0].APIKey != EncryptedPlaceholder {
+		t.Fatalf("expected EncryptedPlaceholder, got %q", servers[0].APIKey)
+	}
+}
+
 func TestGuestSettingsDefaults(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 

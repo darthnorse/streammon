@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 
 	"streammon/internal/models"
 )
@@ -22,10 +21,7 @@ func scanServer(scanner interface{ Scan(...any) error }) (models.Server, error) 
 }
 
 func (s *Store) decryptServerKey(srv *models.Server) error {
-	if !strings.HasPrefix(srv.APIKey, encryptedPrefix) {
-		return nil
-	}
-	dec, err := s.decryptValue(srv.APIKey)
+	dec, err := s.decryptOrPlaceholder(srv.APIKey)
 	if err != nil {
 		return fmt.Errorf("decrypting server api key: %w", err)
 	}
