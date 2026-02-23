@@ -1,6 +1,7 @@
 package httputil
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -36,10 +37,10 @@ func DrainBody(resp *http.Response) {
 // host or local network.
 func ValidateIP(ip net.IP) error {
 	if ip.IsUnspecified() {
-		return fmt.Errorf("URL must not use an unspecified address")
+		return errors.New("url must not use an unspecified address")
 	}
 	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return fmt.Errorf("URL must not use a link-local address")
+		return errors.New("url must not use a link-local address")
 	}
 	return nil
 }
