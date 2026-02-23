@@ -48,17 +48,17 @@ func ValidateIP(ip net.IP) error {
 // ValidateIntegrationURL checks that a URL is valid for use as an integration endpoint.
 func ValidateIntegrationURL(rawURL string) error {
 	if rawURL == "" {
-		return fmt.Errorf("URL is required")
+		return errors.New("url is required")
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("invalid URL format: %w", err)
+		return fmt.Errorf("invalid url format: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("URL must use http or https scheme")
+		return errors.New("url must use http or https scheme")
 	}
 	if u.Host == "" {
-		return fmt.Errorf("URL must have a host")
+		return errors.New("url must have a host")
 	}
 	if ip := net.ParseIP(u.Hostname()); ip != nil {
 		if err := ValidateIP(ip); err != nil {

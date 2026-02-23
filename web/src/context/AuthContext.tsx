@@ -54,7 +54,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setEncryptionMissing(!status.encryption_configured)
         if (status.setup_required) {
           setSetupRequired(true)
-          setLoading(false)
           return
         }
         return fetchCurrentUser()
