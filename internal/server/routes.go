@@ -13,37 +13,34 @@ func (s *Server) routes() {
 	// Public (no auth) so the frontend can show version before login
 	s.router.Get("/api/version", s.handleVersion)
 
-	// Multi-provider auth routes (new)
-	if s.authManager != nil {
-		// Setup endpoints (only work when no users exist)
-		s.router.Route("/api/setup", func(r chi.Router) {
-			r.Use(limitBody)
-			r.Use(corsMiddleware(s.corsOrigin))
-			r.Get("/status", s.authManager.HandleGetStatus)
-			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/local", s.handleSetupLocal)
-			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/plex", s.handleSetupPlex)
-			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/emby", s.handleSetupEmby)
-			r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/jellyfin", s.handleSetupJellyfin)
-		})
+	// Setup endpoints (only work when no users exist)
+	s.router.Route("/api/setup", func(r chi.Router) {
+		r.Use(limitBody)
+		r.Use(corsMiddleware(s.corsOrigin))
+		r.Get("/status", s.authManager.HandleGetStatus)
+		r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/local", s.handleSetupLocal)
+		r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/plex", s.handleSetupPlex)
+		r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/emby", s.handleSetupEmby)
+		r.With(RequireSetup(s.authManager), RateLimitAuth).Post("/jellyfin", s.handleSetupJellyfin)
+	})
 
-		// Auth endpoints
-		s.router.Route("/auth", func(r chi.Router) {
-			r.Use(limitBody)
-			r.Use(corsMiddleware(s.corsOrigin))
-			r.Get("/providers", s.authManager.HandleGetProviders)
-			r.Post("/logout", s.authManager.HandleLogout)
+	// Auth endpoints
+	s.router.Route("/auth", func(r chi.Router) {
+		r.Use(limitBody)
+		r.Use(corsMiddleware(s.corsOrigin))
+		r.Get("/providers", s.authManager.HandleGetProviders)
+		r.Post("/logout", s.authManager.HandleLogout)
 
-			// Login endpoints require setup to be complete (prevents creating users before admin exists)
-			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/local/login", s.handleLocalLogin)
-			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/plex/login", s.handlePlexLogin)
-			r.With(RequireSetupComplete(s.authManager)).Get("/emby/servers", s.handleEmbyServers)
-			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/emby/login", s.handleEmbyLogin)
-			r.With(RequireSetupComplete(s.authManager)).Get("/jellyfin/servers", s.handleJellyfinServers)
-			r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/jellyfin/login", s.handleJellyfinLogin)
-			r.With(RequireSetupComplete(s.authManager)).Get("/oidc/login", s.handleOIDCLogin)
-			r.With(RequireSetupComplete(s.authManager)).Get("/oidc/callback", s.handleOIDCCallback)
-		})
-	}
+		// Login endpoints require setup to be complete (prevents creating users before admin exists)
+		r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/local/login", s.handleLocalLogin)
+		r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/plex/login", s.handlePlexLogin)
+		r.With(RequireSetupComplete(s.authManager)).Get("/emby/servers", s.handleEmbyServers)
+		r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/emby/login", s.handleEmbyLogin)
+		r.With(RequireSetupComplete(s.authManager)).Get("/jellyfin/servers", s.handleJellyfinServers)
+		r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/jellyfin/login", s.handleJellyfinLogin)
+		r.With(RequireSetupComplete(s.authManager)).Get("/oidc/login", s.handleOIDCLogin)
+		r.With(RequireSetupComplete(s.authManager)).Get("/oidc/callback", s.handleOIDCCallback)
+	})
 
 	s.router.Route("/api", func(r chi.Router) {
 		r.Use(limitBody)
@@ -164,18 +161,20 @@ func (s *Server) routes() {
 		r.With(s.requireDiscover).Get("/library/tmdb-ids", s.handleLibraryTMDBIDs)
 
 		r.Route("/overseerr", func(sr chi.Router) {
-			sr.Use(s.requireDiscover)
 			sr.Get("/configured", s.handleIntegrationConfigured(s.overseerrDeps()))
-			sr.Get("/search", s.handleOverseerrSearch)
-			sr.Get("/discover/*", s.handleOverseerrDiscover)
-			sr.Get("/movie/{id}", s.handleOverseerrMovie)
-			sr.Get("/tv/{id}", s.handleOverseerrTV)
-			sr.Get("/tv/{id}/season/{seasonNumber}", s.handleOverseerrTVSeason)
-			sr.Get("/requests", s.handleOverseerrListRequests)
-			sr.With(RequireRole(models.RoleAdmin)).Get("/requests/count", s.handleOverseerrRequestCount)
-			sr.Post("/requests", s.handleOverseerrCreateRequest)
-			sr.With(RequireRole(models.RoleAdmin)).Post("/requests/{id}/{action}", s.handleOverseerrRequestAction)
-			sr.Delete("/requests/{id}", s.handleOverseerrDeleteRequest)
+			sr.Group(func(dr chi.Router) {
+				dr.Use(s.requireDiscover)
+				dr.Get("/search", s.handleOverseerrSearch)
+				dr.Get("/discover/*", s.handleOverseerrDiscover)
+				dr.Get("/movie/{id}", s.handleOverseerrMovie)
+				dr.Get("/tv/{id}", s.handleOverseerrTV)
+				dr.Get("/tv/{id}/season/{seasonNumber}", s.handleOverseerrTVSeason)
+				dr.Get("/requests", s.handleOverseerrListRequests)
+				dr.With(RequireRole(models.RoleAdmin)).Get("/requests/count", s.handleOverseerrRequestCount)
+				dr.Post("/requests", s.handleOverseerrCreateRequest)
+				dr.With(RequireRole(models.RoleAdmin)).Post("/requests/{id}/{action}", s.handleOverseerrRequestAction)
+				dr.Delete("/requests/{id}", s.handleOverseerrDeleteRequest)
+			})
 		})
 
 		r.Route("/settings/display", func(sr chi.Router) {

@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/url"
 	"time"
+
+	"streammon/internal/httputil"
 )
 
 type RuleType string
@@ -345,13 +347,9 @@ func (c *WebhookConfig) Validate() error {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return errors.New("url must use http or https scheme")
 	}
-	host := u.Hostname()
-	if ip := net.ParseIP(host); ip != nil {
-		if ip.IsUnspecified() {
-			return errors.New("url must not use an unspecified address")
-		}
-		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return errors.New("url must not use a link-local address")
+	if ip := net.ParseIP(u.Hostname()); ip != nil {
+		if err := httputil.ValidateIP(ip); err != nil {
+			return err
 		}
 	}
 	if c.Method == "" {

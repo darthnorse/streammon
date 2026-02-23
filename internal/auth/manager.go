@@ -113,14 +113,17 @@ func (m *Manager) HandleGetProviders(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(providers)
 }
 
+// HandleGetStatus returns setup status on an unauthenticated endpoint.
+// encryption_configured is intentionally public so the Setup/Login pages can
+// show a warning banner before any user exists.
 func (m *Manager) HandleGetStatus(w http.ResponseWriter, r *http.Request) {
 	setupRequired, _ := m.IsSetupRequired()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"setup_required":         setupRequired,
-		"enabled_providers":      m.GetEnabledProviders(),
-		"encryption_configured":  m.store.HasEncryptor(),
+		"setup_required":        setupRequired,
+		"enabled_providers":     m.GetEnabledProviders(),
+		"encryption_configured": m.store.HasEncryptor(),
 	})
 }
 

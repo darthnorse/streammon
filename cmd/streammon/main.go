@@ -161,7 +161,7 @@ func main() {
 		p.AddServer(srv.ID, ms)
 		enabledCount++
 	}
-	log.Printf("Loaded %d server(s) (%d total, %d enabled)", enabledCount, len(servers), enabledCount)
+	log.Printf("Servers: %d enabled, %d total", enabledCount, len(servers))
 
 	p.Start(context.Background())
 

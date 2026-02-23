@@ -150,16 +150,9 @@ func (s *Store) getIntegrationConfig(prefix string) (IntegrationConfig, error) {
 	if err != nil {
 		return cfg, err
 	}
-	if strings.HasPrefix(raw, encryptedPrefix) {
-		if s.encryptor == nil {
-			return cfg, fmt.Errorf("api key is encrypted but no encryption key configured")
-		}
-		cfg.APIKey, err = s.encryptor.Decrypt(strings.TrimPrefix(raw, encryptedPrefix))
-		if err != nil {
-			return cfg, fmt.Errorf("decrypting %s api key: %w", prefix, err)
-		}
-	} else {
-		cfg.APIKey = raw
+	cfg.APIKey, err = s.decryptValue(raw)
+	if err != nil {
+		return cfg, fmt.Errorf("decrypting %s api key: %w", prefix, err)
 	}
 	enabled, err := s.GetSetting(prefix + ".enabled")
 	if err != nil {
@@ -180,13 +173,9 @@ func (s *Store) setIntegrationConfig(prefix string, cfg IntegrationConfig) error
 		return fmt.Errorf("setting %q: %w", prefix+".url", err)
 	}
 	if cfg.APIKey != "" {
-		apiKeyVal := cfg.APIKey
-		if s.encryptor != nil {
-			encrypted, err := s.encryptor.Encrypt(cfg.APIKey)
-			if err != nil {
-				return fmt.Errorf("encrypting %s api key: %w", prefix, err)
-			}
-			apiKeyVal = encryptedPrefix + encrypted
+		apiKeyVal, err := s.encryptValue(cfg.APIKey)
+		if err != nil {
+			return fmt.Errorf("encrypting %s api key: %w", prefix, err)
 		}
 		if _, err := tx.Exec(settingUpsert, prefix+".api_key", apiKeyVal); err != nil {
 			return fmt.Errorf("setting %q: %w", prefix+".api_key", err)

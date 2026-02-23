@@ -46,7 +46,11 @@ func (s *Store) CreateServer(srv *models.Server) error {
 		return fmt.Errorf("creating server: %w", err)
 	}
 	*srv = created
-	srv.APIKey, _ = s.decryptValue(srv.APIKey)
+	if dec, err := s.decryptValue(srv.APIKey); err != nil {
+		return fmt.Errorf("decrypting api key after create: %w", err)
+	} else {
+		srv.APIKey = dec
+	}
 	return nil
 }
 
@@ -116,7 +120,11 @@ func (s *Store) UpdateServer(srv *models.Server) error {
 		return fmt.Errorf("updating server: %w", err)
 	}
 	*srv = updated
-	srv.APIKey, _ = s.decryptValue(srv.APIKey)
+	if dec, err := s.decryptValue(srv.APIKey); err != nil {
+		return fmt.Errorf("decrypting api key after update: %w", err)
+	} else {
+		srv.APIKey = dec
+	}
 	return nil
 }
 
@@ -169,7 +177,11 @@ func (s *Store) UpdateServerAtomic(existing, srv *models.Server) error {
 	}
 
 	*srv = updated
-	srv.APIKey, _ = s.decryptValue(srv.APIKey)
+	if dec, err := s.decryptValue(srv.APIKey); err != nil {
+		return fmt.Errorf("decrypting api key after update: %w", err)
+	} else {
+		srv.APIKey = dec
+	}
 	return nil
 }
 

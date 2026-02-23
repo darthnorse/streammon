@@ -1,6 +1,8 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -92,5 +94,36 @@ func TestDeleteExpiredSessions(t *testing.T) {
 	_, err = s.GetSessionUser(activeToken)
 	if err != nil {
 		t.Fatal("active session should still work")
+	}
+}
+
+func TestSessionTokenIsHashedInDB(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	user, _ := s.GetOrCreateUser("eve")
+	token, err := s.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The raw token should NOT appear in the database
+	var count int
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = ?`, token).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("raw token found in DB — should be hashed")
+	}
+
+	// The SHA-256 hash of the token SHOULD appear
+	h := sha256.Sum256([]byte(token))
+	hashed := hex.EncodeToString(h[:])
+	err = s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = ?`, hashed).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected hashed token in DB, found %d rows", count)
 	}
 }
