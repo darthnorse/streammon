@@ -24,6 +24,7 @@ RUN apk add --no-cache ca-certificates
 WORKDIR /app
 COPY --from=backend /app/streammon .
 COPY --from=backend /app/migrations ./migrations
+COPY --from=backend /app/entrypoint.sh .
 EXPOSE 7935
 VOLUME ["/app/data", "/app/geoip"]
-CMD ["./streammon"]
+ENTRYPOINT ["./entrypoint.sh"]

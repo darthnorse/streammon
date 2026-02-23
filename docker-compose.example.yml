@@ -13,7 +13,7 @@ services:
       - ./data:/app/data
       - ./geoip:/app/geoip
     environment:
-      # Optional: Encrypt Plex tokens for Overseerr/Seerr user attribution
-      # Generate with: openssl rand -base64 32
-      # - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
+      # TOKEN_ENCRYPTION_KEY is auto-generated on first run and stored in the
+      # data volume. Override here only if you want to use your own key.
+      # - TOKEN_ENCRYPTION_KEY=your-key-here
     restart: unless-stopped
