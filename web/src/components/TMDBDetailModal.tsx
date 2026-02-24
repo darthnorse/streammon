@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { api } from '../lib/api'
+import { dispatchRequestChanged } from '../hooks/useRequestCount'
 import { TMDB_IMG } from '../lib/tmdb'
 import { mediaStatusBadge } from '../lib/overseerr'
 import { CastChip } from './CastChip'
@@ -117,6 +118,7 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
       }
       await api.post('/api/overseerr/requests', body)
       setRequestSuccess(true)
+      dispatchRequestChanged()
     } catch (err) {
       setRequestError((err as Error).message)
     } finally {

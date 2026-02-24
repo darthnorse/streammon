@@ -7,8 +7,12 @@ import { ProfileModal } from './ProfileModal'
 import { UserAvatar } from './UserAvatar'
 import { useAuth } from '../context/AuthContext'
 import { useFetch } from '../hooks/useFetch'
+import { useRequestCount } from '../hooks/useRequestCount'
 import type { IntegrationStatus } from '../lib/constants'
-import type { OverseerrRequestCount } from '../types'
+
+export interface LayoutOutletContext {
+  pendingCount: number
+}
 
 export function Layout() {
   const { user } = useAuth()
@@ -21,9 +25,7 @@ export function Layout() {
   const sonarrConfigured = sonarrStatus?.configured ?? false
   const overseerrConfigured = overseerrStatus?.configured ?? false
   const isAdmin = user?.role === 'admin'
-  const { data: requestCounts } = useFetch<OverseerrRequestCount>(
-    overseerrConfigured && isAdmin ? '/api/overseerr/requests/count' : null,
-  )
+  const { data: requestCounts } = useRequestCount(overseerrConfigured && isAdmin)
   const pendingCount = requestCounts?.pending ?? 0
 
   const integrationsLoaded = sonarrStatus !== null && overseerrStatus !== null && guestResp !== null
@@ -67,7 +69,7 @@ export function Layout() {
         </header>
 
         <main className="flex-1 p-4 md:p-6 lg:p-8 pb-20 lg:pb-8">
-          <Outlet />
+          <Outlet context={{ pendingCount } satisfies LayoutOutletContext} />
         </main>
       </div>
 

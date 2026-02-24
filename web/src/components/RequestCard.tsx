@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
+import { dispatchRequestChanged } from '../hooks/useRequestCount'
 import { TMDB_IMG, requestStatusBadge } from '../lib/overseerr'
 import { ConfirmDialog } from './shared/ConfirmDialog'
 import type { OverseerrRequest, OverseerrMovieDetails, OverseerrTVDetails } from '../types'
@@ -52,8 +53,9 @@ export function RequestCard({ request, isAdmin, onAction, onTitleResolved, onTit
     setActing(true)
     try {
       await api.post(`/api/overseerr/requests/${request.id}/${action}`)
+      dispatchRequestChanged()
     } catch {
-      // swallow — refetch below will show current state
+      // swallow — onAction refetch below will show current state
     } finally {
       setActing(false)
       onAction()
@@ -64,8 +66,9 @@ export function RequestCard({ request, isAdmin, onAction, onTitleResolved, onTit
     setActing(true)
     try {
       await api.del(`/api/overseerr/requests/${request.id}`)
+      dispatchRequestChanged()
     } catch {
-      // swallow — refetch below will show current state
+      // swallow — onAction refetch below will show current state
     } finally {
       setActing(false)
       setShowDeleteConfirm(false)
