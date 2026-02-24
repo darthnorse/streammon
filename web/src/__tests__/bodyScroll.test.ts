@@ -1,3 +1,4 @@
+import { describe, it, expect, beforeEach } from 'vitest'
 import { lockBodyScroll, unlockBodyScroll, _resetLockCount } from '../lib/bodyScroll'
 
 describe('bodyScroll', () => {
