@@ -6,13 +6,16 @@ export const OVERSEERR_MEDIA_STATUS: Record<number, { label: string; color: stri
   3: { label: 'Processing', color: 'bg-blue-500/80 text-white' },
   4: { label: 'Partial', color: 'bg-orange-500/80 text-white' },
   5: { label: 'Available', color: 'bg-green-600/80 text-white' },
-  6: { label: 'Deleted', color: 'bg-red-500/80 text-white' },
+  6: { label: 'Blocklisted', color: 'bg-gray-500/80 text-white' },
+  7: { label: 'Deleted', color: 'bg-red-500/80 text-white' },
 }
 
 export const OVERSEERR_REQUEST_STATUS: Record<number, { label: string; color: string }> = {
   1: { label: 'Pending', color: 'bg-yellow-500/90 text-gray-900' },
   2: { label: 'Approved', color: 'bg-green-600/80 text-white' },
   3: { label: 'Declined', color: 'bg-red-500/80 text-white' },
+  4: { label: 'Failed', color: 'bg-red-500/80 text-white' },
+  5: { label: 'Completed', color: 'bg-green-600/80 text-white' },
 }
 
 function statusBadge(statusMap: Record<number, { label: string; color: string }>, status: number, small?: boolean) {

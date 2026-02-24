@@ -414,7 +414,7 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
   const seasonCount = tmdbTV?.number_of_seasons
   const episodeCount = tmdbTV?.number_of_episodes
 
-  const alreadyRequested = overseerrStatus != null && overseerrStatus >= 2 && overseerrStatus <= 5
+  const alreadyRequested = overseerrStatus != null && overseerrStatus >= 2 && overseerrStatus <= 6
   const canRequest = overseerrConfigured && overseerrChecked && !alreadyRequested && !requestSuccess && !!effectiveTmdbId
 
   const serverThumbByName = useMemo(() => {
