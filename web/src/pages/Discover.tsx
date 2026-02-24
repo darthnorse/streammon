@@ -354,6 +354,7 @@ export function Discover() {
                   isAdmin={isAdmin}
                   onAction={refetchRequests}
                   onTitleResolved={handleTitleResolved}
+                  onTitleClick={(mediaType, tmdbId) => pushModal({ type: 'tmdb', mediaType, mediaId: tmdbId })}
                 />
               ))}
               <div ref={sentinelRef} />
