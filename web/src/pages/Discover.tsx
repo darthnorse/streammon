@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useOutletContext } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
@@ -14,9 +14,9 @@ import { ChevronIcon } from '../components/ChevronIcon'
 import { RequestCard } from '../components/RequestCard'
 import { SearchInput } from '../components/shared/SearchInput'
 import { ModalStackRenderer } from '../components/ModalStackRenderer'
+import type { LayoutOutletContext } from '../components/Layout'
 import type {
   TMDBSearchResult,
-  OverseerrRequestCount,
   OverseerrRequest,
   SelectedMedia,
 } from '../types'
@@ -121,6 +121,7 @@ function matchesRequester(req: OverseerrRequest, query: string): boolean {
 export function Discover() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
+  const { pendingCount } = useOutletContext<LayoutOutletContext>()
 
   const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
   const overseerrConfigured = !!configStatus?.configured
@@ -173,8 +174,6 @@ export function Discover() {
     retry: retryRequests,
     refetch: refetchRequests,
   } = useInfiniteFetch<OverseerrRequest>(requestsBaseUrl, 30)
-
-  const { data: counts } = useFetch<OverseerrRequestCount>(overseerrConfigured && isAdmin ? '/api/overseerr/requests/count' : null)
 
   useEffect(() => {
     if (!search) {
@@ -236,9 +235,9 @@ export function Discover() {
           </button>
           <button onClick={() => setTab('requests')} className={tabClass(tab === 'requests')}>
             Requests
-            {counts && counts.pending > 0 && isAdmin && (
+            {pendingCount > 0 && (
               <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-yellow-500/20 text-yellow-500">
-                {counts.pending}
+                {pendingCount}
               </span>
             )}
           </button>

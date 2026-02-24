@@ -16,6 +16,16 @@ vi.mock('../hooks/useFetch', () => ({
   }),
 }))
 
+vi.mock('../hooks/useRequestCount', () => ({
+  useRequestCount: vi.fn(() => ({ data: null, loading: false, error: null, refetch: vi.fn() })),
+}))
+
+import { useRequestCount } from '../hooks/useRequestCount'
+import { useFetch } from '../hooks/useFetch'
+
+const mockUseRequestCount = vi.mocked(useRequestCount)
+const mockUseFetch = vi.mocked(useFetch)
+
 import { useAuth } from '../context/AuthContext'
 
 const mockUseAuth = vi.mocked(useAuth)
@@ -71,5 +81,23 @@ describe('Layout', () => {
     mockUseAuth.mockReturnValue({ ...baseAuth, user: viewerUser })
     renderWithRouter(<Layout />)
     expect(screen.getAllByText('My Stats').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows pending request count badge when overseerr configured and count > 0', () => {
+    mockUseFetch.mockImplementation((url: string | null) => {
+      if (url === '/api/sonarr/configured') return { data: { configured: false }, loading: false, error: null, refetch: vi.fn() }
+      if (url === '/api/overseerr/configured') return { data: { configured: true }, loading: false, error: null, refetch: vi.fn() }
+      if (url === '/api/settings/guest') return { data: { settings: {}, plex_tokens_available: false }, loading: false, error: null, refetch: vi.fn() }
+      return { data: null, loading: false, error: null, refetch: vi.fn() }
+    })
+    mockUseRequestCount.mockReturnValue({
+      data: {
+        pending: 5, total: 10, movie: 5, tv: 5,
+        approved: 3, declined: 1, processing: 0, available: 1,
+      },
+      loading: false, error: null, refetch: vi.fn(),
+    })
+    renderWithRouter(<Layout />)
+    expect(screen.getAllByText('5').length).toBeGreaterThanOrEqual(1)
   })
 })
