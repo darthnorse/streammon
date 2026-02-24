@@ -34,6 +34,7 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
   const [error, setError] = useState('')
 
   const [overseerrStatus, setOverseerrStatus] = useState<number | undefined>()
+  const [overseerrChecked, setOverseerrChecked] = useState(false)
   const [requesting, setRequesting] = useState(false)
   const [requestSuccess, setRequestSuccess] = useState(false)
   const [requestError, setRequestError] = useState('')
@@ -102,6 +103,7 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
         if (!controller.signal.aborted) setOverseerrStatus(data.mediaInfo?.status)
       })
       .catch(() => { /* ignore — just means no status badge */ })
+      .finally(() => { if (!controller.signal.aborted) setOverseerrChecked(true) })
     return () => controller.abort()
   }, [overseerrConfigured, mediaType, mediaId])
 
@@ -161,7 +163,7 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
   const collection = movie?.belongs_to_collection
 
   const alreadyRequested = overseerrStatus && overseerrStatus >= 2 && overseerrStatus <= 5
-  const canRequest = overseerrConfigured && !alreadyRequested && !requestSuccess
+  const canRequest = overseerrConfigured && overseerrChecked && !alreadyRequested && !requestSuccess
 
   return (
     <div
@@ -234,10 +236,16 @@ export function TMDBDetailModal({ mediaType, mediaId, overseerrConfigured, onClo
                         <span>{runtime} min</span>
                       </>
                     )}
-                    {tv?.number_of_episodes && (
+                    {tv?.number_of_seasons != null && (
                       <>
                         <span>&middot;</span>
-                        <span>{tv.number_of_episodes} episodes</span>
+                        <span>{tv.number_of_seasons} season{tv.number_of_seasons !== 1 ? 's' : ''}</span>
+                      </>
+                    )}
+                    {tv?.number_of_episodes != null && (
+                      <>
+                        <span>&middot;</span>
+                        <span>{tv.number_of_episodes} episode{tv.number_of_episodes !== 1 ? 's' : ''}</span>
                       </>
                     )}
                     {rating != null && rating > 0 && (

@@ -26,9 +26,10 @@ type Props = {
   isAdmin: boolean
   onAction: () => void
   onTitleResolved?: (requestId: number, title: string) => void
+  onTitleClick?: (mediaType: 'movie' | 'tv', tmdbId: number) => void
 }
 
-export function RequestCard({ request, isAdmin, onAction, onTitleResolved }: Props) {
+export function RequestCard({ request, isAdmin, onAction, onTitleResolved, onTitleClick }: Props) {
   const [acting, setActing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
@@ -91,7 +92,17 @@ export function RequestCard({ request, isAdmin, onAction, onTitleResolved }: Pro
       )}
       <div className="flex-1 min-w-0">
         <p className="font-medium truncate">
-          {mediaTitle ?? <span className="text-muted dark:text-muted-dark">Loading...</span>}
+          {mediaTitle && request.media?.tmdbId && onTitleClick ? (
+            <button
+              type="button"
+              onClick={() => onTitleClick(request.type === 'movie' ? 'movie' : 'tv', request.media!.tmdbId!)}
+              className="hover:text-accent hover:underline transition-colors text-left"
+            >
+              {mediaTitle}
+            </button>
+          ) : (
+            mediaTitle ?? <span className="text-muted dark:text-muted-dark">Loading...</span>
+          )}
           {year && <span className="text-sm text-muted dark:text-muted-dark ml-1.5">({year})</span>}
         </p>
         <div className="flex items-center gap-2 flex-wrap mt-1">
