@@ -17,6 +17,19 @@ vi.mock('../lib/bodyScroll', () => ({
   unlockBodyScroll: vi.fn(),
 }))
 
+vi.mock('../hooks/useTMDBEnrichment', () => ({
+  useTMDBEnrichment: () => ({ movie: null, tv: null, loading: false }),
+}))
+
+vi.mock('../hooks/useFetch', () => ({
+  useFetch: () => ({ data: null, loading: false, error: null, refetch: vi.fn() }),
+}))
+
+vi.mock('../hooks/useRequestCount', () => ({
+  useRequestCount: vi.fn(() => ({ data: null, loading: false, error: null, refetch: vi.fn() })),
+  dispatchRequestChanged: vi.fn(),
+}))
+
 describe('ModalStackRenderer', () => {
   const pushModal = vi.fn()
   const popModal = vi.fn()
