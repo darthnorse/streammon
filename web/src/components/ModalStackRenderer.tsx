@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { PersonModal } from './PersonModal'
-import { TMDBDetailModal } from './TMDBDetailModal'
+import { MediaDetailModal } from './MediaDetailModal'
 import type { ModalEntry } from '../types'
 
 const HIDDEN_STYLE: CSSProperties = {
@@ -46,7 +46,7 @@ export function ModalStackRenderer({
           case 'tmdb':
             return (
               <div key={`tmdb-${entry.mediaType}-${entry.mediaId}-${i}`} style={style} aria-hidden={ariaHidden}>
-                <TMDBDetailModal
+                <MediaDetailModal
                   mediaType={entry.mediaType}
                   mediaId={entry.mediaId}
                   overseerrConfigured={overseerrConfigured}

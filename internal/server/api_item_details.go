@@ -58,6 +58,14 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		details.TMDBID = tmdbID
 	}
 
+	if details.TMDBID == "" && details.SeriesTitle != "" {
+		if tmdbID, err := s.store.GetLibraryItemTMDBIDByTitle(r.Context(), serverID, details.SeriesTitle, string(models.MediaTypeTV)); err != nil {
+			log.Printf("WARN: GetLibraryItemTMDBIDByTitle server=%d title=%q: %v", serverID, details.SeriesTitle, err)
+		} else if tmdbID != "" {
+			details.TMDBID = tmdbID
+		}
+	}
+
 	searchTitle := details.Title
 	if details.SeriesTitle != "" {
 		searchTitle = details.SeriesTitle

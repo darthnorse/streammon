@@ -516,6 +516,20 @@ func (s *Store) GetLibraryItemTMDBID(ctx context.Context, serverID int64, itemID
 	return tmdbID, nil
 }
 
+func (s *Store) GetLibraryItemTMDBIDByTitle(ctx context.Context, serverID int64, title string, mediaType string) (string, error) {
+	var tmdbID string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT tmdb_id FROM library_items WHERE server_id = ? AND title = ? AND media_type = ? AND tmdb_id != '' ORDER BY synced_at DESC LIMIT 1`,
+		serverID, title, mediaType).Scan(&tmdbID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get tmdb id by title: %w", err)
+	}
+	return tmdbID, nil
+}
+
 // GetAllLibraryTotalSizes returns total sizes for all libraries, keyed by "serverID-libraryID"
 func (s *Store) GetAllLibraryTotalSizes(ctx context.Context) (map[string]int64, error) {
 	rows, err := s.db.QueryContext(ctx,

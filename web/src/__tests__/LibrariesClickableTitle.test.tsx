@@ -22,8 +22,9 @@ vi.mock('../components/PersonModal', () => ({
   PersonModal: () => null,
 }))
 
-vi.mock('../components/TMDBDetailModal', () => ({
-  TMDBDetailModal: () => null,
+vi.mock('../hooks/useRequestCount', () => ({
+  useRequestCount: vi.fn(() => ({ data: null, loading: false, error: null, refetch: vi.fn() })),
+  dispatchRequestChanged: vi.fn(),
 }))
 
 import { useFetch } from '../hooks/useFetch'

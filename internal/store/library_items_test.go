@@ -1099,6 +1099,121 @@ func TestGetLibraryItemTMDBID(t *testing.T) {
 	})
 }
 
+func TestGetLibraryItemTMDBIDByTitle(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show1", MediaType: models.MediaTypeTV, Title: "Breaking Bad", AddedAt: now, SyncedAt: now, TMDBID: "1396"},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show2", MediaType: models.MediaTypeTV, Title: "No TMDB Show", AddedAt: now, SyncedAt: now, TMDBID: ""},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("found by title", func(t *testing.T) {
+		id, err := s.GetLibraryItemTMDBIDByTitle(ctx, srv.ID, "Breaking Bad", string(models.MediaTypeTV))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "1396" {
+			t.Errorf("got %q, want 1396", id)
+		}
+	})
+
+	t.Run("not found", func(t *testing.T) {
+		id, err := s.GetLibraryItemTMDBIDByTitle(ctx, srv.ID, "Nonexistent", string(models.MediaTypeTV))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "" {
+			t.Errorf("got %q, want empty", id)
+		}
+	})
+
+	t.Run("excludes empty tmdb_id", func(t *testing.T) {
+		id, err := s.GetLibraryItemTMDBIDByTitle(ctx, srv.ID, "No TMDB Show", string(models.MediaTypeTV))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "" {
+			t.Errorf("got %q, want empty (should exclude empty tmdb_id rows)", id)
+		}
+	})
+
+	t.Run("cross-server isolation", func(t *testing.T) {
+		srv2 := &models.Server{Name: "Other", Type: models.ServerTypeJellyfin, URL: "http://other", APIKey: "key2", Enabled: true}
+		if err := s.CreateServer(srv2); err != nil {
+			t.Fatal(err)
+		}
+		otherItems := []models.LibraryItemCache{
+			{ServerID: srv2.ID, LibraryID: "lib1", ItemID: "other-show1", MediaType: models.MediaTypeTV, Title: "Breaking Bad", AddedAt: now, SyncedAt: now, TMDBID: "9999"},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, otherItems); err != nil {
+			t.Fatal(err)
+		}
+		id, err := s.GetLibraryItemTMDBIDByTitle(ctx, srv.ID, "Breaking Bad", string(models.MediaTypeTV))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "1396" {
+			t.Errorf("got %q, want 1396 (should not return other server's TMDB ID)", id)
+		}
+		id, err = s.GetLibraryItemTMDBIDByTitle(ctx, srv2.ID, "Breaking Bad", string(models.MediaTypeTV))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "9999" {
+			t.Errorf("got %q, want 9999", id)
+		}
+	})
+
+	t.Run("excludes different media type", func(t *testing.T) {
+		movieItems := []models.LibraryItemCache{
+			{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie-fargo", MediaType: models.MediaTypeMovie, Title: "Fargo", AddedAt: now, SyncedAt: now, TMDBID: "275"},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, movieItems); err != nil {
+			t.Fatal(err)
+		}
+		id, err := s.GetLibraryItemTMDBIDByTitle(ctx, srv.ID, "Fargo", string(models.MediaTypeTV))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "" {
+			t.Errorf("got %q, want empty (should not return movie TMDB ID for TV lookup)", id)
+		}
+	})
+
+	t.Run("returns most recently synced on tie", func(t *testing.T) {
+		oldItems := []models.LibraryItemCache{
+			{ServerID: srv.ID, LibraryID: "lib1", ItemID: "tie-old", MediaType: models.MediaTypeTV, Title: "Tie Show", AddedAt: now, TMDBID: "old-id"},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, oldItems); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+		newItems := []models.LibraryItemCache{
+			{ServerID: srv.ID, LibraryID: "lib1", ItemID: "tie-new", MediaType: models.MediaTypeTV, Title: "Tie Show", AddedAt: now, TMDBID: "new-id"},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, newItems); err != nil {
+			t.Fatal(err)
+		}
+		id, err := s.GetLibraryItemTMDBIDByTitle(ctx, srv.ID, "Tie Show", string(models.MediaTypeTV))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id != "new-id" {
+			t.Errorf("got %q, want new-id (should return most recently synced)", id)
+		}
+	})
+}
+
 func TestGetAllLibraryTotalSizes(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

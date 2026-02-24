@@ -18,8 +18,8 @@ vi.mock('../context/AuthContext', () => ({
   useAuth: vi.fn(),
 }))
 
-vi.mock('../components/TMDBDetailModal', () => ({
-  TMDBDetailModal: ({ mediaType, mediaId, overseerrConfigured, onClose }: { mediaType: string; mediaId: number; overseerrConfigured: boolean; onClose: () => void }) => (
+vi.mock('../components/MediaDetailModal', () => ({
+  MediaDetailModal: ({ mediaType, mediaId, overseerrConfigured, onClose }: { mediaType: string; mediaId: number; overseerrConfigured: boolean; onClose: () => void }) => (
     <div data-testid="tmdb-modal" data-media-type={mediaType} data-media-id={mediaId} data-overseerr-configured={String(overseerrConfigured)}>
       <button onClick={onClose}>Close</button>
     </div>
