@@ -18,7 +18,7 @@ import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { TMDB_IMG } from '../lib/tmdb'
 import { api } from '../lib/api'
 import { mediaStatusBadge } from '../lib/overseerr'
-import { dispatchRequestChanged } from '../hooks/useRequestCount'
+import { useOverseerrRequest } from '../hooks/useOverseerrRequest'
 import { CastChip } from './CastChip'
 import { ModalStackRenderer } from './ModalStackRenderer'
 
@@ -235,15 +235,6 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
   const [fetchError, setFetchError] = useState('')
   const [libraryMatches, setLibraryMatches] = useState<LibraryMatch[]>([])
 
-  const [overseerrStatus, setOverseerrStatus] = useState<number | undefined>()
-  const [overseerrChecked, setOverseerrChecked] = useState(false)
-
-  const [requesting, setRequesting] = useState(false)
-  const [requestSuccess, setRequestSuccess] = useState(false)
-  const [requestError, setRequestError] = useState('')
-  const [selectedSeasons, setSelectedSeasons] = useState<number[]>([])
-  const [allSeasons, setAllSeasons] = useState(true)
-
   useEffect(() => {
     if (!tmdbMediaType || tmdbMediaId == null) return
     setFetchedMovie(null)
@@ -263,16 +254,12 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
         if (tmdbMediaType === 'movie') {
           setFetchedMovie((data as TMDBMovieEnvelope).tmdb)
         } else {
-          const tvData = (data as TMDBTVEnvelope).tmdb
-          setFetchedTV(tvData)
-          if (tvData.seasons) {
-            setSelectedSeasons(regularSeasonNumbers(tvData.seasons))
-          }
+          setFetchedTV((data as TMDBTVEnvelope).tmdb)
         }
       })
       .catch(err => {
         if (err instanceof Error && err.name === 'AbortError') return
-        if (!controller.signal.aborted) setFetchError((err as Error).message)
+        if (!controller.signal.aborted) setFetchError(err instanceof Error ? err.message : String(err))
       })
       .finally(() => {
         if (!controller.signal.aborted) setFetchLoading(false)
@@ -284,28 +271,33 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
   const tmdbTV = libraryMode ? enrichment.tv : fetchedTV
   const tmdbLoading = libraryMode ? enrichment.loading : fetchLoading
 
-  // Determine effective TMDB ID + media type for Overseerr
   const effectiveTmdbId = libraryMode ? libraryItem?.tmdb_id : tmdbMediaId?.toString()
   const effectiveMediaType = libraryMode
     ? resolveMediaType(libraryItem?.media_type)
     : tmdbMediaType
 
-  useEffect(() => {
-    if (!overseerrConfigured || !effectiveTmdbId || !effectiveMediaType) return
-    setOverseerrStatus(undefined)
-    setOverseerrChecked(false)
-    const controller = new AbortController()
-    const endpoint = effectiveMediaType === 'movie'
-      ? `/api/overseerr/movie/${effectiveTmdbId}`
-      : `/api/overseerr/tv/${effectiveTmdbId}`
-    api.get<{ mediaInfo?: { status?: number } }>(endpoint, controller.signal)
-      .then(data => {
-        if (!controller.signal.aborted) setOverseerrStatus(data.mediaInfo?.status)
-      })
-      .catch(() => {})
-      .finally(() => { if (!controller.signal.aborted) setOverseerrChecked(true) })
-    return () => controller.abort()
-  }, [overseerrConfigured, effectiveTmdbId, effectiveMediaType])
+  const seasonNumbers = useMemo(
+    () => tmdbTV?.seasons ? regularSeasonNumbers(tmdbTV.seasons) : [],
+    [tmdbTV],
+  )
+
+  const {
+    overseerrStatus,
+    requesting,
+    requestSuccess,
+    requestError,
+    selectedSeasons,
+    allSeasons,
+    canRequest,
+    handleRequest,
+    toggleSeason,
+    toggleAllSeasons,
+  } = useOverseerrRequest({
+    overseerrConfigured,
+    effectiveTmdbId,
+    effectiveMediaType,
+    seasonNumbers,
+  })
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key !== 'Escape') return
@@ -334,48 +326,6 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
       pushModal({ type: 'person', personId })
     }
   }, [parentOnPersonClick, pushModal])
-
-  async function handleRequest() {
-    if (!effectiveTmdbId || !effectiveMediaType) return
-    setRequesting(true)
-    setRequestError('')
-    try {
-      const body: Record<string, unknown> = {
-        mediaType: effectiveMediaType,
-        mediaId: Number(effectiveTmdbId),
-      }
-      if (effectiveMediaType === 'tv') body.seasons = selectedSeasons
-      await api.post('/api/overseerr/requests', body)
-      setRequestSuccess(true)
-      dispatchRequestChanged()
-    } catch (err) {
-      setRequestError((err as Error).message)
-    } finally {
-      setRequesting(false)
-    }
-  }
-
-  function toggleSeason(num: number) {
-    if (allSeasons) {
-      setAllSeasons(false)
-      setSelectedSeasons([num])
-      return
-    }
-    setSelectedSeasons(prev =>
-      prev.includes(num) ? prev.filter(n => n !== num) : [...prev, num],
-    )
-  }
-
-  function toggleAllSeasons() {
-    if (allSeasons) {
-      setAllSeasons(false)
-      setSelectedSeasons([])
-    } else {
-      setAllSeasons(true)
-      const seasons = tmdbTV?.seasons
-      if (seasons) setSelectedSeasons(regularSeasonNumbers(seasons))
-    }
-  }
 
   const isLoading = libraryMode ? libraryLoading : fetchLoading
   const hasError = !libraryMode && !!fetchError
@@ -414,9 +364,6 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
   const seasonCount = tmdbTV?.number_of_seasons
   const episodeCount = tmdbTV?.number_of_episodes
 
-  const alreadyRequested = overseerrStatus != null && overseerrStatus >= 2 && overseerrStatus <= 6
-  const canRequest = overseerrConfigured && overseerrChecked && !alreadyRequested && !requestSuccess && !!effectiveTmdbId
-
   const serverThumbByName = useMemo(() => {
     const map = new Map<string, string>()
     if (libraryItem?.cast) {
@@ -431,7 +378,6 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
     ? (serverAccent[libraryItem.server_type] ?? defaultAccent)
     : defaultAccent
 
-  // Genre badge style: use server accent for library items, generic accent for TMDB-only
   const genreBadgeClass = libraryItem ? accent.badge : 'bg-accent/10 text-accent'
 
   const zIndex = libraryMode ? 'z-[60]' : 'z-[70]'
@@ -454,7 +400,6 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                      bg-panel dark:bg-panel-dark shadow-2xl animate-slide-up"
           onClick={e => e.stopPropagation()}
         >
-          {/* Accent bar when no backdrop */}
           {!backdrop && libraryItem && <div className={`h-1 ${accent.bar}`} />}
 
           <button
@@ -654,7 +599,6 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                   </div>
                 )}
 
-                {/* TMDB loading indicator */}
                 {tmdbLoading && !hasTMDBCast && libraryItem?.tmdb_id && (
                   <div className="flex items-center gap-2 text-xs text-muted dark:text-muted-dark">
                     <div className="w-3 h-3 border border-accent border-t-transparent rounded-full animate-spin" />
