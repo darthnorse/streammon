@@ -1016,7 +1016,7 @@ func (s *Server) handleListExclusions(w http.ResponseWriter, r *http.Request) {
 	}
 	sortBy := r.URL.Query().Get("sort_by")
 	switch sortBy {
-	case "title", "type", "year", "excluded_at", "excluded_by":
+	case "title", "type", "year", "size", "excluded_at", "excluded_by":
 	default:
 		sortBy = ""
 	}
@@ -1055,7 +1055,7 @@ func (s *Server) handleListRuleExclusions(w http.ResponseWriter, r *http.Request
 	}
 	sortBy := r.URL.Query().Get("sort_by")
 	switch sortBy {
-	case "title", "type", "year", "excluded_at", "excluded_by":
+	case "title", "type", "year", "size", "excluded_at", "excluded_by":
 	default:
 		sortBy = ""
 	}
