@@ -61,6 +61,7 @@ type LibraryItemCache struct {
 	TMDBID          string     `json:"tmdb_id,omitempty"`
 	TVDBID          string     `json:"tvdb_id,omitempty"`
 	IMDBID          string     `json:"imdb_id,omitempty"`
+	TMDBStatus      string     `json:"tmdb_status,omitempty"`
 	SyncedAt        time.Time  `json:"synced_at"`
 }
 
@@ -236,6 +237,17 @@ type MaintenanceExclusion struct {
 	Item          *LibraryItemCache `json:"item,omitempty"`
 }
 
+type CandidateListOptions struct {
+	Page      int
+	PerPage   int
+	Search    string
+	SortBy    string
+	SortOrder string
+	ServerID  int64
+	LibraryID string
+	Status    string
+}
+
 type CandidatesResponse struct {
 	Items          []MaintenanceCandidate `json:"items"`
 	Total          int                    `json:"total"`
@@ -243,4 +255,5 @@ type CandidatesResponse struct {
 	ExclusionCount int                    `json:"exclusion_count"`
 	Page           int                    `json:"page"`
 	PerPage        int                    `json:"per_page"`
+	Statuses       []string               `json:"statuses,omitempty"`
 }

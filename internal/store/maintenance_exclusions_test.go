@@ -222,7 +222,7 @@ func TestCandidatesExcludeExcludedItems(t *testing.T) {
 	}
 
 	// Verify we have 3 candidates
-	result, _ := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "", 0, "")
+	result, _ := s.ListCandidatesForRule(ctx, ruleID, models.CandidateListOptions{Page: 1, PerPage: 10})
 	if result.Total != 3 {
 		t.Fatalf("setup: expected 3 candidates, got %d", result.Total)
 	}
@@ -233,7 +233,7 @@ func TestCandidatesExcludeExcludedItems(t *testing.T) {
 	}
 
 	// Now list should return only 2
-	result, err := s.ListCandidatesForRule(ctx, ruleID, 1, 10, "", "", "", 0, "")
+	result, err := s.ListCandidatesForRule(ctx, ruleID, models.CandidateListOptions{Page: 1, PerPage: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

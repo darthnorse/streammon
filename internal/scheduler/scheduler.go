@@ -113,6 +113,9 @@ func (sch *Scheduler) SyncAll(ctx context.Context) error {
 	// Phase 1: Sync all libraries
 	totalLibs, totalItems, syncErrors := sch.syncAllLibraries(ctx)
 
+	// Phase 1.5: Fetch and persist TV series statuses from TMDB
+	sch.syncTVStatuses(ctx)
+
 	// Phase 2: Evaluate all rules now that all libraries are synced
 	totalCandidates, evalErrors := sch.evaluateAllRules(ctx)
 	totalErrors := syncErrors + evalErrors
@@ -181,6 +184,47 @@ func (sch *Scheduler) syncAllLibraries(ctx context.Context) (totalLibs, totalIte
 
 	log.Printf("scheduler: phase 1 complete - synced %d libraries, %d items", totalLibs, totalItems)
 	return totalLibs, totalItems, totalErrors
+}
+
+func (sch *Scheduler) syncTVStatuses(ctx context.Context) {
+	if sch.tmdb == nil {
+		return
+	}
+
+	ids, err := sch.store.ListTVTMDBIDs(ctx)
+	if err != nil {
+		log.Printf("scheduler: list tv tmdb ids: %v", err)
+		return
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	log.Printf("scheduler: fetching TV statuses for %d series from TMDB", len(ids))
+
+	statuses := make(map[string]string)
+	const chunkSize = 100
+	for i := 0; i < len(ids); i += chunkSize {
+		end := i + chunkSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		log.Printf("scheduler: fetching TV statuses %d-%d of %d", i+1, end, len(ids))
+		for k, v := range sch.tmdb.FetchTVStatuses(ctx, ids[i:end]) {
+			statuses[k] = v
+		}
+	}
+
+	if len(statuses) == 0 {
+		return
+	}
+
+	if err := sch.store.UpdateTVStatuses(ctx, statuses); err != nil {
+		log.Printf("scheduler: update tv statuses: %v", err)
+		return
+	}
+
+	log.Printf("scheduler: updated %d TV series statuses", len(statuses))
 }
 
 func (sch *Scheduler) evaluateAllRules(ctx context.Context) (totalCandidates, totalErrors int) {

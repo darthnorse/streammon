@@ -587,6 +587,7 @@ export interface LibraryItemCache {
   tmdb_id?: string
   tvdb_id?: string
   imdb_id?: string
+  tmdb_status?: string
   synced_at: string
 }
 
@@ -640,6 +641,7 @@ export interface MaintenanceCandidatesResponse {
   exclusion_count: number
   page: number
   per_page: number
+  statuses?: string[]
 }
 
 export interface MaintenanceExclusion {

@@ -15,7 +15,7 @@ const candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
 	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url,
-	i.tmdb_id, i.tvdb_id, i.imdb_id, i.synced_at,
+	i.tmdb_id, i.tvdb_id, i.imdb_id, i.tmdb_status, i.synced_at,
 	(SELECT COUNT(*) FROM watch_history wh WHERE wh.server_id = i.server_id AND (wh.item_id = i.item_id OR wh.grandparent_item_id = i.item_id)) as play_count`
 
 func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
@@ -27,7 +27,7 @@ func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceC
 		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
 		&item.Title, &item.Year, &item.AddedAt, &lastWatchedAt, &item.VideoResolution, &item.FileSize,
 		&item.EpisodeCount, &item.ThumbURL,
-		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.SyncedAt,
+		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.TMDBStatus, &item.SyncedAt,
 		&c.PlayCount,
 	)
 	if err != nil {
@@ -74,11 +74,11 @@ var validCandidateSortColumns = map[string]string{
 	"reason":     "c.reason",
 	"added_at":   "i.added_at",
 	"watches":    "play_count",
+	"status":     "i.tmdb_status",
 }
 
 // ListCandidatesForRule returns candidates with their library items, excluding excluded items.
-// Optional serverID/libraryID filters scope results to a single library.
-func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int, search, sortBy, sortOrder string, serverID int64, libraryID string) (*models.CandidatesResponse, error) {
+func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, opts models.CandidateListOptions) (*models.CandidatesResponse, error) {
 	var total int
 	var totalSize int64
 	var args []any
@@ -86,15 +86,20 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 	baseWhere := `c.rule_id = ? AND e.id IS NULL`
 	args = append(args, ruleID)
 
-	if serverID > 0 && libraryID != "" {
+	if opts.ServerID > 0 && opts.LibraryID != "" {
 		baseWhere += ` AND i.server_id = ? AND i.library_id = ?`
-		args = append(args, serverID, libraryID)
+		args = append(args, opts.ServerID, opts.LibraryID)
 	}
 
-	if search != "" {
-		searchPattern := "%" + escapeLikePattern(search) + "%"
-		baseWhere += ` AND (i.title LIKE ? ESCAPE '\' OR CAST(i.year AS TEXT) LIKE ? ESCAPE '\' OR i.video_resolution LIKE ? ESCAPE '\' OR c.reason LIKE ? ESCAPE '\')`
-		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
+	if opts.Status != "" {
+		baseWhere += ` AND i.tmdb_status = ?`
+		args = append(args, opts.Status)
+	}
+
+	if opts.Search != "" {
+		searchPattern := "%" + escapeLikePattern(opts.Search) + "%"
+		baseWhere += ` AND (i.title LIKE ? ESCAPE '\' OR CAST(i.year AS TEXT) LIKE ? ESCAPE '\' OR i.video_resolution LIKE ? ESCAPE '\' OR i.tmdb_status LIKE ? ESCAPE '\' OR c.reason LIKE ? ESCAPE '\')`
+		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern, searchPattern)
 	}
 
 	statsQuery := `
@@ -114,18 +119,22 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 	}
 
 	orderBy := "i.added_at DESC"
-	if col, ok := validCandidateSortColumns[sortBy]; ok {
+	if col, ok := validCandidateSortColumns[opts.SortBy]; ok {
 		dir := "DESC"
-		if sortOrder == "asc" {
+		if opts.SortOrder == "asc" {
 			dir = "ASC"
 		}
 		orderBy = col + " " + dir
 	}
 
-	offset := (page - 1) * perPage
+	page := opts.Page
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * opts.PerPage
 	listArgs := make([]any, len(args), len(args)+2)
 	copy(listArgs, args)
-	listArgs = append(listArgs, perPage, offset)
+	listArgs = append(listArgs, opts.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
@@ -155,13 +164,42 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, page, p
 		return nil, fmt.Errorf("populate other copies: %w", err)
 	}
 
+	var statuses []string
+	statusWhere := `c.rule_id = ? AND e.id IS NULL AND i.tmdb_status != ''`
+	statusArgs := []any{ruleID}
+	if opts.ServerID > 0 && opts.LibraryID != "" {
+		statusWhere += ` AND i.server_id = ? AND i.library_id = ?`
+		statusArgs = append(statusArgs, opts.ServerID, opts.LibraryID)
+	}
+	statusRows, err := s.db.QueryContext(ctx, `
+		SELECT DISTINCT i.tmdb_status FROM maintenance_candidates c
+		JOIN library_items i ON c.library_item_id = i.id
+		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		WHERE `+statusWhere+`
+		ORDER BY i.tmdb_status`, statusArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("distinct statuses: %w", err)
+	}
+	defer statusRows.Close()
+	for statusRows.Next() {
+		var s string
+		if err := statusRows.Scan(&s); err != nil {
+			return nil, fmt.Errorf("scan status: %w", err)
+		}
+		statuses = append(statuses, s)
+	}
+	if err := statusRows.Err(); err != nil {
+		return nil, fmt.Errorf("status rows: %w", err)
+	}
+
 	return &models.CandidatesResponse{
 		Items:          candidates,
 		Total:          total,
 		TotalSize:      totalSize,
 		ExclusionCount: exclusionCount,
 		Page:           page,
-		PerPage:        perPage,
+		PerPage:        opts.PerPage,
+		Statuses:       statuses,
 	}, nil
 }
 

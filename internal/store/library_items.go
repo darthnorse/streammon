@@ -13,13 +13,13 @@ import (
 
 const libraryItemColumns = `id, server_id, library_id, item_id, media_type, title, year,
 	added_at, last_watched_at, video_resolution, file_size, episode_count, thumb_url,
-	tmdb_id, tvdb_id, imdb_id, synced_at`
+	tmdb_id, tvdb_id, imdb_id, tmdb_status, synced_at`
 
 const libraryItemUpsertSQL = `
 	INSERT INTO library_items (server_id, library_id, item_id, media_type, title, year,
 		added_at, last_watched_at, video_resolution, file_size, episode_count, thumb_url,
-		tmdb_id, tvdb_id, imdb_id, synced_at)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		tmdb_id, tvdb_id, imdb_id, tmdb_status, synced_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(server_id, item_id) DO UPDATE SET
 		library_id = excluded.library_id,
 		media_type = excluded.media_type,
@@ -38,13 +38,17 @@ const libraryItemUpsertSQL = `
 		tmdb_id = excluded.tmdb_id,
 		tvdb_id = excluded.tvdb_id,
 		imdb_id = excluded.imdb_id,
+		tmdb_status = CASE
+			WHEN excluded.tmdb_status != '' THEN excluded.tmdb_status
+			ELSE library_items.tmdb_status
+		END,
 		synced_at = excluded.synced_at`
 
 func execLibraryItemUpsert(ctx context.Context, stmt *sql.Stmt, item models.LibraryItemCache, syncTime time.Time) error {
 	_, err := stmt.ExecContext(ctx, item.ServerID, item.LibraryID, item.ItemID,
 		item.MediaType, item.Title, item.Year, item.AddedAt, item.LastWatchedAt,
 		item.VideoResolution, item.FileSize, item.EpisodeCount, normalizeThumbURL(item.ThumbURL),
-		item.TMDBID, item.TVDBID, item.IMDBID, syncTime)
+		item.TMDBID, item.TVDBID, item.IMDBID, item.TMDBStatus, syncTime)
 	return err
 }
 
@@ -54,7 +58,7 @@ func scanLibraryItem(scanner interface{ Scan(...any) error }) (models.LibraryIte
 	err := scanner.Scan(&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID,
 		&item.MediaType, &item.Title, &item.Year, &item.AddedAt, &lastWatchedAt,
 		&item.VideoResolution, &item.FileSize, &item.EpisodeCount, &item.ThumbURL,
-		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.SyncedAt)
+		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.TMDBStatus, &item.SyncedAt)
 	if err != nil {
 		return item, err
 	}
@@ -206,6 +210,55 @@ func (s *Store) SyncLibraryItems(ctx context.Context, serverID int64, libraryID 
 	}
 
 	return upserted, deleted, nil
+}
+
+func (s *Store) UpdateTVStatuses(ctx context.Context, statuses map[string]string) error {
+	if len(statuses) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `UPDATE library_items SET tmdb_status = ? WHERE tmdb_id = ? AND media_type = ?`)
+	if err != nil {
+		return fmt.Errorf("prepare: %w", err)
+	}
+	defer stmt.Close()
+
+	for tmdbID, status := range statuses {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if _, err := stmt.ExecContext(ctx, status, tmdbID, string(models.MediaTypeTV)); err != nil {
+			return fmt.Errorf("update status for tmdb_id %s: %w", tmdbID, err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) ListTVTMDBIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT tmdb_id FROM library_items WHERE tmdb_id != '' AND media_type = ?`,
+		string(models.MediaTypeTV))
+	if err != nil {
+		return nil, fmt.Errorf("list tv tmdb ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan tmdb id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func (s *Store) CountLibraryItems(ctx context.Context, serverID int64, libraryID string) (int, error) {

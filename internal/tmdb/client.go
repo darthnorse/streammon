@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 
+	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
 
 	"streammon/internal/httputil"
@@ -163,6 +165,43 @@ func (c *Client) GetCollection(ctx context.Context, id int) (json.RawMessage, er
 
 func (c *Client) GetTVGenres(ctx context.Context) (json.RawMessage, error) {
 	return c.cached(ctx, "genres:tv", "/genre/tv/list", nil)
+}
+
+func (c *Client) FetchTVStatuses(ctx context.Context, tmdbIDs []string) map[string]string {
+	if len(tmdbIDs) == 0 {
+		return nil
+	}
+
+	var mu sync.Mutex
+	statuses := make(map[string]string, len(tmdbIDs))
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(10)
+
+	for _, tmdbID := range tmdbIDs {
+		g.Go(func() error {
+			id, err := strconv.Atoi(tmdbID)
+			if err != nil {
+				return nil
+			}
+			data, err := c.GetTV(gctx, id)
+			if err != nil {
+				return nil
+			}
+			var parsed struct {
+				Status string `json:"status"`
+			}
+			if err := json.Unmarshal(data, &parsed); err == nil && parsed.Status != "" {
+				mu.Lock()
+				statuses[tmdbID] = parsed.Status
+				mu.Unlock()
+			}
+			return nil
+		})
+	}
+	_ = g.Wait()
+
+	return statuses
 }
 
 func (c *Client) TestConnection(ctx context.Context) error {
