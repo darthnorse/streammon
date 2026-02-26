@@ -14,6 +14,7 @@ import { Pagination } from './Pagination'
 import { MediaDetailModal } from './MediaDetailModal'
 import { MaintenanceRuleForm } from './MaintenanceRuleForm'
 import { CrossServerDeleteDialog } from './CrossServerDeleteDialog'
+import { Dropdown } from './Dropdown'
 import {
   SubViewHeader,
   SearchInput,
@@ -603,14 +604,14 @@ function CandidatesView({
           placeholder={isTV ? 'Search title, year, status...' : 'Search title, year, resolution...'}
         />
         {isTV && data?.statuses && data.statuses.length > 0 && (
-          <select
+          <Dropdown
+            options={[
+              { value: '', label: 'All Statuses' },
+              ...data.statuses.map(s => ({ value: s, label: s })),
+            ]}
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
-            className="px-2 py-1.5 text-sm rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
-          >
-            <option value="">All Statuses</option>
-            {data.statuses.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+            onChange={(v) => { setStatusFilter(v); setPage(1) }}
+          />
         )}
         <div className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark">
           <label htmlFor="maint-candidates-per-page">Show</label>
