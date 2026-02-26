@@ -102,7 +102,6 @@ const candidatesResponse: MaintenanceCandidatesResponse = {
 const exclusionsResponse: MaintenanceExclusionsResponse = {
   items: [{
     id: 20,
-    rule_id: 1,
     library_item_id: 1,
     excluded_by: 'admin',
     excluded_at: '2024-06-01T00:00:00Z',

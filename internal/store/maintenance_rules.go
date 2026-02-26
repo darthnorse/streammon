@@ -282,12 +282,14 @@ func (s *Store) ListMaintenanceRules(ctx context.Context, serverID int64, librar
 func (s *Store) ListMaintenanceRulesWithCounts(ctx context.Context, serverID int64, libraryID string) ([]models.MaintenanceRuleWithCount, error) {
 	query := `SELECT r.id, r.name, r.media_type, r.criterion_type, r.parameters,
 		r.enabled, r.created_at, r.updated_at, COUNT(DISTINCT c.id) as candidate_count,
-		(SELECT COUNT(*) FROM maintenance_exclusions e2 WHERE e2.rule_id = r.id) as exclusion_count
+		(SELECT COUNT(*) FROM maintenance_candidates mc
+		 JOIN maintenance_exclusions me ON mc.library_item_id = me.library_item_id
+		 WHERE mc.rule_id = r.id) as exclusion_count
 		FROM maintenance_rules r
 		LEFT JOIN maintenance_candidates c ON r.id = c.rule_id
 			AND NOT EXISTS (
 				SELECT 1 FROM maintenance_exclusions e
-				WHERE e.rule_id = c.rule_id AND e.library_item_id = c.library_item_id
+				WHERE e.library_item_id = c.library_item_id
 			)`
 
 	var args []any

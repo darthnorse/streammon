@@ -105,7 +105,7 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, opts mo
 	statsQuery := `
 		SELECT COUNT(*), COALESCE(SUM(i.file_size), 0) FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
-		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		LEFT JOIN maintenance_exclusions e ON c.library_item_id = e.library_item_id
 		WHERE ` + baseWhere
 	err := s.db.QueryRowContext(ctx, statsQuery, args...).Scan(&total, &totalSize)
 	if err != nil {
@@ -113,7 +113,10 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, opts mo
 	}
 
 	var exclusionCount int
-	err = s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM maintenance_exclusions WHERE rule_id = ?`, ruleID).Scan(&exclusionCount)
+	err = s.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM maintenance_candidates c
+		JOIN maintenance_exclusions e ON c.library_item_id = e.library_item_id
+		WHERE c.rule_id = ?`, ruleID).Scan(&exclusionCount)
 	if err != nil {
 		return nil, fmt.Errorf("count exclusions: %w", err)
 	}
@@ -139,7 +142,7 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, opts mo
 		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
-		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		LEFT JOIN maintenance_exclusions e ON c.library_item_id = e.library_item_id
 		WHERE `+baseWhere+`
 		ORDER BY `+orderBy+`
 		LIMIT ? OFFSET ?`, listArgs...)
@@ -174,7 +177,7 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, opts mo
 	statusRows, err := s.db.QueryContext(ctx, `
 		SELECT DISTINCT i.tmdb_status FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
-		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		LEFT JOIN maintenance_exclusions e ON c.library_item_id = e.library_item_id
 		WHERE `+statusWhere+`
 		ORDER BY i.tmdb_status`, statusArgs...)
 	if err != nil {
@@ -325,7 +328,7 @@ func (s *Store) CountCandidatesForRule(ctx context.Context, ruleID int64) (int, 
 	var count int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM maintenance_candidates c
-		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		LEFT JOIN maintenance_exclusions e ON c.library_item_id = e.library_item_id
 		WHERE c.rule_id = ? AND e.id IS NULL`, ruleID).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count candidates for rule: %w", err)
@@ -485,7 +488,7 @@ func (s *Store) ListAllCandidatesForRule(ctx context.Context, ruleID int64) ([]m
 		SELECT `+candidateSelectColumns+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
-		LEFT JOIN maintenance_exclusions e ON c.rule_id = e.rule_id AND c.library_item_id = e.library_item_id
+		LEFT JOIN maintenance_exclusions e ON c.library_item_id = e.library_item_id
 		WHERE c.rule_id = ? AND e.id IS NULL
 		ORDER BY i.added_at DESC`, ruleID)
 	if err != nil {
