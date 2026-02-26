@@ -46,7 +46,7 @@ function getButtonLabel<T extends string>(props: DropdownProps<T>): string {
 
 function MultiOption<T extends string>({ opt, checked, onToggle }: { opt: DropdownOption<T>; checked: boolean; onToggle: (v: T) => void }) {
   return (
-    <label className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-surface dark:hover:bg-surface-dark">
+    <label className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-surface dark:hover:bg-surface-dark">
       <input
         type="checkbox"
         checked={checked}
@@ -63,7 +63,7 @@ function SingleOption<T extends string>({ opt, selected, onSelect }: { opt: Drop
     <button
       type="button"
       onClick={() => onSelect(opt.value)}
-      className={`flex items-center gap-2 w-full text-left px-3 py-1.5 text-xs hover:bg-surface dark:hover:bg-surface-dark ${
+      className={`flex items-center gap-2 w-full text-left px-3 py-1.5 text-sm hover:bg-surface dark:hover:bg-surface-dark ${
         selected ? 'bg-surface/50 dark:bg-surface-dark/50' : ''
       }`}
     >
@@ -100,7 +100,7 @@ export function Dropdown<T extends string = string>(props: DropdownProps<T>) {
         onClick={() => options.length > 0 && setOpen(!open)}
         aria-expanded={open}
         aria-haspopup="listbox"
-        className="bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded px-3 py-1.5 text-xs font-medium flex items-center gap-1"
+        className="bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded px-3 py-1.5 text-sm font-medium flex items-center gap-1"
       >
         <span>{getButtonLabel(props)}</span>
         <span className="text-lg">▾</span>
