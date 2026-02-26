@@ -230,7 +230,7 @@ describe('MaintenanceRulesTab clickable titles', () => {
     })
   })
 
-  describe('ExclusionsView', () => {
+  describe('GlobalExclusionsView', () => {
     it('renders exclusion title as a clickable button', async () => {
       renderWithRouter(<MaintenanceRulesTab />)
       await navigateToExclusions()
