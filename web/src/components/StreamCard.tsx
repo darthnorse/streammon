@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ActiveStream } from '../types'
 import { formatTimestamp, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, thumbUrl } from '../lib/format'
-import { mediaTypeLabels } from '../lib/constants'
+import { getMediaLabel } from '../lib/constants'
 import { GeoIPPopover } from './GeoIPPopover'
 
 const serverAccent: Record<string, { bar: string; progress: string; badge: string }> = {
@@ -29,6 +29,18 @@ function MediaTitle({ stream }: { stream: ActiveStream }) {
         </div>
         <div className="text-sm text-gray-600 dark:text-gray-300 truncate mt-1">
           {subtitle}
+        </div>
+      </>
+    )
+  }
+  if (stream.extra_type && stream.parent_title) {
+    return (
+      <>
+        <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-base leading-snug">
+          {stream.parent_title}
+        </div>
+        <div className="text-sm text-gray-600 dark:text-gray-300 truncate mt-1">
+          {stream.title}
         </div>
       </>
     )
@@ -132,7 +144,7 @@ export function StreamCard({ stream }: StreamCardProps) {
             </div>
           )}
           <span className={`badge text-[10px] py-0.5 px-2 ${accent.badge}`}>
-            {mediaTypeLabels[stream.media_type]}
+            {getMediaLabel(stream.media_type, stream.extra_type)}
           </span>
         </div>
 

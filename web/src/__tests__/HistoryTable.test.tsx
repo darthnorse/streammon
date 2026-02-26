@@ -35,6 +35,20 @@ describe('HistoryTable', () => {
     expect(screen.getAllByText('Breaking Bad').length).toBeGreaterThan(0)
   })
 
+  it('renders extra type with parent title for trailer', () => {
+    renderWithRouter(
+      <HistoryTable entries={[{
+        ...baseHistoryEntry,
+        extra_type: 'trailer',
+        title: 'Official Trailer',
+        parent_title: 'Dune: Part Two',
+      }]} />
+    )
+    expect(screen.getAllByText('Dune: Part Two').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Official Trailer').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Trailer').length).toBeGreaterThan(0)
+  })
+
   it('renders user name as link', () => {
     renderWithRouter(<HistoryTable entries={[baseHistoryEntry]} />)
     const links = screen.getAllByRole('link', { name: 'alice' })

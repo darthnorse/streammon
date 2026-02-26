@@ -24,4 +24,15 @@
     <Session id="def456" />
     <User title="bob" />
   </Video>
+  <Video sessionKey="3" ratingKey="99001" parentRatingKey="55555" type="clip" subtype="trailer" title="Official Trailer" parentTitle="Dune: Part Two" duration="120000" viewOffset="30000">
+    <Media container="mp4" videoCodec="h264" audioCodec="aac" videoResolution="1080" bitrate="5000" audioChannels="2">
+      <Part>
+        <Stream streamType="1" codec="h264" />
+        <Stream streamType="2" codec="aac" />
+      </Part>
+    </Media>
+    <Player title="Plex Web" product="Plex Web" address="192.168.1.30" state="playing" />
+    <Session id="clip001" />
+    <User title="charlie" />
+  </Video>
 </MediaContainer>

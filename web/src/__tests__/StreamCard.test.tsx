@@ -62,4 +62,18 @@ describe('StreamCard', () => {
     )
     expect(screen.getAllByText(/Direct Play/).length).toBeGreaterThan(0)
   })
+
+  it('shows extra type badge and parent title for trailer', () => {
+    renderWithRouter(
+      <StreamCard stream={{
+        ...baseStream,
+        extra_type: 'trailer',
+        title: 'Official Trailer',
+        parent_title: 'Dune: Part Two',
+      }} />
+    )
+    expect(screen.getByText('Trailer')).toBeDefined()
+    expect(screen.getByText('Dune: Part Two')).toBeDefined()
+    expect(screen.getByText('Official Trailer')).toBeDefined()
+  })
 })

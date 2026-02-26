@@ -54,8 +54,8 @@ func TestGetSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(sessions) != 2 {
-		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	if len(sessions) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(sessions))
 	}
 
 	s := sessions[0]
@@ -147,6 +147,27 @@ func TestGetSessions(t *testing.T) {
 	}
 	if s2.VideoDecision != models.TranscodeDecisionDirectPlay {
 		t.Errorf("s2 video decision = %q, want direct play (no TranscodeSession)", s2.VideoDecision)
+	}
+
+	// Session 3: clip (trailer)
+	s3 := sessions[2]
+	if s3.MediaType != models.MediaTypeMovie {
+		t.Errorf("s3 media type = %q, want movie (clips map to movie)", s3.MediaType)
+	}
+	if s3.ExtraType != models.ExtraTypeTrailer {
+		t.Errorf("s3 extra type = %q, want trailer", s3.ExtraType)
+	}
+	if s3.Title != "Official Trailer" {
+		t.Errorf("s3 title = %q, want Official Trailer", s3.Title)
+	}
+	if s3.ParentTitle != "Dune: Part Two" {
+		t.Errorf("s3 parent title = %q, want Dune: Part Two", s3.ParentTitle)
+	}
+	if s3.ThumbURL != "55555" {
+		t.Errorf("s3 thumb url = %q, want 55555 (parentRatingKey)", s3.ThumbURL)
+	}
+	if s3.UserName != "charlie" {
+		t.Errorf("s3 user = %q, want charlie", s3.UserName)
 	}
 }
 

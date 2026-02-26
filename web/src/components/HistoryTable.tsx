@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import type { WatchHistoryEntry, WatchSession } from '../types'
 import { formatDuration, formatDate, formatLocation } from '../lib/format'
-import { mediaTypeLabels } from '../lib/constants'
+import { getMediaLabel } from '../lib/constants'
 import { getHistoryColumns, EntryTitle } from '../lib/historyColumns'
 import { useColumnConfig } from '../hooks/useColumnConfig'
 import { useItemDetails } from '../hooks/useItemDetails'
@@ -61,7 +61,7 @@ function HistoryCard({ entry, hideUser, onTitleClick, expanded, sessions, onTogg
           </div>
         </div>
         <span className="badge badge-muted shrink-0">
-          {mediaTypeLabels[entry.media_type]}
+          {getMediaLabel(entry.media_type, entry.extra_type)}
         </span>
       </div>
       <div className="flex items-center gap-3 mt-2 text-xs text-muted dark:text-muted-dark">
