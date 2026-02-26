@@ -504,6 +504,33 @@ func TestGetItemDetails_Series(t *testing.T) {
 	if details.Year != 2021 {
 		t.Errorf("year = %d, want 2021", details.Year)
 	}
+	if details.Studio != "Legendary Television" {
+		t.Errorf("studio = %q, want Legendary Television", details.Studio)
+	}
+	if len(details.Genres) != 2 {
+		t.Fatalf("genres count = %d, want 2", len(details.Genres))
+	}
+	if details.Genres[0] != "Drama" || details.Genres[1] != "Sci-Fi & Fantasy" {
+		t.Errorf("genres = %v", details.Genres)
+	}
+	if len(details.Cast) != 2 {
+		t.Fatalf("cast count = %d, want 2", len(details.Cast))
+	}
+	if details.Cast[0].Name != "Jonathan Tucker" {
+		t.Errorf("cast[0].name = %q, want Jonathan Tucker", details.Cast[0].Name)
+	}
+	if details.Cast[0].Role != "Bryan Beneventi" {
+		t.Errorf("cast[0].role = %q, want Bryan Beneventi", details.Cast[0].Role)
+	}
+	if details.ThumbURL != "series1" {
+		t.Errorf("thumb url = %q, want series1", details.ThumbURL)
+	}
+	if details.ContentRating != "TV-14" {
+		t.Errorf("content rating = %q, want TV-14", details.ContentRating)
+	}
+	if details.Rating != 7.2 {
+		t.Errorf("rating = %f, want 7.2", details.Rating)
+	}
 }
 
 func TestGetItemDetails_NotFound(t *testing.T) {

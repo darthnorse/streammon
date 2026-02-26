@@ -569,7 +569,7 @@ func plexMediaType(t string) models.MediaType {
 		return models.MediaTypeMusic
 	default:
 		slog.Warn("unknown plex media type, using raw value", "type", t)
-		return models.MediaType(t)
+		return models.MediaType(strings.ToLower(t))
 	}
 }
 
