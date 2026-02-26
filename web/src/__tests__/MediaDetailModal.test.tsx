@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { MediaDetailModal } from '../components/MediaDetailModal'
 import { api } from '../lib/api'
-import type { ItemDetails, TMDBMovieEnvelope } from '../types'
+import { MEDIA_STATUS } from '../lib/overseerr'
+import type { ItemDetails, TMDBMovieEnvelope, TMDBTVEnvelope } from '../types'
 
 vi.mock('../lib/api', () => ({
   api: {
@@ -91,6 +92,45 @@ const mockTMDBMovieResponse: TMDBMovieEnvelope = {
   library_items: [],
 }
 
+const mockTMDBTVResponse: TMDBTVEnvelope = {
+  tmdb: {
+    id: 1396,
+    name: 'Breaking Bad',
+    overview: 'A chemistry teacher diagnosed with cancer turns to manufacturing meth.',
+    first_air_date: '2008-01-20',
+    vote_average: 9.5,
+    backdrop_path: '/backdrop.jpg',
+    poster_path: '/poster.jpg',
+    genres: [{ id: 18, name: 'Drama' }, { id: 80, name: 'Crime' }],
+    credits: {
+      cast: [{ id: 17419, name: 'Bryan Cranston', character: 'Walter White', profile_path: '/path.jpg' }],
+      crew: [{ id: 66633, name: 'Vince Gilligan', job: 'Director', department: 'Directing', profile_path: '/path.jpg' }],
+    },
+    seasons: [
+      { id: 1, season_number: 1, name: 'Season 1', episode_count: 7 },
+      { id: 2, season_number: 2, name: 'Season 2', episode_count: 13 },
+      { id: 3, season_number: 3, name: 'Season 3', episode_count: 13 },
+    ],
+  },
+  library_items: [],
+}
+
+function mockTMDBApi(
+  mediaType: 'movie' | 'tv',
+  response: TMDBMovieEnvelope | TMDBTVEnvelope,
+  overseerrStatus?: number,
+) {
+  vi.mocked(api.get).mockImplementation((url: string) => {
+    if (url.startsWith(`/api/tmdb/${mediaType}/`)) {
+      return Promise.resolve(response)
+    }
+    if (url.startsWith(`/api/overseerr/${mediaType}/`)) {
+      return Promise.resolve({ mediaInfo: overseerrStatus != null ? { status: overseerrStatus } : undefined })
+    }
+    return Promise.reject(new Error('unexpected url'))
+  })
+}
+
 describe('MediaDetailModal', () => {
   beforeEach(() => {
     vi.mocked(api.get).mockReset().mockRejectedValue(new Error('not configured'))
@@ -168,21 +208,9 @@ describe('MediaDetailModal', () => {
     })
   })
 
-  describe('TMDB entry', () => {
-    function mockApiForTMDB(overseerrStatus?: number) {
-      vi.mocked(api.get).mockImplementation((url: string) => {
-        if (url.startsWith('/api/tmdb/movie/')) {
-          return Promise.resolve(mockTMDBMovieResponse)
-        }
-        if (url.startsWith('/api/overseerr/movie/')) {
-          return Promise.resolve({ mediaInfo: overseerrStatus != null ? { status: overseerrStatus } : undefined })
-        }
-        return Promise.reject(new Error('unexpected url'))
-      })
-    }
-
+  describe('TMDB movie entry', () => {
     it('shows loading spinner initially', () => {
-      mockApiForTMDB()
+      mockTMDBApi('movie', mockTMDBMovieResponse)
       render(
         <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={false} onClose={() => {}} />,
       )
@@ -190,7 +218,7 @@ describe('MediaDetailModal', () => {
     })
 
     it('renders TMDB movie details after fetch', async () => {
-      mockApiForTMDB()
+      mockTMDBApi('movie', mockTMDBMovieResponse)
       render(
         <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={false} onClose={() => {}} />,
       )
@@ -208,7 +236,7 @@ describe('MediaDetailModal', () => {
     })
 
     it('shows Overseerr status badge when available', async () => {
-      mockApiForTMDB(5)
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.AVAILABLE)
       render(
         <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
       )
@@ -222,7 +250,7 @@ describe('MediaDetailModal', () => {
     })
 
     it('shows request button when not yet requested', async () => {
-      mockApiForTMDB(1)
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.UNKNOWN)
       render(
         <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
       )
@@ -236,7 +264,7 @@ describe('MediaDetailModal', () => {
     })
 
     it('hides request button when already requested', async () => {
-      mockApiForTMDB(2)
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.PENDING)
       render(
         <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
       )
@@ -259,6 +287,85 @@ describe('MediaDetailModal', () => {
       await waitFor(() => {
         expect(screen.getByText('Network error')).toBeInTheDocument()
       })
+    })
+
+    it('hides request button for partially available movie', async () => {
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.PARTIALLY_AVAILABLE)
+      render(
+        <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Inception')).toBeInTheDocument()
+      })
+      await waitFor(() => {
+        expect(screen.getByText('Partial')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Request Movie')).not.toBeInTheDocument()
+      expect(screen.queryByText('Request More')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('TMDB TV entry', () => {
+    it('shows "Request TV Show" button when not yet requested', async () => {
+      mockTMDBApi('tv', mockTMDBTVResponse, MEDIA_STATUS.UNKNOWN)
+      render(
+        <MediaDetailModal mediaType="tv" mediaId={1396} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Breaking Bad')).toBeInTheDocument()
+      })
+      await waitFor(() => {
+        expect(screen.getByText('Request TV Show')).toBeInTheDocument()
+      })
+    })
+
+    it('shows "Request More" button for partially available TV show', async () => {
+      mockTMDBApi('tv', mockTMDBTVResponse, MEDIA_STATUS.PARTIALLY_AVAILABLE)
+      render(
+        <MediaDetailModal mediaType="tv" mediaId={1396} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Breaking Bad')).toBeInTheDocument()
+      })
+      await waitFor(() => {
+        expect(screen.getByText('Request More')).toBeInTheDocument()
+      })
+    })
+
+    it('shows season selector for partially available TV show', async () => {
+      mockTMDBApi('tv', mockTMDBTVResponse, MEDIA_STATUS.PARTIALLY_AVAILABLE)
+      render(
+        <MediaDetailModal mediaType="tv" mediaId={1396} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Breaking Bad')).toBeInTheDocument()
+      })
+      await waitFor(() => {
+        expect(screen.getByText('Select Seasons to Request')).toBeInTheDocument()
+      })
+      expect(screen.getByLabelText('Season 1')).toBeInTheDocument()
+      expect(screen.getByLabelText('Season 2')).toBeInTheDocument()
+      expect(screen.getByLabelText('Season 3')).toBeInTheDocument()
+    })
+
+    it('hides request button for already-requested TV show', async () => {
+      mockTMDBApi('tv', mockTMDBTVResponse, MEDIA_STATUS.PENDING)
+      render(
+        <MediaDetailModal mediaType="tv" mediaId={1396} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Breaking Bad')).toBeInTheDocument()
+      })
+      await waitFor(() => {
+        expect(screen.getByText('Pending')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Request TV Show')).not.toBeInTheDocument()
+      expect(screen.queryByText('Request More')).not.toBeInTheDocument()
     })
   })
 })
