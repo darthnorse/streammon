@@ -182,7 +182,7 @@ func TestListExclusions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := s.ListExclusions(ctx, 1, 10, "")
+	result, err := s.ListExclusions(ctx, models.ExclusionListOptions{Page: 1, PerPage: 10})
 	if err != nil {
 		t.Fatalf("ListExclusions: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestListExclusionsPagination(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	page1, _ := s.ListExclusions(ctx, 1, 2, "")
+	page1, _ := s.ListExclusions(ctx, models.ExclusionListOptions{Page: 1, PerPage: 2})
 	if len(page1.Items) != 2 {
 		t.Errorf("page 1 items = %d, want 2", len(page1.Items))
 	}
@@ -225,7 +225,7 @@ func TestListExclusionsPagination(t *testing.T) {
 		t.Errorf("total = %d, want 5", page1.Total)
 	}
 
-	page3, _ := s.ListExclusions(ctx, 3, 2, "")
+	page3, _ := s.ListExclusions(ctx, models.ExclusionListOptions{Page: 3, PerPage: 2})
 	if len(page3.Items) != 1 {
 		t.Errorf("page 3 items = %d, want 1", len(page3.Items))
 	}
@@ -345,7 +345,7 @@ func TestListExclusionsSearch(t *testing.T) {
 	}
 
 	// Search by title should find the item
-	result, err := s.ListExclusions(ctx, 1, 10, "Test Movie")
+	result, err := s.ListExclusions(ctx, models.ExclusionListOptions{Page: 1, PerPage: 10, Search: "Test Movie"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestListExclusionsSearch(t *testing.T) {
 	}
 
 	// Search by year should find the item
-	result, err = s.ListExclusions(ctx, 1, 10, "2024")
+	result, err = s.ListExclusions(ctx, models.ExclusionListOptions{Page: 1, PerPage: 10, Search: "2024"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestListExclusionsSearch(t *testing.T) {
 	}
 
 	// Search for non-existent term should return empty
-	result, err = s.ListExclusions(ctx, 1, 10, "nonexistent")
+	result, err = s.ListExclusions(ctx, models.ExclusionListOptions{Page: 1, PerPage: 10, Search: "nonexistent"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,7 +383,7 @@ func TestListExclusionsSearchEscapesWildcards(t *testing.T) {
 	}
 
 	// Search with SQL wildcard characters should be escaped and not match everything
-	result, err := s.ListExclusions(ctx, 1, 10, "%")
+	result, err := s.ListExclusions(ctx, models.ExclusionListOptions{Page: 1, PerPage: 10, Search: "%"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -391,12 +391,104 @@ func TestListExclusionsSearchEscapesWildcards(t *testing.T) {
 		t.Errorf("search with %%: total = %d, want 0 (should not match everything)", result.Total)
 	}
 
-	result, err = s.ListExclusions(ctx, 1, 10, "_")
+	result, err = s.ListExclusions(ctx, models.ExclusionListOptions{Page: 1, PerPage: 10, Search: "_"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Total != 0 {
 		t.Errorf("search with _: total = %d, want 0 (should not match single char)", result.Total)
+	}
+}
+
+func TestListExclusionsSorting(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, _, itemID := seedMaintenanceTestData(t, s)
+
+	// Create items with distinct titles and years for sort verification
+	now := time.Now().UTC()
+	libItems := []models.LibraryItemCache{
+		{
+			ServerID: serverID, LibraryID: "lib1", ItemID: "sort_a",
+			MediaType: models.MediaTypeMovie, Title: "Alpha Movie", Year: 2020,
+			AddedAt: now.AddDate(0, 0, -50), FileSize: 1024, SyncedAt: now,
+		},
+		{
+			ServerID: serverID, LibraryID: "lib1", ItemID: "sort_z",
+			MediaType: models.MediaTypeTV, Title: "Zeta Show", Year: 2019,
+			AddedAt: now.AddDate(0, 0, -30), FileSize: 2048, SyncedAt: now,
+		},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, libItems); err != nil {
+		t.Fatal(err)
+	}
+	allItems, err := s.ListLibraryItems(ctx, serverID, "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var alphaID, zetaID int64
+	for _, item := range allItems {
+		switch item.ItemID {
+		case "sort_a":
+			alphaID = item.ID
+		case "sort_z":
+			zetaID = item.ID
+		}
+	}
+
+	// Exclude all three items with staggered times
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateExclusions(ctx, []int64{alphaID}, "bob@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateExclusions(ctx, []int64{zetaID}, "charlie@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Sort by title ASC: Alpha, Test Movie, Zeta
+	result, err := s.ListExclusions(ctx, models.ExclusionListOptions{
+		Page: 1, PerPage: 10, SortBy: "title", SortOrder: "asc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(result.Items))
+	}
+	if result.Items[0].Item.Title != "Alpha Movie" {
+		t.Errorf("title ASC [0] = %q, want Alpha Movie", result.Items[0].Item.Title)
+	}
+	if result.Items[2].Item.Title != "Zeta Show" {
+		t.Errorf("title ASC [2] = %q, want Zeta Show", result.Items[2].Item.Title)
+	}
+
+	// Sort by year DESC: 2024, 2020, 2019
+	result, err = s.ListExclusions(ctx, models.ExclusionListOptions{
+		Page: 1, PerPage: 10, SortBy: "year", SortOrder: "desc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Items[0].Item.Year != 2024 {
+		t.Errorf("year DESC [0] = %d, want 2024", result.Items[0].Item.Year)
+	}
+	if result.Items[2].Item.Year != 2019 {
+		t.Errorf("year DESC [2] = %d, want 2019", result.Items[2].Item.Year)
+	}
+
+	// Default sort (no sort_by) should be excluded_at DESC
+	result, err = s.ListExclusions(ctx, models.ExclusionListOptions{
+		Page: 1, PerPage: 10,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Last excluded item should come first
+	if result.Items[0].Item.Title != "Zeta Show" {
+		t.Errorf("default sort [0] = %q, want Zeta Show (most recently excluded)", result.Items[0].Item.Title)
 	}
 }
 
@@ -492,7 +584,7 @@ func TestListExcludedCandidatesForRule(t *testing.T) {
 	}
 
 	// Rule 1: should only see itemID as excluded candidate (only it is a candidate for rule 1)
-	result, err := s.ListExcludedCandidatesForRule(ctx, ruleID, 1, 10, "")
+	result, err := s.ListExcludedCandidatesForRule(ctx, ruleID, models.ExclusionListOptions{Page: 1, PerPage: 10})
 	if err != nil {
 		t.Fatalf("ListExcludedCandidatesForRule: %v", err)
 	}
@@ -501,7 +593,7 @@ func TestListExcludedCandidatesForRule(t *testing.T) {
 	}
 
 	// Rule 2: should see both items as excluded candidates
-	result, err = s.ListExcludedCandidatesForRule(ctx, rule2.ID, 1, 10, "")
+	result, err = s.ListExcludedCandidatesForRule(ctx, rule2.ID, models.ExclusionListOptions{Page: 1, PerPage: 10})
 	if err != nil {
 		t.Fatalf("ListExcludedCandidatesForRule: %v", err)
 	}

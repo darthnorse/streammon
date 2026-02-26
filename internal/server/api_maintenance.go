@@ -1014,8 +1014,24 @@ func (s *Server) handleListExclusions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "search term too long")
 		return
 	}
+	sortBy := r.URL.Query().Get("sort_by")
+	switch sortBy {
+	case "title", "type", "year", "excluded_at", "excluded_by":
+	default:
+		sortBy = ""
+	}
+	sortOrder := r.URL.Query().Get("sort_order")
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = ""
+	}
 
-	result, err := s.store.ListExclusions(r.Context(), page, perPage, search)
+	result, err := s.store.ListExclusions(r.Context(), models.ExclusionListOptions{
+		Page:      page,
+		PerPage:   perPage,
+		Search:    search,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list exclusions")
 		return
@@ -1037,8 +1053,24 @@ func (s *Server) handleListRuleExclusions(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "search term too long")
 		return
 	}
+	sortBy := r.URL.Query().Get("sort_by")
+	switch sortBy {
+	case "title", "type", "year", "excluded_at", "excluded_by":
+	default:
+		sortBy = ""
+	}
+	sortOrder := r.URL.Query().Get("sort_order")
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = ""
+	}
 
-	result, err := s.store.ListExcludedCandidatesForRule(r.Context(), ruleID, page, perPage, search)
+	result, err := s.store.ListExcludedCandidatesForRule(r.Context(), ruleID, models.ExclusionListOptions{
+		Page:      page,
+		PerPage:   perPage,
+		Search:    search,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list exclusions")
 		return
