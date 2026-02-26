@@ -181,6 +181,7 @@ func TestMediaTypeMappings(t *testing.T) {
 		{"TvChannel", models.MediaTypeLiveTV},
 		{"AudioBook", models.MediaTypeAudiobook},
 		{"Book", models.MediaTypeBook},
+		{"Series", models.MediaTypeTV},
 		{"MusicVideo", models.MediaTypeMovie},
 		{"Video", models.MediaTypeMovie},
 	}
@@ -470,6 +471,36 @@ func TestGetItemDetails_Episode(t *testing.T) {
 	}
 	if details.EpisodeNumber != 14 {
 		t.Errorf("episode number = %d, want 14", details.EpisodeNumber)
+	}
+}
+
+func TestGetItemDetails_Series(t *testing.T) {
+	data, err := os.ReadFile("testdata/item_details_series.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrappedData := wrapInItemsArray(data)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(wrappedData)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, Name: "TestEmby", URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+
+	details, err := c.GetItemDetails(context.Background(), "series1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if details.MediaType != models.MediaTypeTV {
+		t.Errorf("media type = %q, want %q", details.MediaType, models.MediaTypeTV)
+	}
+	if details.Title != "Debris" {
+		t.Errorf("title = %q, want Debris", details.Title)
+	}
+	if details.Year != 2021 {
+		t.Errorf("year = %d, want 2021", details.Year)
 	}
 }
 

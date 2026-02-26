@@ -1,0 +1,17 @@
+{
+  "Id": "series1",
+  "Name": "Debris",
+  "ProductionYear": 2021,
+  "Overview": "Two agents from two different continents investigate wreckage from a destroyed alien spacecraft.",
+  "Type": "Series",
+  "ImageTags": {"Primary": "abc789"},
+  "Genres": ["Drama", "Sci-Fi & Fantasy"],
+  "CommunityRating": 7.2,
+  "OfficialRating": "TV-14",
+  "RunTimeTicks": 0,
+  "Studios": [{"Name": "Legendary Television", "Id": 1}],
+  "People": [
+    {"Name": "Jonathan Tucker", "Role": "Bryan Beneventi", "Type": "Actor"},
+    {"Name": "Riann Steele", "Role": "Finola Jones", "Type": "Actor"}
+  ]
+}
