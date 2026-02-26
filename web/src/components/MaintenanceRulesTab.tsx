@@ -1015,6 +1015,7 @@ function GlobalExclusionsView({
                     <SortHeader field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Title</SortHeader>
                     <SortHeader field="type" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Type</SortHeader>
                     <SortHeader field="year" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Year</SortHeader>
+                    <SortHeader field="size" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Size</SortHeader>
                     <SortHeader field="excluded_at" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Excluded At</SortHeader>
                     <SortHeader field="excluded_by" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Excluded By</SortHeader>
                   </tr>
@@ -1042,6 +1043,9 @@ function GlobalExclusionsView({
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {exclusion.item?.year || '-'}
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {exclusion.item?.file_size ? formatSize(exclusion.item.file_size) : '-'}
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {new Date(exclusion.excluded_at).toLocaleString()}

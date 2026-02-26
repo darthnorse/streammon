@@ -40,6 +40,7 @@ var validExclusionSortColumns = map[string]string{
 	"title":       "i.title",
 	"type":        "i.media_type",
 	"year":        "i.year",
+	"size":        "i.file_size",
 	"excluded_at": "e.excluded_at",
 	"excluded_by": "e.excluded_by",
 }
