@@ -190,7 +190,7 @@ function regularSeasonNumbers(seasons: { season_number: number }[]): number[] {
 }
 
 function resolveMediaType(mediaType: string | undefined): 'movie' | 'tv' | null {
-  if (mediaType === 'episode' || mediaType === 'tv') return 'tv'
+  if (mediaType === 'episode') return 'tv'
   if (mediaType === 'movie') return 'movie'
   return null
 }
