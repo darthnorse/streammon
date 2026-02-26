@@ -313,9 +313,7 @@ func embyMediaType(t string) models.MediaType {
 	switch t {
 	case "Movie", "MusicVideo", "Video":
 		return models.MediaTypeMovie
-	case "Episode", "Series":
-		return models.MediaTypeTV
-	case "Season":
+	case "Episode", "Series", "Season":
 		return models.MediaTypeTV
 	case "Audio":
 		return models.MediaTypeMusic
