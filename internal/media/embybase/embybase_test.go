@@ -182,8 +182,10 @@ func TestMediaTypeMappings(t *testing.T) {
 		{"AudioBook", models.MediaTypeAudiobook},
 		{"Book", models.MediaTypeBook},
 		{"Series", models.MediaTypeTV},
+		{"Season", models.MediaTypeTV},
 		{"MusicVideo", models.MediaTypeMovie},
 		{"Video", models.MediaTypeMovie},
+		{"BoxSet", models.MediaType("boxset")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.embyType, func(t *testing.T) {

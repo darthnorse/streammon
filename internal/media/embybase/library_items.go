@@ -229,10 +229,7 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 			}
 		}
 
-		mediaType := models.MediaTypeMovie
-		if item.Type == "Series" {
-			mediaType = models.MediaTypeTV
-		}
+		mediaType := embyMediaType(item.Type)
 
 		addedAt := parseEmbyTime(item.DateCreated)
 		if addedAt.IsZero() {
