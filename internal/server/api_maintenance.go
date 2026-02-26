@@ -500,6 +500,10 @@ func (s *Server) executeSyncLibrary(ctx context.Context, serverID int64, library
 		return 0, 0, 0, &syncError{message: "failed to save library items", logMessage: fmt.Sprintf("save items failed: %v", err)}
 	}
 
+	if s.tmdbClient != nil {
+		s.syncTVStatusesForItems(ctx, items)
+	}
+
 	var candidateCount int
 	rules, err := s.store.ListMaintenanceRules(ctx, serverID, libraryID)
 	if err != nil {
@@ -524,6 +528,29 @@ func (s *Server) executeSyncLibrary(ctx context.Context, serverID int64, library
 
 	s.InvalidateLibraryCache()
 	return count, deleted, candidateCount, nil
+}
+
+func (s *Server) syncTVStatusesForItems(ctx context.Context, items []models.LibraryItemCache) {
+	seen := make(map[string]struct{})
+	var ids []string
+	for _, item := range items {
+		if item.MediaType == models.MediaTypeTV && item.TMDBID != "" {
+			if _, ok := seen[item.TMDBID]; !ok {
+				seen[item.TMDBID] = struct{}{}
+				ids = append(ids, item.TMDBID)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	statuses := s.tmdbClient.FetchTVStatuses(ctx, ids)
+	if len(statuses) > 0 {
+		if err := s.store.UpdateTVStatuses(ctx, statuses); err != nil {
+			log.Printf("sync tv statuses: %v", err)
+		}
+	}
 }
 
 // GET /api/maintenance/rules
@@ -685,7 +712,7 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 	}
 	sortBy := r.URL.Query().Get("sort_by")
 	switch sortBy {
-	case "title", "year", "resolution", "size", "reason", "added_at", "watches":
+	case "title", "year", "resolution", "size", "reason", "added_at", "watches", "status":
 	default:
 		sortBy = ""
 	}
@@ -701,8 +728,22 @@ func (s *Server) handleListCandidates(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	filterLibraryID := r.URL.Query().Get("library_id")
+	statusFilter := r.URL.Query().Get("status")
+	if len(statusFilter) > maxSearchLength {
+		writeError(w, http.StatusBadRequest, "status filter too long")
+		return
+	}
 
-	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, page, perPage, search, sortBy, sortOrder, filterServerID, filterLibraryID)
+	result, err := s.store.ListCandidatesForRule(r.Context(), ruleID, models.CandidateListOptions{
+		Page:      page,
+		PerPage:   perPage,
+		Search:    search,
+		SortBy:    sortBy,
+		SortOrder: sortOrder,
+		ServerID:  filterServerID,
+		LibraryID: filterLibraryID,
+		Status:    statusFilter,
+	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list candidates")
 		return

@@ -757,7 +757,7 @@ func TestBulkDeleteCircuitBreakerAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	candidates, err := s.ListCandidatesForRule(ctx, rule.ID, 1, 100, "", "", "", 0, "")
+	candidates, err := s.ListCandidatesForRule(ctx, rule.ID, models.CandidateListOptions{Page: 1, PerPage: 100})
 	if err != nil {
 		t.Fatal(err)
 	}

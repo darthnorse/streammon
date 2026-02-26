@@ -1214,6 +1214,153 @@ func TestGetLibraryItemTMDBIDByTitle(t *testing.T) {
 	})
 }
 
+func TestUpsertPreservesTMDBStatus(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+
+	items := []models.LibraryItemCache{{
+		ServerID:   srv.ID,
+		LibraryID:  "lib1",
+		ItemID:     "show1",
+		MediaType:  models.MediaTypeTV,
+		Title:      "Breaking Bad",
+		Year:       2008,
+		AddedAt:    now.AddDate(0, 0, -100),
+		TMDBID:     "1396",
+		TMDBStatus: "Ended",
+		SyncedAt:   now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := s.ListLibraryItems(ctx, srv.ID, "lib1")
+	if len(got) != 1 || got[0].TMDBStatus != "Ended" {
+		t.Fatalf("initial insert: tmdb_status = %q, want %q", got[0].TMDBStatus, "Ended")
+	}
+
+	// Re-upsert the same item with empty TMDBStatus (simulates media server sync)
+	items[0].TMDBStatus = ""
+	items[0].SyncedAt = now.Add(time.Hour)
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ = s.ListLibraryItems(ctx, srv.ID, "lib1")
+	if got[0].TMDBStatus != "Ended" {
+		t.Errorf("after empty re-upsert: tmdb_status = %q, want %q (should be preserved)", got[0].TMDBStatus, "Ended")
+	}
+
+	// Re-upsert with a new status — should update
+	items[0].TMDBStatus = "Canceled"
+	items[0].SyncedAt = now.Add(2 * time.Hour)
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ = s.ListLibraryItems(ctx, srv.ID, "lib1")
+	if got[0].TMDBStatus != "Canceled" {
+		t.Errorf("after non-empty re-upsert: tmdb_status = %q, want %q", got[0].TMDBStatus, "Canceled")
+	}
+}
+
+func TestUpdateTVStatuses(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show1", MediaType: models.MediaTypeTV, Title: "Show A", TMDBID: "100", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show2", MediaType: models.MediaTypeTV, Title: "Show B", TMDBID: "200", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Movie", TMDBID: "300", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	statuses := map[string]string{
+		"100": "Returning Series",
+		"200": "Ended",
+		"300": "Released",
+	}
+	if err := s.UpdateTVStatuses(ctx, statuses); err != nil {
+		t.Fatalf("UpdateTVStatuses: %v", err)
+	}
+
+	got, _ := s.ListLibraryItems(ctx, srv.ID, "lib1")
+	for _, item := range got {
+		switch item.ItemID {
+		case "show1":
+			if item.TMDBStatus != "Returning Series" {
+				t.Errorf("show1 tmdb_status = %q, want %q", item.TMDBStatus, "Returning Series")
+			}
+		case "show2":
+			if item.TMDBStatus != "Ended" {
+				t.Errorf("show2 tmdb_status = %q, want %q", item.TMDBStatus, "Ended")
+			}
+		case "movie1":
+			if item.TMDBStatus != "" {
+				t.Errorf("movie1 tmdb_status = %q, want empty (movie should not be updated)", item.TMDBStatus)
+			}
+		}
+	}
+
+	// Empty map should be a no-op
+	if err := s.UpdateTVStatuses(ctx, map[string]string{}); err != nil {
+		t.Errorf("empty map should not error: %v", err)
+	}
+}
+
+func TestListTVTMDBIDs(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show1", MediaType: models.MediaTypeTV, Title: "Show A", TMDBID: "100", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show2", MediaType: models.MediaTypeTV, Title: "Show B", TMDBID: "200", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show3", MediaType: models.MediaTypeTV, Title: "Show C", TMDBID: "", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Movie", TMDBID: "300", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, err := s.ListTVTMDBIDs(ctx)
+	if err != nil {
+		t.Fatalf("ListTVTMDBIDs: %v", err)
+	}
+
+	// Should return only episode items with non-empty TMDB IDs
+	if len(ids) != 2 {
+		t.Fatalf("got %d IDs, want 2", len(ids))
+	}
+	idSet := map[string]bool{}
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	if !idSet["100"] || !idSet["200"] {
+		t.Errorf("expected IDs 100 and 200, got %v", ids)
+	}
+}
+
 func TestGetAllLibraryTotalSizes(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

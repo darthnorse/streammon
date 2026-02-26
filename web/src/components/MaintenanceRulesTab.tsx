@@ -127,16 +127,21 @@ function formatSyncProgress(state: SyncProgress, libraryName?: string): string {
   }
 }
 
-function formatSeriesStatus(status: string | undefined): JSX.Element {
-  if (!status) return <span>-</span>
-  let color: string | undefined
-  if (status === 'Ended' || status === 'Canceled') color = 'text-red-400'
-  else if (status === 'Returning Series') color = 'text-green-400'
-  else if (status === 'In Production' || status === 'Planned') color = 'text-amber-400'
-  return <span className={color}>{status}</span>
+const statusColors: Record<string, string> = {
+  Ended: 'text-red-400',
+  Canceled: 'text-red-400',
+  'Returning Series': 'text-green-400',
+  'In Production': 'text-amber-400',
+  Planned: 'text-amber-400',
+  Pilot: 'text-amber-400',
 }
 
-type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at' | 'watches'
+function formatSeriesStatus(status: string | undefined): JSX.Element {
+  if (!status) return <span>-</span>
+  return <span className={statusColors[status]}>{status}</span>
+}
+
+type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at' | 'watches' | 'status'
 type SortDir = 'asc' | 'desc'
 
 function SortHeader({
@@ -273,42 +278,23 @@ function CandidatesView({
 
   const { searchInput, setSearchInput, search, resetSearch } = useDebouncedSearch(() => setPage(1))
 
+  const isTV = rule.media_type === 'episode'
+  const isKeepLatest = rule.criterion_type === 'keep_latest_seasons'
+
+  const [statusFilter, setStatusFilter] = useState('')
+
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
   const sortParam = sortField ? `&sort_by=${sortField}&sort_order=${sortDir}` : ''
   const libraryFilterParam = filterServerID && filterLibraryID
     ? `&server_id=${filterServerID}&library_id=${encodeURIComponent(filterLibraryID)}`
     : ''
+  const statusParam = statusFilter ? `&status=${encodeURIComponent(statusFilter)}` : ''
   const { data, loading, refetch } = useFetch<MaintenanceCandidatesResponse>(
-    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}${sortParam}${libraryFilterParam}`
+    `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}${sortParam}${libraryFilterParam}${statusParam}`
   )
-
-  const isTV = rule.media_type === 'episode'
-  const isKeepLatest = rule.criterion_type === 'keep_latest_seasons'
-
-  const [seriesStatuses, setSeriesStatuses] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    let ignore = false
-    if (!isTV || !data?.items?.length) {
-      setSeriesStatuses({})
-      return
-    }
-    const tmdbIds = [...new Set(
-      data.items.map(c => c.item?.tmdb_id).filter((id): id is string => !!id)
-    )]
-    if (!tmdbIds.length) {
-      setSeriesStatuses({})
-      return
-    }
-    api.post<Record<string, string>>('/api/tmdb/tv/statuses', { tmdb_ids: tmdbIds.map(Number) })
-      .then(res => { if (!ignore && mountedRef.current) setSeriesStatuses(res) })
-      .catch((err: unknown) => { console.debug('TMDB status fetch failed:', err) })
-    return () => { ignore = true }
-  }, [data?.items, isTV])
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
   const filteredItems = data?.items || []
-  const showStatus = Object.keys(seriesStatuses).length > 0
 
   const {
     selected,
@@ -349,7 +335,14 @@ function CandidatesView({
     clearSelection()
     resetSearch()
     setSortField(null)
+    setStatusFilter('')
   }, [rule.id, clearSelection, resetSearch])
+
+  useEffect(() => {
+    if (statusFilter && data?.statuses && !data.statuses.includes(statusFilter)) {
+      setStatusFilter('')
+    }
+  }, [data?.statuses, statusFilter])
 
   useEffect(() => {
     setRowMenuOpen(null)
@@ -607,8 +600,18 @@ function CandidatesView({
         <SearchInput
           value={searchInput}
           onChange={setSearchInput}
-          placeholder="Search title, year, resolution..."
+          placeholder={isTV ? 'Search title, year, status...' : 'Search title, year, resolution...'}
         />
+        {isTV && data?.statuses && data.statuses.length > 0 && (
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
+            className="px-2 py-1.5 text-sm rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
+          >
+            <option value="">All Statuses</option>
+            {data.statuses.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
         <div className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark">
           <label htmlFor="maint-candidates-per-page">Show</label>
           <select
@@ -672,8 +675,8 @@ function CandidatesView({
                     )}
                     <SortHeader field="added_at" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Added</SortHeader>
                     <SortHeader field="watches" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Watches</SortHeader>
-                    {showStatus && (
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">Status</th>
+                    {isTV && (
+                      <SortHeader field="status" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Status</SortHeader>
                     )}
                     <SortHeader field="reason" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Reason</SortHeader>
                     <th className="px-4 py-3 w-10"></th>
@@ -728,11 +731,9 @@ function CandidatesView({
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {candidate.play_count}
                       </td>
-                      {showStatus && (
+                      {isTV && (
                         <td className="px-4 py-3 text-muted dark:text-muted-dark whitespace-nowrap">
-                          {candidate.item?.tmdb_id
-                            ? formatSeriesStatus(seriesStatuses[candidate.item.tmdb_id])
-                            : '-'}
+                          {formatSeriesStatus(candidate.item?.tmdb_status)}
                         </td>
                       )}
                       <td className="px-4 py-3 text-sm text-amber-500">
