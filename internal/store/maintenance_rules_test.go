@@ -419,7 +419,7 @@ func TestListMaintenanceRulesWithCountsExclusions(t *testing.T) {
 	}
 
 	// Exclude 1 item
-	if _, err := s.CreateExclusions(ctx, rule.ID, []int64{libItems[0].ID}, "test"); err != nil {
+	if _, err := s.CreateExclusions(ctx, []int64{libItems[0].ID}, "test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -439,7 +439,7 @@ func TestListMaintenanceRulesWithCountsExclusions(t *testing.T) {
 	}
 
 	// Exclude another item
-	if _, err := s.CreateExclusions(ctx, rule.ID, []int64{libItems[1].ID}, "test"); err != nil {
+	if _, err := s.CreateExclusions(ctx, []int64{libItems[1].ID}, "test"); err != nil {
 		t.Fatal(err)
 	}
 

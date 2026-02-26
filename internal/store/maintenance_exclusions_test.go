@@ -15,16 +15,16 @@ func TestCreateExclusions(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+	_, _, itemID := seedMaintenanceTestData(t, s)
 
-	_, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com")
+	_, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com")
 	if err != nil {
 		t.Fatalf("CreateExclusions: %v", err)
 	}
 
-	count, err := s.CountExclusionsForRule(ctx, ruleID)
+	count, err := s.CountExclusions(ctx)
 	if err != nil {
-		t.Fatalf("CountExclusionsForRule: %v", err)
+		t.Fatalf("CountExclusions: %v", err)
 	}
 	if count != 1 {
 		t.Errorf("count = %d, want 1", count)
@@ -35,14 +35,13 @@ func TestCreateExclusionsDuplicate(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+	_, _, itemID := seedMaintenanceTestData(t, s)
 
-	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Should not error on duplicate, just return 0 new exclusions
-	created, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com")
+	created, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com")
 	if err != nil {
 		t.Fatalf("duplicate exclusion should not error: %v", err)
 	}
@@ -50,7 +49,7 @@ func TestCreateExclusionsDuplicate(t *testing.T) {
 		t.Errorf("duplicate exclusion should return 0 created, got %d", created)
 	}
 
-	count, _ := s.CountExclusionsForRule(ctx, ruleID)
+	count, _ := s.CountExclusions(ctx)
 	if count != 1 {
 		t.Errorf("count = %d, want 1 (no duplicate)", count)
 	}
@@ -60,17 +59,17 @@ func TestDeleteExclusion(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+	_, _, itemID := seedMaintenanceTestData(t, s)
 
-	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.DeleteExclusion(ctx, ruleID, itemID); err != nil {
+	if err := s.DeleteExclusion(ctx, itemID); err != nil {
 		t.Fatalf("DeleteExclusion: %v", err)
 	}
 
-	count, _ := s.CountExclusionsForRule(ctx, ruleID)
+	count, _ := s.CountExclusions(ctx)
 	if count != 0 {
 		t.Errorf("count = %d, want 0", count)
 	}
@@ -81,7 +80,7 @@ func TestDeleteExclusionNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	// Should return ErrNotFound if exclusion doesn't exist
-	err := s.DeleteExclusion(ctx, 99999, 99999)
+	err := s.DeleteExclusion(ctx, 99999)
 	if err == nil {
 		t.Error("DeleteExclusion for non-existent should return ErrNotFound")
 	}
@@ -94,45 +93,98 @@ func TestDeleteExclusions(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	serverID, ruleID, itemID := seedMaintenanceTestData(t, s)
+	serverID, _, itemID := seedMaintenanceTestData(t, s)
 
 	// Create additional items
 	items := createAdditionalItems(t, s, ctx, serverID, 2)
 	allItemIDs := append([]int64{itemID}, items...)
 
-	if _, err := s.CreateExclusions(ctx, ruleID, allItemIDs, "admin@test.com"); err != nil {
+	if _, err := s.CreateExclusions(ctx, allItemIDs, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	count, _ := s.CountExclusionsForRule(ctx, ruleID)
+	count, _ := s.CountExclusions(ctx)
 	if count != 3 {
 		t.Fatalf("setup: expected 3 exclusions, got %d", count)
 	}
 
 	// Delete two of them
-	if _, err := s.DeleteExclusions(ctx, ruleID, []int64{itemID, items[0]}); err != nil {
+	if _, err := s.DeleteExclusions(ctx, []int64{itemID, items[0]}); err != nil {
 		t.Fatalf("DeleteExclusions: %v", err)
 	}
 
-	count, _ = s.CountExclusionsForRule(ctx, ruleID)
+	count, _ = s.CountExclusions(ctx)
 	if count != 1 {
 		t.Errorf("count = %d, want 1", count)
 	}
 }
 
-func TestListExclusionsForRule(t *testing.T) {
+func TestCountExclusions(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+	serverID, _, itemID := seedMaintenanceTestData(t, s)
 
-	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
+	// Zero initially
+	count, err := s.CountExclusions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("count = %d, want 0", count)
+	}
+
+	// Add one
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	count, err = s.CountExclusions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Errorf("count = %d, want 1", count)
+	}
+
+	// Add more
+	items := createAdditionalItems(t, s, ctx, serverID, 2)
+	if _, err := s.CreateExclusions(ctx, items, "admin@test.com"); err != nil {
+		t.Fatal(err)
+	}
+	count, err = s.CountExclusions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 3 {
+		t.Errorf("count = %d, want 3", count)
+	}
+
+	// Remove one, verify count decreases
+	if err := s.DeleteExclusion(ctx, itemID); err != nil {
+		t.Fatal(err)
+	}
+	count, err = s.CountExclusions(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 2 {
+		t.Errorf("count = %d, want 2", count)
+	}
+}
+
+func TestListExclusions(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, _, itemID := seedMaintenanceTestData(t, s)
+
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := s.ListExclusionsForRule(ctx, ruleID, 1, 10, "")
+	result, err := s.ListExclusions(ctx, 1, 10, "")
 	if err != nil {
-		t.Fatalf("ListExclusionsForRule: %v", err)
+		t.Fatalf("ListExclusions: %v", err)
 	}
 
 	if result.Total != 1 {
@@ -152,20 +204,20 @@ func TestListExclusionsForRule(t *testing.T) {
 	}
 }
 
-func TestListExclusionsForRulePagination(t *testing.T) {
+func TestListExclusionsPagination(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	serverID, ruleID, itemID := seedMaintenanceTestData(t, s)
+	serverID, _, itemID := seedMaintenanceTestData(t, s)
 
 	items := createAdditionalItems(t, s, ctx, serverID, 4)
 	allItemIDs := append([]int64{itemID}, items...)
 
-	if _, err := s.CreateExclusions(ctx, ruleID, allItemIDs, "admin@test.com"); err != nil {
+	if _, err := s.CreateExclusions(ctx, allItemIDs, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	page1, _ := s.ListExclusionsForRule(ctx, ruleID, 1, 2, "")
+	page1, _ := s.ListExclusions(ctx, 1, 2, "")
 	if len(page1.Items) != 2 {
 		t.Errorf("page 1 items = %d, want 2", len(page1.Items))
 	}
@@ -173,7 +225,7 @@ func TestListExclusionsForRulePagination(t *testing.T) {
 		t.Errorf("total = %d, want 5", page1.Total)
 	}
 
-	page3, _ := s.ListExclusionsForRule(ctx, ruleID, 3, 2, "")
+	page3, _ := s.ListExclusions(ctx, 3, 2, "")
 	if len(page3.Items) != 1 {
 		t.Errorf("page 3 items = %d, want 1", len(page3.Items))
 	}
@@ -183,9 +235,9 @@ func TestIsItemExcluded(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+	_, _, itemID := seedMaintenanceTestData(t, s)
 
-	excluded, err := s.IsItemExcluded(ctx, ruleID, itemID)
+	excluded, err := s.IsItemExcluded(ctx, itemID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,11 +245,11 @@ func TestIsItemExcluded(t *testing.T) {
 		t.Error("item should not be excluded yet")
 	}
 
-	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	excluded, err = s.IsItemExcluded(ctx, ruleID, itemID)
+	excluded, err = s.IsItemExcluded(ctx, itemID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,8 +279,8 @@ func TestCandidatesExcludeExcludedItems(t *testing.T) {
 		t.Fatalf("setup: expected 3 candidates, got %d", result.Total)
 	}
 
-	// Exclude one item
-	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
+	// Exclude one item globally
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -282,18 +334,18 @@ func createAdditionalItems(t *testing.T, s *Store, ctx context.Context, serverID
 	return ids
 }
 
-func TestListExclusionsForRuleSearch(t *testing.T) {
+func TestListExclusionsSearch(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+	_, _, itemID := seedMaintenanceTestData(t, s)
 
-	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
 	// Search by title should find the item
-	result, err := s.ListExclusionsForRule(ctx, ruleID, 1, 10, "Test Movie")
+	result, err := s.ListExclusions(ctx, 1, 10, "Test Movie")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +354,7 @@ func TestListExclusionsForRuleSearch(t *testing.T) {
 	}
 
 	// Search by year should find the item
-	result, err = s.ListExclusionsForRule(ctx, ruleID, 1, 10, "2024")
+	result, err = s.ListExclusions(ctx, 1, 10, "2024")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +363,7 @@ func TestListExclusionsForRuleSearch(t *testing.T) {
 	}
 
 	// Search for non-existent term should return empty
-	result, err = s.ListExclusionsForRule(ctx, ruleID, 1, 10, "nonexistent")
+	result, err = s.ListExclusions(ctx, 1, 10, "nonexistent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,35 +372,41 @@ func TestListExclusionsForRuleSearch(t *testing.T) {
 	}
 }
 
-func TestIsItemExcludedFromAnyRule(t *testing.T) {
+func TestListExclusionsSearchEscapesWildcards(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	_, _, itemID := seedMaintenanceTestData(t, s)
+
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Search with SQL wildcard characters should be escaped and not match everything
+	result, err := s.ListExclusions(ctx, 1, 10, "%")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Errorf("search with %%: total = %d, want 0 (should not match everything)", result.Total)
+	}
+
+	result, err = s.ListExclusions(ctx, 1, 10, "_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Errorf("search with _: total = %d, want 0 (should not match single char)", result.Total)
+	}
+}
+
+func TestGlobalExclusionFiltersCandidatesAcrossRules(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
 	serverID, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	// Not excluded from any rule yet
-	excluded, err := s.IsItemExcludedFromAnyRule(ctx, itemID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if excluded {
-		t.Error("item should not be excluded from any rule yet")
-	}
-
-	// Exclude from rule 1
-	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
-		t.Fatal(err)
-	}
-
-	excluded, err = s.IsItemExcludedFromAnyRule(ctx, itemID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !excluded {
-		t.Error("item should be excluded (rule 1)")
-	}
-
-	// Create a second rule and exclude from it too
+	// Create a second rule
 	rule2, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
 		Name:          "Rule 2",
 		CriterionType: "large_files",
@@ -360,61 +418,95 @@ func TestIsItemExcludedFromAnyRule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateExclusions(ctx, rule2.ID, []int64{itemID}, "admin@test.com"); err != nil {
+
+	// Add the item as a candidate for both rules
+	if err := s.UpsertMaintenanceCandidate(ctx, ruleID, itemID, "reason 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertMaintenanceCandidate(ctx, rule2.ID, itemID, "reason 2"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Remove exclusion from rule 1 only — should still be excluded via rule 2
-	if err := s.DeleteExclusion(ctx, ruleID, itemID); err != nil {
+	// Verify both rules have 1 candidate
+	r1, _ := s.ListCandidatesForRule(ctx, ruleID, models.CandidateListOptions{Page: 1, PerPage: 10})
+	if r1.Total != 1 {
+		t.Fatalf("rule 1: expected 1 candidate, got %d", r1.Total)
+	}
+	r2, _ := s.ListCandidatesForRule(ctx, rule2.ID, models.CandidateListOptions{Page: 1, PerPage: 10})
+	if r2.Total != 1 {
+		t.Fatalf("rule 2: expected 1 candidate, got %d", r2.Total)
+	}
+
+	// Exclude the item globally
+	if _, err := s.CreateExclusions(ctx, []int64{itemID}, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	excluded, err = s.IsItemExcludedFromAnyRule(ctx, itemID)
-	if err != nil {
-		t.Fatal(err)
+	// Both rules should now have 0 candidates
+	r1, _ = s.ListCandidatesForRule(ctx, ruleID, models.CandidateListOptions{Page: 1, PerPage: 10})
+	if r1.Total != 0 {
+		t.Errorf("rule 1: expected 0 candidates after global exclusion, got %d", r1.Total)
 	}
-	if !excluded {
-		t.Error("item should still be excluded (rule 2)")
-	}
-
-	// Remove exclusion from rule 2 — now truly not excluded
-	if err := s.DeleteExclusion(ctx, rule2.ID, itemID); err != nil {
-		t.Fatal(err)
-	}
-
-	excluded, err = s.IsItemExcludedFromAnyRule(ctx, itemID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if excluded {
-		t.Error("item should no longer be excluded from any rule")
+	r2, _ = s.ListCandidatesForRule(ctx, rule2.ID, models.CandidateListOptions{Page: 1, PerPage: 10})
+	if r2.Total != 0 {
+		t.Errorf("rule 2: expected 0 candidates after global exclusion, got %d", r2.Total)
 	}
 }
 
-func TestListExclusionsForRuleSearchEscapesWildcards(t *testing.T) {
+func TestListExcludedCandidatesForRule(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
 
-	_, ruleID, itemID := seedMaintenanceTestData(t, s)
+	serverID, ruleID, itemID := seedMaintenanceTestData(t, s)
 
-	if _, err := s.CreateExclusions(ctx, ruleID, []int64{itemID}, "admin@test.com"); err != nil {
-		t.Fatal(err)
-	}
-
-	// Search with SQL wildcard characters should be escaped and not match everything
-	result, err := s.ListExclusionsForRule(ctx, ruleID, 1, 10, "%")
+	// Create a second rule
+	rule2, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		Name:          "Rule 2",
+		CriterionType: "large_files",
+		MediaType:     models.MediaTypeMovie,
+		Parameters:    json.RawMessage(`{"min_size_gb": 50}`),
+		Enabled:       true,
+		Libraries:     []models.RuleLibrary{{ServerID: serverID, LibraryID: "lib1"}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total != 0 {
-		t.Errorf("search with %%: total = %d, want 0 (should not match everything)", result.Total)
-	}
 
-	result, err = s.ListExclusionsForRule(ctx, ruleID, 1, 10, "_")
-	if err != nil {
+	// Create another item and make it a candidate for rule 2 only
+	extraItems := createAdditionalItems(t, s, ctx, serverID, 1)
+	if err := s.UpsertMaintenanceCandidate(ctx, rule2.ID, extraItems[0], "reason extra"); err != nil {
 		t.Fatal(err)
 	}
-	if result.Total != 0 {
-		t.Errorf("search with _: total = %d, want 0 (should not match single char)", result.Total)
+
+	// Make itemID a candidate for both rules
+	if err := s.UpsertMaintenanceCandidate(ctx, ruleID, itemID, "reason 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpsertMaintenanceCandidate(ctx, rule2.ID, itemID, "reason 2"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Exclude both items globally
+	if _, err := s.CreateExclusions(ctx, []int64{itemID, extraItems[0]}, "admin@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Rule 1: should only see itemID as excluded candidate (only it is a candidate for rule 1)
+	result, err := s.ListExcludedCandidatesForRule(ctx, ruleID, 1, 10, "")
+	if err != nil {
+		t.Fatalf("ListExcludedCandidatesForRule: %v", err)
+	}
+	if result.Total != 1 {
+		t.Errorf("rule 1: expected 1 excluded candidate, got %d", result.Total)
+	}
+
+	// Rule 2: should see both items as excluded candidates
+	result, err = s.ListExcludedCandidatesForRule(ctx, rule2.ID, 1, 10, "")
+	if err != nil {
+		t.Fatalf("ListExcludedCandidatesForRule: %v", err)
+	}
+	if result.Total != 2 {
+		t.Errorf("rule 2: expected 2 excluded candidates, got %d", result.Total)
 	}
 }
+

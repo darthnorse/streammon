@@ -649,7 +649,6 @@ export interface MaintenanceCandidatesResponse {
 
 export interface MaintenanceExclusion {
   id: number
-  rule_id: number
   library_item_id: number
   excluded_by: string
   excluded_at: string

@@ -183,6 +183,7 @@ type ViewState =
   | { type: 'list' }
   | { type: 'candidates'; rule: MaintenanceRuleWithCount }
   | { type: 'exclusions'; rule: MaintenanceRuleWithCount }
+  | { type: 'global-exclusions' }
 
 
 interface MaintenanceRulesTabProps {
@@ -452,11 +453,11 @@ function CandidatesView({
     setOperating(true)
     setOperationResult(null)
     try {
-      await api.post(`/api/maintenance/rules/${rule.id}/exclusions`, {
+      await api.post(`/api/maintenance/exclusions`, {
         library_item_ids: excludeConfirm.map(c => c.library_item_id)
       })
       if (!mountedRef.current) return
-      setOperationResult({ type: 'success', message: `Excluded ${excludeConfirm.length} items from this rule` })
+      setOperationResult({ type: 'success', message: `Excluded ${excludeConfirm.length} items` })
       clearSelection()
       refetch()
     } catch (err) {
@@ -786,7 +787,7 @@ function CandidatesView({
               onClick={() => handleSingleExclude(menuCandidate)}
               className="w-full px-4 py-2 text-left text-sm hover:bg-surface dark:hover:bg-surface-dark transition-colors rounded-t-lg"
             >
-              Exclude from Rule
+              Exclude
             </button>
             <button
               onClick={() => handleSingleDelete(menuCandidate)}
@@ -850,8 +851,8 @@ function CandidatesView({
 
       {excludeConfirm && (
         <ConfirmDialog
-          title={`Exclude ${excludeConfirm.length} item${excludeConfirm.length > 1 ? 's' : ''} from this rule?`}
-          message="They won't appear in future evaluations of this rule. You can manage exclusions later."
+          title={`Exclude ${excludeConfirm.length} item${excludeConfirm.length > 1 ? 's' : ''}?`}
+          message="They won't appear in future evaluations of any rule. You can manage exclusions later."
           confirmLabel={operating ? 'Excluding...' : 'Exclude'}
           onConfirm={handleBulkExclude}
           onCancel={() => setExcludeConfirm(null)}
@@ -924,7 +925,7 @@ function ExclusionsView({
     setOperating(true)
     setOperationResult(null)
     try {
-      await api.post(`/api/maintenance/rules/${rule.id}/exclusions/bulk-remove`, {
+      await api.post(`/api/maintenance/exclusions/bulk-remove`, {
         library_item_ids: Array.from(selected)
       })
       if (!mountedRef.current) return
@@ -991,6 +992,195 @@ function ExclusionsView({
       ) : !filteredItems.length ? (
         <div className="card p-8 text-center text-muted dark:text-muted-dark">
           {search ? 'No matching excluded items found.' : 'No excluded items for this rule.'}
+        </div>
+      ) : (
+        <>
+          <div className="card">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gray-50 dark:bg-white/5 border-b border-border dark:border-border-dark">
+                    <th className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAll}
+                        className="rounded border-border dark:border-border-dark"
+                      />
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
+                      Title
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
+                      Year
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
+                      Excluded At
+                    </th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
+                      Excluded By
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredItems.map((exclusion) => (
+                    <tr
+                      key={exclusion.id}
+                      className={`border-b border-border dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5 transition-colors
+                        ${selected.has(exclusion.library_item_id) ? 'bg-accent/5' : ''}`}
+                    >
+                      <td className="px-4 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selected.has(exclusion.library_item_id)}
+                          onChange={() => toggleSelect(exclusion.library_item_id)}
+                          className="rounded border-border dark:border-border-dark"
+                        />
+                      </td>
+                      <td className="px-4 py-3 font-medium">
+                        <ItemTitleButton item={exclusion.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {exclusion.item?.year || '-'}
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {new Date(exclusion.excluded_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {exclusion.excluded_by}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onPageChange={(p) => { setPage(p); clearSelection() }}
+          />
+        </>
+      )}
+
+      {detailModal}
+    </div>
+  )
+}
+
+
+function GlobalExclusionsView({
+  onBack,
+}: {
+  onBack: () => void
+}) {
+  const [page, setPage] = useState(1)
+  const [perPage, setPerPage] = usePersistedPerPage()
+  const [operating, setOperating] = useState(false)
+  const [operationResult, setOperationResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
+  const mountedRef = useMountedRef()
+
+  const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setPage(1))
+
+  const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
+  const { data, loading, refetch } = useFetch<MaintenanceExclusionsResponse>(
+    `/api/maintenance/exclusions?page=${page}&per_page=${perPage}${searchParam}`
+  )
+
+  const totalPages = data ? Math.ceil(data.total / perPage) : 0
+  const filteredItems = data?.items || []
+
+  const {
+    selected,
+    toggleSelect,
+    toggleSelectAll,
+    clearSelection,
+    allVisibleSelected,
+  } = useMultiSelect(
+    filteredItems,
+    (e) => e.library_item_id
+  )
+
+  useEffect(() => {
+    if (totalPages > 0 && page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [totalPages, page])
+
+  const handleRemoveExclusions = async () => {
+    if (selected.size === 0) return
+    setOperating(true)
+    setOperationResult(null)
+    try {
+      await api.post(`/api/maintenance/exclusions/bulk-remove`, {
+        library_item_ids: Array.from(selected)
+      })
+      if (!mountedRef.current) return
+      setOperationResult({ type: 'success', message: `Removed ${selected.size} exclusions` })
+      clearSelection()
+      refetch()
+    } catch (err) {
+      console.error('Remove exclusions failed:', err)
+      if (mountedRef.current) setOperationResult({ type: 'error', message: 'Failed to remove exclusions' })
+    } finally {
+      if (mountedRef.current) setOperating(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <SubViewHeader
+        title="All Excluded Items"
+        subtitle={data ? `${formatCount(data.total)} items excluded globally` : 'Loading...'}
+        onBack={onBack}
+      />
+
+      {operationResult && (
+        <OperationResult
+          type={operationResult.type}
+          message={operationResult.message}
+          onDismiss={() => setOperationResult(null)}
+        />
+      )}
+
+      <div className="flex gap-4 items-center">
+        <SearchInput
+          value={searchInput}
+          onChange={setSearchInput}
+          placeholder="Search title, year, resolution..."
+        />
+        <div className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark">
+          <label htmlFor="maint-global-exclusions-per-page">Show</label>
+          <select
+            id="maint-global-exclusions-per-page"
+            value={perPage}
+            onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); clearSelection() }}
+            className="px-2 py-1 rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
+          >
+            {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <SelectionActionBar selectedCount={selected.size}>
+        <button
+          onClick={handleRemoveExclusions}
+          disabled={operating}
+          className="px-3 py-1.5 text-sm font-medium rounded bg-accent text-gray-900 hover:bg-accent/90 transition-colors disabled:opacity-50"
+        >
+          {operating ? 'Removing...' : 'Remove Exclusion'}
+        </button>
+      </SelectionActionBar>
+
+      {loading && !data ? (
+        <div className="card p-12 text-center">
+          <div className="text-muted dark:text-muted-dark animate-pulse">Loading...</div>
+        </div>
+      ) : !filteredItems.length ? (
+        <div className="card p-8 text-center text-muted dark:text-muted-dark">
+          {search ? 'No matching excluded items found.' : 'No items have been excluded.'}
         </div>
       ) : (
         <>
@@ -1252,6 +1442,14 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
     )
   }
 
+  if (view.type === 'global-exclusions') {
+    return (
+      <GlobalExclusionsView
+        onBack={() => setView({ type: 'list' })}
+      />
+    )
+  }
+
   return (
     <div className="space-y-4">
       {filterLibraryName && (
@@ -1293,15 +1491,23 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
         <p className="text-sm text-muted dark:text-muted-dark">
           Libraries are automatically scanned daily at 3 AM to identify new candidates.
         </p>
-        <button
-          onClick={() => {
-            setEditingRule(null)
-            setShowRuleForm(true)
-          }}
-          className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-gray-900 hover:bg-accent/90 whitespace-nowrap"
-        >
-          Add Rule
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setView({ type: 'global-exclusions' })}
+            className="px-4 py-2 text-sm font-medium rounded-lg border border-border dark:border-border-dark hover:bg-surface dark:hover:bg-surface-dark transition-colors whitespace-nowrap"
+          >
+            Manage Exclusions
+          </button>
+          <button
+            onClick={() => {
+              setEditingRule(null)
+              setShowRuleForm(true)
+            }}
+            className="px-4 py-2 text-sm font-medium rounded-lg bg-accent text-gray-900 hover:bg-accent/90 whitespace-nowrap"
+          >
+            Add Rule
+          </button>
+        </div>
       </div>
 
       {rules.length === 0 ? (

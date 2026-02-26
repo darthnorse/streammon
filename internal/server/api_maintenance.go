@@ -37,10 +37,7 @@ func (s *Server) checkExclusion(candidate models.MaintenanceCandidate) (excluded
 	checkCtx, checkCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer checkCancel()
 
-	if candidate.RuleID > 0 {
-		return s.store.IsItemExcluded(checkCtx, candidate.RuleID, candidate.LibraryItemID)
-	}
-	return s.store.IsItemExcludedFromAnyRule(checkCtx, candidate.LibraryItemID)
+	return s.store.IsItemExcluded(checkCtx, candidate.LibraryItemID)
 }
 
 // Uses background contexts to ensure operations complete even if request is cancelled.
@@ -59,11 +56,7 @@ func (s *Server) deleteItemFromServer(candidate models.MaintenanceCandidate, del
 		return result
 	}
 	if excluded {
-		if candidate.RuleID > 0 {
-			result.Error = "item was excluded since operation began"
-		} else {
-			result.Error = "item is excluded from a maintenance rule"
-		}
+		result.Error = "item was excluded since operation began"
 		return result
 	}
 
@@ -877,12 +870,10 @@ func (s *Server) handleDeleteLibraryItem(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Check if the target item is excluded from any maintenance rule.
-	// Exclusions are per-rule, but a cross-server delete has no rule context —
-	// honour any exclusion as a signal the user wants to protect this item.
-	excluded, err := s.store.IsItemExcludedFromAnyRule(r.Context(), id)
+	// Check if the target item is globally excluded from maintenance.
+	excluded, err := s.store.IsItemExcluded(r.Context(), id)
 	if err != nil {
-		log.Printf("check any-rule exclusion for item %d: %v", id, err)
+		log.Printf("check exclusion for item %d: %v", id, err)
 		writeError(w, http.StatusInternalServerError, "failed to verify exclusion status")
 		return
 	}
@@ -1015,8 +1006,26 @@ func exportCandidatesJSON(candidates []models.MaintenanceCandidate, ruleID int64
 	return json.Marshal(response)
 }
 
-// GET /api/maintenance/rules/{id}/exclusions
+// GET /api/maintenance/exclusions
 func (s *Server) handleListExclusions(w http.ResponseWriter, r *http.Request) {
+	page, perPage := parsePagination(r, 20, 100)
+	search := r.URL.Query().Get("search")
+	if len(search) > maxSearchLength {
+		writeError(w, http.StatusBadRequest, "search term too long")
+		return
+	}
+
+	result, err := s.store.ListExclusions(r.Context(), page, perPage, search)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list exclusions")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// GET /api/maintenance/rules/{id}/exclusions
+func (s *Server) handleListRuleExclusions(w http.ResponseWriter, r *http.Request) {
 	ruleID, ok := parseIDParam(r, "id")
 	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid id parameter")
@@ -1029,7 +1038,7 @@ func (s *Server) handleListExclusions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.store.ListExclusionsForRule(r.Context(), ruleID, page, perPage, search)
+	result, err := s.store.ListExcludedCandidatesForRule(r.Context(), ruleID, page, perPage, search)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list exclusions")
 		return
@@ -1038,14 +1047,8 @@ func (s *Server) handleListExclusions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// POST /api/maintenance/rules/{id}/exclusions
+// POST /api/maintenance/exclusions
 func (s *Server) handleCreateExclusions(w http.ResponseWriter, r *http.Request) {
-	ruleID, ok := parseIDParam(r, "id")
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid id parameter")
-		return
-	}
-
 	var req struct {
 		LibraryItemIDs []int64 `json:"library_item_ids"`
 	}
@@ -1061,7 +1064,7 @@ func (s *Server) handleCreateExclusions(w http.ResponseWriter, r *http.Request) 
 
 	excludedBy := getUserEmail(r)
 
-	count, err := s.store.CreateExclusions(r.Context(), ruleID, req.LibraryItemIDs, excludedBy)
+	count, err := s.store.CreateExclusions(r.Context(), req.LibraryItemIDs, excludedBy)
 	if err != nil {
 		log.Printf("create exclusions: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to create exclusions")
@@ -1071,21 +1074,15 @@ func (s *Server) handleCreateExclusions(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"excluded": count})
 }
 
-// DELETE /api/maintenance/rules/{id}/exclusions/{itemId}
+// DELETE /api/maintenance/exclusions/{itemId}
 func (s *Server) handleDeleteExclusion(w http.ResponseWriter, r *http.Request) {
-	ruleID, ok := parseIDParam(r, "id")
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid id parameter")
-		return
-	}
-
 	itemID, itemOK := parseIDParam(r, "itemId")
 	if !itemOK {
 		writeError(w, http.StatusBadRequest, "invalid itemId parameter")
 		return
 	}
 
-	if err := s.store.DeleteExclusion(r.Context(), ruleID, itemID); err != nil {
+	if err := s.store.DeleteExclusion(r.Context(), itemID); err != nil {
 		if errors.Is(err, models.ErrNotFound) {
 			writeError(w, http.StatusNotFound, "exclusion not found")
 			return
@@ -1098,14 +1095,8 @@ func (s *Server) handleDeleteExclusion(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// POST /api/maintenance/rules/{id}/exclusions/bulk-remove
+// POST /api/maintenance/exclusions/bulk-remove
 func (s *Server) handleBulkRemoveExclusions(w http.ResponseWriter, r *http.Request) {
-	ruleID, ok := parseIDParam(r, "id")
-	if !ok {
-		writeError(w, http.StatusBadRequest, "invalid id parameter")
-		return
-	}
-
 	var req struct {
 		LibraryItemIDs []int64 `json:"library_item_ids"`
 	}
@@ -1119,7 +1110,7 @@ func (s *Server) handleBulkRemoveExclusions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	count, err := s.store.DeleteExclusions(r.Context(), ruleID, req.LibraryItemIDs)
+	count, err := s.store.DeleteExclusions(r.Context(), req.LibraryItemIDs)
 	if err != nil {
 		log.Printf("delete exclusions: %v", err)
 		writeError(w, http.StatusInternalServerError, "failed to remove exclusions")
@@ -1305,7 +1296,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 
 		// Re-check exclusions at delete time to prevent TOCTOU race condition
 		// (item may have been excluded since user loaded the candidates list)
-		excluded, err := s.store.IsItemExcluded(ctx, candidate.RuleID, candidate.LibraryItemID)
+		excluded, err := s.store.IsItemExcluded(ctx, candidate.LibraryItemID)
 		if err != nil {
 			log.Printf("check exclusion for candidate %d: %v", candidateID, err)
 			result.Failed++

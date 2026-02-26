@@ -230,7 +230,6 @@ type BulkDeleteError struct {
 
 type MaintenanceExclusion struct {
 	ID            int64             `json:"id"`
-	RuleID        int64             `json:"rule_id"`
 	LibraryItemID int64             `json:"library_item_id"`
 	ExcludedBy    string            `json:"excluded_by"`
 	ExcludedAt    time.Time         `json:"excluded_at"`

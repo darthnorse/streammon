@@ -413,14 +413,23 @@ func (m *mockDeleteServer) GetSeasons(ctx context.Context, showID string) ([]mod
 	return m.seasons, nil
 }
 
+// deleteTestIDs holds the IDs produced by setupDeleteCandidateTest.
+type deleteTestIDs struct {
+	serverID      int64
+	libraryItemID int64
+	ruleID        int64
+	candidateID   int64
+}
+
 // setupDeleteCandidateTest creates server, library item, rule, and candidate for delete tests.
-// Returns the server ID for poller setup.
 func setupDeleteCandidateTest(t *testing.T, s interface {
 	CreateServer(*models.Server) error
 	UpsertLibraryItems(context.Context, []models.LibraryItemCache) (int, error)
 	CreateMaintenanceRule(context.Context, *models.MaintenanceRuleInput) (*models.MaintenanceRule, error)
 	UpsertMaintenanceCandidate(context.Context, int64, int64, string) error
-}, itemID string) int64 {
+	ListLibraryItems(context.Context, int64, string) ([]models.LibraryItemCache, error)
+	ListCandidatesForRule(context.Context, int64, models.CandidateListOptions) (*models.CandidatesResponse, error)
+}, itemID string) deleteTestIDs {
 	t.Helper()
 	ctx := context.Background()
 
@@ -436,6 +445,12 @@ func setupDeleteCandidateTest(t *testing.T, s interface {
 		t.Fatal(err)
 	}
 
+	libItems, err := s.ListLibraryItems(ctx, server.ID, "lib1")
+	if err != nil || len(libItems) == 0 {
+		t.Fatalf("ListLibraryItems: err=%v, len=%d", err, len(libItems))
+	}
+	libItemID := libItems[0].ID
+
 	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
 		Name:          "Test Rule",
 		CriterionType: models.CriterionUnwatchedMovie,
@@ -448,11 +463,21 @@ func setupDeleteCandidateTest(t *testing.T, s interface {
 		t.Fatal(err)
 	}
 
-	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, 1, "test reason"); err != nil {
+	if err := s.UpsertMaintenanceCandidate(ctx, rule.ID, libItemID, "test reason"); err != nil {
 		t.Fatal(err)
 	}
 
-	return server.ID
+	resp, err := s.ListCandidatesForRule(ctx, rule.ID, models.CandidateListOptions{Page: 1, PerPage: 1})
+	if err != nil || len(resp.Items) == 0 {
+		t.Fatalf("ListCandidatesForRule: err=%v, len=%d", err, len(resp.Items))
+	}
+
+	return deleteTestIDs{
+		serverID:      server.ID,
+		libraryItemID: libItemID,
+		ruleID:        rule.ID,
+		candidateID:   resp.Items[0].ID,
+	}
 }
 
 func TestDeleteCandidateNotFoundAPI(t *testing.T) {
@@ -482,9 +507,9 @@ func TestDeleteCandidateInvalidIDAPI(t *testing.T) {
 
 func TestDeleteCandidateServerNotFoundAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
-	setupDeleteCandidateTest(t, s, "item1")
+	ids := setupDeleteCandidateTest(t, s, "item1")
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/maintenance/candidates/%d", ids.candidateID), nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -496,13 +521,13 @@ func TestDeleteCandidateServerNotFoundAPI(t *testing.T) {
 func TestDeleteCandidateSuccessAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
-	serverID := setupDeleteCandidateTest(t, s, "item123")
+	ids := setupDeleteCandidateTest(t, s, "item123")
 
 	p := setupTestPoller(t, srv.Unwrap(), s)
 	mock := &mockDeleteServer{}
-	p.AddServer(serverID, mock)
+	p.AddServer(ids.serverID, mock)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/maintenance/candidates/%d", ids.candidateID), nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -514,7 +539,7 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 		t.Errorf("expected delete of item123, got %v", mock.deleted)
 	}
 
-	_, err := s.GetMaintenanceCandidate(ctx, 1)
+	_, err := s.GetMaintenanceCandidate(ctx, ids.candidateID)
 	if !errors.Is(err, models.ErrNotFound) {
 		t.Errorf("expected candidate to be deleted, got err: %v", err)
 	}
@@ -523,13 +548,13 @@ func TestDeleteCandidateSuccessAPI(t *testing.T) {
 func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
-	serverID := setupDeleteCandidateTest(t, s, "item456")
+	ids := setupDeleteCandidateTest(t, s, "item456")
 
 	p := setupTestPoller(t, srv.Unwrap(), s)
 	mock := &mockDeleteServer{deleteErr: errors.New("media server unavailable")}
-	p.AddServer(serverID, mock)
+	p.AddServer(ids.serverID, mock)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/candidates/1", nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/maintenance/candidates/%d", ids.candidateID), nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -537,7 +562,7 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 		t.Fatalf("expected 500, got %d: %s", w.Code, w.Body.String())
 	}
 
-	_, err := s.GetMaintenanceCandidate(ctx, 1)
+	_, err := s.GetMaintenanceCandidate(ctx, ids.candidateID)
 	if err != nil {
 		t.Errorf("expected candidate to still exist, got err: %v", err)
 	}
@@ -545,10 +570,10 @@ func TestDeleteCandidateServerFailureAPI(t *testing.T) {
 
 func TestCreateExclusionsAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
-	serverID := setupDeleteCandidateTest(t, s, "item1")
+	ids := setupDeleteCandidateTest(t, s, "item1")
 
-	body := `{"library_item_ids":[1]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/rules/1/exclusions", strings.NewReader(body))
+	body := fmt.Sprintf(`{"library_item_ids":[%d]}`, ids.libraryItemID)
+	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/exclusions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -565,24 +590,49 @@ func TestCreateExclusionsAPI(t *testing.T) {
 		t.Errorf("excluded = %v, want 1", resp["excluded"])
 	}
 
-	count, _ := s.CountExclusionsForRule(context.Background(), 1)
+	count, _ := s.CountExclusions(context.Background())
 	if count != 1 {
 		t.Errorf("count = %d, want 1", count)
 	}
-
-	_ = serverID
 }
 
 func TestListExclusionsAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
-	setupDeleteCandidateTest(t, s, "item1")
+	ids := setupDeleteCandidateTest(t, s, "item1")
 
-	if _, err := s.CreateExclusions(ctx, 1, []int64{1}, "test@test.com"); err != nil {
+	if _, err := s.CreateExclusions(ctx, []int64{ids.libraryItemID}, "test@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/rules/1/exclusions", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/exclusions", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["total"].(float64) != 1 {
+		t.Errorf("total = %v, want 1", resp["total"])
+	}
+}
+
+func TestListRuleExclusionsAPI(t *testing.T) {
+	srv, s := newTestServerWrapped(t)
+	ctx := context.Background()
+	ids := setupDeleteCandidateTest(t, s, "item1")
+
+	if _, err := s.CreateExclusions(ctx, []int64{ids.libraryItemID}, "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Per-rule exclusion view shows excluded items that are candidates for that rule
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/maintenance/rules/%d/exclusions", ids.ruleID), nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -602,13 +652,13 @@ func TestListExclusionsAPI(t *testing.T) {
 func TestDeleteExclusionAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
-	setupDeleteCandidateTest(t, s, "item1")
+	ids := setupDeleteCandidateTest(t, s, "item1")
 
-	if _, err := s.CreateExclusions(ctx, 1, []int64{1}, "test@test.com"); err != nil {
+	if _, err := s.CreateExclusions(ctx, []int64{ids.libraryItemID}, "test@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/maintenance/rules/1/exclusions/1", nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/maintenance/exclusions/%d", ids.libraryItemID), nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -616,7 +666,7 @@ func TestDeleteExclusionAPI(t *testing.T) {
 		t.Fatalf("expected 204, got %d: %s", w.Code, w.Body.String())
 	}
 
-	count, _ := s.CountExclusionsForRule(ctx, 1)
+	count, _ := s.CountExclusions(ctx)
 	if count != 0 {
 		t.Errorf("count = %d, want 0", count)
 	}
@@ -625,14 +675,14 @@ func TestDeleteExclusionAPI(t *testing.T) {
 func TestBulkRemoveExclusionsAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
-	setupDeleteCandidateTest(t, s, "item1")
+	ids := setupDeleteCandidateTest(t, s, "item1")
 
-	if _, err := s.CreateExclusions(ctx, 1, []int64{1}, "test@test.com"); err != nil {
+	if _, err := s.CreateExclusions(ctx, []int64{ids.libraryItemID}, "test@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
-	body := `{"library_item_ids":[1]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/rules/1/exclusions/bulk-remove", strings.NewReader(body))
+	body := fmt.Sprintf(`{"library_item_ids":[%d]}`, ids.libraryItemID)
+	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/exclusions/bulk-remove", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -641,7 +691,7 @@ func TestBulkRemoveExclusionsAPI(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 
-	count, _ := s.CountExclusionsForRule(ctx, 1)
+	count, _ := s.CountExclusions(ctx)
 	if count != 0 {
 		t.Errorf("count = %d, want 0", count)
 	}
@@ -650,13 +700,13 @@ func TestBulkRemoveExclusionsAPI(t *testing.T) {
 func TestBulkDeleteCandidatesAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
-	serverID := setupDeleteCandidateTest(t, s, "item1")
+	ids := setupDeleteCandidateTest(t, s, "item1")
 
 	p := setupTestPoller(t, srv.Unwrap(), s)
 	mock := &mockDeleteServer{}
-	p.AddServer(serverID, mock)
+	p.AddServer(ids.serverID, mock)
 
-	body := `{"candidate_ids":[1]}`
+	body := fmt.Sprintf(`{"candidate_ids":[%d]}`, ids.candidateID)
 	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/candidates/bulk-delete", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -677,7 +727,7 @@ func TestBulkDeleteCandidatesAPI(t *testing.T) {
 		t.Errorf("failed = %v, want 0", resp["failed"])
 	}
 
-	_, err := s.GetMaintenanceCandidate(ctx, 1)
+	_, err := s.GetMaintenanceCandidate(ctx, ids.candidateID)
 	if !errors.Is(err, models.ErrNotFound) {
 		t.Errorf("expected candidate to be deleted")
 	}
@@ -685,13 +735,13 @@ func TestBulkDeleteCandidatesAPI(t *testing.T) {
 
 func TestBulkDeleteCandidatesPartialFailureAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
-	serverID := setupDeleteCandidateTest(t, s, "item1")
+	ids := setupDeleteCandidateTest(t, s, "item1")
 
 	p := setupTestPoller(t, srv.Unwrap(), s)
 	mock := &mockDeleteServer{deleteErr: errors.New("server error")}
-	p.AddServer(serverID, mock)
+	p.AddServer(ids.serverID, mock)
 
-	body := `{"candidate_ids":[1, 99999]}`
+	body := fmt.Sprintf(`{"candidate_ids":[%d, 99999]}`, ids.candidateID)
 	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/candidates/bulk-delete", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -893,7 +943,7 @@ func TestBulkDeleteCrossServerSkipsExcluded(t *testing.T) {
 	ctx := context.Background()
 
 	jellyItems, _ := ts.s.ListLibraryItems(ctx, ts.server2.ID, "lib1")
-	rule2, err := ts.s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+	_, err := ts.s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
 		Name:          "Jelly Rule",
 		CriterionType: models.CriterionUnwatchedMovie,
 		MediaType:     models.MediaTypeMovie,
@@ -904,7 +954,7 @@ func TestBulkDeleteCrossServerSkipsExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ts.s.CreateExclusions(ctx, rule2.ID, []int64{jellyItems[0].ID}, "admin@test.com"); err != nil {
+	if _, err := ts.s.CreateExclusions(ctx, []int64{jellyItems[0].ID}, "admin@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1082,10 +1132,10 @@ func TestSyncStatusShowsRunningJob(t *testing.T) {
 func TestExcludedCandidatesFilteredFromListAPI(t *testing.T) {
 	srv, s := newTestServerWrapped(t)
 	ctx := context.Background()
-	setupDeleteCandidateTest(t, s, "item1")
+	ids := setupDeleteCandidateTest(t, s, "item1")
 
 	// List candidates - should have 1
-	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/rules/1/candidates", nil)
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/maintenance/rules/%d/candidates", ids.ruleID), nil)
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -1095,13 +1145,13 @@ func TestExcludedCandidatesFilteredFromListAPI(t *testing.T) {
 		t.Fatalf("expected 1 candidate before exclusion, got %v", resp["total"])
 	}
 
-	// Exclude the item
-	if _, err := s.CreateExclusions(ctx, 1, []int64{1}, "test@test.com"); err != nil {
+	// Exclude the item globally
+	if _, err := s.CreateExclusions(ctx, []int64{ids.libraryItemID}, "test@test.com"); err != nil {
 		t.Fatal(err)
 	}
 
 	// List candidates again - should have 0
-	req = httptest.NewRequest(http.MethodGet, "/api/maintenance/rules/1/candidates", nil)
+	req = httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/maintenance/rules/%d/candidates", ids.ruleID), nil)
 	w = httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
