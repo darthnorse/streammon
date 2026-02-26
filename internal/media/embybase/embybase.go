@@ -133,6 +133,8 @@ type nowPlaying struct {
 	SeriesPrimaryImageTag string            `json:"SeriesPrimaryImageTag"`
 	SeasonName            string            `json:"SeasonName"`
 	Type                  string            `json:"Type"`
+	ExtraType             string            `json:"ExtraType"`
+	ParentId              string            `json:"ParentId"`
 	ProductionYear        int               `json:"ProductionYear"`
 	RunTimeTicks          int64             `json:"RunTimeTicks"`
 	MediaSources          []mediaSource     `json:"MediaSources"`
@@ -217,6 +219,13 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			State:             embyPlayerState(s.PlayState),
 		}
 		as.ThumbURL = resolveThumbURL(s.NowPlaying.SeriesId, s.NowPlaying.SeriesPrimaryImageTag, s.NowPlaying.ID, s.NowPlaying.ImageTags)
+		as.ExtraType = embyExtraType(s.NowPlaying.ExtraType)
+		if as.ExtraType == "" && s.NowPlaying.Type == "Trailer" {
+			as.ExtraType = models.ExtraTypeTrailer
+		}
+		if as.ExtraType != "" && s.NowPlaying.ParentId != "" {
+			as.ThumbURL = s.NowPlaying.ParentId
+		}
 		var container string
 		var bitrate int64
 		var mediaStreams []mediaStream
@@ -311,7 +320,7 @@ func ticksToMs(ticks int64) int64 {
 
 func embyMediaType(t string) models.MediaType {
 	switch t {
-	case "Movie", "MusicVideo", "Video":
+	case "Movie", "MusicVideo", "Video", "Trailer":
 		return models.MediaTypeMovie
 	case "Episode", "Series", "Season":
 		return models.MediaTypeTV
@@ -326,6 +335,25 @@ func embyMediaType(t string) models.MediaType {
 	default:
 		slog.Warn("unknown emby/jellyfin media type, using raw value", "type", t)
 		return models.MediaType(strings.ToLower(t))
+	}
+}
+
+func embyExtraType(t string) models.ExtraType {
+	switch t {
+	case "Trailer":
+		return models.ExtraTypeTrailer
+	case "BehindTheScenes":
+		return models.ExtraTypeBehindTheScenes
+	case "DeletedScene":
+		return models.ExtraTypeDeletedScene
+	case "Featurette":
+		return models.ExtraTypeFeaturette
+	case "Interview":
+		return models.ExtraTypeInterview
+	case "Short":
+		return models.ExtraTypeShort
+	default:
+		return ""
 	}
 }
 

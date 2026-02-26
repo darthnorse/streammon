@@ -120,6 +120,96 @@ func TestGetSessions(t *testing.T) {
 	}
 }
 
+func TestTrailerSession(t *testing.T) {
+	data := []byte(`[{
+		"Id": "trailer1",
+		"UserName": "dave",
+		"Client": "Emby Web",
+		"DeviceName": "Chrome",
+		"RemoteEndPoint": "10.0.0.5",
+		"NowPlayingItem": {
+			"Name": "Official Trailer",
+			"Type": "Trailer",
+			"ExtraType": "Trailer",
+			"ParentId": "parent123",
+			"ProductionYear": 2024,
+			"RunTimeTicks": 1200000000,
+			"Id": "trailer-item-1",
+			"ImageTags": {"Primary": "abc"},
+			"MediaSources": []
+		},
+		"PlayState": {"PositionTicks": 300000000},
+		"TranscodingInfo": null
+	}]`)
+
+	for _, st := range []models.ServerType{models.ServerTypeEmby, models.ServerTypeJellyfin} {
+		t.Run(string(st), func(t *testing.T) {
+			sessions, err := parseSessions(data, 1, "Test", st)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(sessions) != 1 {
+				t.Fatalf("expected 1 session, got %d", len(sessions))
+			}
+
+			s := sessions[0]
+			if s.MediaType != models.MediaTypeMovie {
+				t.Errorf("media type = %q, want movie (trailers map to movie)", s.MediaType)
+			}
+			if s.ExtraType != models.ExtraTypeTrailer {
+				t.Errorf("extra type = %q, want trailer", s.ExtraType)
+			}
+			if s.ThumbURL != "parent123" {
+				t.Errorf("thumb url = %q, want parent123 (ParentId)", s.ThumbURL)
+			}
+			if s.Title != "Official Trailer" {
+				t.Errorf("title = %q, want Official Trailer", s.Title)
+			}
+		})
+	}
+}
+
+func TestStandaloneTrailerSession(t *testing.T) {
+	data := []byte(`[{
+		"Id": "trailer2",
+		"UserName": "eve",
+		"Client": "Emby Web",
+		"DeviceName": "Chrome",
+		"RemoteEndPoint": "10.0.0.6",
+		"NowPlayingItem": {
+			"Name": "Teaser Trailer",
+			"Type": "Trailer",
+			"ParentId": "parent456",
+			"ProductionYear": 2024,
+			"RunTimeTicks": 900000000,
+			"Id": "trailer-item-2",
+			"ImageTags": {"Primary": "def"},
+			"MediaSources": []
+		},
+		"PlayState": {"PositionTicks": 100000000},
+		"TranscodingInfo": null
+	}]`)
+
+	sessions, err := parseSessions(data, 1, "TestEmby", models.ServerTypeEmby)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(sessions))
+	}
+
+	s := sessions[0]
+	if s.MediaType != models.MediaTypeMovie {
+		t.Errorf("media type = %q, want movie", s.MediaType)
+	}
+	if s.ExtraType != models.ExtraTypeTrailer {
+		t.Errorf("extra type = %q, want trailer (fallback from Type=Trailer)", s.ExtraType)
+	}
+	if s.ThumbURL != "parent456" {
+		t.Errorf("thumb url = %q, want parent456 (ParentId)", s.ThumbURL)
+	}
+}
+
 func TestTestConnection(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/System/Info" {
@@ -206,6 +296,29 @@ func TestMediaTypeMappings(t *testing.T) {
 			}
 			if sessions[0].MediaType != tt.want {
 				t.Errorf("got %q, want %q", sessions[0].MediaType, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtraTypeMappings(t *testing.T) {
+	tests := []struct {
+		embyExtraType string
+		want          models.ExtraType
+	}{
+		{"Trailer", models.ExtraTypeTrailer},
+		{"BehindTheScenes", models.ExtraTypeBehindTheScenes},
+		{"DeletedScene", models.ExtraTypeDeletedScene},
+		{"Featurette", models.ExtraTypeFeaturette},
+		{"Interview", models.ExtraTypeInterview},
+		{"Short", models.ExtraTypeShort},
+		{"Unknown", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.embyExtraType, func(t *testing.T) {
+			got := embyExtraType(tt.embyExtraType)
+			if got != tt.want {
+				t.Errorf("embyExtraType(%q) = %q, want %q", tt.embyExtraType, got, tt.want)
 			}
 		})
 	}

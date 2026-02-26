@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { WatchHistoryEntry } from '../types'
 import { formatDuration, formatDate, formatEpisode, parseSeasonFromTitle, formatLocation } from './format'
-import { mediaTypeLabels } from './constants'
+import { getMediaLabel } from './constants'
 import { GeoIPPopover } from '../components/GeoIPPopover'
 
 export interface ColumnDef {
@@ -43,6 +43,18 @@ export function EntryTitle({ entry, onTitleClick }: EntryTitleProps) {
           onClick={canClickItem ? () => onTitleClick(entry.server_id, entry.item_id!) : undefined}
         >
           {subtitle}
+        </div>
+      </div>
+    )
+  }
+  if (entry.extra_type && entry.parent_title) {
+    return (
+      <div>
+        <div className="font-medium text-gray-900 dark:text-gray-50 truncate">
+          {entry.parent_title}
+        </div>
+        <div className="text-xs text-muted dark:text-muted-dark truncate">
+          {entry.title}
         </div>
       </div>
     )
@@ -95,7 +107,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
       defaultVisible: true,
       render: (e) => (
         <span className="badge badge-muted">
-          {mediaTypeLabels[e.media_type]}
+          {getMediaLabel(e.media_type, e.extra_type)}
         </span>
       ),
       sortValue: (e) => e.media_type,

@@ -561,6 +561,7 @@ func (p *Poller) buildHistoryEntry(s models.ActiveStream, progressMs int64, watc
 		GrandparentItemID: s.GrandparentItemID,
 		UserName:          s.UserName,
 		MediaType:         s.MediaType,
+		ExtraType:         s.ExtraType,
 		Title:             s.Title,
 		ParentTitle:       s.ParentTitle,
 		GrandparentTitle:  s.GrandparentTitle,

@@ -1,4 +1,5 @@
 export type MediaType = 'movie' | 'episode' | 'livetv' | 'track' | 'audiobook' | 'book'
+export type ExtraType = 'trailer' | 'behind_the_scenes' | 'deleted_scene' | 'featurette' | 'interview' | 'short'
 export type ServerType = 'plex' | 'emby' | 'jellyfin'
 export type Role = 'admin' | 'viewer'
 export type TranscodeDecision = 'direct play' | 'copy' | 'transcode'
@@ -56,6 +57,7 @@ export interface WatchHistoryEntry {
   grandparent_item_id?: string
   user_name: string
   media_type: MediaType
+  extra_type?: ExtraType
   title: string
   parent_title: string
   grandparent_title: string
@@ -114,6 +116,7 @@ export interface ActiveStream {
   server_type: ServerType
   user_name: string
   media_type: MediaType
+  extra_type?: ExtraType
   title: string
   parent_title: string
   grandparent_title: string

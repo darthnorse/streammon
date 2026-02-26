@@ -257,6 +257,7 @@ type mediaContainer struct {
 type plexItem struct {
 	SessionKey            string            `xml:"sessionKey,attr"`
 	RatingKey             string            `xml:"ratingKey,attr"`
+	ParentRatingKey       string            `xml:"parentRatingKey,attr"`
 	GrandparentRatingKey  string            `xml:"grandparentRatingKey,attr"`
 	Type                  string            `xml:"type,attr"`
 	Title                 string            `xml:"title,attr"`
@@ -273,6 +274,7 @@ type plexItem struct {
 	Media                 []plexMedia       `xml:"Media"`
 	Thumb                 string            `xml:"thumb,attr"`
 	GrandparentThumb      string            `xml:"grandparentThumb,attr"`
+	Subtype               string            `xml:"subtype,attr"`
 	TranscodeSession      *transcodeSession `xml:"TranscodeSession"`
 }
 
@@ -451,6 +453,13 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 		as.ThumbURL = normalizeThumb(item.Thumb)
 	}
 
+	if item.Type == "clip" {
+		as.ExtraType = plexExtraType(item.Subtype)
+		if item.ParentRatingKey != "" {
+			as.ThumbURL = item.ParentRatingKey
+		}
+	}
+
 	// Media element contains transcoded output during transcoding, not source
 	var sessionVideoRes string
 
@@ -561,7 +570,7 @@ func plexPlayerState(s string) models.SessionState {
 
 func plexMediaType(t string) models.MediaType {
 	switch t {
-	case "movie":
+	case "movie", "clip":
 		return models.MediaTypeMovie
 	case "episode", "show":
 		return models.MediaTypeTV
@@ -570,6 +579,25 @@ func plexMediaType(t string) models.MediaType {
 	default:
 		slog.Warn("unknown plex media type, using raw value", "type", t)
 		return models.MediaType(strings.ToLower(t))
+	}
+}
+
+func plexExtraType(subtype string) models.ExtraType {
+	switch subtype {
+	case "trailer":
+		return models.ExtraTypeTrailer
+	case "behindTheScenes":
+		return models.ExtraTypeBehindTheScenes
+	case "deletedScene":
+		return models.ExtraTypeDeletedScene
+	case "sceneOrSample", "featurette": // Plex groups scene samples with featurettes
+		return models.ExtraTypeFeaturette
+	case "interview":
+		return models.ExtraTypeInterview
+	case "short":
+		return models.ExtraTypeShort
+	default:
+		return ""
 	}
 }
 

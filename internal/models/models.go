@@ -21,6 +21,17 @@ const (
 	MediaTypeBook       MediaType = "book"
 )
 
+type ExtraType string
+
+const (
+	ExtraTypeTrailer         ExtraType = "trailer"
+	ExtraTypeBehindTheScenes ExtraType = "behind_the_scenes"
+	ExtraTypeDeletedScene    ExtraType = "deleted_scene"
+	ExtraTypeFeaturette      ExtraType = "featurette"
+	ExtraTypeInterview       ExtraType = "interview"
+	ExtraTypeShort           ExtraType = "short"
+)
+
 type Role string
 
 const (
@@ -139,6 +150,7 @@ type WatchHistoryEntry struct {
 	GrandparentItemID   string            `json:"grandparent_item_id,omitempty"`
 	UserName            string            `json:"user_name"`
 	MediaType           MediaType         `json:"media_type"`
+	ExtraType           ExtraType         `json:"extra_type,omitempty"`
 	Title               string            `json:"title"`
 	ParentTitle         string            `json:"parent_title"`
 	GrandparentTitle    string            `json:"grandparent_title"`
@@ -205,6 +217,7 @@ type ActiveStream struct {
 	ServerType         ServerType `json:"server_type"`
 	UserName           string     `json:"user_name"`
 	MediaType          MediaType  `json:"media_type"`
+	ExtraType          ExtraType  `json:"extra_type,omitempty"`
 	Title              string     `json:"title"`
 	ParentTitle        string     `json:"parent_title"`
 	GrandparentTitle   string     `json:"grandparent_title"`

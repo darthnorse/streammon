@@ -10,7 +10,7 @@ import {
   Film,
   CalendarDays,
 } from 'lucide-react'
-import type { MediaType, Role, Severity, ServerType, TMDBMediaResult } from '../types'
+import type { MediaType, ExtraType, Role, Severity, ServerType, TMDBMediaResult } from '../types'
 
 export const mediaTypeLabels: Record<MediaType, string> = {
   movie: 'Movie',
@@ -19,6 +19,22 @@ export const mediaTypeLabels: Record<MediaType, string> = {
   track: 'Music',
   audiobook: 'Audiobook',
   book: 'Book',
+}
+
+export const extraTypeLabels: Record<ExtraType, string> = {
+  trailer: 'Trailer',
+  behind_the_scenes: 'Behind The Scenes',
+  deleted_scene: 'Deleted Scene',
+  featurette: 'Featurette',
+  interview: 'Interview',
+  short: 'Short',
+}
+
+export function getMediaLabel(mediaType: MediaType, extraType?: ExtraType): string {
+  if (extraType && extraType in extraTypeLabels) {
+    return extraTypeLabels[extraType]
+  }
+  return mediaTypeLabels[mediaType]
 }
 
 export const PER_PAGE_OPTIONS = [10, 25, 50] as const
