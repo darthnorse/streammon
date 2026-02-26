@@ -315,6 +315,8 @@ func embyMediaType(t string) models.MediaType {
 		return models.MediaTypeMovie
 	case "Episode", "Series":
 		return models.MediaTypeTV
+	case "Season":
+		return models.MediaTypeTV
 	case "Audio":
 		return models.MediaTypeMusic
 	case "TvChannel":
@@ -324,6 +326,7 @@ func embyMediaType(t string) models.MediaType {
 	case "Book":
 		return models.MediaTypeBook
 	default:
+		slog.Warn("unknown emby/jellyfin media type, using raw value", "type", t)
 		return models.MediaType(strings.ToLower(t))
 	}
 }
