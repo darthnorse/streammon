@@ -37,7 +37,6 @@ import type {
   SyncProgress,
 } from '../types'
 
-
 function useMediaDetailModal() {
   const [selectedItem, setSelectedItem] = useState<{ serverId: number; itemId: string } | null>(null)
   const { data: itemDetails, loading: detailsLoading } = useItemDetails(
@@ -93,7 +92,6 @@ function formatRuleParameters(rule: MaintenanceRuleWithCount): string {
   return criterionFormatters[rule.criterion_type]?.(params) ?? JSON.stringify(params)
 }
 
-
 interface RuleOpState {
   syncKeys: string[]
   message: string
@@ -145,6 +143,37 @@ function formatSeriesStatus(status: string | undefined): JSX.Element {
 type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at' | 'watches' | 'status' | 'type' | 'excluded_at' | 'excluded_by'
 type SortDir = 'asc' | 'desc'
 
+function useSortState(resetPage: () => void) {
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
+  // 3-click cycle: first click sorts by default dir, second reverses, third clears
+  function handleSort(field: SortField) {
+    if (sortField === field) {
+      const defaultDir = field === 'title' ? 'asc' : 'desc'
+      if (sortDir !== defaultDir) {
+        setSortField(null)
+        setSortDir('desc')
+      } else {
+        setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+      }
+    } else {
+      setSortField(field)
+      setSortDir(field === 'title' ? 'asc' : 'desc')
+    }
+    resetPage()
+  }
+
+  const resetSort = useCallback(() => {
+    setSortField(null)
+    setSortDir('desc')
+  }, [])
+
+  const sortParam = sortField ? `&sort_by=${sortField}&sort_order=${sortDir}` : ''
+
+  return { sortField, sortDir, handleSort, resetSort, sortParam }
+}
+
 function SortHeader({
   field,
   sortField,
@@ -178,20 +207,16 @@ function SortHeader({
   )
 }
 
-
 type ViewState =
   | { type: 'list' }
   | { type: 'candidates'; rule: MaintenanceRuleWithCount }
-  | { type: 'exclusions'; rule: MaintenanceRuleWithCount }
-  | { type: 'global-exclusions' }
-
+  | { type: 'global-exclusions'; from?: ViewState }
 
 interface MaintenanceRulesTabProps {
   filterServerID?: number
   filterLibraryID?: string
   onClearFilter?: () => void
 }
-
 
 export interface LibraryLookup {
   getServerName: (serverId: number) => string
@@ -232,11 +257,9 @@ export function useLibraryLookup(): LibraryLookup {
   return { getServerName, getLibraryName, getLibrary }
 }
 
-
 interface RulesListResponse {
   rules: MaintenanceRuleWithCount[]
 }
-
 
 function CandidatesView({
   rule,
@@ -255,8 +278,7 @@ function CandidatesView({
 }) {
   const [page, setPage] = useState(1)
   const [perPage, setPerPage] = usePersistedPerPage()
-  const [sortField, setSortField] = useState<SortField | null>(null)
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const { sortField, sortDir, handleSort, resetSort, sortParam } = useSortState(() => setPage(1))
   const [deleteDialog, setDeleteDialog] = useState<{
     candidates: MaintenanceCandidate[]
     showDetails: boolean
@@ -286,7 +308,6 @@ function CandidatesView({
   const [statusFilter, setStatusFilter] = useState('')
 
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
-  const sortParam = sortField ? `&sort_by=${sortField}&sort_order=${sortDir}` : ''
   const libraryFilterParam = filterServerID && filterLibraryID
     ? `&server_id=${filterServerID}&library_id=${encodeURIComponent(filterLibraryID)}`
     : ''
@@ -316,29 +337,13 @@ function CandidatesView({
     : 0
   const menuCandidate = rowMenuOpen !== null ? filteredItems.find(c => c.id === rowMenuOpen) ?? null : null
 
-  function handleSort(field: SortField) {
-    if (sortField === field) {
-      const defaultDir = field === 'title' ? 'asc' : 'desc'
-      if (sortDir !== defaultDir) {
-        setSortField(null)
-        setSortDir('desc')
-      } else {
-        setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-      }
-    } else {
-      setSortField(field)
-      setSortDir(field === 'title' ? 'asc' : 'desc')
-    }
-    setPage(1)
-  }
-
   useEffect(() => {
     setPage(1)
     clearSelection()
     resetSearch()
-    setSortField(null)
+    resetSort()
     setStatusFilter('')
-  }, [rule.id, clearSelection, resetSearch])
+  }, [rule.id, clearSelection, resetSearch, resetSort])
 
   useEffect(() => {
     if (statusFilter && data?.statuses && !data.statuses.includes(statusFilter)) {
@@ -878,214 +883,6 @@ function CandidatesView({
   )
 }
 
-
-function ExclusionsView({
-  rule,
-  onBack,
-}: {
-  rule: MaintenanceRuleWithCount
-  onBack: () => void
-}) {
-  const [page, setPage] = useState(1)
-  const [perPage, setPerPage] = usePersistedPerPage()
-  const [operating, setOperating] = useState(false)
-  const [operationResult, setOperationResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-  const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
-  const mountedRef = useMountedRef()
-
-  const [sortField, setSortField] = useState<SortField | null>(null)
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
-
-  const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setPage(1))
-
-  const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
-  const sortParam = sortField ? `&sort_by=${sortField}&sort_order=${sortDir}` : ''
-  const { data, loading, refetch } = useFetch<MaintenanceExclusionsResponse>(
-    `/api/maintenance/rules/${rule.id}/exclusions?page=${page}&per_page=${perPage}${searchParam}${sortParam}`
-  )
-
-  const totalPages = data ? Math.ceil(data.total / perPage) : 0
-  const filteredItems = data?.items || []
-
-  const {
-    selected,
-    toggleSelect,
-    toggleSelectAll,
-    clearSelection,
-    allVisibleSelected,
-  } = useMultiSelect(
-    filteredItems,
-    (e) => e.library_item_id
-  )
-
-  useEffect(() => {
-    if (totalPages > 0 && page > totalPages) {
-      setPage(totalPages)
-    }
-  }, [totalPages, page])
-
-  function handleSort(field: SortField) {
-    if (sortField === field) {
-      const defaultDir = field === 'title' ? 'asc' : 'desc'
-      if (sortDir !== defaultDir) {
-        setSortField(null)
-        setSortDir('desc')
-      } else {
-        setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-      }
-    } else {
-      setSortField(field)
-      setSortDir(field === 'title' ? 'asc' : 'desc')
-    }
-    setPage(1)
-  }
-
-  const handleRemoveExclusions = async () => {
-    if (selected.size === 0) return
-    setOperating(true)
-    setOperationResult(null)
-    try {
-      await api.post(`/api/maintenance/exclusions/bulk-remove`, {
-        library_item_ids: Array.from(selected)
-      })
-      if (!mountedRef.current) return
-      setOperationResult({ type: 'success', message: `Removed ${selected.size} exclusions` })
-      clearSelection()
-      refetch()
-    } catch (err) {
-      console.error('Remove exclusions failed:', err)
-      if (mountedRef.current) setOperationResult({ type: 'error', message: 'Failed to remove exclusions' })
-    } finally {
-      if (mountedRef.current) setOperating(false)
-    }
-  }
-
-  return (
-    <div className="space-y-6">
-      <SubViewHeader
-        title="Excluded Items"
-        subtitle={`Rule: ${rule.name} - ${data ? formatCount(data.total) : '0'} excluded`}
-        onBack={onBack}
-      />
-
-      {operationResult && (
-        <OperationResult
-          type={operationResult.type}
-          message={operationResult.message}
-          onDismiss={() => setOperationResult(null)}
-        />
-      )}
-
-      <div className="flex gap-4 items-center">
-        <SearchInput
-          value={searchInput}
-          onChange={setSearchInput}
-          placeholder="Search title, year, resolution..."
-        />
-        <div className="flex items-center gap-2 text-sm text-muted dark:text-muted-dark">
-          <label htmlFor="maint-exclusions-per-page">Show</label>
-          <select
-            id="maint-exclusions-per-page"
-            value={perPage}
-            onChange={(e) => { setPerPage(Number(e.target.value)); setPage(1); clearSelection() }}
-            className="px-2 py-1 rounded border border-border dark:border-border-dark bg-panel dark:bg-panel-dark"
-          >
-            {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <SelectionActionBar selectedCount={selected.size}>
-        <button
-          onClick={handleRemoveExclusions}
-          disabled={operating}
-          className="px-3 py-1.5 text-sm font-medium rounded bg-accent text-gray-900 hover:bg-accent/90 transition-colors disabled:opacity-50"
-        >
-          {operating ? 'Removing...' : 'Remove Exclusion'}
-        </button>
-      </SelectionActionBar>
-
-      {loading && !data ? (
-        <div className="card p-12 text-center">
-          <div className="text-muted dark:text-muted-dark animate-pulse">Loading...</div>
-        </div>
-      ) : !filteredItems.length ? (
-        <div className="card p-8 text-center text-muted dark:text-muted-dark">
-          {search ? 'No matching excluded items found.' : 'No excluded items for this rule.'}
-        </div>
-      ) : (
-        <>
-          <div className="card">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 dark:bg-white/5 border-b border-border dark:border-border-dark">
-                    <th className="px-4 py-3 w-10">
-                      <input
-                        type="checkbox"
-                        checked={allVisibleSelected}
-                        onChange={toggleSelectAll}
-                        className="rounded border-border dark:border-border-dark"
-                      />
-                    </th>
-                    <SortHeader field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Title</SortHeader>
-                    <SortHeader field="type" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Type</SortHeader>
-                    <SortHeader field="year" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Year</SortHeader>
-                    <SortHeader field="excluded_at" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Excluded At</SortHeader>
-                    <SortHeader field="excluded_by" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Excluded By</SortHeader>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredItems.map((exclusion) => (
-                    <tr
-                      key={exclusion.id}
-                      className={`border-b border-border dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5 transition-colors
-                        ${selected.has(exclusion.library_item_id) ? 'bg-accent/5' : ''}`}
-                    >
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          checked={selected.has(exclusion.library_item_id)}
-                          onChange={() => toggleSelect(exclusion.library_item_id)}
-                          className="rounded border-border dark:border-border-dark"
-                        />
-                      </td>
-                      <td className="px-4 py-3 font-medium">
-                        <ItemTitleButton item={exclusion.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
-                      </td>
-                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
-                        {exclusion.item?.media_type ? mediaTypeLabels[exclusion.item.media_type] : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
-                        {exclusion.item?.year || '-'}
-                      </td>
-                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
-                        {new Date(exclusion.excluded_at).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
-                        {exclusion.excluded_by}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <Pagination
-            page={page}
-            totalPages={totalPages}
-            onPageChange={(p) => { setPage(p); clearSelection() }}
-          />
-        </>
-      )}
-
-      {detailModal}
-    </div>
-  )
-}
-
-
 function GlobalExclusionsView({
   onBack,
 }: {
@@ -1098,19 +895,17 @@ function GlobalExclusionsView({
   const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
   const mountedRef = useMountedRef()
 
-  const [sortField, setSortField] = useState<SortField | null>(null)
-  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const { sortField, sortDir, handleSort, sortParam } = useSortState(() => setPage(1))
 
   const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setPage(1))
 
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
-  const sortParam = sortField ? `&sort_by=${sortField}&sort_order=${sortDir}` : ''
   const { data, loading, refetch } = useFetch<MaintenanceExclusionsResponse>(
     `/api/maintenance/exclusions?page=${page}&per_page=${perPage}${searchParam}${sortParam}`
   )
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
-  const filteredItems = data?.items || []
+  const exclusions = data?.items || []
 
   const {
     selected,
@@ -1119,7 +914,7 @@ function GlobalExclusionsView({
     clearSelection,
     allVisibleSelected,
   } = useMultiSelect(
-    filteredItems,
+    exclusions,
     (e) => e.library_item_id
   )
 
@@ -1128,22 +923,6 @@ function GlobalExclusionsView({
       setPage(totalPages)
     }
   }, [totalPages, page])
-
-  function handleSort(field: SortField) {
-    if (sortField === field) {
-      const defaultDir = field === 'title' ? 'asc' : 'desc'
-      if (sortDir !== defaultDir) {
-        setSortField(null)
-        setSortDir('desc')
-      } else {
-        setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-      }
-    } else {
-      setSortField(field)
-      setSortDir(field === 'title' ? 'asc' : 'desc')
-    }
-    setPage(1)
-  }
 
   const handleRemoveExclusions = async () => {
     if (selected.size === 0) return
@@ -1214,7 +993,7 @@ function GlobalExclusionsView({
         <div className="card p-12 text-center">
           <div className="text-muted dark:text-muted-dark animate-pulse">Loading...</div>
         </div>
-      ) : !filteredItems.length ? (
+      ) : !exclusions.length ? (
         <div className="card p-8 text-center text-muted dark:text-muted-dark">
           {search ? 'No matching excluded items found.' : 'No items have been excluded.'}
         </div>
@@ -1241,7 +1020,7 @@ function GlobalExclusionsView({
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredItems.map((exclusion) => (
+                  {exclusions.map((exclusion) => (
                     <tr
                       key={exclusion.id}
                       className={`border-b border-border dark:border-border-dark hover:bg-gray-50 dark:hover:bg-white/5 transition-colors
@@ -1289,7 +1068,6 @@ function GlobalExclusionsView({
     </div>
   )
 }
-
 
 export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFilter }: MaintenanceRulesTabProps) {
   const [view, setView] = useState<ViewState>({ type: 'list' })
@@ -1457,7 +1235,7 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
       <CandidatesView
         rule={view.rule}
         onBack={() => setView({ type: 'list' })}
-        onManageExclusions={() => setView({ type: 'exclusions', rule: view.rule })}
+        onManageExclusions={() => setView({ type: 'global-exclusions', from: view })}
         lookup={lookup}
         filterServerID={filterServerID}
         filterLibraryID={filterLibraryID}
@@ -1465,19 +1243,10 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
     )
   }
 
-  if (view.type === 'exclusions') {
-    return (
-      <ExclusionsView
-        rule={view.rule}
-        onBack={() => setView({ type: 'candidates', rule: view.rule })}
-      />
-    )
-  }
-
   if (view.type === 'global-exclusions') {
     return (
       <GlobalExclusionsView
-        onBack={() => setView({ type: 'list' })}
+        onBack={() => setView(view.from ?? { type: 'list' })}
       />
     )
   }
@@ -1595,7 +1364,7 @@ export function MaintenanceRulesTab({ filterServerID, filterLibraryID, onClearFi
                     )}
                     {rule.exclusion_count > 0 && (
                       <button
-                        onClick={() => setView({ type: 'exclusions', rule })}
+                        onClick={() => setView({ type: 'global-exclusions' })}
                         className="text-muted dark:text-muted-dark font-medium hover:text-accent hover:underline whitespace-nowrap"
                         aria-label={`View ${rule.exclusion_count} exclusions for rule ${rule.name}`}
                       >
