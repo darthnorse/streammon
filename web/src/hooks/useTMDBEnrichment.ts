@@ -24,7 +24,7 @@ export function useTMDBEnrichment(
       return
     }
 
-    const isTV = mediaType === 'episode' || mediaType === 'tv'
+    const isTV = mediaType === 'episode'
     const endpoint = isTV
       ? `/api/tmdb/tv/${tmdbId}`
       : `/api/tmdb/movie/${tmdbId}`
