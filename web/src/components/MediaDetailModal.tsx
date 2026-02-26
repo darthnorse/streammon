@@ -17,7 +17,7 @@ import { useModalStack } from '../hooks/useModalStack'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { TMDB_IMG } from '../lib/tmdb'
 import { api } from '../lib/api'
-import { mediaStatusBadge } from '../lib/overseerr'
+import { MEDIA_STATUS, mediaStatusBadge } from '../lib/overseerr'
 import { useOverseerrRequest } from '../hooks/useOverseerrRequest'
 import { CastChip } from './CastChip'
 import { ModalStackRenderer } from './ModalStackRenderer'
@@ -187,6 +187,12 @@ function NetworkLogos({ networks }: { networks: { id: number; name: string; logo
 
 function regularSeasonNumbers(seasons: { season_number: number }[]): number[] {
   return seasons.filter(s => s.season_number > 0).map(s => s.season_number)
+}
+
+function requestButtonLabel(requesting: boolean, status: number | undefined, mediaType: 'movie' | 'tv'): string {
+  if (requesting) return 'Requesting...'
+  if (status === MEDIA_STATUS.PARTIALLY_AVAILABLE && mediaType === 'tv') return 'Request More'
+  return `Request ${mediaType === 'movie' ? 'Movie' : 'TV Show'}`
 }
 
 function resolveMediaType(mediaType: string | undefined): 'movie' | 'tv' | null {
@@ -498,7 +504,7 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                         )}
                       </div>
 
-                      {overseerrStatus && overseerrStatus > 1 && (
+                      {overseerrStatus && overseerrStatus > MEDIA_STATUS.UNKNOWN && (
                         <div className="mt-2">{mediaStatusBadge(overseerrStatus)}</div>
                       )}
 
@@ -673,7 +679,7 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                         className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-accent text-gray-900
                                    hover:bg-accent/90 disabled:opacity-50 transition-colors"
                       >
-                        {requesting ? 'Requesting...' : `Request ${effectiveMediaType === 'movie' ? 'Movie' : 'TV Show'}`}
+                        {requestButtonLabel(requesting, overseerrStatus, effectiveMediaType!)}
                       </button>
                     )}
                     {requestError && (

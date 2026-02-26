@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
+import { MEDIA_STATUS } from '../lib/overseerr'
 import { dispatchRequestChanged } from './useRequestCount'
 
 interface UseOverseerrRequestParams {
@@ -54,9 +55,13 @@ export function useOverseerrRequest({
     return () => controller.abort()
   }, [overseerrConfigured, effectiveTmdbId, effectiveMediaType])
 
-  // Deleted (status 7) excluded — users can re-request after maintenance deletion
-  const alreadyRequested = overseerrStatus != null && overseerrStatus >= 2 && overseerrStatus <= 6
-  const canRequest = overseerrConfigured && overseerrChecked && !alreadyRequested && !requestSuccess && !!effectiveTmdbId
+  // Deleted excluded — users can re-request after maintenance deletion
+  // Partially available excluded for TV — users can request additional seasons
+  const alreadyRequested = overseerrStatus != null
+    && overseerrStatus >= MEDIA_STATUS.PENDING
+    && overseerrStatus <= MEDIA_STATUS.BLOCKLISTED
+    && !(overseerrStatus === MEDIA_STATUS.PARTIALLY_AVAILABLE && effectiveMediaType === 'tv')
+  const canRequest = overseerrConfigured && overseerrChecked && !alreadyRequested && !requestSuccess && !!effectiveTmdbId && !!effectiveMediaType
 
   const handleRequest = useCallback(async () => {
     if (!effectiveTmdbId || !effectiveMediaType) return

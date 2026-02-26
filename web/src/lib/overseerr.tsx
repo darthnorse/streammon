@@ -1,5 +1,15 @@
 export { TMDB_IMG } from './tmdb'
 
+export const MEDIA_STATUS = {
+  UNKNOWN: 1,
+  PENDING: 2,
+  PROCESSING: 3,
+  PARTIALLY_AVAILABLE: 4,
+  AVAILABLE: 5,
+  BLOCKLISTED: 6,
+  DELETED: 7,
+} as const
+
 export const OVERSEERR_MEDIA_STATUS: Record<number, { label: string; color: string }> = {
   1: { label: 'Unknown', color: 'bg-gray-500/80 text-white' },
   2: { label: 'Pending', color: 'bg-yellow-500/90 text-gray-900' },
@@ -31,7 +41,7 @@ function statusBadge(statusMap: Record<number, { label: string; color: string }>
 }
 
 export function mediaStatusBadge(status: number | undefined) {
-  if (!status || status === 1) return null
+  if (!status || status === MEDIA_STATUS.UNKNOWN) return null
   return statusBadge(OVERSEERR_MEDIA_STATUS, status, true)
 }
 
