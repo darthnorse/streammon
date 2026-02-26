@@ -236,6 +236,14 @@ type MaintenanceExclusion struct {
 	Item          *LibraryItemCache `json:"item,omitempty"`
 }
 
+type ExclusionListOptions struct {
+	Page      int
+	PerPage   int
+	Search    string
+	SortBy    string
+	SortOrder string
+}
+
 type CandidateListOptions struct {
 	Page      int
 	PerPage   int

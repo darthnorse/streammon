@@ -36,6 +36,14 @@ func scanExclusion(scanner interface{ Scan(...any) error }) (models.MaintenanceE
 	return e, nil
 }
 
+var validExclusionSortColumns = map[string]string{
+	"title":       "i.title",
+	"type":        "i.media_type",
+	"year":        "i.year",
+	"excluded_at": "e.excluded_at",
+	"excluded_by": "e.excluded_by",
+}
+
 // CreateExclusions bulk creates global exclusions, returns count of newly created exclusions.
 // Uses a single transaction to ensure accurate count even under concurrent modifications.
 func (s *Store) CreateExclusions(ctx context.Context, libraryItemIDs []int64, excludedBy string) (int, error) {
@@ -152,14 +160,14 @@ func (s *Store) CountExclusions(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (s *Store) ListExclusions(ctx context.Context, page, perPage int, search string) (*models.PaginatedResult[models.MaintenanceExclusion], error) {
+func (s *Store) ListExclusions(ctx context.Context, opts models.ExclusionListOptions) (*models.PaginatedResult[models.MaintenanceExclusion], error) {
 	var total int
 	var args []any
 
 	baseWhere := `1=1`
 
-	if search != "" {
-		searchPattern := "%" + escapeLikePattern(search) + "%"
+	if opts.Search != "" {
+		searchPattern := "%" + escapeLikePattern(opts.Search) + "%"
 		baseWhere += ` AND (i.title LIKE ? ESCAPE '\' OR CAST(i.year AS TEXT) LIKE ? ESCAPE '\' OR i.video_resolution LIKE ? ESCAPE '\')`
 		args = append(args, searchPattern, searchPattern, searchPattern)
 	}
@@ -173,16 +181,29 @@ func (s *Store) ListExclusions(ctx context.Context, page, perPage int, search st
 		return nil, fmt.Errorf("count exclusions: %w", err)
 	}
 
-	offset := (page - 1) * perPage
+	orderBy := "e.excluded_at DESC"
+	if col, ok := validExclusionSortColumns[opts.SortBy]; ok {
+		dir := "DESC"
+		if opts.SortOrder == "asc" {
+			dir = "ASC"
+		}
+		orderBy = col + " " + dir
+	}
+
+	page := opts.Page
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * opts.PerPage
 	listArgs := make([]any, len(args), len(args)+2)
 	copy(listArgs, args)
-	listArgs = append(listArgs, perPage, offset)
+	listArgs = append(listArgs, opts.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+exclusionSelectColumns+`
 		FROM maintenance_exclusions e
 		JOIN library_items i ON e.library_item_id = i.id
 		WHERE `+baseWhere+`
-		ORDER BY e.excluded_at DESC
+		ORDER BY `+orderBy+`
 		LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("list exclusions: %w", err)
@@ -202,20 +223,20 @@ func (s *Store) ListExclusions(ctx context.Context, page, perPage int, search st
 		Items:   exclusions,
 		Total:   total,
 		Page:    page,
-		PerPage: perPage,
+		PerPage: opts.PerPage,
 	}, rows.Err()
 }
 
 // ListExcludedCandidatesForRule returns excluded items that are also candidates for a specific rule.
-func (s *Store) ListExcludedCandidatesForRule(ctx context.Context, ruleID int64, page, perPage int, search string) (*models.PaginatedResult[models.MaintenanceExclusion], error) {
+func (s *Store) ListExcludedCandidatesForRule(ctx context.Context, ruleID int64, opts models.ExclusionListOptions) (*models.PaginatedResult[models.MaintenanceExclusion], error) {
 	var total int
 	var args []any
 
 	baseWhere := `c.rule_id = ?`
 	args = append(args, ruleID)
 
-	if search != "" {
-		searchPattern := "%" + escapeLikePattern(search) + "%"
+	if opts.Search != "" {
+		searchPattern := "%" + escapeLikePattern(opts.Search) + "%"
 		baseWhere += ` AND (i.title LIKE ? ESCAPE '\' OR CAST(i.year AS TEXT) LIKE ? ESCAPE '\' OR i.video_resolution LIKE ? ESCAPE '\')`
 		args = append(args, searchPattern, searchPattern, searchPattern)
 	}
@@ -230,17 +251,30 @@ func (s *Store) ListExcludedCandidatesForRule(ctx context.Context, ruleID int64,
 		return nil, fmt.Errorf("count excluded candidates: %w", err)
 	}
 
-	offset := (page - 1) * perPage
+	orderBy := "e.excluded_at DESC"
+	if col, ok := validExclusionSortColumns[opts.SortBy]; ok {
+		dir := "DESC"
+		if opts.SortOrder == "asc" {
+			dir = "ASC"
+		}
+		orderBy = col + " " + dir
+	}
+
+	page := opts.Page
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * opts.PerPage
 	listArgs := make([]any, len(args), len(args)+2)
 	copy(listArgs, args)
-	listArgs = append(listArgs, perPage, offset)
+	listArgs = append(listArgs, opts.PerPage, offset)
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+exclusionSelectColumns+`
 		FROM maintenance_exclusions e
 		JOIN library_items i ON e.library_item_id = i.id
 		JOIN maintenance_candidates c ON c.library_item_id = e.library_item_id
 		WHERE `+baseWhere+`
-		ORDER BY e.excluded_at DESC
+		ORDER BY `+orderBy+`
 		LIMIT ? OFFSET ?`, listArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("list excluded candidates: %w", err)
@@ -260,7 +294,7 @@ func (s *Store) ListExcludedCandidatesForRule(ctx context.Context, ruleID int64,
 		Items:   exclusions,
 		Total:   total,
 		Page:    page,
-		PerPage: perPage,
+		PerPage: opts.PerPage,
 	}, rows.Err()
 }
 

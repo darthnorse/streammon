@@ -6,7 +6,7 @@ import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
 import { useItemDetails } from '../hooks/useItemDetails'
 import { api, ApiError } from '../lib/api'
-import { PER_PAGE_OPTIONS, SERVER_ACCENT } from '../lib/constants'
+import { PER_PAGE_OPTIONS, SERVER_ACCENT, mediaTypeLabels } from '../lib/constants'
 import { readSSEStream } from '../lib/sse'
 import { formatCount, formatSize, formatShortDate } from '../lib/format'
 import { useUnits } from '../hooks/useUnits'
@@ -142,7 +142,7 @@ function formatSeriesStatus(status: string | undefined): JSX.Element {
   return <span className={statusColors[status]}>{status}</span>
 }
 
-type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at' | 'watches' | 'status'
+type SortField = 'title' | 'year' | 'resolution' | 'size' | 'reason' | 'added_at' | 'watches' | 'status' | 'type' | 'excluded_at' | 'excluded_by'
 type SortDir = 'asc' | 'desc'
 
 function SortHeader({
@@ -893,11 +893,15 @@ function ExclusionsView({
   const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
   const mountedRef = useMountedRef()
 
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
   const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setPage(1))
 
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
+  const sortParam = sortField ? `&sort_by=${sortField}&sort_order=${sortDir}` : ''
   const { data, loading, refetch } = useFetch<MaintenanceExclusionsResponse>(
-    `/api/maintenance/rules/${rule.id}/exclusions?page=${page}&per_page=${perPage}${searchParam}`
+    `/api/maintenance/rules/${rule.id}/exclusions?page=${page}&per_page=${perPage}${searchParam}${sortParam}`
   )
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
@@ -919,6 +923,22 @@ function ExclusionsView({
       setPage(totalPages)
     }
   }, [totalPages, page])
+
+  function handleSort(field: SortField) {
+    if (sortField === field) {
+      const defaultDir = field === 'title' ? 'asc' : 'desc'
+      if (sortDir !== defaultDir) {
+        setSortField(null)
+        setSortDir('desc')
+      } else {
+        setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+      }
+    } else {
+      setSortField(field)
+      setSortDir(field === 'title' ? 'asc' : 'desc')
+    }
+    setPage(1)
+  }
 
   const handleRemoveExclusions = async () => {
     if (selected.size === 0) return
@@ -1008,18 +1028,11 @@ function ExclusionsView({
                         className="rounded border-border dark:border-border-dark"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Title
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Year
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Excluded At
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Excluded By
-                    </th>
+                    <SortHeader field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Title</SortHeader>
+                    <SortHeader field="type" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Type</SortHeader>
+                    <SortHeader field="year" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Year</SortHeader>
+                    <SortHeader field="excluded_at" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Excluded At</SortHeader>
+                    <SortHeader field="excluded_by" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Excluded By</SortHeader>
                   </tr>
                 </thead>
                 <tbody>
@@ -1039,6 +1052,9 @@ function ExclusionsView({
                       </td>
                       <td className="px-4 py-3 font-medium">
                         <ItemTitleButton item={exclusion.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {exclusion.item?.media_type ? mediaTypeLabels[exclusion.item.media_type] : '-'}
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {exclusion.item?.year || '-'}
@@ -1082,11 +1098,15 @@ function GlobalExclusionsView({
   const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
   const mountedRef = useMountedRef()
 
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
   const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setPage(1))
 
   const searchParam = search ? `&search=${encodeURIComponent(search)}` : ''
+  const sortParam = sortField ? `&sort_by=${sortField}&sort_order=${sortDir}` : ''
   const { data, loading, refetch } = useFetch<MaintenanceExclusionsResponse>(
-    `/api/maintenance/exclusions?page=${page}&per_page=${perPage}${searchParam}`
+    `/api/maintenance/exclusions?page=${page}&per_page=${perPage}${searchParam}${sortParam}`
   )
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
@@ -1108,6 +1128,22 @@ function GlobalExclusionsView({
       setPage(totalPages)
     }
   }, [totalPages, page])
+
+  function handleSort(field: SortField) {
+    if (sortField === field) {
+      const defaultDir = field === 'title' ? 'asc' : 'desc'
+      if (sortDir !== defaultDir) {
+        setSortField(null)
+        setSortDir('desc')
+      } else {
+        setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+      }
+    } else {
+      setSortField(field)
+      setSortDir(field === 'title' ? 'asc' : 'desc')
+    }
+    setPage(1)
+  }
 
   const handleRemoveExclusions = async () => {
     if (selected.size === 0) return
@@ -1197,18 +1233,11 @@ function GlobalExclusionsView({
                         className="rounded border-border dark:border-border-dark"
                       />
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Title
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Year
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Excluded At
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-muted dark:text-muted-dark uppercase tracking-wider">
-                      Excluded By
-                    </th>
+                    <SortHeader field="title" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Title</SortHeader>
+                    <SortHeader field="type" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Type</SortHeader>
+                    <SortHeader field="year" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Year</SortHeader>
+                    <SortHeader field="excluded_at" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Excluded At</SortHeader>
+                    <SortHeader field="excluded_by" sortField={sortField} sortDir={sortDir} onSort={handleSort}>Excluded By</SortHeader>
                   </tr>
                 </thead>
                 <tbody>
@@ -1228,6 +1257,9 @@ function GlobalExclusionsView({
                       </td>
                       <td className="px-4 py-3 font-medium">
                         <ItemTitleButton item={exclusion.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
+                      </td>
+                      <td className="px-4 py-3 text-muted dark:text-muted-dark">
+                        {exclusion.item?.media_type ? mediaTypeLabels[exclusion.item.media_type] : '-'}
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {exclusion.item?.year || '-'}
