@@ -534,6 +534,56 @@ func (s *Server) handleGetRuleChannels(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, channels)
 }
 
+func (s *Server) handleListRuleExemptions(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid rule id")
+		return
+	}
+
+	if _, err := s.store.GetRule(id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	names, err := s.store.ListRuleExemptions(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to list exemptions")
+		return
+	}
+	if names == nil {
+		names = []string{}
+	}
+	writeJSON(w, http.StatusOK, names)
+}
+
+func (s *Server) handleSetRuleExemptions(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid rule id")
+		return
+	}
+
+	if _, err := s.store.GetRule(id); err != nil {
+		writeStoreError(w, err)
+		return
+	}
+
+	var names []string
+	if err := json.NewDecoder(r.Body).Decode(&names); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: expected string array")
+		return
+	}
+
+	if err := s.store.SetRuleExemptions(id, names); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to set exemptions")
+		return
+	}
+
+	s.invalidateRulesCache()
+	writeJSON(w, http.StatusOK, names)
+}
+
 func (s *Server) invalidateRulesCache() {
 	if s.rulesEngine != nil {
 		s.rulesEngine.InvalidateCache()

@@ -118,6 +118,7 @@ func main() {
 	rulesGeo := &geoAdapter{resolver: geoResolver}
 	rulesEngine := rules.NewEngine(s, rulesGeo, rules.DefaultEngineConfig())
 	rulesEngine.SetNotifier(notifier.New())
+	// ServerResolver is set after poller creation below
 
 	pollInterval := 5 * time.Second
 	if v := os.Getenv("POLL_INTERVAL"); v != "" {
@@ -143,6 +144,7 @@ func main() {
 		poller.WithHouseholdAutoLearn(autoLearnMinSessions),
 		poller.WithGeoResolver(geoResolver),
 	)
+	rulesEngine.SetServerResolver(p)
 
 	servers, err := s.ListServers()
 	if err != nil {

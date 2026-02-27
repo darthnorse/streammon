@@ -898,6 +898,132 @@ func TestBackfillHouseholdGeoUniqueConflict(t *testing.T) {
 	}
 }
 
+func TestRuleExemptions(t *testing.T) {
+	s := setupTestStore(t)
+
+	rule := &models.Rule{
+		Name:    "Test Rule",
+		Type:    models.RuleTypeConcurrentStreams,
+		Enabled: true,
+		Config:  json.RawMessage(`{"max_streams": 2}`),
+	}
+	if err := s.CreateRule(rule); err != nil {
+		t.Fatalf("CreateRule: %v", err)
+	}
+
+	// Initially empty
+	names, err := s.ListRuleExemptions(rule.ID)
+	if err != nil {
+		t.Fatalf("ListRuleExemptions: %v", err)
+	}
+	if len(names) != 0 {
+		t.Errorf("expected 0 exemptions, got %d", len(names))
+	}
+
+	// Set exemptions
+	if err := s.SetRuleExemptions(rule.ID, []string{"alice", "bob"}); err != nil {
+		t.Fatalf("SetRuleExemptions: %v", err)
+	}
+	names, err = s.ListRuleExemptions(rule.ID)
+	if err != nil {
+		t.Fatalf("ListRuleExemptions: %v", err)
+	}
+	if len(names) != 2 {
+		t.Fatalf("expected 2 exemptions, got %d", len(names))
+	}
+	if names[0] != "alice" || names[1] != "bob" {
+		t.Errorf("expected [alice, bob], got %v", names)
+	}
+
+	// Replace semantics
+	if err := s.SetRuleExemptions(rule.ID, []string{"charlie"}); err != nil {
+		t.Fatalf("SetRuleExemptions replace: %v", err)
+	}
+	names, _ = s.ListRuleExemptions(rule.ID)
+	if len(names) != 1 || names[0] != "charlie" {
+		t.Errorf("expected [charlie], got %v", names)
+	}
+
+	// Clear all
+	if err := s.SetRuleExemptions(rule.ID, nil); err != nil {
+		t.Fatalf("SetRuleExemptions clear: %v", err)
+	}
+	names, _ = s.ListRuleExemptions(rule.ID)
+	if len(names) != 0 {
+		t.Errorf("expected 0 exemptions after clear, got %d", len(names))
+	}
+}
+
+func TestListAllRuleExemptions(t *testing.T) {
+	s := setupTestStore(t)
+
+	r1 := &models.Rule{Name: "R1", Type: models.RuleTypeConcurrentStreams, Enabled: true, Config: json.RawMessage(`{}`)}
+	r2 := &models.Rule{Name: "R2", Type: models.RuleTypeGeoRestriction, Enabled: true, Config: json.RawMessage(`{}`)}
+	s.CreateRule(r1)
+	s.CreateRule(r2)
+
+	s.SetRuleExemptions(r1.ID, []string{"alice"})
+	s.SetRuleExemptions(r2.ID, []string{"bob", "charlie"})
+
+	all, err := s.ListAllRuleExemptions()
+	if err != nil {
+		t.Fatalf("ListAllRuleExemptions: %v", err)
+	}
+	if len(all[r1.ID]) != 1 || all[r1.ID][0] != "alice" {
+		t.Errorf("r1 exemptions: expected [alice], got %v", all[r1.ID])
+	}
+	if len(all[r2.ID]) != 2 {
+		t.Errorf("r2 exemptions: expected 2, got %d", len(all[r2.ID]))
+	}
+}
+
+func TestUpdateViolationAction(t *testing.T) {
+	s := setupTestStore(t)
+
+	rule := &models.Rule{
+		Name: "Test", Type: models.RuleTypeConcurrentStreams,
+		Enabled: true, Config: json.RawMessage(`{}`),
+	}
+	s.CreateRule(rule)
+
+	v := &models.RuleViolation{
+		RuleID: rule.ID, UserName: "user1", Severity: models.SeverityInfo,
+		Message: "test", ConfidenceScore: 80, OccurredAt: time.Now().UTC(),
+	}
+	if err := s.InsertViolation(v); err != nil {
+		t.Fatalf("InsertViolation: %v", err)
+	}
+
+	if err := s.UpdateViolationAction(v.ID, "terminated"); err != nil {
+		t.Fatalf("UpdateViolationAction: %v", err)
+	}
+
+	result, _ := s.ListViolations(1, 10, ViolationFilters{})
+	if len(result.Items) != 1 {
+		t.Fatalf("expected 1 violation, got %d", len(result.Items))
+	}
+	if result.Items[0].ActionTaken != "terminated" {
+		t.Errorf("expected action_taken=terminated, got %q", result.Items[0].ActionTaken)
+	}
+}
+
+func TestRuleExemptionsCascadeDelete(t *testing.T) {
+	s := setupTestStore(t)
+
+	rule := &models.Rule{
+		Name: "Cascade Test", Type: models.RuleTypeConcurrentStreams,
+		Enabled: true, Config: json.RawMessage(`{}`),
+	}
+	s.CreateRule(rule)
+	s.SetRuleExemptions(rule.ID, []string{"alice"})
+	s.DeleteRule(rule.ID)
+
+	names, _ := s.ListRuleExemptions(rule.ID)
+	if len(names) != 0 {
+		t.Errorf("expected exemptions deleted on cascade, got %d", len(names))
+	}
+}
+
 func seedTestServer(t *testing.T, s *Store) int64 {
 	t.Helper()
 	srv := &models.Server{

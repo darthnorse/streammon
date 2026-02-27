@@ -131,7 +131,7 @@ func (s *Store) ListRulesByType(ruleType models.RuleType) ([]models.Rule, error)
 	return scanRuleRows(rows)
 }
 
-const violationColumnsWithRule = `v.id, v.rule_id, r.name, r.type, v.user_name, v.severity, v.message, v.details, v.confidence_score, v.session_key, v.occurred_at, v.created_at`
+const violationColumnsWithRule = `v.id, v.rule_id, r.name, r.type, v.user_name, v.severity, v.message, v.details, v.confidence_score, v.session_key, v.occurred_at, v.created_at, v.action_taken`
 
 func unmarshalViolationDetails(v *models.RuleViolation, detailsJSON string) {
 	if detailsJSON != "" && detailsJSON != "{}" {
@@ -144,7 +144,7 @@ func unmarshalViolationDetails(v *models.RuleViolation, detailsJSON string) {
 func scanViolationWithRule(scanner interface{ Scan(...any) error }) (models.RuleViolation, error) {
 	var v models.RuleViolation
 	var detailsJSON string
-	err := scanner.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.RuleType, &v.UserName, &v.Severity, &v.Message, &detailsJSON, &v.ConfidenceScore, &v.SessionKey, &v.OccurredAt, &v.CreatedAt)
+	err := scanner.Scan(&v.ID, &v.RuleID, &v.RuleName, &v.RuleType, &v.UserName, &v.Severity, &v.Message, &detailsJSON, &v.ConfidenceScore, &v.SessionKey, &v.OccurredAt, &v.CreatedAt, &v.ActionTaken)
 	if err != nil {
 		return v, err
 	}
@@ -823,4 +823,69 @@ func isUniqueConstraintError(err error) bool {
 	}
 	errStr := err.Error()
 	return strings.Contains(errStr, "UNIQUE constraint failed")
+}
+
+func (s *Store) UpdateViolationAction(violationID int64, action string) error {
+	_, err := s.db.Exec(`UPDATE rule_violations SET action_taken = ? WHERE id = ?`, action, violationID)
+	if err != nil {
+		return fmt.Errorf("updating violation action: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) ListRuleExemptions(ruleID int64) ([]string, error) {
+	rows, err := s.db.Query(`SELECT user_name FROM rule_exemptions WHERE rule_id = ? ORDER BY user_name`, ruleID)
+	if err != nil {
+		return nil, fmt.Errorf("listing rule exemptions: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+
+func (s *Store) SetRuleExemptions(ruleID int64, userNames []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`DELETE FROM rule_exemptions WHERE rule_id = ?`, ruleID); err != nil {
+		return fmt.Errorf("clearing exemptions: %w", err)
+	}
+
+	for _, name := range userNames {
+		if _, err := tx.Exec(`INSERT INTO rule_exemptions (rule_id, user_name) VALUES (?, ?)`, ruleID, name); err != nil {
+			return fmt.Errorf("inserting exemption: %w", err)
+		}
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) ListAllRuleExemptions() (map[int64][]string, error) {
+	rows, err := s.db.Query(`SELECT rule_id, user_name FROM rule_exemptions ORDER BY rule_id, user_name`)
+	if err != nil {
+		return nil, fmt.Errorf("listing all exemptions: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]string)
+	for rows.Next() {
+		var ruleID int64
+		var name string
+		if err := rows.Scan(&ruleID, &name); err != nil {
+			return nil, err
+		}
+		result[ruleID] = append(result[ruleID], name)
+	}
+	return result, rows.Err()
 }

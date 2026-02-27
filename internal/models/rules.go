@@ -106,9 +106,11 @@ func (r *Rule) Validate() error {
 }
 
 type ImpossibleTravelConfig struct {
-	MaxSpeedKmH     float64 `json:"max_speed_km_h"`
-	MinDistanceKm   float64 `json:"min_distance_km"`
-	TimeWindowHours int     `json:"time_window_hours"`
+	MaxSpeedKmH      float64 `json:"max_speed_km_h"`
+	MinDistanceKm    float64 `json:"min_distance_km"`
+	TimeWindowHours  int     `json:"time_window_hours"`
+	AutoTerminate    bool    `json:"auto_terminate"`
+	TerminateMessage string  `json:"terminate_message"`
 }
 
 func (c *ImpossibleTravelConfig) Validate() error {
@@ -140,9 +142,11 @@ func (c *DeviceVelocityConfig) Validate() error {
 }
 
 type ConcurrentStreamsConfig struct {
-	MaxStreams       int  `json:"max_streams"`
-	ExemptHousehold  bool `json:"exempt_household"`
-	CountPausedAsOne bool `json:"count_paused_as_one"`
+	MaxStreams        int    `json:"max_streams"`
+	ExemptHousehold   bool   `json:"exempt_household"`
+	CountPausedAsOne  bool   `json:"count_paused_as_one"`
+	AutoTerminate     bool   `json:"auto_terminate"`
+	TerminateMessage  string `json:"terminate_message"`
 }
 
 func (c *ConcurrentStreamsConfig) Validate() error {
@@ -153,8 +157,10 @@ func (c *ConcurrentStreamsConfig) Validate() error {
 }
 
 type SimultaneousLocsConfig struct {
-	MinDistanceKm   float64 `json:"min_distance_km"`
-	ExemptHousehold bool    `json:"exempt_household"`
+	MinDistanceKm    float64 `json:"min_distance_km"`
+	ExemptHousehold  bool    `json:"exempt_household"`
+	AutoTerminate    bool    `json:"auto_terminate"`
+	TerminateMessage string  `json:"terminate_message"`
 }
 
 func (c *SimultaneousLocsConfig) Validate() error {
@@ -167,6 +173,8 @@ func (c *SimultaneousLocsConfig) Validate() error {
 type GeoRestrictionConfig struct {
 	AllowedCountries []string `json:"allowed_countries"`
 	BlockedCountries []string `json:"blocked_countries"`
+	AutoTerminate    bool     `json:"auto_terminate"`
+	TerminateMessage string   `json:"terminate_message"`
 }
 
 func (c *GeoRestrictionConfig) Validate() error {
@@ -224,6 +232,7 @@ type RuleViolation struct {
 	Details         map[string]interface{} `json:"details,omitempty"`
 	ConfidenceScore float64                `json:"confidence_score"`
 	SessionKey      string                 `json:"session_key,omitempty"`
+	ActionTaken     string                 `json:"action_taken,omitempty"`
 	OccurredAt      time.Time              `json:"occurred_at"`
 	CreatedAt       time.Time              `json:"created_at"`
 }
