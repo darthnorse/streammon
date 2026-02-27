@@ -104,10 +104,20 @@ func (s *Server) routes() {
 			sr.Put("/", s.handleUpdateIntegrationSettings(td))
 			sr.Delete("/", s.handleDeleteIntegrationSettings(td))
 			sr.Post("/test", s.handleTestIntegrationConnection(td))
-			sr.Post("/import", s.handleTautulliImport)
+			sr.Post("/import", s.handleHistoryImport(s.store.GetTautulliConfig, tautulliStreamer, "Tautulli"))
 			sr.Post("/enrich", s.handleStartEnrichment)
 			sr.Post("/enrich/stop", s.handleStopEnrichment)
 			sr.Get("/enrich/status", s.handleEnrichmentStatus)
+		})
+
+		r.Route("/settings/jellystat", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			jd := s.jellystatDeps()
+			sr.Get("/", s.handleGetIntegrationSettings(jd))
+			sr.Put("/", s.handleUpdateIntegrationSettings(jd))
+			sr.Delete("/", s.handleDeleteIntegrationSettings(jd))
+			sr.Post("/test", s.handleTestIntegrationConnection(jd))
+			sr.Post("/import", s.handleHistoryImport(s.store.GetJellystatConfig, jellystatStreamer, "Jellystat"))
 		})
 
 		r.Route("/settings/overseerr", func(sr chi.Router) {

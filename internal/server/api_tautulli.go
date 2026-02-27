@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -11,29 +10,9 @@ import (
 
 	"streammon/internal/mediautil"
 	"streammon/internal/models"
+	"streammon/internal/store"
 	"streammon/internal/tautulli"
 )
-
-type tautulliImportRequest struct {
-	ServerID int64 `json:"server_id"`
-}
-
-type tautulliImportResponse struct {
-	Imported int    `json:"imported"`
-	Skipped  int    `json:"skipped"`
-	Total    int    `json:"total"`
-	Error    string `json:"error,omitempty"`
-}
-
-type tautulliProgressEvent struct {
-	Type         string `json:"type"` // "progress" or "complete" or "error"
-	Processed    int    `json:"processed"`
-	Total        int    `json:"total"`
-	Inserted     int    `json:"inserted"`
-	Skipped      int    `json:"skipped"`
-	Consolidated int    `json:"consolidated"`
-	Error        string `json:"error,omitempty"`
-}
 
 func (s *Server) tautulliDeps() integrationDeps {
 	return integrationDeps{
@@ -45,126 +24,22 @@ func (s *Server) tautulliDeps() integrationDeps {
 	}
 }
 
-func (s *Server) handleTautulliImport(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxSettingsBody)
-	var req tautulliImportRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON")
-		return
-	}
-
-	if req.ServerID == 0 {
-		writeError(w, http.StatusBadRequest, "server_id is required")
-		return
-	}
-
-	srv, err := s.store.GetServer(req.ServerID)
-	if err != nil {
-		writeStoreError(w, err)
-		return
-	}
-	if srv.DeletedAt != nil {
-		writeError(w, http.StatusBadRequest, "server has been deleted")
-		return
-	}
-
-	cfg, err := s.store.GetTautulliConfig()
-	if err != nil {
-		log.Printf("ERROR tautulli import: GetTautulliConfig: %v", err)
-		writeError(w, http.StatusInternalServerError, "internal")
-		return
-	}
-
-	if !cfg.HasCredentials() {
-		writeError(w, http.StatusBadRequest, "Tautulli settings not configured")
-		return
-	}
-
+func tautulliStreamer(cfg store.IntegrationConfig) (importStreamer, error) {
 	client, err := tautulli.NewClient(cfg.URL, cfg.APIKey)
 	if err != nil {
-		log.Printf("ERROR tautulli import: NewClient: %v", err)
-		writeJSON(w, http.StatusOK, tautulliImportResponse{
-			Error: "failed to connect to Tautulli server",
-		})
-		return
+		return nil, err
 	}
-
-	flusher, ok := sseFlusher(w)
-	if !ok {
-		writeError(w, http.StatusInternalServerError, "streaming not supported")
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancel()
-
-	sendEvent := func(event tautulliProgressEvent) {
-		data, err := json.Marshal(event)
-		if err != nil {
-			return
-		}
-		fmt.Fprintf(w, "data: %s\n\n", data)
-		flusher.Flush()
-	}
-
-	var totalInserted, totalSkipped, totalConsolidated, totalRecords, processed int
-
-	err = client.StreamHistory(ctx, 1000, func(batch tautulli.BatchResult) error {
-		entries := make([]*models.WatchHistoryEntry, 0, len(batch.Records))
-		for i, rec := range batch.Records {
-			entry := convertTautulliRecord(rec, req.ServerID)
-			entry.TautulliReferenceID = int64(rec.ReferenceID)
-			entries = append(entries, entry)
-
-			if (i+1)%10 == 0 || i == len(batch.Records)-1 {
-				sendEvent(tautulliProgressEvent{
-					Type:         "progress",
-					Processed:    processed + i + 1,
-					Total:        batch.Total,
-					Inserted:     totalInserted,
-					Skipped:      totalSkipped,
-					Consolidated: totalConsolidated,
-				})
+	return func(ctx context.Context, serverID int64, pageSize int, handler func([]*models.WatchHistoryEntry, int) error) error {
+		return client.StreamHistory(ctx, pageSize, func(batch tautulli.BatchResult) error {
+			entries := make([]*models.WatchHistoryEntry, 0, len(batch.Records))
+			for _, rec := range batch.Records {
+				entry := convertTautulliRecord(rec, serverID)
+				entry.TautulliReferenceID = int64(rec.ReferenceID)
+				entries = append(entries, entry)
 			}
-		}
-
-		inserted, skipped, consolidated, err := s.store.InsertHistoryBatch(ctx, entries)
-		if err != nil {
-			return err
-		}
-
-		totalInserted += inserted
-		totalSkipped += skipped
-		totalConsolidated += consolidated
-		totalRecords = batch.Total
-		processed += len(batch.Records)
-		return nil
-	})
-
-	if err != nil {
-		log.Printf("Tautulli import error: %v (imported %d, skipped %d, consolidated %d)", err, totalInserted, totalSkipped, totalConsolidated)
-		sendEvent(tautulliProgressEvent{
-			Type:         "error",
-			Processed:    processed,
-			Total:        totalRecords,
-			Inserted:     totalInserted,
-			Skipped:      totalSkipped,
-			Consolidated: totalConsolidated,
-			Error:        "import failed, check server logs",
+			return handler(entries, batch.Total)
 		})
-		return
-	}
-
-	log.Printf("Tautulli import completed: %d inserted, %d skipped, %d consolidated, server_id=%d", totalInserted, totalSkipped, totalConsolidated, req.ServerID)
-
-	sendEvent(tautulliProgressEvent{
-		Type:         "complete",
-		Processed:    processed,
-		Total:        totalRecords,
-		Inserted:     totalInserted,
-		Skipped:      totalSkipped,
-		Consolidated: totalConsolidated,
-	})
+	}, nil
 }
 
 func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.WatchHistoryEntry {
@@ -184,7 +59,6 @@ func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.W
 		stoppedAt = startedAt.Add(time.Duration(rec.PlayDuration) * time.Second)
 	}
 
-	const maxDurationMs = 24 * 60 * 60 * 1000
 	durationMs := clampMs(rec.Duration*1000, maxDurationMs)
 	watchedMs := clampMs(rec.PlayDuration*1000, maxDurationMs)
 
@@ -211,16 +85,6 @@ func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.W
 		VideoResolution:   rec.VideoFullResolution,
 		TranscodeDecision: convertTranscodeDecision(rec.TranscodeDecision),
 	}
-}
-
-func clampMs(v, max int64) int64 {
-	if v < 0 {
-		return 0
-	}
-	if v > max {
-		return max
-	}
-	return v
 }
 
 func convertTranscodeDecision(decision string) models.TranscodeDecision {

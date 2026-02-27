@@ -138,5 +138,11 @@ export function resolveNavLabel(link: { to: string; label: string }, integration
 export const methodBtnClass =
   'w-full py-3 px-4 rounded-lg border border-border dark:border-border-dark hover:bg-panel-hover dark:hover:bg-panel-hover-dark transition-colors text-left'
 
+export const formSelectClass = `w-full px-3 py-2.5 rounded-lg text-sm
+  bg-surface dark:bg-surface-dark
+  border border-border dark:border-border-dark
+  focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
+  transition-colors`
+
 export const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
 export const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
