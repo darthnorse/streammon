@@ -144,6 +144,12 @@ func (s *Store) GetTautulliConfig() (TautulliConfig, error)  { return s.getInteg
 func (s *Store) SetTautulliConfig(cfg TautulliConfig) error   { return s.setIntegrationConfig("tautulli", cfg) }
 func (s *Store) DeleteTautulliConfig() error                  { return s.deleteIntegrationConfig("tautulli") }
 
+type JellystatConfig = IntegrationConfig
+
+func (s *Store) GetJellystatConfig() (JellystatConfig, error)  { return s.getIntegrationConfig("jellystat") }
+func (s *Store) SetJellystatConfig(cfg JellystatConfig) error   { return s.setIntegrationConfig("jellystat", cfg) }
+func (s *Store) DeleteJellystatConfig() error                   { return s.deleteIntegrationConfig("jellystat") }
+
 type IntegrationConfig struct {
 	URL     string
 	APIKey  string
@@ -242,7 +248,7 @@ func (s *Store) DeleteRadarrConfig() error               { return s.deleteIntegr
 // plaintextSecretKeys lists all settings keys that should be encrypted at rest.
 var plaintextSecretKeys = []string{
 	"overseerr.api_key", "sonarr.api_key", "radarr.api_key", "tautulli.api_key",
-	"oidc.client_secret",
+	"jellystat.api_key", "oidc.client_secret",
 }
 
 // EncryptPlaintextKeys finds secrets stored without the "enc:" prefix

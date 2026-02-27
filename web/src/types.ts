@@ -362,13 +362,21 @@ export interface UserDetailStats {
   isps: ISPStat[]
 }
 
-export type TautulliSettings = IntegrationSettings
-
-export interface TautulliImportResult {
+export interface ImportResult {
   imported: number
   skipped: number
   consolidated: number
   total: number
+  error?: string
+}
+
+export interface ImportProgress {
+  type: 'progress' | 'complete' | 'error'
+  processed: number
+  total: number
+  inserted: number
+  skipped: number
+  consolidated: number
   error?: string
 }
 

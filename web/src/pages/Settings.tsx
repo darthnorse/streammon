@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import type { Server, OIDCSettings, TautulliSettings, OverseerrSettings, SonarrSettings, RadarrSettings, EnrichmentStatus } from '../types'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import type { Server, OIDCSettings, IntegrationSettings, OverseerrSettings, SonarrSettings, RadarrSettings, EnrichmentStatus } from '../types'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
@@ -7,6 +7,7 @@ import { ServerForm } from '../components/ServerForm'
 import { OIDCForm } from '../components/OIDCForm'
 import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
 import { TautulliForm } from '../components/TautulliForm'
+import { JellystatForm } from '../components/JellystatForm'
 import { OverseerrForm } from '../components/OverseerrForm'
 import { SonarrForm } from '../components/SonarrForm'
 import { RadarrForm } from '../components/RadarrForm'
@@ -15,7 +16,7 @@ import { IntegrationCard } from '../components/IntegrationCard'
 import { UserManagement } from '../components/UserManagement'
 import { GuestAccessSettings } from '../components/GuestAccessSettings'
 import { ServerDeleteDialog } from '../components/ServerDeleteDialog'
-import { btnOutline, btnDanger } from '../lib/constants'
+import { btnOutline, btnDanger, formSelectClass } from '../lib/constants'
 
 const serverTypeColors: Record<string, string> = {
   plex: 'badge-warn',
@@ -42,7 +43,8 @@ export function Settings() {
   const { data: servers, loading, error: fetchError, refetch: refetchServers } = useFetch<Server[]>('/api/servers')
   const { data: oidc, loading: oidcLoading, error: oidcFetchError, refetch: refetchOidc } = useFetch<OIDCSettings>(tab === 'auth' ? '/api/settings/oidc' : null)
   const { data: maxmind, loading: maxmindLoading, refetch: refetchMaxmind } = useFetch<MaxMindSettings>(tab === 'geoip' ? '/api/settings/maxmind' : null)
-  const { data: tautulli, loading: tautulliLoading, error: tautulliFetchError, refetch: refetchTautulli } = useFetch<TautulliSettings>(tab === 'import' ? '/api/settings/tautulli' : null)
+  const { data: tautulli, loading: tautulliLoading, error: tautulliFetchError, refetch: refetchTautulli } = useFetch<IntegrationSettings>(tab === 'import' ? '/api/settings/tautulli' : null)
+  const { data: jellystat, loading: jellystatLoading, error: jellystatFetchError, refetch: refetchJellystat } = useFetch<IntegrationSettings>(tab === 'import' ? '/api/settings/jellystat' : null)
   const { data: overseerr, loading: overseerrLoading, error: overseerrFetchError, refetch: refetchOverseerr } = useFetch<OverseerrSettings>(tab === 'integrations' ? '/api/settings/overseerr' : null)
   const { data: sonarr, loading: sonarrLoading, error: sonarrFetchError, refetch: refetchSonarr } = useFetch<SonarrSettings>(tab === 'integrations' ? '/api/settings/sonarr' : null)
   const { data: radarr, loading: radarrLoading, error: radarrFetchError, refetch: refetchRadarr } = useFetch<RadarrSettings>(tab === 'integrations' ? '/api/settings/radarr' : null)
@@ -51,6 +53,7 @@ export function Settings() {
   const [showForm, setShowForm] = useState(false)
   const [showOidcForm, setShowOidcForm] = useState(false)
   const [showTautulliForm, setShowTautulliForm] = useState(false)
+  const [showJellystatForm, setShowJellystatForm] = useState(false)
   const [showOverseerrForm, setShowOverseerrForm] = useState(false)
   const [showSonarrForm, setShowSonarrForm] = useState(false)
   const [showRadarrForm, setShowRadarrForm] = useState(false)
@@ -68,6 +71,7 @@ export function Settings() {
   const deletedServers = serverList.filter(s => s.deleted_at)
   const oidcConfigured = !!oidc?.issuer
   const tautulliConfigured = !!tautulli?.url
+  const jellystatConfigured = !!jellystat?.url
 
   function openAdd() {
     setEditingServer(undefined)
@@ -139,22 +143,6 @@ export function Settings() {
     }
   }
 
-  function handleTautulliSaved() {
-    setShowTautulliForm(false)
-    refetchTautulli()
-  }
-
-  async function handleDeleteTautulli() {
-    if (!window.confirm('Remove Tautulli configuration?')) return
-    try {
-      await api.del('/api/settings/tautulli')
-      setActionError('')
-      refetchTautulli()
-    } catch {
-      setActionError('Failed to delete Tautulli configuration')
-    }
-  }
-
   function makeIntegrationSaved(setShow: (v: boolean) => void, refetch: () => void) {
     return () => { setShow(false); refetch() }
   }
@@ -172,6 +160,10 @@ export function Settings() {
     }
   }
 
+  const handleTautulliSaved = makeIntegrationSaved(setShowTautulliForm, refetchTautulli)
+  const handleDeleteTautulli = makeIntegrationDelete('/api/settings/tautulli', 'Tautulli', refetchTautulli)
+  const handleJellystatSaved = makeIntegrationSaved(setShowJellystatForm, refetchJellystat)
+  const handleDeleteJellystat = makeIntegrationDelete('/api/settings/jellystat', 'Jellystat', refetchJellystat)
   const handleOverseerrSaved = makeIntegrationSaved(setShowOverseerrForm, refetchOverseerr)
   const handleDeleteOverseerr = makeIntegrationDelete('/api/settings/overseerr', 'Overseerr / Seerr', refetchOverseerr)
   const handleSonarrSaved = makeIntegrationSaved(setShowSonarrForm, refetchSonarr)
@@ -613,6 +605,59 @@ export function Settings() {
               onSaved={handleTautulliSaved}
             />
           )}
+
+          <div className="border-t border-border dark:border-border-dark my-6" />
+
+          {jellystatLoading && <EmptyState icon="&#8635;" title="Loading..." />}
+
+          {jellystatFetchError && !jellystatLoading && (
+            <EmptyState icon="!" title="Failed to load Jellystat settings">
+              <button onClick={refetchJellystat} className="text-sm text-accent hover:underline">Retry</button>
+            </EmptyState>
+          )}
+
+          {!jellystatLoading && !jellystatFetchError && !jellystatConfigured && (
+            <EmptyState icon="&#128230;" title="Jellystat Not Configured" description="Connect to Jellystat to import your Jellyfin watch history.">
+              <button
+                onClick={() => setShowJellystatForm(true)}
+                className="px-4 py-2.5 text-sm font-semibold rounded-lg
+                           bg-accent text-gray-900 hover:bg-accent/90 transition-colors"
+              >
+                Configure Jellystat
+              </button>
+            </EmptyState>
+          )}
+
+          {!jellystatLoading && !jellystatFetchError && jellystatConfigured && jellystat && (
+            <div className="card p-5">
+              <div className="flex items-start justify-between mb-4">
+                <h3 className="font-semibold text-base">Jellystat</h3>
+                <span className="badge badge-accent">Connected</span>
+              </div>
+              <div className="space-y-2 text-sm mb-4">
+                <div>
+                  <span className="text-muted dark:text-muted-dark">URL: </span>
+                  <span className="font-mono">{jellystat.url}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
+                <button onClick={() => setShowJellystatForm(true)} className={btnOutline}>
+                  Edit
+                </button>
+                <button onClick={handleDeleteJellystat} className={btnDanger}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showJellystatForm && (
+            <JellystatForm
+              settings={jellystat ?? undefined}
+              onClose={() => setShowJellystatForm(false)}
+              onSaved={handleJellystatSaved}
+            />
+          )}
         </>
       )}
 
@@ -649,7 +694,10 @@ interface EnrichStartResponse {
 
 function TautulliEnrichment() {
   const { data: servers } = useFetch<Server[]>('/api/servers')
-  const plexServers = servers?.filter(s => s.type === 'plex' && !s.deleted_at)
+  const plexServers = useMemo(
+    () => servers?.filter(s => s.type === 'plex' && !s.deleted_at),
+    [servers],
+  )
 
   const [selectedServer, setSelectedServer] = useState<number>(0)
   const [enrichStatus, setEnrichStatus] = useState<EnrichmentStatus | null>(null)
@@ -761,12 +809,6 @@ function TautulliEnrichment() {
 
   if (!plexServers?.length) return null
 
-  const selectClass = `w-full px-3 py-2.5 rounded-lg text-sm
-    bg-surface dark:bg-surface-dark
-    border border-border dark:border-border-dark
-    focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
-    transition-colors`
-
   return (
     <div className="card p-5 mt-4">
       <h3 className="font-semibold text-base mb-2">Stream Detail Enrichment</h3>
@@ -785,7 +827,7 @@ function TautulliEnrichment() {
             id="enrich-server"
             value={selectedServer}
             onChange={e => setSelectedServer(Number(e.target.value))}
-            className={selectClass}
+            className={formSelectClass}
           >
             {plexServers.map(srv => (
               <option key={srv.id} value={srv.id}>
