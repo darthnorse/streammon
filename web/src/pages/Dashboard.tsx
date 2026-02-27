@@ -1,4 +1,5 @@
 import { useSSE } from '../hooks/useSSE'
+import { useAuth } from '../context/AuthContext'
 import { StreamCard } from '../components/StreamCard'
 import { StreamLocationMap } from '../components/StreamLocationMap'
 import { EmptyState } from '../components/EmptyState'
@@ -8,6 +9,8 @@ import { formatBitrate } from '../lib/format'
 
 export function Dashboard() {
   const { sessions, connected } = useSSE('/api/dashboard/sse')
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
 
   const totalBandwidth = sessions.reduce((sum, s) => sum + (s.bandwidth ?? 0), 0)
 
@@ -38,7 +41,7 @@ export function Dashboard() {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
             {[...sessions].sort((a, b) => `${a.server_id}:${a.session_id}`.localeCompare(`${b.server_id}:${b.session_id}`)).map(stream => (
-              <StreamCard key={`${stream.server_id}:${stream.session_id}`} stream={stream} />
+              <StreamCard key={`${stream.server_id}:${stream.session_id}`} stream={stream} isAdmin={isAdmin} />
             ))}
           </div>
           <StreamLocationMap sessions={sessions} />

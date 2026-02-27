@@ -48,6 +48,9 @@ func (m *mockServer) DeleteItem(ctx context.Context, itemID string) error {
 func (m *mockServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
 	return nil, nil
 }
+func (m *mockServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
+	return nil
+}
 
 func (m *mockServer) setSessions(s []models.ActiveStream) {
 	m.mu.Lock()

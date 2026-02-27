@@ -75,6 +75,7 @@ func (s *Server) routes() {
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
 		r.Get("/dashboard/recent-media", s.handleGetRecentMedia)
+		r.With(RequireRole(models.RoleAdmin)).Post("/sessions/terminate", s.handleTerminateSession)
 
 		r.Get("/geoip/{ip}", s.handleGeoIPLookup)
 

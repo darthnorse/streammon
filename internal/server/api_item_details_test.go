@@ -94,6 +94,9 @@ func (m *mockItemDetailsServer) DeleteItem(ctx context.Context, itemID string) e
 func (m *mockItemDetailsServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
 	return nil, nil
 }
+func (m *mockItemDetailsServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
+	return nil
+}
 func (m *mockItemDetailsServer) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
 	if m.err != nil {
 		return nil, m.err

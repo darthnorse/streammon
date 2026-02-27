@@ -1050,6 +1050,9 @@ func (m *mockMediaServer) DeleteItem(ctx context.Context, itemID string) error {
 func (m *mockMediaServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
 	return m.seasons[showID], nil
 }
+func (m *mockMediaServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
+	return nil
+}
 
 type mockServerResolver struct {
 	servers map[int64]media.MediaServer

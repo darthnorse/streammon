@@ -412,6 +412,9 @@ func (m *mockDeleteServer) DeleteItem(ctx context.Context, itemID string) error 
 func (m *mockDeleteServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
 	return m.seasons, nil
 }
+func (m *mockDeleteServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
+	return nil
+}
 
 // deleteTestIDs holds the IDs produced by setupDeleteCandidateTest.
 type deleteTestIDs struct {

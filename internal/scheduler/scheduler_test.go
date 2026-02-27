@@ -46,6 +46,9 @@ func (f *fakeMediaServer) DeleteItem(context.Context, string) error { return nil
 func (f *fakeMediaServer) GetSeasons(context.Context, string) ([]models.Season, error) {
 	return nil, nil
 }
+func (f *fakeMediaServer) TerminateSession(context.Context, string, string) error {
+	return nil
+}
 
 func (f *fakeMediaServer) GetLibraries(ctx context.Context) ([]models.Library, error) {
 	return f.libraries, nil
