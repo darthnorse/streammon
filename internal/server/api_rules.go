@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -574,6 +575,22 @@ func (s *Server) handleSetRuleExemptions(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "invalid JSON: expected string array")
 		return
 	}
+
+	// Validate and deduplicate usernames (case-insensitive)
+	seen := make(map[string]bool)
+	var cleaned []string
+	for _, name := range names {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		lower := strings.ToLower(name)
+		if !seen[lower] {
+			seen[lower] = true
+			cleaned = append(cleaned, name)
+		}
+	}
+	names = cleaned
 
 	if err := s.store.SetRuleExemptions(id, names); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to set exemptions")

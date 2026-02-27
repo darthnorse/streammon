@@ -3,11 +3,13 @@ package rules
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"streammon/internal/media"
 	"streammon/internal/models"
 	"streammon/internal/store"
 )
@@ -55,6 +57,15 @@ func (m *mockNotifier) count() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return len(m.notifications)
+}
+
+func (m *mockNotifier) lastActionTaken() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.notifications) == 0 {
+		return ""
+	}
+	return m.notifications[len(m.notifications)-1].ActionTaken
 }
 
 func TestEngine_RegisterEvaluator(t *testing.T) {
@@ -344,5 +355,334 @@ func TestEngine_RefreshRules(t *testing.T) {
 	rules, _ = e.getEnabledRules()
 	if len(rules) != 1 {
 		t.Errorf("Expected 1 rule after refresh, got %d", len(rules))
+	}
+}
+
+type mockMediaServer struct {
+	id              int64
+	serverType      models.ServerType
+	terminatedIDs   []string
+	terminateErr    error
+	mu              sync.Mutex
+}
+
+func (m *mockMediaServer) Name() string                          { return "test-server" }
+func (m *mockMediaServer) Type() models.ServerType               { return m.serverType }
+func (m *mockMediaServer) ServerID() int64                       { return m.id }
+func (m *mockMediaServer) TestConnection(ctx context.Context) error { return nil }
+func (m *mockMediaServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetLibraries(ctx context.Context) ([]models.Library, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) DeleteItem(ctx context.Context, itemID string) error { return nil }
+func (m *mockMediaServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.terminatedIDs = append(m.terminatedIDs, sessionID)
+	return m.terminateErr
+}
+func (m *mockMediaServer) getTerminatedIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string{}, m.terminatedIDs...)
+}
+
+type mockServerResolver struct {
+	servers map[int64]media.MediaServer
+}
+
+func (r *mockServerResolver) GetServer(id int64) (media.MediaServer, bool) {
+	s, ok := r.servers[id]
+	return s, ok
+}
+
+func TestEngine_ExemptUser_SkipsEvaluation(t *testing.T) {
+	e, s := setupTestEngine(t)
+	ctx := context.Background()
+
+	config := models.ConcurrentStreamsConfig{MaxStreams: 1}
+	configJSON, _ := json.Marshal(config)
+	rule := &models.Rule{
+		Name:    "Max 1 Stream",
+		Type:    models.RuleTypeConcurrentStreams,
+		Enabled: true,
+		Config:  configJSON,
+	}
+	s.CreateRule(rule)
+
+	// Exempt "testuser" from this rule
+	if err := s.SetRuleExemptions(rule.ID, []string{"testuser"}); err != nil {
+		t.Fatalf("SetRuleExemptions: %v", err)
+	}
+	e.RefreshRules()
+
+	now := time.Now().UTC()
+	streams := []models.ActiveStream{
+		{SessionID: "a", UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now},
+		{SessionID: "b", UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second)},
+	}
+
+	e.EvaluateSession(ctx, &streams[0], streams)
+
+	result, _ := s.ListViolations(1, 10, store.ViolationFilters{UserName: "testuser"})
+	if result.Total != 0 {
+		t.Errorf("Expected 0 violations for exempt user, got %d", result.Total)
+	}
+}
+
+func TestEngine_ExemptUser_CaseInsensitive(t *testing.T) {
+	e, s := setupTestEngine(t)
+	ctx := context.Background()
+
+	config := models.ConcurrentStreamsConfig{MaxStreams: 1}
+	configJSON, _ := json.Marshal(config)
+	rule := &models.Rule{
+		Name:    "Max 1 Stream",
+		Type:    models.RuleTypeConcurrentStreams,
+		Enabled: true,
+		Config:  configJSON,
+	}
+	s.CreateRule(rule)
+
+	// Exempt with different case
+	if err := s.SetRuleExemptions(rule.ID, []string{"TestUser"}); err != nil {
+		t.Fatalf("SetRuleExemptions: %v", err)
+	}
+	e.RefreshRules()
+
+	now := time.Now().UTC()
+	streams := []models.ActiveStream{
+		{SessionID: "a", UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now},
+		{SessionID: "b", UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second)},
+	}
+
+	e.EvaluateSession(ctx, &streams[0], streams)
+
+	result, _ := s.ListViolations(1, 10, store.ViolationFilters{UserName: "testuser"})
+	if result.Total != 0 {
+		t.Errorf("Expected 0 violations for case-insensitive exempt user, got %d", result.Total)
+	}
+}
+
+func TestEngine_AutoTerminate_ConcurrentStreams(t *testing.T) {
+	e, s := setupTestEngine(t)
+	ctx := context.Background()
+
+	ms := &mockMediaServer{id: 1, serverType: models.ServerTypeEmby}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{1: ms}}
+	e.SetServerResolver(resolver)
+
+	config := models.ConcurrentStreamsConfig{
+		MaxStreams:     1,
+		AutoTerminate: true,
+	}
+	configJSON, _ := json.Marshal(config)
+	rule := &models.Rule{
+		Name:    "Auto-Kill Streams",
+		Type:    models.RuleTypeConcurrentStreams,
+		Enabled: true,
+		Config:  configJSON,
+	}
+	s.CreateRule(rule)
+	e.RefreshRules()
+
+	now := time.Now().UTC()
+	streams := []models.ActiveStream{
+		{SessionID: "old", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now},
+		{SessionID: "new", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second)},
+	}
+
+	e.EvaluateSession(ctx, &streams[0], streams)
+
+	terminated := ms.getTerminatedIDs()
+	if len(terminated) != 1 {
+		t.Fatalf("Expected 1 terminated session, got %d", len(terminated))
+	}
+	if terminated[0] != "new" {
+		t.Errorf("Expected newest session 'new' to be terminated, got %q", terminated[0])
+	}
+
+	result, _ := s.ListViolations(1, 10, store.ViolationFilters{UserName: "testuser"})
+	if result.Total != 1 {
+		t.Fatalf("Expected 1 violation, got %d", result.Total)
+	}
+	if result.Items[0].ActionTaken != "terminated" {
+		t.Errorf("ActionTaken = %q, want %q", result.Items[0].ActionTaken, "terminated")
+	}
+}
+
+func TestEngine_AutoTerminate_Failed(t *testing.T) {
+	e, s := setupTestEngine(t)
+	ctx := context.Background()
+
+	ms := &mockMediaServer{
+		id:           1,
+		serverType:   models.ServerTypeEmby,
+		terminateErr: fmt.Errorf("server unreachable"),
+	}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{1: ms}}
+	e.SetServerResolver(resolver)
+
+	config := models.ConcurrentStreamsConfig{
+		MaxStreams:     1,
+		AutoTerminate: true,
+	}
+	configJSON, _ := json.Marshal(config)
+	rule := &models.Rule{
+		Name:    "Auto-Kill Streams",
+		Type:    models.RuleTypeConcurrentStreams,
+		Enabled: true,
+		Config:  configJSON,
+	}
+	s.CreateRule(rule)
+	e.RefreshRules()
+
+	now := time.Now().UTC()
+	streams := []models.ActiveStream{
+		{SessionID: "old", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now},
+		{SessionID: "new", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second)},
+	}
+
+	e.EvaluateSession(ctx, &streams[0], streams)
+
+	result, _ := s.ListViolations(1, 10, store.ViolationFilters{UserName: "testuser"})
+	if result.Total != 1 {
+		t.Fatalf("Expected 1 violation, got %d", result.Total)
+	}
+	if result.Items[0].ActionTaken != "terminate_failed" {
+		t.Errorf("ActionTaken = %q, want %q", result.Items[0].ActionTaken, "terminate_failed")
+	}
+}
+
+func TestEngine_AutoTerminate_NotificationGetsActionTaken(t *testing.T) {
+	e, s := setupTestEngine(t)
+	ctx := context.Background()
+
+	ms := &mockMediaServer{id: 1, serverType: models.ServerTypeEmby}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{1: ms}}
+	e.SetServerResolver(resolver)
+
+	notif := &mockNotifier{}
+	e.SetNotifier(notif)
+
+	config := models.ConcurrentStreamsConfig{
+		MaxStreams:     1,
+		AutoTerminate: true,
+	}
+	configJSON, _ := json.Marshal(config)
+	rule := &models.Rule{
+		Name:    "Auto-Kill Streams",
+		Type:    models.RuleTypeConcurrentStreams,
+		Enabled: true,
+		Config:  configJSON,
+	}
+	s.CreateRule(rule)
+
+	channel := &models.NotificationChannel{
+		Name:        "Test",
+		ChannelType: models.ChannelTypeDiscord,
+		Config:      json.RawMessage(`{"webhook_url":"https://discord.com/api/webhooks/test"}`),
+		Enabled:     true,
+	}
+	s.CreateNotificationChannel(channel)
+	s.LinkRuleToChannel(rule.ID, channel.ID)
+	e.RefreshRules()
+
+	now := time.Now().UTC()
+	streams := []models.ActiveStream{
+		{SessionID: "old", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now},
+		{SessionID: "new", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second)},
+	}
+
+	e.EvaluateSession(ctx, &streams[0], streams)
+	e.WaitForNotifications()
+
+	if notif.count() != 1 {
+		t.Fatalf("Expected 1 notification, got %d", notif.count())
+	}
+	if got := notif.lastActionTaken(); got != "terminated" {
+		t.Errorf("Notification violation ActionTaken = %q, want %q", got, "terminated")
+	}
+}
+
+func TestEngine_AutoTerminate_GeoRestriction(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	s, err := store.New(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	if err := s.Migrate("../../migrations"); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	geo := &mockGeoResolver{
+		results: map[string]*models.GeoResult{
+			"1.2.3.4": {IP: "1.2.3.4", Country: "RU", City: "Moscow", Lat: 55.75, Lng: 37.62},
+		},
+	}
+
+	e := NewEngine(s, geo, DefaultEngineConfig())
+	ctx := context.Background()
+
+	ms := &mockMediaServer{id: 1, serverType: models.ServerTypeEmby}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{1: ms}}
+	e.SetServerResolver(resolver)
+
+	config := models.GeoRestrictionConfig{
+		AllowedCountries: []string{"US"},
+		AutoTerminate:    true,
+		TerminateMessage: "Blocked region",
+	}
+	configJSON, _ := json.Marshal(config)
+	rule := &models.Rule{
+		Name:    "US Only",
+		Type:    models.RuleTypeGeoRestriction,
+		Enabled: true,
+		Config:  configJSON,
+	}
+	s.CreateRule(rule)
+	e.RefreshRules()
+
+	stream := &models.ActiveStream{
+		SessionID: "sess-1",
+		ServerID:  1,
+		UserName:  "testuser",
+		IPAddress: "1.2.3.4",
+	}
+
+	e.EvaluateSession(ctx, stream, []models.ActiveStream{*stream})
+
+	terminated := ms.getTerminatedIDs()
+	if len(terminated) != 1 {
+		t.Fatalf("Expected 1 terminated session, got %d", len(terminated))
+	}
+	if terminated[0] != "sess-1" {
+		t.Errorf("Expected session 'sess-1' to be terminated, got %q", terminated[0])
+	}
+
+	result, _ := s.ListViolations(1, 10, store.ViolationFilters{UserName: "testuser"})
+	if result.Total != 1 {
+		t.Fatalf("Expected 1 violation, got %d", result.Total)
+	}
+	if result.Items[0].ActionTaken != "terminated" {
+		t.Errorf("ActionTaken = %q, want %q", result.Items[0].ActionTaken, "terminated")
 	}
 }

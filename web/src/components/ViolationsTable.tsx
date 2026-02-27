@@ -52,7 +52,7 @@ function ActionBadge({ action }: { action?: string }) {
   if (action === 'terminate_failed') {
     return <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-500/20 text-yellow-400">Failed</span>
   }
-  return null
+  return <span className="px-2 py-0.5 text-xs rounded-full bg-gray-500/20 text-gray-400">{action}</span>
 }
 
 export function ViolationsTable({ violations, loading }: ViolationsTableProps) {

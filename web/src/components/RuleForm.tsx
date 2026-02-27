@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { Rule, RuleType, NotificationChannel, UserSummary } from '../types'
 import { RULE_TYPES } from '../types'
 import { api } from '../lib/api'
@@ -42,6 +42,7 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   const [selectedChannels, setSelectedChannels] = useState<number[]>([])
   const [exemptions, setExemptions] = useState<string[]>([])
   const [exemptionInput, setExemptionInput] = useState('')
+  const initialExemptions = useRef<string[]>([])
 
   useEffect(() => {
     if (!rule) {
@@ -66,10 +67,21 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   useEffect(() => {
     if (existingExemptions) {
       setExemptions(existingExemptions)
+      initialExemptions.current = existingExemptions
     }
   }, [existingExemptions])
 
   const { data: userSummaries } = useFetch<UserSummary[]>('/api/users/summary')
+
+  function addExemption(input: string) {
+    const name = input.trim()
+    if (!name) return
+    const isDuplicate = exemptions.some(n => n.toLowerCase() === name.toLowerCase())
+    if (!isDuplicate) {
+      setExemptions([...exemptions, name])
+      setExemptionInput('')
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -92,7 +104,6 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
         ruleId = created.id
       }
 
-      // Sync channel links
       const currentChannels = linkedChannels?.map(c => c.id) ?? []
       const toAdd = selectedChannels.filter(id => !currentChannels.includes(id))
       const toRemove = currentChannels.filter(id => !selectedChannels.includes(id))
@@ -102,8 +113,13 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
         ...toRemove.map(channelId => api.del(`/api/rules/${ruleId}/channels/${channelId}`)),
       ])
 
-      // Sync exemptions
-      await api.put(`/api/rules/${ruleId}/exemptions`, exemptions)
+      const initial = new Set(initialExemptions.current.map(n => n.toLowerCase()))
+      const current = new Set(exemptions.map(n => n.toLowerCase()))
+      const exemptionsChanged = initial.size !== current.size ||
+        [...current].some(n => !initial.has(n))
+      if (exemptionsChanged) {
+        await api.put(`/api/rules/${ruleId}/exemptions`, exemptions)
+      }
 
       onSaved()
     } catch (err) {
@@ -190,7 +206,7 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
                   <input
                     id="cfg-auto-terminate"
                     type="checkbox"
-                    checked={(config.auto_terminate as boolean) ?? false}
+                    checked={config.auto_terminate === true}
                     onChange={e => setConfig({ ...config, auto_terminate: e.target.checked })}
                     className="w-4 h-4 rounded"
                   />
@@ -223,12 +239,12 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
               Exempted users skip this rule entirely — no evaluation, no violations, no notifications.
             </p>
             <div className="flex flex-wrap gap-2 mb-3">
-              {exemptions.map(name => (
-                <span key={name} className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full bg-surface dark:bg-surface-dark">
-                  {name}
+              {exemptions.map(userName => (
+                <span key={userName} className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full bg-surface dark:bg-surface-dark">
+                  {userName}
                   <button
                     type="button"
-                    onClick={() => setExemptions(exemptions.filter(n => n !== name))}
+                    onClick={() => setExemptions(exemptions.filter(n => n !== userName))}
                     className="text-muted dark:text-muted-dark hover:text-red-400 transition-colors"
                   >
                     &times;
@@ -245,30 +261,20 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
-                    const name = exemptionInput.trim()
-                    if (name && !exemptions.includes(name)) {
-                      setExemptions([...exemptions, name])
-                      setExemptionInput('')
-                    }
+                    addExemption(exemptionInput)
                   }
                 }}
                 placeholder="Add username..."
                 className={fieldClass + ' flex-1'}
               />
               <datalist id="exemption-users">
-                {userSummaries?.filter(u => !exemptions.includes(u.name)).map(u => (
+                {userSummaries?.filter(u => !exemptions.some(n => n.toLowerCase() === u.name.toLowerCase())).map(u => (
                   <option key={u.name} value={u.name} />
                 ))}
               </datalist>
               <button
                 type="button"
-                onClick={() => {
-                  const name = exemptionInput.trim()
-                  if (name && !exemptions.includes(name)) {
-                    setExemptions([...exemptions, name])
-                    setExemptionInput('')
-                  }
-                }}
+                onClick={() => addExemption(exemptionInput)}
                 className="px-3 py-2 text-sm rounded-lg border border-border dark:border-border-dark hover:border-accent/30 transition-colors"
               >
                 Add
@@ -306,7 +312,7 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
               disabled={saving}
               className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-accent text-gray-900 hover:bg-accent/90 disabled:opacity-50 transition-colors"
             >
-              {saving ? 'Saving...' : isEdit ? 'Update' : 'Create'}
+              {saving ? 'Saving...' : (isEdit ? 'Update' : 'Create')}
             </button>
           </div>
         </form>
@@ -391,7 +397,7 @@ function renderConfigFields(
             <input
               id="cfg-exempt-household"
               type="checkbox"
-              checked={(config.exempt_household as boolean) ?? true}
+              checked={config.exempt_household !== false}
               onChange={e => updateField('exempt_household', e.target.checked)}
               className="w-4 h-4 rounded"
             />
@@ -401,7 +407,7 @@ function renderConfigFields(
             <input
               id="cfg-count-paused-as-one"
               type="checkbox"
-              checked={(config.count_paused_as_one as boolean) ?? false}
+              checked={config.count_paused_as_one === true}
               onChange={e => updateField('count_paused_as_one', e.target.checked)}
               className="w-4 h-4 rounded"
             />
@@ -457,7 +463,7 @@ function renderConfigFields(
             <input
               id="cfg-sim-exempt-household"
               type="checkbox"
-              checked={(config.exempt_household as boolean) ?? true}
+              checked={config.exempt_household !== false}
               onChange={e => updateField('exempt_household', e.target.checked)}
               className="w-4 h-4 rounded"
             />
@@ -579,7 +585,7 @@ function renderConfigFields(
             <input
               id="cfg-nd-notify"
               type="checkbox"
-              checked={(config.notify_on_new as boolean) ?? true}
+              checked={config.notify_on_new !== false}
               onChange={e => updateField('notify_on_new', e.target.checked)}
               className="w-4 h-4 rounded"
             />
@@ -598,7 +604,7 @@ function renderConfigFields(
             <input
               id="cfg-nl-notify"
               type="checkbox"
-              checked={(config.notify_on_new as boolean) ?? true}
+              checked={config.notify_on_new !== false}
               onChange={e => updateField('notify_on_new', e.target.checked)}
               className="w-4 h-4 rounded"
             />
@@ -632,7 +638,7 @@ function renderConfigFields(
             <input
               id="cfg-nl-exempt-household"
               type="checkbox"
-              checked={(config.exempt_household as boolean) ?? true}
+              checked={config.exempt_household !== false}
               onChange={e => updateField('exempt_household', e.target.checked)}
               className="w-4 h-4 rounded"
             />

@@ -26,7 +26,6 @@ func intToBool(i int) bool {
 	return i != 0
 }
 
-
 func scanRule(scanner interface{ Scan(...any) error }) (models.Rule, error) {
 	var r models.Rule
 	var enabled int
@@ -826,9 +825,13 @@ func isUniqueConstraintError(err error) bool {
 }
 
 func (s *Store) UpdateViolationAction(violationID int64, action string) error {
-	_, err := s.db.Exec(`UPDATE rule_violations SET action_taken = ? WHERE id = ?`, action, violationID)
+	res, err := s.db.Exec(`UPDATE rule_violations SET action_taken = ? WHERE id = ?`, action, violationID)
 	if err != nil {
 		return fmt.Errorf("updating violation action: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return models.ErrNotFound
 	}
 	return nil
 }

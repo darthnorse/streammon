@@ -45,8 +45,11 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 		return nil, nil
 	}
 
-	// Sort by start time descending to identify newest stream for termination
+	// Tiebreak by SessionID for deterministic ordering with identical timestamps.
 	sort.Slice(userStreams, func(i, j int) bool {
+		if userStreams[i].StartedAt.Equal(userStreams[j].StartedAt) {
+			return userStreams[i].SessionID > userStreams[j].SessionID
+		}
 		return userStreams[i].StartedAt.After(userStreams[j].StartedAt)
 	})
 	newest := userStreams[0]
@@ -78,9 +81,9 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 			"max_allowed":                 config.MaxStreams,
 			"locations":                   locations,
 			"devices":                     devices,
-			"terminate_server_id":         newest.ServerID,
-			"terminate_session_id":        newest.SessionID,
-			"terminate_plex_session_uuid": newest.PlexSessionUUID,
+			DetailKeyTerminateServerID:  newest.ServerID,
+			DetailKeyTerminateSessionID: newest.SessionID,
+			DetailKeyTerminatePlexUUID:  newest.PlexSessionUUID,
 		},
 		ConfidenceScore: confidence,
 		OccurredAt:      time.Now().UTC(),
