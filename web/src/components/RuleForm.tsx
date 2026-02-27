@@ -42,6 +42,7 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   const [selectedChannels, setSelectedChannels] = useState<number[]>([])
   const [exemptions, setExemptions] = useState<string[]>([])
   const [exemptionInput, setExemptionInput] = useState('')
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const initialExemptions = useRef<string[]>([])
 
   useEffect(() => {
@@ -253,28 +254,60 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
               ))}
             </div>
             <div className="flex gap-2">
-              <input
-                type="text"
-                list="exemption-users"
-                value={exemptionInput}
-                onChange={e => setExemptionInput(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    addExemption(exemptionInput)
-                  }
-                }}
-                placeholder="Add username..."
-                className={fieldClass + ' flex-1'}
-              />
-              <datalist id="exemption-users">
-                {userSummaries?.filter(u => !exemptions.some(n => n.toLowerCase() === u.name.toLowerCase())).map(u => (
-                  <option key={u.name} value={u.name} />
-                ))}
-              </datalist>
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={exemptionInput}
+                  onChange={e => {
+                    setExemptionInput(e.target.value)
+                    setShowSuggestions(true)
+                  }}
+                  onFocus={() => setShowSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addExemption(exemptionInput)
+                      setShowSuggestions(false)
+                    }
+                  }}
+                  placeholder="Add username..."
+                  className={fieldClass}
+                  autoComplete="off"
+                />
+                {showSuggestions && exemptionInput.length > 0 && (() => {
+                  const query = exemptionInput.toLowerCase()
+                  const matches = userSummaries?.filter(u =>
+                    u.name.toLowerCase().includes(query) &&
+                    !exemptions.some(n => n.toLowerCase() === u.name.toLowerCase())
+                  ) ?? []
+                  if (matches.length === 0) return null
+                  return (
+                    <div className="absolute z-10 left-0 right-0 mt-1 max-h-48 overflow-y-auto rounded-lg border border-border dark:border-border-dark bg-surface dark:bg-surface-dark shadow-lg">
+                      {matches.map(u => (
+                        <button
+                          key={u.name}
+                          type="button"
+                          onMouseDown={e => e.preventDefault()}
+                          onClick={() => {
+                            addExemption(u.name)
+                            setShowSuggestions(false)
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-white/[0.04] transition-colors"
+                        >
+                          {u.name}
+                        </button>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
               <button
                 type="button"
-                onClick={() => addExemption(exemptionInput)}
+                onClick={() => {
+                  addExemption(exemptionInput)
+                  setShowSuggestions(false)
+                }}
                 className="px-3 py-2 text-sm rounded-lg border border-border dark:border-border-dark hover:border-accent/30 transition-colors"
               >
                 Add
