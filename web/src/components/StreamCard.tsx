@@ -132,12 +132,12 @@ export function StreamCard({ stream }: StreamCardProps) {
               <img
                 src={thumbUrl(stream.server_id, stream.thumb_url)}
                 alt=""
-                className="w-28 h-[168px] object-cover rounded-lg shadow-md bg-gray-200 dark:bg-white/5"
+                className="w-32 aspect-[2/3] object-cover rounded-lg shadow-md bg-gray-200 dark:bg-white/5"
               />
               <div className="absolute inset-0 rounded-lg bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           ) : (
-            <div className="w-28 h-[168px] rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center shadow-md">
+            <div className="w-32 aspect-[2/3] rounded-lg bg-gray-100 dark:bg-white/5 flex items-center justify-center shadow-md">
               <span className="text-3xl opacity-20">
                 {stream.media_type === 'movie' ? '🎬' : stream.media_type === 'episode' ? '📺' : '🎵'}
               </span>
