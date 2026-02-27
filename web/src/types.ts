@@ -185,6 +185,8 @@ export interface OIDCSettings {
   client_id: string
   client_secret: string
   redirect_url: string
+  admin_group: string
+  scopes: string
   enabled: boolean
 }
 

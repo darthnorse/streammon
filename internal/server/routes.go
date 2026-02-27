@@ -38,8 +38,8 @@ func (s *Server) routes() {
 		r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/emby/login", s.handleEmbyLogin)
 		r.With(RequireSetupComplete(s.authManager)).Get("/jellyfin/servers", s.handleJellyfinServers)
 		r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Post("/jellyfin/login", s.handleJellyfinLogin)
-		r.With(RequireSetupComplete(s.authManager)).Get("/oidc/login", s.handleOIDCLogin)
-		r.With(RequireSetupComplete(s.authManager)).Get("/oidc/callback", s.handleOIDCCallback)
+		r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Get("/oidc/login", s.handleOIDCLogin)
+		r.With(RequireSetupComplete(s.authManager), RateLimitAuth).Get("/oidc/callback", s.handleOIDCCallback)
 	})
 
 	s.router.Route("/api", func(r chi.Router) {

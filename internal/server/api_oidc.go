@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"streammon/internal/auth"
@@ -19,6 +20,8 @@ type oidcSettingsResponse struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	RedirectURL  string `json:"redirect_url"`
+	AdminGroup   string `json:"admin_group"`
+	Scopes       string `json:"scopes"`
 	Enabled      bool   `json:"enabled"`
 }
 
@@ -27,6 +30,8 @@ type oidcSettingsRequest struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	RedirectURL  string `json:"redirect_url"`
+	AdminGroup   string `json:"admin_group"`
+	Scopes       string `json:"scopes"`
 }
 
 func (s *Server) handleGetOIDCSettings(w http.ResponseWriter, r *http.Request) {
@@ -48,11 +53,18 @@ func (s *Server) handleGetOIDCSettings(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	scopes := cfg.Scopes
+	if scopes == "" && cfg.Issuer != "" {
+		scopes = auth.DefaultScopes
+	}
+
 	writeJSON(w, http.StatusOK, oidcSettingsResponse{
 		Issuer:       cfg.Issuer,
 		ClientID:     cfg.ClientID,
 		ClientSecret: secret,
 		RedirectURL:  cfg.RedirectURL,
+		AdminGroup:   cfg.AdminGroup,
+		Scopes:       scopes,
 		Enabled:      enabled,
 	})
 }
@@ -69,10 +81,12 @@ func (s *Server) handleUpdateOIDCSettings(w http.ResponseWriter, r *http.Request
 	}
 
 	storeCfg := store.OIDCConfig{
-		Issuer:       req.Issuer,
-		ClientID:     req.ClientID,
-		ClientSecret: req.ClientSecret,
-		RedirectURL:  req.RedirectURL,
+		Issuer:       strings.TrimSpace(req.Issuer),
+		ClientID:     strings.TrimSpace(req.ClientID),
+		ClientSecret: req.ClientSecret, // not trimmed — secrets may contain leading/trailing whitespace
+		RedirectURL:  strings.TrimSpace(req.RedirectURL),
+		AdminGroup:   strings.TrimSpace(req.AdminGroup),
+		Scopes:       strings.TrimSpace(req.Scopes),
 	}
 
 	cfg := auth.ConfigFromStore(storeCfg)
@@ -83,9 +97,9 @@ func (s *Server) handleUpdateOIDCSettings(w http.ResponseWriter, r *http.Request
 				writeError(w, http.StatusInternalServerError, "internal")
 				return
 			}
-			// Skip if the stored secret can't be decrypted (placeholder).
 			if dbCfg.ClientSecret != store.EncryptedPlaceholder {
 				cfg.ClientSecret = dbCfg.ClientSecret
+				storeCfg.ClientSecret = dbCfg.ClientSecret
 			}
 		}
 		if err := cfg.Validate(); err != nil {

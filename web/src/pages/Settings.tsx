@@ -451,6 +451,16 @@ export function Settings() {
                   <span className="text-muted dark:text-muted-dark">Redirect URL: </span>
                   <span className="font-mono">{oidc.redirect_url}</span>
                 </div>
+                {oidc.admin_group && (
+                  <div>
+                    <span className="text-muted dark:text-muted-dark">Admin Group: </span>
+                    <span className="font-mono">{oidc.admin_group}</span>
+                  </div>
+                )}
+                <div>
+                  <span className="text-muted dark:text-muted-dark">Scopes: </span>
+                  <span className="font-mono">{oidc.scopes}</span>
+                </div>
               </div>
               <div className="flex items-center gap-2 border-t border-border dark:border-border-dark pt-3">
                 <button onClick={() => setShowOidcForm(true)} className={btnOutline}>
