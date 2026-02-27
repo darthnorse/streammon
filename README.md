@@ -99,6 +99,6 @@ Full documentation is available in the [Wiki](https://github.com/darthnorse/stre
 
 ## Acknowledgments
 
-This project has been developed with vibe coding and AI assistance using [Claude Code](https://claude.ai/claude-code). The codebase includes clean, well-documented code with proper error handling, comprehensive testing considerations, modern async/await patterns, robust database design, and production-ready deployment configurations.
+This project has been developed with AI assistance using [Claude Code](https://claude.ai/claude-code).
 
 Thanks to [Tautulli](https://tautulli.com/), [Overseerr](https://overseerr.dev/) / [Seerr](https://docs.seerr.dev/), and [Tracearr](https://www.tracearr.com/) for their amazing work and inspiration.
