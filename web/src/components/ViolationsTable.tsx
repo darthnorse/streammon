@@ -26,7 +26,10 @@ function ViolationCard({ violation }: { violation: RuleViolation }) {
             {violation.message}
           </p>
         </div>
-        <SeverityBadge severity={violation.severity} className="shrink-0" />
+        <div className="flex items-center gap-2 shrink-0">
+          <ActionBadge action={violation.action_taken} />
+          <SeverityBadge severity={violation.severity} />
+        </div>
       </div>
       <div className="flex items-center gap-3 mt-2 text-xs text-muted dark:text-muted-dark">
         <Link to={`/users/${encodeURIComponent(violation.user_name)}`} className="hover:text-accent hover:underline">
@@ -39,6 +42,17 @@ function ViolationCard({ violation }: { violation: RuleViolation }) {
       </div>
     </div>
   )
+}
+
+function ActionBadge({ action }: { action?: string }) {
+  if (!action) return null
+  if (action === 'terminated') {
+    return <span className="px-2 py-0.5 text-xs rounded-full bg-red-500/20 text-red-400">Terminated</span>
+  }
+  if (action === 'terminate_failed') {
+    return <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-500/20 text-yellow-400">Failed</span>
+  }
+  return null
 }
 
 export function ViolationsTable({ violations, loading }: ViolationsTableProps) {
@@ -86,6 +100,7 @@ export function ViolationsTable({ violations, loading }: ViolationsTableProps) {
                 <th className="px-4 py-3 font-medium">Severity</th>
                 <th className="px-4 py-3 font-medium">Confidence</th>
                 <th className="px-4 py-3 font-medium">Message</th>
+                <th className="px-4 py-3 font-medium">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border dark:divide-border-dark">
@@ -105,6 +120,9 @@ export function ViolationsTable({ violations, loading }: ViolationsTableProps) {
                   </td>
                   <td className="px-4 py-3">{Math.round(v.confidence_score)}%</td>
                   <td className="px-4 py-3 max-w-md truncate" title={v.message}>{v.message}</td>
+                  <td className="px-4 py-3">
+                    <ActionBadge action={v.action_taken} />
+                  </td>
                 </tr>
               ))}
             </tbody>

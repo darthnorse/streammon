@@ -2,6 +2,8 @@ package rules
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -11,11 +13,32 @@ import (
 	"streammon/internal/units"
 )
 
+const defaultAutoTerminateMessage = "Your stream has been terminated due to a policy violation."
+
+type terminateConfig struct {
+	Enabled bool
+	Message string
+}
+
+func getTerminateConfig(rule *models.Rule) terminateConfig {
+	type autoTermFields struct {
+		AutoTerminate    bool   `json:"auto_terminate"`
+		TerminateMessage string `json:"terminate_message"`
+	}
+	var fields autoTermFields
+	if err := json.Unmarshal(rule.Config, &fields); err != nil {
+		return terminateConfig{}
+	}
+	return terminateConfig{Enabled: fields.AutoTerminate, Message: fields.TerminateMessage}
+}
+
 type Engine struct {
-	store       *store.Store
-	geoResolver GeoResolver
-	evaluators  map[models.RuleType]Evaluator
-	notifier    Notifier
+	store          *store.Store
+	geoResolver    GeoResolver
+	serverResolver ServerResolver
+	evaluators     map[models.RuleType]Evaluator
+	notifier       Notifier
+	exemptions     map[int64]map[string]bool // ruleID → set of exempt usernames
 
 	mu          sync.RWMutex
 	cachedRules []models.Rule
@@ -100,6 +123,10 @@ func (e *Engine) SetNotifier(n Notifier) {
 	e.notifier = n
 }
 
+func (e *Engine) SetServerResolver(sr ServerResolver) {
+	e.serverResolver = sr
+}
+
 func (e *Engine) EvaluateSession(ctx context.Context, stream *models.ActiveStream, allStreams []models.ActiveStream) {
 	if stream == nil {
 		return
@@ -149,6 +176,11 @@ func (e *Engine) EvaluateSession(ctx context.Context, stream *models.ActiveStrea
 }
 
 func (e *Engine) evaluateRule(ctx context.Context, rule *models.Rule, evaluator Evaluator, input *EvaluationInput) {
+	// Skip evaluation for exempt users
+	if input.Stream != nil && e.isExempt(rule.ID, input.Stream.UserName) {
+		return
+	}
+
 	result, err := evaluator.Evaluate(ctx, rule, input)
 	if err != nil {
 		log.Printf("rules engine: error evaluating rule %d (%s): %v", rule.ID, rule.Name, err)
@@ -185,10 +217,80 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *models.Rule, evaluator 
 	log.Printf("rules engine: violation detected - rule=%s user=%s severity=%s confidence=%.1f",
 		rule.Name, result.Violation.UserName, result.Violation.Severity, result.Violation.ConfidenceScore)
 
+	// Auto-terminate if configured
+	tc := getTerminateConfig(rule)
+	if tc.Enabled && e.serverResolver != nil {
+		msg := tc.Message
+		if msg == "" {
+			msg = defaultAutoTerminateMessage
+		}
+
+		var serverID int64
+		var sessionID, plexUUID string
+
+		switch rule.Type {
+		case models.RuleTypeConcurrentStreams:
+			// Target: newest stream (identifiers in violation details)
+			if d := result.Violation.Details; d != nil {
+				if v, ok := d["terminate_server_id"].(float64); ok {
+					serverID = int64(v)
+				}
+				if v, ok := d["terminate_session_id"].(string); ok {
+					sessionID = v
+				}
+				if v, ok := d["terminate_plex_session_uuid"].(string); ok {
+					plexUUID = v
+				}
+			}
+		default:
+			// Target: the stream being evaluated
+			if input.Stream != nil {
+				serverID = input.Stream.ServerID
+				sessionID = input.Stream.SessionID
+				plexUUID = input.Stream.PlexSessionUUID
+			}
+		}
+
+		if serverID > 0 && sessionID != "" {
+			if err := e.terminateStream(ctx, serverID, sessionID, plexUUID, msg); err != nil {
+				log.Printf("rules engine: auto-terminate failed for violation %d: %v", result.Violation.ID, err)
+				if updateErr := e.store.UpdateViolationAction(result.Violation.ID, "terminate_failed"); updateErr != nil {
+					log.Printf("rules engine: failed to update violation action: %v", updateErr)
+				}
+			} else {
+				log.Printf("rules engine: auto-terminated stream for violation %d (rule=%s user=%s)", result.Violation.ID, rule.Name, result.Violation.UserName)
+				if updateErr := e.store.UpdateViolationAction(result.Violation.ID, "terminated"); updateErr != nil {
+					log.Printf("rules engine: failed to update violation action: %v", updateErr)
+				}
+			}
+		}
+	}
+
 	if e.notifier != nil {
 		e.notifyWg.Add(1)
 		go e.sendNotifications(rule.ID, result.Violation)
 	}
+}
+
+func (e *Engine) terminateStream(ctx context.Context, serverID int64, sessionID, plexSessionUUID, message string) error {
+	if e.serverResolver == nil {
+		return fmt.Errorf("no server resolver configured")
+	}
+
+	ms, ok := e.serverResolver.GetServer(serverID)
+	if !ok {
+		return fmt.Errorf("server %d not found", serverID)
+	}
+
+	terminateID := sessionID
+	if ms.Type() == models.ServerTypePlex && plexSessionUUID != "" {
+		terminateID = plexSessionUUID
+	}
+
+	terminateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	return ms.TerminateSession(terminateCtx, terminateID, message)
 }
 
 func (e *Engine) sendNotifications(ruleID int64, violation *models.RuleViolation) {
@@ -253,7 +355,22 @@ func (e *Engine) getEnabledRules() ([]models.Rule, error) {
 		return nil, err
 	}
 
+	exemptionMap, err := e.store.ListAllRuleExemptions()
+	if err != nil {
+		log.Printf("rules engine: failed to load exemptions: %v", err)
+	}
+
+	exemptions := make(map[int64]map[string]bool)
+	for ruleID, names := range exemptionMap {
+		set := make(map[string]bool, len(names))
+		for _, n := range names {
+			set[n] = true
+		}
+		exemptions[ruleID] = set
+	}
+
 	e.cachedRules = rules
+	e.exemptions = exemptions
 	e.lastRefresh = time.Now().UTC()
 
 	return rules, nil
@@ -265,8 +382,22 @@ func (e *Engine) RefreshRules() error {
 		return err
 	}
 
+	exemptionMap, err := e.store.ListAllRuleExemptions()
+	if err != nil {
+		log.Printf("rules engine: failed to load exemptions on refresh: %v", err)
+	}
+	exemptions := make(map[int64]map[string]bool)
+	for ruleID, names := range exemptionMap {
+		set := make(map[string]bool, len(names))
+		for _, n := range names {
+			set[n] = true
+		}
+		exemptions[ruleID] = set
+	}
+
 	e.mu.Lock()
 	e.cachedRules = rules
+	e.exemptions = exemptions
 	e.lastRefresh = time.Now().UTC()
 	e.mu.Unlock()
 
@@ -277,8 +408,18 @@ func (e *Engine) RefreshRules() error {
 func (e *Engine) InvalidateCache() {
 	e.mu.Lock()
 	e.cachedRules = nil
+	e.exemptions = nil
 	e.lastRefresh = time.Time{}
 	e.mu.Unlock()
+}
+
+func (e *Engine) isExempt(ruleID int64, userName string) bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	if e.exemptions == nil {
+		return false
+	}
+	return e.exemptions[ruleID][userName]
 }
 
 func (e *Engine) GetEvaluators() map[models.RuleType]Evaluator {

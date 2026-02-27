@@ -441,6 +441,7 @@ export interface RuleViolation {
   session_key?: string
   occurred_at: string
   created_at: string
+  action_taken?: string
 }
 
 export interface HouseholdLocation {
@@ -482,22 +483,30 @@ export interface ConcurrentStreamsConfig {
   max_streams: number
   exempt_household?: boolean
   count_paused_as_one?: boolean
+  auto_terminate?: boolean
+  terminate_message?: string
 }
 
 export interface GeoRestrictionConfig {
   allowed_countries?: string[]
   blocked_countries?: string[]
+  auto_terminate?: boolean
+  terminate_message?: string
 }
 
 export interface ImpossibleTravelConfig {
   max_speed_km_h: number
   min_distance_km: number
   time_window_hours: number
+  auto_terminate?: boolean
+  terminate_message?: string
 }
 
 export interface SimultaneousLocsConfig {
   min_distance_km: number
   exempt_household?: boolean
+  auto_terminate?: boolean
+  terminate_message?: string
 }
 
 export interface DeviceVelocityConfig {

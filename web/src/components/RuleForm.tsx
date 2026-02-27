@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import type { Rule, RuleType, NotificationChannel } from '../types'
+import type { Rule, RuleType, NotificationChannel, UserSummary } from '../types'
 import { RULE_TYPES } from '../types'
 import { api } from '../lib/api'
 import { useModal } from '../hooks/useModal'
@@ -19,6 +19,10 @@ const fieldClass = `w-full px-3 py-2.5 rounded-lg text-sm
   focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/20
   transition-colors`
 
+const AUTO_TERMINATE_TYPES: Set<RuleType> = new Set([
+  'concurrent_streams', 'geo_restriction', 'simultaneous_locations', 'impossible_travel'
+])
+
 function parseIntOrDefault(value: string, defaultValue: number): number {
   const parsed = parseInt(value, 10)
   return Number.isNaN(parsed) ? defaultValue : parsed
@@ -36,6 +40,8 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [selectedChannels, setSelectedChannels] = useState<number[]>([])
+  const [exemptions, setExemptions] = useState<string[]>([])
+  const [exemptionInput, setExemptionInput] = useState('')
 
   useEffect(() => {
     if (!rule) {
@@ -52,6 +58,18 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
       setSelectedChannels(linkedChannels.map(c => c.id))
     }
   }, [linkedChannels])
+
+  const { data: existingExemptions } = useFetch<string[]>(
+    rule?.id ? `/api/rules/${rule.id}/exemptions` : null
+  )
+
+  useEffect(() => {
+    if (existingExemptions) {
+      setExemptions(existingExemptions)
+    }
+  }, [existingExemptions])
+
+  const { data: userSummaries } = useFetch<UserSummary[]>('/api/users/summary')
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -83,6 +101,9 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
         ...toAdd.map(channelId => api.post(`/api/rules/${ruleId}/channels`, { channel_id: channelId })),
         ...toRemove.map(channelId => api.del(`/api/rules/${ruleId}/channels/${channelId}`)),
       ])
+
+      // Sync exemptions
+      await api.put(`/api/rules/${ruleId}/exemptions`, exemptions)
 
       onSaved()
     } catch (err) {
@@ -161,6 +182,100 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
             {renderConfigFields(ruleType, config, setConfig, units)}
           </div>
 
+          {AUTO_TERMINATE_TYPES.has(ruleType) && (
+            <div className="border-t border-border dark:border-border-dark pt-4">
+              <h3 className="text-sm font-semibold mb-3">Auto-Terminate</h3>
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    id="cfg-auto-terminate"
+                    type="checkbox"
+                    checked={(config.auto_terminate as boolean) ?? false}
+                    onChange={e => setConfig({ ...config, auto_terminate: e.target.checked })}
+                    className="w-4 h-4 rounded"
+                  />
+                  <label htmlFor="cfg-auto-terminate" className="text-sm">Auto-terminate stream on violation</label>
+                </div>
+                {Boolean(config.auto_terminate) && (
+                  <div>
+                    <label htmlFor="cfg-terminate-msg" className="block text-sm mb-1">Terminate Message</label>
+                    <input
+                      id="cfg-terminate-msg"
+                      type="text"
+                      value={(config.terminate_message as string) ?? ''}
+                      onChange={e => setConfig({ ...config, terminate_message: e.target.value })}
+                      placeholder="Your stream has been terminated due to a policy violation."
+                      className={fieldClass}
+                      maxLength={500}
+                    />
+                    <p className="text-xs text-muted dark:text-muted-dark mt-1">
+                      Message shown to the user when their stream is stopped
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="border-t border-border dark:border-border-dark pt-4">
+            <h3 className="text-sm font-semibold mb-3">User Exemptions</h3>
+            <p className="text-xs text-muted dark:text-muted-dark mb-3">
+              Exempted users skip this rule entirely — no evaluation, no violations, no notifications.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {exemptions.map(name => (
+                <span key={name} className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded-full bg-surface dark:bg-surface-dark">
+                  {name}
+                  <button
+                    type="button"
+                    onClick={() => setExemptions(exemptions.filter(n => n !== name))}
+                    className="text-muted dark:text-muted-dark hover:text-red-400 transition-colors"
+                  >
+                    &times;
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                list="exemption-users"
+                value={exemptionInput}
+                onChange={e => setExemptionInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    const name = exemptionInput.trim()
+                    if (name && !exemptions.includes(name)) {
+                      setExemptions([...exemptions, name])
+                      setExemptionInput('')
+                    }
+                  }
+                }}
+                placeholder="Add username..."
+                className={fieldClass + ' flex-1'}
+              />
+              <datalist id="exemption-users">
+                {userSummaries?.filter(u => !exemptions.includes(u.name)).map(u => (
+                  <option key={u.name} value={u.name} />
+                ))}
+              </datalist>
+              <button
+                type="button"
+                onClick={() => {
+                  const name = exemptionInput.trim()
+                  if (name && !exemptions.includes(name)) {
+                    setExemptions([...exemptions, name])
+                    setExemptionInput('')
+                  }
+                }}
+                className="px-3 py-2 text-sm rounded-lg border border-border dark:border-border-dark hover:border-accent/30 transition-colors"
+              >
+                Add
+              </button>
+            </div>
+          </div>
+
           <div className="border-t border-border dark:border-border-dark pt-4">
             <h3 className="text-sm font-semibold mb-3">Notification Channels</h3>
             <p className="text-xs text-muted dark:text-muted-dark mb-3">
@@ -206,13 +321,13 @@ export function RuleForm({ rule, onClose, onSaved }: RuleFormProps) {
 function getDefaultConfig(type: RuleType): Record<string, unknown> {
   switch (type) {
     case 'concurrent_streams':
-      return { max_streams: 2, exempt_household: true, count_paused_as_one: false }
+      return { max_streams: 2, exempt_household: true, count_paused_as_one: false, auto_terminate: false }
     case 'geo_restriction':
-      return { allowed_countries: [], blocked_countries: [] }
+      return { allowed_countries: [], blocked_countries: [], auto_terminate: false }
     case 'simultaneous_locations':
-      return { min_distance_km: 50, exempt_household: true }
+      return { min_distance_km: 50, exempt_household: true, auto_terminate: false }
     case 'impossible_travel':
-      return { max_speed_km_h: 800, min_distance_km: 100, time_window_hours: 24 }
+      return { max_speed_km_h: 800, min_distance_km: 100, time_window_hours: 24, auto_terminate: false }
     case 'device_velocity':
       return { max_devices_per_hour: 3, time_window_hours: 1 }
     case 'isp_velocity':

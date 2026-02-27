@@ -214,6 +214,8 @@ func (s *Server) routes() {
 			sr.Post("/{id}/channels", s.handleLinkRuleToChannel)
 			sr.Delete("/{id}/channels/{channelId}", s.handleUnlinkRuleFromChannel)
 			sr.Get("/{id}/channels", s.handleGetRuleChannels)
+			sr.Get("/{id}/exemptions", s.handleListRuleExemptions)
+			sr.Put("/{id}/exemptions", s.handleSetRuleExemptions)
 		})
 
 		r.Route("/violations", func(sr chi.Router) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"streammon/internal/models"
@@ -44,6 +45,12 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 		return nil, nil
 	}
 
+	// Sort by start time descending to identify newest stream for termination
+	sort.Slice(userStreams, func(i, j int) bool {
+		return userStreams[i].StartedAt.After(userStreams[j].StartedAt)
+	})
+	newest := userStreams[0]
+
 	signals := []models.ViolationSignal{
 		{Name: "stream_count", Weight: 0.6, Value: float64(streamCount)},
 		{Name: "max_allowed", Weight: 0.0, Value: float64(config.MaxStreams)},
@@ -67,10 +74,13 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 		Severity: determineSeverity(streamCount, config.MaxStreams),
 		Message:  fmt.Sprintf("%d concurrent streams detected (max: %d)", streamCount, config.MaxStreams),
 		Details: map[string]interface{}{
-			"stream_count": streamCount,
-			"max_allowed":  config.MaxStreams,
-			"locations":    locations,
-			"devices":      devices,
+			"stream_count":                streamCount,
+			"max_allowed":                 config.MaxStreams,
+			"locations":                   locations,
+			"devices":                     devices,
+			"terminate_server_id":         newest.ServerID,
+			"terminate_session_id":        newest.SessionID,
+			"terminate_plex_session_uuid": newest.PlexSessionUUID,
 		},
 		ConfidenceScore: confidence,
 		OccurredAt:      time.Now().UTC(),

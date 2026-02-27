@@ -5,6 +5,7 @@ import (
 	"math"
 	"time"
 
+	"streammon/internal/media"
 	"streammon/internal/models"
 	"streammon/internal/units"
 )
@@ -29,6 +30,10 @@ type EvaluationResult struct {
 
 type GeoResolver interface {
 	Lookup(ctx context.Context, ip string) (*models.GeoResult, error)
+}
+
+type ServerResolver interface {
+	GetServer(id int64) (media.MediaServer, bool)
 }
 
 // HistoryQuerier provides methods to query watch history for rule evaluation.
