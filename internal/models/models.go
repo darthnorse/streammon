@@ -6,8 +6,9 @@ import (
 )
 
 var (
-	ErrNotFound       = errors.New("not found")
-	ErrNotImplemented = errors.New("not implemented")
+	ErrNotFound         = errors.New("not found")
+	ErrNotImplemented   = errors.New("not implemented")
+	ErrPlexPassRequired = errors.New("Plex Pass may be required")
 )
 
 type MediaType string
@@ -255,6 +256,7 @@ type ActiveStream struct {
 	EpisodeNumber            int               `json:"episode_number,omitempty"`
 	State                    SessionState      `json:"state,omitempty"`
 	PausedMs                 int64             `json:"paused_ms,omitempty"`
+	PlexSessionUUID          string            `json:"plex_session_uuid,omitempty"`
 	LastPausedAt             time.Time         `json:"-"`
 	TranscodeKey             string            `json:"-"`
 }

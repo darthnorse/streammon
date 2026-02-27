@@ -150,6 +150,7 @@ export interface ActiveStream {
   episode_number?: number
   state?: 'playing' | 'paused' | 'buffering' | 'stopped'
   paused_ms?: number
+  plex_session_uuid?: string
 }
 
 export interface DayStat {

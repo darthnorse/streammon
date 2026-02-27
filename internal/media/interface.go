@@ -19,6 +19,7 @@ type MediaServer interface {
 	GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error)
 	DeleteItem(ctx context.Context, itemID string) error
 	GetSeasons(ctx context.Context, showID string) ([]models.Season, error)
+	TerminateSession(ctx context.Context, sessionID string, message string) error
 }
 
 // RealtimeSubscriber is optionally implemented by adapters that support

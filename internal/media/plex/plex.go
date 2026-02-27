@@ -420,6 +420,7 @@ func (s *Server) parseSessions(ctx context.Context, data []byte) ([]models.Activ
 func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sourceMediaInfo) models.ActiveStream {
 	as := models.ActiveStream{
 		SessionID:         plexSessionID(item),
+		PlexSessionUUID:   item.Session.ID,
 		ServerID:          serverID,
 		ItemID:            item.RatingKey,
 		GrandparentItemID: item.GrandparentRatingKey,

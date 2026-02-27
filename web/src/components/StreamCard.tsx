@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { ActiveStream } from '../types'
 import { formatTimestamp, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, thumbUrl } from '../lib/format'
 import { getMediaLabel } from '../lib/constants'
 import { GeoIPPopover } from './GeoIPPopover'
+import { TerminateSessionDialog } from './TerminateSessionDialog'
 
 const serverAccent: Record<string, { bar: string; progress: string; badge: string }> = {
   plex: { bar: 'bg-warn', progress: 'bg-warn', badge: 'badge-warn' },
@@ -14,6 +16,7 @@ const defaultAccent = { bar: 'bg-accent', progress: 'bg-accent', badge: 'badge-a
 
 interface StreamCardProps {
   stream: ActiveStream
+  isAdmin?: boolean
 }
 
 function MediaTitle({ stream }: { stream: ActiveStream }) {
@@ -114,7 +117,9 @@ function TranscodeInfo({ stream }: { stream: ActiveStream }) {
   )
 }
 
-export function StreamCard({ stream }: StreamCardProps) {
+export function StreamCard({ stream, isAdmin }: StreamCardProps) {
+  const [showTerminate, setShowTerminate] = useState(false)
+
   const progress = stream.duration_ms > 0
     ? Math.round((stream.progress_ms / stream.duration_ms) * 100)
     : 0
@@ -150,7 +155,25 @@ export function StreamCard({ stream }: StreamCardProps) {
 
         <div className="min-w-0 flex-1 flex flex-col">
           <div>
-            <MediaTitle stream={stream} />
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1">
+                <MediaTitle stream={stream} />
+              </div>
+              {isAdmin && (
+                <button
+                  onClick={() => setShowTerminate(true)}
+                  aria-label="Terminate stream"
+                  title="Terminate stream"
+                  className="shrink-0 mt-0.5 p-1 rounded text-muted dark:text-muted-dark
+                             hover:text-red-500 dark:hover:text-red-400 transition-colors
+                             opacity-0 group-hover:opacity-100"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-2 mt-1 text-xs text-muted dark:text-muted-dark">
               <span className="font-mono">{stream.server_name}</span>
               <span>·</span>
@@ -194,6 +217,12 @@ export function StreamCard({ stream }: StreamCardProps) {
           </div>
         </div>
       </div>
+      {showTerminate && (
+        <TerminateSessionDialog
+          stream={stream}
+          onClose={() => setShowTerminate(false)}
+        />
+      )}
     </div>
   )
 }
