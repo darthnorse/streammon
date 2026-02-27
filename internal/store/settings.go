@@ -66,6 +66,8 @@ type OIDCConfig struct {
 	ClientID     string
 	ClientSecret string
 	RedirectURL  string
+	AdminGroup   string
+	Scopes       string
 }
 
 func (s *Store) GetOIDCConfig() (OIDCConfig, error) {
@@ -88,6 +90,12 @@ func (s *Store) GetOIDCConfig() (OIDCConfig, error) {
 	if cfg.RedirectURL, err = s.GetSetting("oidc.redirect_url"); err != nil {
 		return cfg, err
 	}
+	if cfg.AdminGroup, err = s.GetSetting("oidc.admin_group"); err != nil {
+		return cfg, err
+	}
+	if cfg.Scopes, err = s.GetSetting("oidc.scopes"); err != nil {
+		return cfg, err
+	}
 	return cfg, nil
 }
 
@@ -104,6 +112,8 @@ func (s *Store) SetOIDCConfig(cfg OIDCConfig) error {
 		{"oidc.issuer", cfg.Issuer},
 		{"oidc.client_id", cfg.ClientID},
 		{"oidc.redirect_url", cfg.RedirectURL},
+		{"oidc.admin_group", cfg.AdminGroup},
+		{"oidc.scopes", cfg.Scopes},
 	} {
 		if _, err := tx.Exec(settingUpsert, kv.k, kv.v); err != nil {
 			return fmt.Errorf("setting %q: %w", kv.k, err)
@@ -123,7 +133,7 @@ func (s *Store) SetOIDCConfig(cfg OIDCConfig) error {
 }
 
 func (s *Store) DeleteOIDCConfig() error {
-	_, err := s.db.Exec(`DELETE FROM settings WHERE key IN ('oidc.issuer', 'oidc.client_id', 'oidc.client_secret', 'oidc.redirect_url')`)
+	_, err := s.db.Exec(`DELETE FROM settings WHERE key LIKE 'oidc.%'`)
 	if err != nil {
 		return fmt.Errorf("deleting OIDC config: %w", err)
 	}

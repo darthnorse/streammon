@@ -63,6 +63,8 @@ func TestOIDCConfigRoundTrip(t *testing.T) {
 		ClientID:     "my-client",
 		ClientSecret: "my-secret",
 		RedirectURL:  "https://app.example.com/callback",
+		AdminGroup:   "streammon-admins",
+		Scopes:       "openid,profile,email",
 	}
 	if err := s.SetOIDCConfig(cfg); err != nil {
 		t.Fatalf("SetOIDCConfig: %v", err)

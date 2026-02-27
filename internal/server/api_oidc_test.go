@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"streammon/internal/auth"
 )
 
 func TestGetOIDCSettings_Empty(t *testing.T) {
@@ -34,17 +36,15 @@ func TestGetOIDCSettings_Empty(t *testing.T) {
 func TestGetOIDCSettings_MasksSecret(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
-	if err := st.SetSetting("oidc.issuer", "https://example.com"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetSetting("oidc.client_id", "myid"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetSetting("oidc.client_secret", "supersecret"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetSetting("oidc.redirect_url", "https://example.com/callback"); err != nil {
-		t.Fatal(err)
+	for _, kv := range [][2]string{
+		{"oidc.issuer", "https://example.com"},
+		{"oidc.client_id", "myid"},
+		{"oidc.client_secret", "supersecret"},
+		{"oidc.redirect_url", "https://example.com/callback"},
+	} {
+		if err := st.SetSetting(kv[0], kv[1]); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/settings/oidc", nil)
@@ -70,7 +70,7 @@ func TestGetOIDCSettings_MasksSecret(t *testing.T) {
 func TestUpdateOIDCSettings_Saves(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
-	body := `{"issuer":"https://idp.example.com","client_id":"cid","client_secret":"secret123","redirect_url":"https://app/callback"}`
+	body := `{"issuer":"https://idp.example.com","client_id":"cid","client_secret":"secret123","redirect_url":"https://app/callback","admin_group":"streammon-admins","scopes":"openid,profile,email"}`
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/oidc", strings.NewReader(body))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
@@ -88,6 +88,80 @@ func TestUpdateOIDCSettings_Saves(t *testing.T) {
 	}
 	if cfg.ClientSecret != "secret123" {
 		t.Fatalf("secret: got %q", cfg.ClientSecret)
+	}
+	if cfg.AdminGroup != "streammon-admins" {
+		t.Fatalf("admin_group: got %q", cfg.AdminGroup)
+	}
+	if cfg.Scopes != "openid,profile,email" {
+		t.Fatalf("scopes: got %q", cfg.Scopes)
+	}
+}
+
+func TestUpdateOIDCSettings_FieldsTrimmed(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	body := `{"issuer":"  https://idp.example.com  ","client_id":"  cid  ","client_secret":"secret123","redirect_url":"  https://app/callback  ","admin_group":"  my-admins  ","scopes":"  openid,profile  "}`
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/oidc", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	cfg, err := st.GetOIDCConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Issuer != "https://idp.example.com" {
+		t.Fatalf("expected trimmed issuer, got %q", cfg.Issuer)
+	}
+	if cfg.ClientID != "cid" {
+		t.Fatalf("expected trimmed client_id, got %q", cfg.ClientID)
+	}
+	if cfg.RedirectURL != "https://app/callback" {
+		t.Fatalf("expected trimmed redirect_url, got %q", cfg.RedirectURL)
+	}
+	if cfg.AdminGroup != "my-admins" {
+		t.Fatalf("expected trimmed admin_group, got %q", cfg.AdminGroup)
+	}
+	if cfg.Scopes != "openid,profile" {
+		t.Fatalf("expected trimmed scopes, got %q", cfg.Scopes)
+	}
+}
+
+func TestGetOIDCSettings_ReturnsAdminGroup(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	for _, kv := range [][2]string{
+		{"oidc.issuer", "https://example.com"},
+		{"oidc.client_id", "cid"},
+		{"oidc.client_secret", "secret"},
+		{"oidc.redirect_url", "https://example.com/cb"},
+		{"oidc.admin_group", "my-admins"},
+	} {
+		if err := st.SetSetting(kv[0], kv[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/oidc", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp oidcSettingsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.AdminGroup != "my-admins" {
+		t.Fatalf("expected admin_group %q, got %q", "my-admins", resp.AdminGroup)
+	}
+	if resp.Scopes != auth.DefaultScopes {
+		t.Fatalf("expected default scopes %q, got %q", auth.DefaultScopes, resp.Scopes)
 	}
 }
 
@@ -167,10 +241,18 @@ func TestUpdateOIDCSettings_IncompleteConfigRejected(t *testing.T) {
 func TestDeleteOIDCSettings(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
-	st.SetSetting("oidc.issuer", "https://example.com")
-	st.SetSetting("oidc.client_id", "cid")
-	st.SetSetting("oidc.client_secret", "secret")
-	st.SetSetting("oidc.redirect_url", "https://example.com/cb")
+	for _, kv := range [][2]string{
+		{"oidc.issuer", "https://example.com"},
+		{"oidc.client_id", "cid"},
+		{"oidc.client_secret", "secret"},
+		{"oidc.redirect_url", "https://example.com/cb"},
+		{"oidc.admin_group", "my-admins"},
+		{"oidc.scopes", "openid,profile"},
+	} {
+		if err := st.SetSetting(kv[0], kv[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/settings/oidc", nil)
 	w := httptest.NewRecorder()
@@ -181,7 +263,7 @@ func TestDeleteOIDCSettings(t *testing.T) {
 	}
 
 	cfg, _ := st.GetOIDCConfig()
-	if cfg.Issuer != "" || cfg.ClientID != "" || cfg.ClientSecret != "" {
+	if cfg.Issuer != "" || cfg.ClientID != "" || cfg.ClientSecret != "" || cfg.AdminGroup != "" || cfg.Scopes != "" {
 		t.Fatalf("expected cleared config, got %+v", cfg)
 	}
 }
@@ -201,7 +283,7 @@ func TestTestOIDCConnection_MissingIssuer(t *testing.T) {
 func TestTestOIDCConnection_InvalidIssuer(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/settings/oidc/test", strings.NewReader(`{"issuer":"http://localhost:99999/nonexistent"}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/oidc/test", strings.NewReader(`{"issuer":"https://localhost:99999/nonexistent"}`))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 

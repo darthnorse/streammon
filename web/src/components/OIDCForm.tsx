@@ -15,6 +15,8 @@ interface FormData {
   client_id: string
   client_secret: string
   redirect_url: string
+  admin_group: string
+  scopes: string
 }
 
 interface TestResult {
@@ -29,7 +31,9 @@ export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
     issuer: settings?.issuer ?? '',
     client_id: settings?.client_id ?? '',
     client_secret: isEdit ? settings?.client_secret ?? '' : '',
-    redirect_url: settings?.redirect_url ?? '',
+    redirect_url: settings?.redirect_url || `${window.location.origin}/auth/oidc/callback`,
+    admin_group: settings?.admin_group ?? '',
+    scopes: settings?.scopes || 'openid,profile,email,groups',
   })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -70,12 +74,14 @@ export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
         client_id: form.client_id.trim(),
         client_secret: form.client_secret,
         redirect_url: form.redirect_url.trim(),
+        admin_group: form.admin_group.trim(),
+        scopes: form.scopes.trim(),
       })
       if (result?.warning) {
         setError(result.warning)
-        return
+      } else {
+        onSaved()
       }
-      onSaved()
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -175,9 +181,42 @@ export function OIDCForm({ settings, onClose, onSaved }: OIDCFormProps) {
               type="text"
               value={form.redirect_url}
               onChange={e => setField('redirect_url', e.target.value)}
-              placeholder="https://streammon.example.com/auth/callback"
+              placeholder="https://streammon.example.com/auth/oidc/callback"
               className={formInputClass}
             />
+            <p className="text-xs text-muted dark:text-muted-dark mt-1">
+              Register this URL as the callback/redirect URI in your OIDC provider
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="oidc-admin-group" className="block text-sm font-medium mb-1.5">Admin Group</label>
+            <input
+              id="oidc-admin-group"
+              type="text"
+              value={form.admin_group}
+              onChange={e => setField('admin_group', e.target.value)}
+              placeholder="streammon-admins"
+              className={formInputClass}
+            />
+            <p className="text-xs text-muted dark:text-muted-dark mt-1">
+              Users in this OIDC group get admin access; others become viewers. Requires a <code className="font-mono">groups</code> claim in the ID token. When guest access is disabled, only users in this group (or existing admins) can log in. Leave empty to disable role sync.
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="oidc-scopes" className="block text-sm font-medium mb-1.5">Scopes</label>
+            <input
+              id="oidc-scopes"
+              type="text"
+              value={form.scopes}
+              onChange={e => setField('scopes', e.target.value)}
+              placeholder="openid,profile,email,groups"
+              className={formInputClass}
+            />
+            <p className="text-xs text-muted dark:text-muted-dark mt-1">
+              Comma-separated OAuth2 scopes. Remove <code className="font-mono">groups</code> if your provider rejects it.
+            </p>
           </div>
 
           {error && (
