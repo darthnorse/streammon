@@ -20,10 +20,15 @@ ARG TARGETOS TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-X main.Version=${VERSION}" -o streammon ./cmd/streammon
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates && \
+    addgroup -g 10000 -S streammon && adduser -u 10000 -S streammon -G streammon
 WORKDIR /app
 COPY --from=backend /app/streammon .
 COPY --from=backend /app/migrations ./migrations
+COPY entrypoint.sh .
+RUN mkdir -p /app/data /app/geoip && chown -R streammon:streammon /app && chmod +x entrypoint.sh
 EXPOSE 7935
 VOLUME ["/app/data", "/app/geoip"]
-CMD ["./streammon"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -qO /dev/null http://localhost:7935/api/health || exit 1
+ENTRYPOINT ["./entrypoint.sh"]
