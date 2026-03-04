@@ -20,7 +20,7 @@ ARG TARGETOS TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-X main.Version=${VERSION}" -o streammon ./cmd/streammon
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates && \
+RUN apk add --no-cache ca-certificates shadow && \
     addgroup -g 10000 -S streammon && adduser -u 10000 -S streammon -G streammon
 RUN mkdir -p /app/data /app/geoip && chown streammon:streammon /app /app/data /app/geoip
 WORKDIR /app

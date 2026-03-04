@@ -39,7 +39,7 @@ func NewResolver(dbPath string) *Resolver {
 	}
 	db, err := maxminddb.Open(dbPath)
 	if err != nil {
-		log.Printf("geoip: failed to open %s: %v", dbPath, err)
+		log.Printf("geoip: database not found at %s, will download when license key is configured", dbPath)
 		return &Resolver{}
 	}
 	return &Resolver{db: db}

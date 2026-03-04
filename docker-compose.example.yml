@@ -16,4 +16,7 @@ services:
       # Required: encrypts API keys and tokens at rest.
       # Generate with: openssl rand -base64 32
       - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
+      # Optional: set to match your host user (useful for Synology/Unraid/TrueNAS)
+      # - PUID=1000
+      # - PGID=1000
     restart: unless-stopped
