@@ -166,16 +166,15 @@ func (s *Store) topMedia(ctx context.Context, limit int, filter StatsFilter, cfg
 
 	metaQuery := fmt.Sprintf(`SELECT thumb_url, server_id, %s
 		FROM watch_history
-		WHERE media_type = ? AND %s AND thumb_url != ''%s
+		WHERE media_type = ? AND %s AND thumb_url != ''
 		ORDER BY started_at DESC LIMIT 1`,
-		itemIDCol, cfg.metaWhere, filterClause)
+		itemIDCol, cfg.metaWhere)
 
 	for i := range stats {
 		var thumbURL sql.NullString
 		var serverID sql.NullInt64
 		var itemID sql.NullString
 		metaArgs := append([]any{cfg.mediaType}, cfg.metaArgs(stats[i])...)
-		metaArgs = append(metaArgs, filterArgs...)
 		err := s.db.QueryRowContext(ctx, metaQuery, metaArgs...).Scan(&thumbURL, &serverID, &itemID)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, fmt.Errorf("%s metadata: %w", cfg.errMsg, err)
