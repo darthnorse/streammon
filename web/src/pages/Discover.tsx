@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
+import { useDiscoverData } from '../hooks/useDiscoverData'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { useHorizontalScroll } from '../hooks/useHorizontalScroll'
 import { useAuth } from '../context/AuthContext'
@@ -42,9 +43,10 @@ type DiscoverSectionProps = {
   loading: boolean
   onSelect: (item: SelectedMedia) => void
   libraryIds: Set<string>
+  mediaStatuses: Map<string, number>
 }
 
-function DiscoverSection({ path, title, data, loading, onSelect, libraryIds }: DiscoverSectionProps) {
+function DiscoverSection({ path, title, data, loading, onSelect, libraryIds, mediaStatuses }: DiscoverSectionProps) {
   const { canScrollLeft, canScrollRight, scrollBy, ...scrollHandlers } = useHorizontalScroll()
   const items = data?.results?.filter(isSelectableMedia)
   if (!loading && (!items || items.length === 0)) return null
@@ -96,6 +98,7 @@ function DiscoverSection({ path, title, data, loading, onSelect, libraryIds }: D
               onClick={() => onSelect({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
               className="shrink-0 w-24 sm:w-[150px]"
               available={libraryIds.has(String(item.id))}
+              fallbackMediaStatus={mediaStatuses.get(`${item.media_type}:${item.id}`)}
             />
           ))}
         </div>
@@ -104,11 +107,11 @@ function DiscoverSection({ path, title, data, loading, onSelect, libraryIds }: D
   )
 }
 
-type DiscoverFetchSectionProps = Pick<DiscoverSectionProps, 'path' | 'title' | 'onSelect' | 'libraryIds'>
+type DiscoverFetchSectionProps = Pick<DiscoverSectionProps, 'path' | 'title' | 'onSelect' | 'libraryIds' | 'mediaStatuses'>
 
-function DiscoverFetchSection({ path, title, onSelect, libraryIds }: DiscoverFetchSectionProps) {
+function DiscoverFetchSection({ path, title, onSelect, libraryIds, mediaStatuses }: DiscoverFetchSectionProps) {
   const { data, loading } = useFetch<TMDBSearchResult>(`/api/tmdb/discover/${path}`)
-  return <DiscoverSection path={path} title={title} data={data} loading={loading} onSelect={onSelect} libraryIds={libraryIds} />
+  return <DiscoverSection path={path} title={title} data={data} loading={loading} onSelect={onSelect} libraryIds={libraryIds} mediaStatuses={mediaStatuses} />
 }
 
 function matchesRequester(req: OverseerrRequest, query: string): boolean {
@@ -123,10 +126,7 @@ export function Discover() {
   const isAdmin = user?.role === 'admin'
   const { pendingCount } = useOutletContext<LayoutOutletContext>()
 
-  const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
-  const overseerrConfigured = !!configStatus?.configured
-  const { data: libraryData } = useFetch<{ ids: string[] }>('/api/library/tmdb-ids')
-  const libraryIds = useMemo(() => new Set(libraryData?.ids ?? []), [libraryData])
+  const { overseerrConfigured, libraryIds, mediaStatuses } = useDiscoverData()
 
   const [tab, setTab] = useState<Tab>('discover')
   const [searchResults, setSearchResults] = useState<TMDBSearchResult | null>(null)
@@ -282,6 +282,7 @@ export function Discover() {
                       item={item}
                       onClick={() => handleSelectMedia({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
                       available={libraryIds.has(String(item.id))}
+                      fallbackMediaStatus={mediaStatuses.get(`${item.media_type}:${item.id}`)}
                     />
                   ))}
                 </div>
@@ -290,7 +291,7 @@ export function Discover() {
           ) : (
             <div className="space-y-8">
               {DISCOVER_CATEGORIES.map(cat => (
-                <DiscoverFetchSection key={cat.path} path={cat.path} title={cat.title} onSelect={handleSelectMedia} libraryIds={libraryIds} />
+                <DiscoverFetchSection key={cat.path} path={cat.path} title={cat.title} onSelect={handleSelectMedia} libraryIds={libraryIds} mediaStatuses={mediaStatuses} />
               ))}
             </div>
           )}

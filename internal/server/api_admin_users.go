@@ -196,7 +196,7 @@ func (s *Server) handleAdminMergeUsers(w http.ResponseWriter, r *http.Request) {
 		writeUserError(w, err)
 		return
 	}
-	s.invalidateOverseerrUserCache()
+	s.invalidateOverseerrCaches()
 
 	writeJSON(w, http.StatusOK, result)
 }

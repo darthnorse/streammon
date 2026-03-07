@@ -175,6 +175,7 @@ func (s *Server) routes() {
 			sr.Get("/configured", s.handleIntegrationConfigured(s.overseerrDeps()))
 			sr.Group(func(dr chi.Router) {
 				dr.Use(s.requireDiscover)
+				dr.Get("/media-statuses", s.handleOverseerrMediaStatuses)
 				dr.Get("/search", s.handleOverseerrSearch)
 				dr.Get("/discover/*", s.handleOverseerrDiscover)
 				dr.Get("/movie/{id}", s.handleOverseerrMovie)

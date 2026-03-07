@@ -54,6 +54,14 @@ type overseerrUserCache struct {
 
 const overseerrUserCacheTTL = 15 * time.Minute
 
+type overseerrMediaCache struct {
+	mu        sync.RWMutex
+	statuses  map[string]int // "mediaType:tmdbId" → status
+	expiresAt time.Time
+}
+
+const overseerrMediaCacheTTL = 5 * time.Minute
+
 func (s *Server) overseerrDeps() integrationDeps {
 	return integrationDeps{
 		validateURL:  overseerr.ValidateURL,
@@ -61,8 +69,8 @@ func (s *Server) overseerrDeps() integrationDeps {
 		getConfig:    s.store.GetOverseerrConfig,
 		setConfig:    s.store.SetOverseerrConfig,
 		deleteConfig: s.store.DeleteOverseerrConfig,
-		onUpdate:     s.invalidateOverseerrUserCache,
-		onDelete:     s.invalidateOverseerrUserCache,
+		onUpdate:     s.invalidateOverseerrCaches,
+		onDelete:     s.invalidateOverseerrCaches,
 	}
 }
 
@@ -319,7 +327,7 @@ func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int,
 	client, err := s.newOverseerrClient()
 	if err != nil {
 		log.Printf("overseerr user resolve: %v", err)
-		s.invalidateOverseerrUserCache()
+		s.invalidateOverseerrCaches()
 		return 0, false
 	}
 
@@ -329,7 +337,7 @@ func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int,
 	users, err := client.ListUsers(resolveCtx)
 	if err != nil {
 		log.Printf("overseerr list users: %v", err)
-		s.invalidateOverseerrUserCache()
+		s.invalidateOverseerrCaches()
 		return 0, false
 	}
 
@@ -371,11 +379,60 @@ func (s *Server) isOverseerrURLSafeForTokens() bool {
 	return !strings.Contains(host, ".")
 }
 
-func (s *Server) invalidateOverseerrUserCache() {
+func (s *Server) invalidateOverseerrCaches() {
 	s.overseerrUsers.mu.Lock()
 	s.overseerrUsers.emailToID = nil
 	s.overseerrUsers.expiresAt = time.Time{}
 	s.overseerrUsers.mu.Unlock()
+
+	s.overseerrMedia.mu.Lock()
+	s.overseerrMedia.statuses = nil
+	s.overseerrMedia.expiresAt = time.Time{}
+	s.overseerrMedia.mu.Unlock()
+}
+
+func (s *Server) handleOverseerrMediaStatuses(w http.ResponseWriter, r *http.Request) {
+	s.overseerrMedia.mu.RLock()
+	if time.Now().UTC().Before(s.overseerrMedia.expiresAt) {
+		cached := s.overseerrMedia.statuses
+		s.overseerrMedia.mu.RUnlock()
+		writeJSON(w, http.StatusOK, map[string]any{"statuses": cached})
+		return
+	}
+	s.overseerrMedia.mu.RUnlock()
+
+	s.overseerrMedia.mu.Lock()
+	if time.Now().UTC().Before(s.overseerrMedia.expiresAt) {
+		cached := s.overseerrMedia.statuses
+		s.overseerrMedia.mu.Unlock()
+		writeJSON(w, http.StatusOK, map[string]any{"statuses": cached})
+		return
+	}
+	s.overseerrMedia.expiresAt = time.Now().UTC().Add(30 * time.Second)
+	s.overseerrMedia.mu.Unlock()
+
+	client, err := s.newOverseerrClient()
+	if err != nil {
+		s.invalidateOverseerrCaches()
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), integrationTimeout)
+	defer cancel()
+
+	statuses, err := client.ListMedia(ctx)
+	if err != nil {
+		s.invalidateOverseerrCaches()
+		writeError(w, http.StatusBadGateway, "upstream service error")
+		return
+	}
+
+	s.overseerrMedia.mu.Lock()
+	s.overseerrMedia.statuses = statuses
+	s.overseerrMedia.expiresAt = time.Now().UTC().Add(overseerrMediaCacheTTL)
+	s.overseerrMedia.mu.Unlock()
+
+	writeJSON(w, http.StatusOK, map[string]any{"statuses": statuses})
 }
 
 func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Request) {

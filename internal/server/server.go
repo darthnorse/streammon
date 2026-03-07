@@ -44,6 +44,7 @@ type Server struct {
 	appCtx         context.Context
 	cascadeDeleter   *maintenance.CascadeDeleter
 	overseerrUsers   *overseerrUserCache
+	overseerrMedia   *overseerrMediaCache
 	tmdbClient       *tmdb.Client
 	thumbProxyHTTP   *http.Client
 	sonarrPosterHTTP *http.Client
@@ -59,6 +60,7 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 		appCtx:     context.Background(),
 		cascadeDeleter: maintenance.NewCascadeDeleter(s),
 		overseerrUsers: &overseerrUserCache{},
+		overseerrMedia: &overseerrMediaCache{},
 		thumbProxyHTTP:   httputil.NewClient(),
 		sonarrPosterHTTP: httputil.NewClient(),
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ import (
 type mockOverseerrOpts struct {
 	users           []map[string]any
 	requestOwnerID  int // Overseerr user ID that owns request ID 1
+	onGetMedia      func(w http.ResponseWriter, r *http.Request)
 	onGetRequests   func(w http.ResponseWriter, r *http.Request)
 	onCreateRequest func(w http.ResponseWriter, r *http.Request)
 }
@@ -36,6 +38,18 @@ func newMockOverseerr(t *testing.T, opts mockOverseerrOpts) *httptest.Server {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/status":
 			json.NewEncoder(w).Encode(map[string]string{"version": "1.33.2"})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/media":
+			if opts.onGetMedia != nil {
+				opts.onGetMedia(w, r)
+			} else {
+				json.NewEncoder(w).Encode(map[string]any{
+					"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 2},
+					"results": []map[string]any{
+						{"tmdbId": 550, "mediaType": "movie", "status": 5},
+						{"tmdbId": 1399, "mediaType": "tv", "status": 3},
+					},
+				})
+			}
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/user":
 			json.NewEncoder(w).Encode(map[string]any{
 				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": len(users)},
@@ -958,5 +972,265 @@ func TestOverseerrDeleteRequest_ViewerNoEmail(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for viewer with no email, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOverseerrMediaStatuses_Success(t *testing.T) {
+	srv, _ := newOverseerrTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result struct {
+		Statuses map[string]int `json:"statuses"`
+	}
+	json.NewDecoder(w.Body).Decode(&result)
+	if result.Statuses["movie:550"] != 5 {
+		t.Fatalf("expected status 5 for movie:550, got %d", result.Statuses["movie:550"])
+	}
+	if result.Statuses["tv:1399"] != 3 {
+		t.Fatalf("expected status 3 for tv:1399, got %d", result.Statuses["tv:1399"])
+	}
+}
+
+func TestOverseerrMediaStatuses_NoConfig(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOverseerrMediaStatuses_MultiPage(t *testing.T) {
+	callCount := 0
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users: defaultOverseerrUsers,
+		onGetMedia: func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			skip, _ := strconv.Atoi(r.URL.Query().Get("skip"))
+			if skip == 0 {
+				// Return exactly pageSize (50) results so pagination continues.
+				results := make([]map[string]any, 50)
+				results[0] = map[string]any{"tmdbId": 100, "mediaType": "movie", "status": 5}
+				results[1] = map[string]any{"tmdbId": 200, "mediaType": "tv", "status": 3}
+				for i := 2; i < 50; i++ {
+					results[i] = map[string]any{"tmdbId": 1000 + i, "mediaType": "movie", "status": 5}
+				}
+				json.NewEncoder(w).Encode(map[string]any{
+					"pageInfo": map[string]any{"pages": 2, "page": 1, "results": 51},
+					"results":  results,
+				})
+			} else {
+				json.NewEncoder(w).Encode(map[string]any{
+					"pageInfo": map[string]any{"pages": 2, "page": 2, "results": 51},
+					"results": []map[string]any{
+						{"tmdbId": 300, "mediaType": "movie", "status": 2},
+					},
+				})
+			}
+		},
+	})
+
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result struct {
+		Statuses map[string]int `json:"statuses"`
+	}
+	json.NewDecoder(w.Body).Decode(&result)
+	if result.Statuses["movie:100"] != 5 {
+		t.Fatalf("expected movie:100=5, got %d", result.Statuses["movie:100"])
+	}
+	if result.Statuses["tv:200"] != 3 {
+		t.Fatalf("expected tv:200=3, got %d", result.Statuses["tv:200"])
+	}
+	if result.Statuses["movie:300"] != 2 {
+		t.Fatalf("expected movie:300=2, got %d", result.Statuses["movie:300"])
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 API calls for pagination, got %d", callCount)
+	}
+}
+
+func TestOverseerrMediaStatuses_EmptyResults(t *testing.T) {
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users: defaultOverseerrUsers,
+		onGetMedia: func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 0},
+				"results":  []map[string]any{},
+			})
+		},
+	})
+
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result struct {
+		Statuses map[string]int `json:"statuses"`
+	}
+	json.NewDecoder(w.Body).Decode(&result)
+	if len(result.Statuses) != 0 {
+		t.Fatalf("expected empty statuses, got %v", result.Statuses)
+	}
+}
+
+func TestOverseerrMediaStatuses_ZeroValuesFiltered(t *testing.T) {
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users: defaultOverseerrUsers,
+		onGetMedia: func(w http.ResponseWriter, r *http.Request) {
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 4},
+				"results": []map[string]any{
+					{"tmdbId": 0, "mediaType": "movie", "status": 5},
+					{"tmdbId": 100, "mediaType": "movie", "status": 0},
+					{"tmdbId": 200, "mediaType": "", "status": 3},
+					{"tmdbId": 300, "mediaType": "tv", "status": 4},
+				},
+			})
+		},
+	})
+
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result struct {
+		Statuses map[string]int `json:"statuses"`
+	}
+	json.NewDecoder(w.Body).Decode(&result)
+	if len(result.Statuses) != 1 {
+		t.Fatalf("expected 1 status (only valid entry), got %d: %v", len(result.Statuses), result.Statuses)
+	}
+	if result.Statuses["tv:300"] != 4 {
+		t.Fatalf("expected tv:300=4, got %d", result.Statuses["tv:300"])
+	}
+}
+
+func TestOverseerrMediaStatuses_Cached(t *testing.T) {
+	callCount := 0
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users: defaultOverseerrUsers,
+		onGetMedia: func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 1},
+				"results": []map[string]any{
+					{"tmdbId": 550, "mediaType": "movie", "status": 5},
+				},
+			})
+		},
+	})
+
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+
+	// First request: should hit upstream
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Second request: should be served from cache
+	req = httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	if callCount != 1 {
+		t.Fatalf("expected 1 upstream call (second should be cached), got %d", callCount)
+	}
+
+	var result struct {
+		Statuses map[string]int `json:"statuses"`
+	}
+	json.NewDecoder(w.Body).Decode(&result)
+	if result.Statuses["movie:550"] != 5 {
+		t.Fatalf("expected cached movie:550=5, got %d", result.Statuses["movie:550"])
+	}
+}
+
+func TestOverseerrMediaStatuses_UpstreamError(t *testing.T) {
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users: defaultOverseerrUsers,
+		onGetMedia: func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		},
+	})
+
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify stampede claim was cleared — a retry should hit upstream again, not serve stale data.
+	callCount := 0
+	mock.Close()
+	mock2 := newMockOverseerr(t, mockOverseerrOpts{
+		users: defaultOverseerrUsers,
+		onGetMedia: func(w http.ResponseWriter, r *http.Request) {
+			callCount++
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 1},
+				"results": []map[string]any{
+					{"tmdbId": 550, "mediaType": "movie", "status": 5},
+				},
+			})
+		},
+	})
+	defer mock2.Close()
+	configureOverseerr(t, st, mock2.URL)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 on retry, got %d: %s", w.Code, w.Body.String())
+	}
+	if callCount != 1 {
+		t.Fatalf("expected retry to hit upstream, got %d calls", callCount)
 	}
 }

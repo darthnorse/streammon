@@ -105,13 +105,15 @@ type OverseerrUser struct {
 	Email string `json:"email"`
 }
 
+type pageInfo struct {
+	Pages   int `json:"pages"`
+	Page    int `json:"page"`
+	Results int `json:"results"`
+}
+
 type listUsersResponse struct {
-	PageInfo struct {
-		Pages   int `json:"pages"`
-		Page    int `json:"page"`
-		Results int `json:"results"`
-	} `json:"pageInfo"`
-	Results []OverseerrUser `json:"results"`
+	PageInfo pageInfo        `json:"pageInfo"`
+	Results  []OverseerrUser `json:"results"`
 }
 
 const maxListUsersPages = 100 // safety valve: 5,000 users max
@@ -324,6 +326,56 @@ func (c *Client) FindRequestByTMDB(ctx context.Context, tmdbID int, mediaType st
 	}
 
 	return result, nil
+}
+
+type mediaEntry struct {
+	TmdbID    int    `json:"tmdbId"`
+	MediaType string `json:"mediaType"`
+	Status    int    `json:"status"`
+}
+
+type listMediaResponse struct {
+	PageInfo pageInfo     `json:"pageInfo"`
+	Results  []mediaEntry `json:"results"`
+}
+
+const maxListMediaPages = 200 // safety valve: 10,000 entries max
+
+// ListMedia returns all Overseerr media entries as a map of "mediaType:tmdbId" → status.
+func (c *Client) ListMedia(ctx context.Context) (map[string]int, error) {
+	const pageSize = 50
+	statuses := make(map[string]int)
+
+	for page := 0; page < maxListMediaPages; page++ {
+		skip := page * pageSize
+		params := url.Values{}
+		params.Set("take", strconv.Itoa(pageSize))
+		if skip > 0 {
+			params.Set("skip", strconv.Itoa(skip))
+		}
+
+		raw, err := c.doGet(ctx, "/media", params)
+		if err != nil {
+			return nil, fmt.Errorf("listing media: %w", err)
+		}
+
+		var resp listMediaResponse
+		if err := json.Unmarshal(raw, &resp); err != nil {
+			return nil, fmt.Errorf("parsing media list: %w", err)
+		}
+
+		for _, m := range resp.Results {
+			if m.TmdbID > 0 && m.Status > 0 && m.MediaType != "" {
+				statuses[m.MediaType+":"+strconv.Itoa(m.TmdbID)] = m.Status
+			}
+		}
+
+		if resp.PageInfo.Page >= resp.PageInfo.Pages || len(resp.Results) < pageSize {
+			break
+		}
+	}
+
+	return statuses, nil
 }
 
 func (c *Client) DeleteMedia(ctx context.Context, mediaID int) error {

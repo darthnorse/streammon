@@ -1,7 +1,6 @@
-import { useMemo } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
-import { useFetch } from '../hooks/useFetch'
+import { useDiscoverData } from '../hooks/useDiscoverData'
 import { useModalStack } from '../hooks/useModalStack'
 import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS, isSelectableMedia } from '../lib/constants'
 import { MediaCard } from '../components/MediaCard'
@@ -43,10 +42,7 @@ export function DiscoverAll() {
 
   const { stack, push: pushModal, pop: popModal } = useModalStack()
 
-  const { data: configStatus } = useFetch<{ configured: boolean }>('/api/overseerr/configured')
-  const overseerrConfigured = !!configStatus?.configured
-  const { data: libraryData } = useFetch<{ ids: string[] }>('/api/library/tmdb-ids')
-  const libraryIds = useMemo(() => new Set(libraryData?.ids ?? []), [libraryData])
+  const { overseerrConfigured, libraryIds, mediaStatuses } = useDiscoverData()
 
   const url = valid ? `/api/tmdb/discover/${category}` : null
   const { items, loading, loadingMore, hasMore, error, sentinelRef } =
@@ -90,6 +86,7 @@ export function DiscoverAll() {
                 item={item}
                 onClick={() => pushModal({ type: 'tmdb', mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
                 available={libraryIds.has(String(item.id))}
+                fallbackMediaStatus={mediaStatuses.get(`${item.media_type}:${item.id}`)}
               />
             ))}
           </div>

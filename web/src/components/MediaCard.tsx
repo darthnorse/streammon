@@ -1,5 +1,5 @@
 import { TMDB_IMG } from '../lib/tmdb'
-import { mediaStatusBadge } from '../lib/overseerr'
+import { MEDIA_STATUS, mediaStatusBadge } from '../lib/overseerr'
 import type { OverseerrMediaResult, TMDBMediaResult } from '../types'
 
 type MediaItem = OverseerrMediaResult | TMDBMediaResult
@@ -34,10 +34,13 @@ interface MediaCardProps {
   onClick: () => void
   className?: string
   available?: boolean
+  fallbackMediaStatus?: number
 }
 
-export function MediaCard({ item, onClick, className, available }: MediaCardProps) {
-  const { title, year, posterPath, mediaType, voteAverage, mediaStatus } = normalize(item)
+export function MediaCard({ item, onClick, className, available, fallbackMediaStatus }: MediaCardProps) {
+  const { title, year, posterPath, mediaType, voteAverage, mediaStatus: itemMediaStatus } = normalize(item)
+  const effectiveStatus = itemMediaStatus ?? fallbackMediaStatus ?? (available ? MEDIA_STATUS.AVAILABLE : undefined)
+  const badge = mediaStatusBadge(effectiveStatus)
 
   return (
     <button
@@ -60,17 +63,7 @@ export function MediaCard({ item, onClick, className, available }: MediaCardProp
             {mediaType === 'movie' ? '🎬' : '📺'}
           </div>
         )}
-        {mediaStatus && mediaStatus > 1 ? (
-          <div className="absolute top-1 right-1">
-            {mediaStatusBadge(mediaStatus)}
-          </div>
-        ) : available ? (
-          <div className="absolute top-1 right-1">
-            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-600/90 text-white">
-              Available
-            </span>
-          </div>
-        ) : null}
+        {badge && <div className="absolute top-1 right-1">{badge}</div>}
         <div className="absolute top-1 left-1">
           <span className="text-[10px] font-medium px-1 py-0.5 rounded bg-black/60 text-white">
             {mediaType === 'movie' ? 'Movie' : 'TV'}

@@ -105,4 +105,26 @@ describe('MediaCard', () => {
 
     expect(screen.getByText('Available')).toBeDefined()
   })
+
+  it('shows fallbackMediaStatus badge when item has no mediaInfo', () => {
+    const item = makeItem()
+    renderWithRouter(<MediaCard item={item} onClick={() => {}} fallbackMediaStatus={3} />)
+
+    expect(screen.getByText('Processing')).toBeDefined()
+  })
+
+  it('prefers item mediaStatus over fallbackMediaStatus', () => {
+    const item = makeItem({ mediaInfo: { id: 1, tmdbId: 1, status: 2, requests: [] } })
+    renderWithRouter(<MediaCard item={item} onClick={() => {}} fallbackMediaStatus={5} />)
+
+    expect(screen.getByText('Pending')).toBeDefined()
+    expect(screen.queryByText('Available')).toBeNull()
+  })
+
+  it('shows Available badge when available=true and no status', () => {
+    const item = makeItem()
+    renderWithRouter(<MediaCard item={item} onClick={() => {}} available />)
+
+    expect(screen.getByText('Available')).toBeDefined()
+  })
 })
