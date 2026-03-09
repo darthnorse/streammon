@@ -126,30 +126,31 @@ func (s *Store) ListUserSummaries() ([]UserSummary, error) {
 				server_id,
 				item_id,
 				grandparent_item_id,
+				started_at,
 				ROW_NUMBER() OVER (PARTITION BY user_name ORDER BY started_at DESC) as rn
 			FROM watch_history
 		),
 		stats AS (
 			SELECT
 				user_name,
-				MAX(started_at) as last_streamed_at,
 				COUNT(*) as total_plays,
 				SUM(watched_ms) as total_watched_ms
 			FROM watch_history
+			WHERE ` + minPlayCond("") + `
 			GROUP BY user_name
 		),
 		last_entry AS (
-			SELECT user_name, ip_address as last_ip, title, grandparent_title, media_type, server_id, item_id, grandparent_item_id
+			SELECT user_name, ip_address as last_ip, title, grandparent_title, media_type, server_id, item_id, grandparent_item_id, started_at as last_streamed_at
 			FROM ranked
 			WHERE rn = 1
 		)
 		SELECT
-			s.user_name,
+			le.user_name,
 			COALESCE(u.thumb_url, '') as thumb_url,
-			s.last_streamed_at,
+			le.last_streamed_at,
 			COALESCE(le.last_ip, '') as last_ip,
-			s.total_plays,
-			s.total_watched_ms,
+			COALESCE(s.total_plays, 0) as total_plays,
+			COALESCE(s.total_watched_ms, 0) as total_watched_ms,
 			COALESCE(t.score, 100) as trust_score,
 			COALESCE(le.title, '') as last_played_title,
 			COALESCE(le.grandparent_title, '') as last_played_grandparent_title,
@@ -157,11 +158,11 @@ func (s *Store) ListUserSummaries() ([]UserSummary, error) {
 			COALESCE(le.server_id, 0) as last_played_server_id,
 			COALESCE(le.item_id, '') as last_played_item_id,
 			COALESCE(le.grandparent_item_id, '') as last_played_grandparent_item_id
-		FROM stats s
-		LEFT JOIN last_entry le ON s.user_name = le.user_name
-		LEFT JOIN users u ON s.user_name = u.name
-		LEFT JOIN user_trust_scores t ON s.user_name = t.user_name
-		ORDER BY s.user_name`)
+		FROM last_entry le
+		LEFT JOIN stats s ON le.user_name = s.user_name
+		LEFT JOIN users u ON le.user_name = u.name
+		LEFT JOIN user_trust_scores t ON le.user_name = t.user_name
+		ORDER BY le.user_name`)
 	if err != nil {
 		return nil, fmt.Errorf("listing user summaries: %w", err)
 	}

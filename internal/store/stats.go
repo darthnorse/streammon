@@ -18,6 +18,17 @@ func calcPercentage(count, total int) float64 {
 	return float64(count) / float64(total) * 100
 }
 
+const minPlayDurationMs = 120_000
+
+func minPlayCond(alias string) string {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	return fmt.Sprintf("(%swatched_ms >= %d OR %sduration_ms < %d)",
+		prefix, minPlayDurationMs, prefix, minPlayDurationMs)
+}
+
 var allowedDistributionColumns = map[string]bool{
 	"platform":         true,
 	"player":           true,
@@ -79,6 +90,7 @@ func (f StatsFilter) serverConditionWith(alias string) (string, []any) {
 }
 
 func buildConditions(alias string, f StatsFilter) (conds []string, args []any) {
+	conds = append(conds, minPlayCond(alias))
 	if tc, ta := f.timeConditionWith(alias); tc != "" {
 		conds = append(conds, tc)
 		args = append(args, ta...)
@@ -92,9 +104,6 @@ func buildConditions(alias string, f StatsFilter) (conds []string, args []any) {
 
 func (f StatsFilter) conditionsWithPrefix(prefix, alias string) (string, []any) {
 	conds, args := buildConditions(alias, f)
-	if len(conds) == 0 {
-		return "", nil
-	}
 	return prefix + strings.Join(conds, " AND "), args
 }
 
@@ -436,7 +445,7 @@ func (s *Store) UserDetailStats(ctx context.Context, userName string) (*models.U
 		`SELECT COUNT(*) as session_count,
 			SUM(watched_ms) / 3600000.0 as total_hours
 		FROM watch_history
-		WHERE user_name = ?`,
+		WHERE user_name = ? AND `+minPlayCond(""),
 		userName,
 	).Scan(&stats.SessionCount, &totalHours)
 	if err != nil {
@@ -451,7 +460,7 @@ func (s *Store) UserDetailStats(ctx context.Context, userName string) (*models.U
 			MAX(COALESCE(h.stopped_at, h.started_at)) as last_seen
 		FROM watch_history h
 		JOIN ip_geo_cache g ON h.ip_address = g.ip
-		WHERE h.user_name = ?
+		WHERE h.user_name = ? AND `+minPlayCond("h")+`
 		GROUP BY g.city, g.country
 		ORDER BY session_count DESC
 		LIMIT 10`,
@@ -484,7 +493,7 @@ func (s *Store) UserDetailStats(ctx context.Context, userName string) (*models.U
 		`SELECT player, platform, COUNT(*) as session_count,
 			MAX(COALESCE(stopped_at, started_at)) as last_seen
 		FROM watch_history
-		WHERE user_name = ?
+		WHERE user_name = ? AND `+minPlayCond("")+`
 		GROUP BY player, platform
 		ORDER BY session_count DESC
 		LIMIT 10`,
@@ -518,7 +527,7 @@ func (s *Store) UserDetailStats(ctx context.Context, userName string) (*models.U
 			MAX(COALESCE(h.stopped_at, h.started_at)) as last_seen
 		FROM watch_history h
 		JOIN ip_geo_cache g ON h.ip_address = g.ip
-		WHERE h.user_name = ? AND g.isp != ''
+		WHERE h.user_name = ? AND g.isp != '' AND `+minPlayCond("h")+`
 		GROUP BY g.isp
 		ORDER BY session_count DESC
 		LIMIT 10`,

@@ -11,12 +11,12 @@ import (
 	"streammon/internal/models"
 )
 
-const candidateSelectColumns = `
+var candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
 	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url,
 	i.tmdb_id, i.tvdb_id, i.imdb_id, i.tmdb_status, i.synced_at,
-	(SELECT COUNT(*) FROM watch_history wh WHERE wh.server_id = i.server_id AND (wh.item_id = i.item_id OR wh.grandparent_item_id = i.item_id)) as play_count`
+	(SELECT COUNT(*) FROM watch_history wh WHERE wh.server_id = i.server_id AND (wh.item_id = i.item_id OR wh.grandparent_item_id = i.item_id) AND ` + minPlayCond("wh") + `) as play_count`
 
 func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
 	var c models.MaintenanceCandidate

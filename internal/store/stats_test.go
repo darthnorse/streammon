@@ -1307,3 +1307,172 @@ func TestStatsFilterDateRange(t *testing.T) {
 	}
 }
 
+func TestMinPlayDurationFilter(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+
+	// Short play of long content — should be excluded from stats
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Short Play", Year: 2024, DurationMs: 7200000, WatchedMs: 60000,
+		StartedAt: now, StoppedAt: now.Add(time.Minute),
+	})
+	// Normal play — should be counted
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Normal Play", Year: 2024, DurationMs: 7200000, WatchedMs: 180000,
+		StartedAt: now.Add(time.Hour), StoppedAt: now.Add(time.Hour + 3*time.Minute),
+	})
+	// Short content fully watched — should be counted
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Music Video", Year: 2024, DurationMs: 90000, WatchedMs: 90000,
+		StartedAt: now.Add(2 * time.Hour), StoppedAt: now.Add(2*time.Hour + 90*time.Second),
+	})
+
+	ctx := context.Background()
+
+	t.Run("LibraryStats", func(t *testing.T) {
+		lib, err := s.LibraryStats(ctx, StatsFilter{})
+		if err != nil {
+			t.Fatalf("LibraryStats: %v", err)
+		}
+		if lib.TotalPlays != 2 {
+			t.Errorf("TotalPlays = %d, want 2 (short play excluded)", lib.TotalPlays)
+		}
+	})
+
+	t.Run("TopMovies", func(t *testing.T) {
+		movies, err := s.TopMovies(ctx, 10, StatsFilter{})
+		if err != nil {
+			t.Fatalf("TopMovies: %v", err)
+		}
+		for _, m := range movies {
+			if m.Title == "Short Play" {
+				t.Error("Short Play should be excluded from TopMovies")
+			}
+		}
+		found := false
+		for _, m := range movies {
+			if m.Title == "Music Video" {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("Music Video (short content) should be included in TopMovies")
+		}
+	})
+
+	t.Run("TopUsers", func(t *testing.T) {
+		users, err := s.TopUsers(ctx, 10, StatsFilter{})
+		if err != nil {
+			t.Fatalf("TopUsers: %v", err)
+		}
+		for _, u := range users {
+			if u.UserName == "alice" && u.PlayCount != 1 {
+				t.Errorf("alice PlayCount = %d, want 1 (short play excluded)", u.PlayCount)
+			}
+		}
+	})
+
+	t.Run("DailyWatchCounts", func(t *testing.T) {
+		start := now.Truncate(24 * time.Hour)
+		end := start.Add(48 * time.Hour)
+		days, err := s.DailyWatchCountsForUser(start, end, "", nil)
+		if err != nil {
+			t.Fatalf("DailyWatchCounts: %v", err)
+		}
+		var totalPlays int
+		for _, d := range days {
+			totalPlays += d.Movies + d.TV + d.LiveTV + d.Music + d.Audiobooks + d.Books
+		}
+		if totalPlays != 2 {
+			t.Errorf("daily total = %d, want 2 (short play excluded)", totalPlays)
+		}
+	})
+
+	t.Run("UserDetailStats", func(t *testing.T) {
+		stats, err := s.UserDetailStats(ctx, "alice")
+		if err != nil {
+			t.Fatalf("UserDetailStats: %v", err)
+		}
+		if stats.SessionCount != 1 {
+			t.Errorf("alice SessionCount = %d, want 1 (short play excluded)", stats.SessionCount)
+		}
+	})
+
+	t.Run("ActivityByHour", func(t *testing.T) {
+		stats, err := s.ActivityByHour(ctx, StatsFilter{})
+		if err != nil {
+			t.Fatalf("ActivityByHour: %v", err)
+		}
+		var total int
+		for _, h := range stats {
+			total += h.PlayCount
+		}
+		if total != 2 {
+			t.Errorf("total hourly plays = %d, want 2 (short play excluded)", total)
+		}
+	})
+
+	t.Run("PlatformDistribution", func(t *testing.T) {
+		stats, err := s.PlatformDistribution(ctx, StatsFilter{})
+		if err != nil {
+			t.Fatalf("PlatformDistribution: %v", err)
+		}
+		var total int
+		for _, s := range stats {
+			total += s.Count
+		}
+		if total != 2 {
+			t.Errorf("total distribution count = %d, want 2 (short play excluded)", total)
+		}
+	})
+
+	t.Run("ListUserSummaries", func(t *testing.T) {
+		summaries, err := s.ListUserSummaries()
+		if err != nil {
+			t.Fatalf("ListUserSummaries: %v", err)
+		}
+		for _, u := range summaries {
+			if u.Name == "alice" {
+				if u.TotalPlays != 1 {
+					t.Errorf("alice TotalPlays = %d, want 1 (short play excluded)", u.TotalPlays)
+				}
+				if u.LastStreamedAt == nil {
+					t.Error("alice LastStreamedAt should not be nil")
+				}
+			}
+		}
+	})
+}
+
+func TestMinPlayDurationBoundary(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+
+	// Exactly at threshold (120000ms) — should be included
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Boundary Play", Year: 2024, DurationMs: 7200000, WatchedMs: 120000,
+		StartedAt: now, StoppedAt: now.Add(2 * time.Minute),
+	})
+	// Just below threshold (119999ms) — should be excluded
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Just Under", Year: 2024, DurationMs: 7200000, WatchedMs: 119999,
+		StartedAt: now.Add(time.Hour), StoppedAt: now.Add(time.Hour + 2*time.Minute),
+	})
+
+	ctx := context.Background()
+	lib, err := s.LibraryStats(ctx, StatsFilter{})
+	if err != nil {
+		t.Fatalf("LibraryStats: %v", err)
+	}
+	if lib.TotalPlays != 1 {
+		t.Errorf("TotalPlays = %d, want 1 (boundary included, just-under excluded)", lib.TotalPlays)
+	}
+}
+

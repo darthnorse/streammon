@@ -321,7 +321,7 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 }
 
 func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string, serverIDs []int64) ([]models.DayStat, error) {
-	conditions := []string{"started_at >= ?", "started_at < ?"}
+	conditions := []string{"started_at >= ?", "started_at < ?", minPlayCond("")}
 	args := []any{start, end}
 
 	if userFilter != "" {
