@@ -9,7 +9,7 @@ RUN npm ci --legacy-peer-deps
 COPY web/ ./
 RUN npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.24-bookworm AS backend
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS backend
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
