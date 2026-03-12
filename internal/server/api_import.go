@@ -39,6 +39,80 @@ func clampMs(v, max int64) int64 {
 	return v
 }
 
+type importTracker struct {
+	label        string
+	serverID     int64
+	send         func(importProgressEvent)
+	total        int
+	inserted     int
+	skipped      int
+	consolidated int
+	processed    int
+}
+
+func newImportTracker(label string, serverID int64, w http.ResponseWriter, flusher http.Flusher) *importTracker {
+	return &importTracker{
+		label:    label,
+		serverID: serverID,
+		send: func(event importProgressEvent) {
+			data, err := json.Marshal(event)
+			if err != nil {
+				return
+			}
+			fmt.Fprintf(w, "data: %s\n\n", data)
+			flusher.Flush()
+		},
+	}
+}
+
+func (t *importTracker) insertBatch(ctx context.Context, st *store.Store, entries []*models.WatchHistoryEntry, total int) error {
+	inserted, skipped, consolidated, err := st.InsertHistoryBatch(ctx, entries)
+	if err != nil {
+		return err
+	}
+	t.inserted += inserted
+	t.skipped += skipped
+	t.consolidated += consolidated
+	t.total = total
+	t.processed += len(entries)
+	t.send(importProgressEvent{
+		Type:         "progress",
+		Processed:    t.processed,
+		Total:        t.total,
+		Inserted:     t.inserted,
+		Skipped:      t.skipped,
+		Consolidated: t.consolidated,
+	})
+	return nil
+}
+
+func (t *importTracker) fail(err error) {
+	log.Printf("%s import error: %v (imported %d, skipped %d, consolidated %d)",
+		t.label, err, t.inserted, t.skipped, t.consolidated)
+	t.send(importProgressEvent{
+		Type:         "error",
+		Processed:    t.processed,
+		Total:        t.total,
+		Inserted:     t.inserted,
+		Skipped:      t.skipped,
+		Consolidated: t.consolidated,
+		Error:        "import failed, check server logs",
+	})
+}
+
+func (t *importTracker) complete() {
+	log.Printf("%s import completed: %d inserted, %d skipped, %d consolidated, server_id=%d",
+		t.label, t.inserted, t.skipped, t.consolidated, t.serverID)
+	t.send(importProgressEvent{
+		Type:         "complete",
+		Processed:    t.processed,
+		Total:        t.total,
+		Inserted:     t.inserted,
+		Skipped:      t.skipped,
+		Consolidated: t.consolidated,
+	})
+}
+
 type importStreamer func(ctx context.Context, serverID int64, pageSize int,
 	handler func(entries []*models.WatchHistoryEntry, total int) error) error
 
@@ -105,63 +179,17 @@ func (s *Server) handleHistoryImport(
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 		defer cancel()
 
-		sendEvent := func(event importProgressEvent) {
-			data, err := json.Marshal(event)
-			if err != nil {
-				return
-			}
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			flusher.Flush()
-		}
-
-		var totalInserted, totalSkipped, totalConsolidated, totalRecords, processed int
+		tracker := newImportTracker(label, req.ServerID, w, flusher)
 
 		err = streamer(ctx, req.ServerID, 1000, func(entries []*models.WatchHistoryEntry, total int) error {
-			inserted, skipped, consolidated, err := s.store.InsertHistoryBatch(ctx, entries)
-			if err != nil {
-				return err
-			}
-
-			totalInserted += inserted
-			totalSkipped += skipped
-			totalConsolidated += consolidated
-			totalRecords = total
-			processed += len(entries)
-
-			sendEvent(importProgressEvent{
-				Type:         "progress",
-				Processed:    processed,
-				Total:        total,
-				Inserted:     totalInserted,
-				Skipped:      totalSkipped,
-				Consolidated: totalConsolidated,
-			})
-			return nil
+			return tracker.insertBatch(ctx, s.store, entries, total)
 		})
 
 		if err != nil {
-			log.Printf("%s import error: %v (imported %d, skipped %d, consolidated %d)", label, err, totalInserted, totalSkipped, totalConsolidated)
-			sendEvent(importProgressEvent{
-				Type:         "error",
-				Processed:    processed,
-				Total:        totalRecords,
-				Inserted:     totalInserted,
-				Skipped:      totalSkipped,
-				Consolidated: totalConsolidated,
-				Error:        "import failed, check server logs",
-			})
+			tracker.fail(err)
 			return
 		}
 
-		log.Printf("%s import completed: %d inserted, %d skipped, %d consolidated, server_id=%d", label, totalInserted, totalSkipped, totalConsolidated, req.ServerID)
-
-		sendEvent(importProgressEvent{
-			Type:         "complete",
-			Processed:    processed,
-			Total:        totalRecords,
-			Inserted:     totalInserted,
-			Skipped:      totalSkipped,
-			Consolidated: totalConsolidated,
-		})
+		tracker.complete()
 	}
 }

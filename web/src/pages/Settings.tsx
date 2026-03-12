@@ -16,6 +16,7 @@ import { IntegrationCard } from '../components/IntegrationCard'
 import { UserManagement } from '../components/UserManagement'
 import { GuestAccessSettings } from '../components/GuestAccessSettings'
 import { ServerDeleteDialog } from '../components/ServerDeleteDialog'
+import { PlaybackReportingImportForm } from '../components/PlaybackReportingImportForm'
 import { btnOutline, btnDanger, formSelectClass } from '../lib/constants'
 
 const serverTypeColors: Record<string, string> = {
@@ -57,6 +58,7 @@ export function Settings() {
   const [showOverseerrForm, setShowOverseerrForm] = useState(false)
   const [showSonarrForm, setShowSonarrForm] = useState(false)
   const [showRadarrForm, setShowRadarrForm] = useState(false)
+  const [showPlaybackReportingForm, setShowPlaybackReportingForm] = useState(false)
   const [deletingServer, setDeletingServer] = useState<Server | null>(null)
   const [deleteError, setDeleteError] = useState('')
   const [actionError, setActionError] = useState('')
@@ -666,6 +668,30 @@ export function Settings() {
               settings={jellystat ?? undefined}
               onClose={() => setShowJellystatForm(false)}
               onSaved={handleJellystatSaved}
+            />
+          )}
+
+          <div className="border-t border-border dark:border-border-dark my-6" />
+
+          <div className="card p-5">
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="font-semibold text-base">Playback Reporting Plugin</h3>
+            </div>
+            <p className="text-sm text-muted dark:text-muted-dark mb-4">
+              Import watch history from the Emby/Jellyfin Playback Reporting Plugin TSV backup.
+            </p>
+            <button
+              onClick={() => setShowPlaybackReportingForm(true)}
+              className="px-4 py-2.5 text-sm font-semibold rounded-lg
+                         bg-accent text-gray-900 hover:bg-accent/90 transition-colors"
+            >
+              Import
+            </button>
+          </div>
+
+          {showPlaybackReportingForm && (
+            <PlaybackReportingImportForm
+              onClose={() => setShowPlaybackReportingForm(false)}
             />
           )}
         </>

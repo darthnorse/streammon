@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import type { IntegrationSettings, ImportResult, ImportProgress, Server } from '../types'
+import type { IntegrationSettings, Server } from '../types'
 import { api } from '../lib/api'
 import { formInputClass, formSelectClass } from '../lib/constants'
 import { useModal } from '../hooks/useModal'
 import { useFetch } from '../hooks/useFetch'
+import { useSSEImport } from '../hooks/useSSEImport'
+import { ImportProgressBar, ImportResultBanner } from './ImportProgress'
 
 export interface IntegrationImportConfig {
   label: string
@@ -48,14 +50,12 @@ export function IntegrationImportForm({ config, settings, onClose, onSaved }: In
   const [saving, setSaving] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testing, setTesting] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<ImportResult | null>(null)
-  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null)
   const [justSaved, setJustSaved] = useState(false)
-  const importAbortRef = useRef<AbortController | null>(null)
   const mountedRef = useRef(true)
 
-  const busy = saving || testing || importing
+  const sseImport = useSSEImport()
+
+  const busy = saving || testing || sseImport.importing
   const showImport = isEdit || justSaved
 
   const handleClose = useCallback(() => {
@@ -74,7 +74,6 @@ export function IntegrationImportForm({ config, settings, onClose, onSaved }: In
   useEffect(() => {
     return () => {
       mountedRef.current = false
-      importAbortRef.current?.abort()
     }
   }, [])
 
@@ -82,7 +81,7 @@ export function IntegrationImportForm({ config, settings, onClose, onSaved }: In
     setForm(prev => ({ ...prev, [key]: value }))
     setError('')
     setTestResult(null)
-    setImportResult(null)
+    sseImport.clearImport()
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -137,79 +136,15 @@ export function IntegrationImportForm({ config, settings, onClose, onSaved }: In
       return
     }
 
-    importAbortRef.current?.abort()
-    const abortController = new AbortController()
-    importAbortRef.current = abortController
-
-    setImporting(true)
-    setImportResult(null)
-    setImportProgress(null)
     setError('')
 
     try {
-      const response = await fetch(`${config.apiPath}/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ server_id: selectedServer }),
-        signal: abortController.signal,
-      })
-
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({})) as { error?: string }
-        throw new Error(body.error || `HTTP ${response.status}`)
-      }
-
-      const reader = response.body?.getReader()
-      if (!reader) {
-        throw new Error('Streaming not supported')
-      }
-
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!mountedRef.current) break
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6)) as ImportProgress
-              setImportProgress(data)
-
-              if (data.type === 'complete') {
-                setImportResult({
-                  imported: data.inserted,
-                  skipped: data.skipped,
-                  consolidated: data.consolidated,
-                  total: data.total,
-                })
-              } else if (data.type === 'error') {
-                setError(data.error || 'Import failed')
-                setImportResult({
-                  imported: data.inserted,
-                  skipped: data.skipped,
-                  consolidated: data.consolidated,
-                  total: data.total,
-                  error: data.error,
-                })
-              }
-            } catch {}
-          }
-        }
-      }
+      const response = await api.postSSE(`${config.apiPath}/import`, { server_id: selectedServer })
+      await sseImport.runSSEImport(response)
     } catch (err) {
       if ((err as Error).name !== 'AbortError' && mountedRef.current) {
         setError((err as Error).message)
       }
-    } finally {
-      if (mountedRef.current) setImporting(false)
-      importAbortRef.current = null
     }
   }
 
@@ -270,9 +205,9 @@ export function IntegrationImportForm({ config, settings, onClose, onSaved }: In
             </p>
           </div>
 
-          {error && (
+          {(sseImport.error || error) && (
             <div className="text-sm text-red-500 dark:text-red-400 font-mono px-1">
-              {error}
+              {sseImport.error || error}
             </div>
           )}
 
@@ -357,34 +292,19 @@ export function IntegrationImportForm({ config, settings, onClose, onSaved }: In
                                  bg-accent text-gray-900 hover:bg-accent/90
                                  disabled:opacity-50 transition-colors"
                     >
-                      {importing ? 'Importing...' : 'Import Now'}
+                      {sseImport.importing ? 'Importing...' : 'Import Now'}
                     </button>
                   </div>
                 )}
 
-                {importing && importProgress && importProgress.total > 0 && (
-                  <div className="mt-3 space-y-2">
-                    <div className="flex justify-between text-xs text-muted dark:text-muted-dark">
-                      <span>Importing history...</span>
-                      <span>{importProgress.processed} / {importProgress.total}</span>
-                    </div>
-                    <div className="w-full bg-surface dark:bg-surface-dark rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-accent h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.round((importProgress.processed / importProgress.total) * 100)}%` }}
-                      />
-                    </div>
+                {sseImport.importing && sseImport.importProgress && (
+                  <div className="mt-3">
+                    <ImportProgressBar progress={sseImport.importProgress} />
                   </div>
                 )}
               </div>
 
-              {importResult && !importResult.error && (
-                <div className="text-sm font-mono px-3 py-2 rounded-lg bg-green-500/10 text-green-600 dark:text-green-400">
-                  Imported {importResult.imported.toLocaleString()} records
-                  {importResult.consolidated > 0 && `, merged ${importResult.consolidated.toLocaleString()}`}
-                  {importResult.skipped > 0 && `, skipped ${importResult.skipped.toLocaleString()} duplicates`}
-                </div>
-              )}
+              {sseImport.importResult && <ImportResultBanner result={sseImport.importResult} />}
             </>
           )}
         </form>

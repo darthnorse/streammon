@@ -291,6 +291,7 @@ func (s *Server) routes() {
 		r.Get("/api/servers/{id}/items/*", s.handleGetItemDetails)
 		r.Get("/api/sonarr/poster/{seriesId}", s.handleSonarrPoster)
 		r.Get("/api/dashboard/sse", s.handleDashboardSSE)
+		r.With(RequireRole(models.RoleAdmin)).Post("/api/settings/playback-reporting/import", s.handlePlaybackReportingImport())
 	})
 
 	s.serveSPA()
