@@ -590,8 +590,8 @@ func TestGetItemDetails_Episode(t *testing.T) {
 	if details.EpisodeNumber != 14 {
 		t.Errorf("episode number = %d, want 14", details.EpisodeNumber)
 	}
-	if details.TMDBID != "62085" {
-		t.Errorf("tmdb_id = %q, want 62085", details.TMDBID)
+	if details.TMDBID != "" {
+		t.Errorf("tmdb_id = %q, want empty for episodes (series-level ID resolved by API handler)", details.TMDBID)
 	}
 }
 

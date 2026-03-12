@@ -745,7 +745,9 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 		ServerType:    c.serverType,
 	}
 
-	details.TMDBID = item.ProviderIds["Tmdb"]
+	if item.Type != "Episode" {
+		details.TMDBID = item.ProviderIds["Tmdb"]
+	}
 
 	if len(item.MediaSources) > 0 {
 		ms := item.MediaSources[0]

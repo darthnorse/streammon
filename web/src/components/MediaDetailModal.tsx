@@ -337,7 +337,10 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
   const hasError = !libraryMode && !!fetchError
 
   const title = libraryItem?.title || tmdbMovie?.title || tmdbTV?.name || ''
-  const overview = tmdbMovie?.overview || tmdbTV?.overview || libraryItem?.summary
+  const isEpisode = libraryItem?.media_type === 'episode'
+  const overview = isEpisode
+    ? (libraryItem?.summary || tmdbTV?.overview)
+    : (tmdbMovie?.overview || tmdbTV?.overview || libraryItem?.summary)
   const backdrop = tmdbMovie?.backdrop_path || tmdbTV?.backdrop_path
   const tmdbPoster = tmdbMovie?.poster_path || tmdbTV?.poster_path
   const serverThumbSrc = libraryItem?.thumb_url

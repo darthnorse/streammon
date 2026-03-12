@@ -149,8 +149,10 @@ func parseItemDetails(data []byte, serverID int64, serverName string) (*models.I
 		ServerType:    models.ServerTypePlex,
 	}
 
-	externalIDs := parsePlexGuids(item.Guids)
-	details.TMDBID = externalIDs.TMDB
+	if item.Type != "episode" {
+		externalIDs := parsePlexGuids(item.Guids)
+		details.TMDBID = externalIDs.TMDB
+	}
 
 	if len(item.Media) > 0 {
 		m := item.Media[0]
