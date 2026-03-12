@@ -9,6 +9,7 @@
   "CommunityRating": 7.2,
   "OfficialRating": "TV-14",
   "RunTimeTicks": 0,
+  "ProviderIds": {"Tmdb": "120911"},
   "Studios": [{"Name": "Legendary Television", "Id": 1}],
   "People": [
     {"Name": "Jonathan Tucker", "Role": "Bryan Beneventi", "Type": "Actor"},

@@ -4,6 +4,8 @@
          summary="The story of American scientist J. Robert Oppenheimer and his role in the development of the atomic bomb."
          thumb="/library/metadata/12345/thumb/1699000000"
          rating="8.5" contentRating="R" duration="10800000" studio="Universal Pictures">
+    <Guid id="tmdb://872585" />
+    <Guid id="imdb://tt15398776" />
     <Genre tag="Drama" />
     <Genre tag="History" />
     <Genre tag="Biography" />

@@ -474,6 +474,7 @@ type itemDetailsJSON struct {
 	ParentIndexNumber int                 `json:"ParentIndexNumber"`
 	IndexNumber       int                 `json:"IndexNumber"`
 	MediaSources      []mediaSourceDetail `json:"MediaSources"`
+	ProviderIds       map[string]string   `json:"ProviderIds,omitempty"`
 }
 
 type mediaSourceDetail struct {
@@ -658,7 +659,7 @@ func embyLibraryType(collectionType string) models.LibraryType {
 
 func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
 	// Use Items?Ids= endpoint which doesn't require user context
-	url := fmt.Sprintf("%s/Items?Ids=%s&Fields=Overview,Genres,People,Studios,ProductionYear,OfficialRating,CommunityRating,MediaSources", c.url, itemID)
+	url := fmt.Sprintf("%s/Items?Ids=%s&Fields=Overview,Genres,People,Studios,ProductionYear,OfficialRating,CommunityRating,MediaSources,ProviderIds", c.url, url.QueryEscape(itemID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -743,6 +744,8 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 		ServerName:    c.serverName,
 		ServerType:    c.serverType,
 	}
+
+	details.TMDBID = item.ProviderIds["Tmdb"]
 
 	if len(item.MediaSources) > 0 {
 		ms := item.MediaSources[0]

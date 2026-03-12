@@ -554,6 +554,9 @@ func TestGetItemDetails_Movie(t *testing.T) {
 	if details.ServerType != models.ServerTypeEmby {
 		t.Errorf("server type = %q, want emby", details.ServerType)
 	}
+	if details.TMDBID != "872585" {
+		t.Errorf("tmdb_id = %q, want 872585", details.TMDBID)
+	}
 }
 
 func TestGetItemDetails_Episode(t *testing.T) {
@@ -586,6 +589,9 @@ func TestGetItemDetails_Episode(t *testing.T) {
 	}
 	if details.EpisodeNumber != 14 {
 		t.Errorf("episode number = %d, want 14", details.EpisodeNumber)
+	}
+	if details.TMDBID != "62085" {
+		t.Errorf("tmdb_id = %q, want 62085", details.TMDBID)
 	}
 }
 
@@ -643,6 +649,28 @@ func TestGetItemDetails_Series(t *testing.T) {
 	}
 	if details.Rating != 7.2 {
 		t.Errorf("rating = %f, want 7.2", details.Rating)
+	}
+	if details.TMDBID != "120911" {
+		t.Errorf("tmdb_id = %q, want 120911", details.TMDBID)
+	}
+}
+
+func TestGetItemDetails_NoProviderIds(t *testing.T) {
+	data := []byte(`{"Items":[{"Id":"noprov1","Name":"No Providers","ProductionYear":2020,"Overview":"A movie with no provider IDs.","Type":"Movie","ImageTags":{"Primary":"abc"},"Genres":["Drama"],"CommunityRating":6.0,"OfficialRating":"PG","RunTimeTicks":54000000000,"Studios":[{"Name":"Test Studio"}],"People":[]}]}`)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(data)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, Name: "TestEmby", URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	details, err := c.GetItemDetails(context.Background(), "noprov1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if details.TMDBID != "" {
+		t.Errorf("tmdb_id = %q, want empty string for item with no ProviderIds", details.TMDBID)
 	}
 }
 

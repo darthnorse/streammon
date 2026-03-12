@@ -9,6 +9,7 @@
   "CommunityRating": 10.0,
   "OfficialRating": "TV-MA",
   "RunTimeTicks": 28800000000,
+  "ProviderIds": {"Tmdb": "62085"},
   "SeriesName": "Breaking Bad",
   "ParentIndexNumber": 5,
   "IndexNumber": 14,

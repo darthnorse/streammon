@@ -113,6 +113,9 @@ func TestGetItemDetails_Movie(t *testing.T) {
 	if details.ServerType != models.ServerTypePlex {
 		t.Errorf("server type = %q, want plex", details.ServerType)
 	}
+	if details.TMDBID != "872585" {
+		t.Errorf("tmdb_id = %q, want 872585", details.TMDBID)
+	}
 }
 
 func TestGetItemDetails_Episode(t *testing.T) {
@@ -144,6 +147,9 @@ func TestGetItemDetails_Episode(t *testing.T) {
 	}
 	if details.EpisodeNumber != 14 {
 		t.Errorf("episode number = %d, want 14", details.EpisodeNumber)
+	}
+	if details.TMDBID != "1396" {
+		t.Errorf("tmdb_id = %q, want 1396", details.TMDBID)
 	}
 }
 
@@ -184,6 +190,7 @@ func TestGetItemDetails_TVSeries(t *testing.T) {
     studio="AMC">
     <Genre tag="Drama" />
     <Genre tag="Crime" />
+    <Guid id="tmdb://169085" />
     <Role tag="Bryan Cranston" role="Walter White" />
   </Directory>
 </MediaContainer>`
@@ -216,6 +223,35 @@ func TestGetItemDetails_TVSeries(t *testing.T) {
 	}
 	if details.Studio != "AMC" {
 		t.Errorf("studio = %q, want AMC", details.Studio)
+	}
+	if details.TMDBID != "169085" {
+		t.Errorf("tmdb_id = %q, want 169085", details.TMDBID)
+	}
+}
+
+func TestGetItemDetails_NoGuids(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer size="1">
+  <Video ratingKey="99999" type="movie" title="No Guids Movie" year="2020"
+    summary="A movie with no external IDs."
+    thumb="/library/metadata/99999/thumb/123" contentRating="PG" rating="6.0"
+    duration="5400000" studio="Test Studio">
+  </Video>
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(xml))
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, Name: "TestPlex", URL: ts.URL, APIKey: "tok"})
+	details, err := srv.GetItemDetails(context.Background(), "99999")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if details.TMDBID != "" {
+		t.Errorf("tmdb_id = %q, want empty string for item with no Guids", details.TMDBID)
 	}
 }
 

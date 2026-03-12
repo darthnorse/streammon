@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 
 	"streammon/internal/httputil"
 	"streammon/internal/models"
@@ -31,6 +32,7 @@ type itemDetailItem struct {
 	GrandparentTitle string             `xml:"grandparentTitle,attr"`
 	ParentIndex      string             `xml:"parentIndex,attr"`
 	Index            string             `xml:"index,attr"`
+	Guids            []plexGuid         `xml:"Guid"`
 	Genres           []genreItem        `xml:"Genre"`
 	Directors        []directorItem     `xml:"Director"`
 	Roles            []roleItem         `xml:"Role"`
@@ -61,7 +63,7 @@ type roleItem struct {
 }
 
 func (s *Server) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
-	url := fmt.Sprintf("%s/library/metadata/%s", s.url, itemID)
+	url := fmt.Sprintf("%s/library/metadata/%s", s.url, url.PathEscape(itemID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -146,6 +148,9 @@ func parseItemDetails(data []byte, serverID int64, serverName string) (*models.I
 		ServerName:    serverName,
 		ServerType:    models.ServerTypePlex,
 	}
+
+	externalIDs := parsePlexGuids(item.Guids)
+	details.TMDBID = externalIDs.TMDB
 
 	if len(item.Media) > 0 {
 		m := item.Media[0]

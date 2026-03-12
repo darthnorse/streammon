@@ -9,6 +9,7 @@
   "CommunityRating": 8.5,
   "OfficialRating": "R",
   "RunTimeTicks": 108000000000,
+  "ProviderIds": {"Tmdb": "872585", "Imdb": "tt15398776"},
   "Studios": [{"Name": "Universal Pictures"}],
   "People": [
     {"Name": "Christopher Nolan", "Type": "Director"},
