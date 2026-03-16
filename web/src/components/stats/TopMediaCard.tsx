@@ -1,13 +1,6 @@
-import { useState } from 'react'
 import type { MediaStat } from '../../types'
 import { formatHours } from '../../lib/format'
-import { useItemDetails } from '../../hooks/useItemDetails'
-import { MediaDetailModal } from '../MediaDetailModal'
-
-interface SelectedItem {
-  serverId: number
-  itemId: string
-}
+import { useMediaDetailModal } from '../../hooks/useMediaDetailModal'
 
 interface TopMediaCardProps {
   title: string
@@ -16,16 +9,11 @@ interface TopMediaCardProps {
 }
 
 export function TopMediaCard({ title, items, icon }: TopMediaCardProps) {
-  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
-
-  const { data: itemDetails, loading: detailsLoading } = useItemDetails(
-    selectedItem?.serverId ?? 0,
-    selectedItem?.itemId ?? null
-  )
+  const { handleTitleClick, modal } = useMediaDetailModal()
 
   const handleItemClick = (item: MediaStat) => {
     if (item.item_id && item.server_id) {
-      setSelectedItem({ serverId: item.server_id, itemId: item.item_id })
+      handleTitleClick(item.server_id, item.item_id)
     }
   }
 
@@ -68,13 +56,7 @@ export function TopMediaCard({ title, items, icon }: TopMediaCardProps) {
         </div>
       )}
 
-      {selectedItem && (
-        <MediaDetailModal
-          item={itemDetails}
-          loading={detailsLoading}
-          onClose={() => setSelectedItem(null)}
-        />
-      )}
+      {modal}
     </div>
   )
 }

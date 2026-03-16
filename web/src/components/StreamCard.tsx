@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { ActiveStream } from '../types'
+import type { ActiveStream, TitleClickHandler } from '../types'
 import { formatTimestamp, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, thumbUrl } from '../lib/format'
-import { getMediaLabel } from '../lib/constants'
+import { getMediaLabel, CLICKABLE_TITLE_CLASS } from '../lib/constants'
 import { GeoIPPopover } from './GeoIPPopover'
 import { TerminateSessionDialog } from './TerminateSessionDialog'
 
@@ -17,9 +17,13 @@ const defaultAccent = { bar: 'bg-accent', progress: 'bg-accent', badge: 'badge-a
 interface StreamCardProps {
   stream: ActiveStream
   isAdmin?: boolean
+  onTitleClick?: TitleClickHandler
 }
 
-function MediaTitle({ stream }: { stream: ActiveStream }) {
+function MediaTitle({ stream, onTitleClick }: { stream: ActiveStream; onTitleClick?: TitleClickHandler }) {
+  const canClickSeries = onTitleClick && stream.server_id && stream.grandparent_item_id
+  const canClickItem = onTitleClick && stream.server_id && stream.item_id
+
   if (stream.media_type === 'episode' && stream.grandparent_title) {
     const season = stream.season_number ?? parseSeasonFromTitle(stream.parent_title)
     const episodeInfo = formatEpisode(season, stream.episode_number)
@@ -27,10 +31,16 @@ function MediaTitle({ stream }: { stream: ActiveStream }) {
 
     return (
       <>
-        <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-base leading-snug">
+        <div
+          className={`font-semibold text-gray-900 dark:text-gray-50 truncate text-base leading-snug ${canClickSeries ? CLICKABLE_TITLE_CLASS : ''}`}
+          onClick={canClickSeries ? () => onTitleClick(stream.server_id, stream.grandparent_item_id!) : undefined}
+        >
           {stream.grandparent_title}
         </div>
-        <div className="text-sm text-gray-600 dark:text-gray-300 truncate mt-1">
+        <div
+          className={`text-sm text-gray-600 dark:text-gray-300 truncate mt-1 ${canClickItem ? CLICKABLE_TITLE_CLASS : ''}`}
+          onClick={canClickItem ? () => onTitleClick(stream.server_id, stream.item_id!) : undefined}
+        >
           {subtitle}
         </div>
       </>
@@ -50,7 +60,10 @@ function MediaTitle({ stream }: { stream: ActiveStream }) {
   }
   return (
     <>
-      <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-base leading-snug">
+      <div
+        className={`font-semibold text-gray-900 dark:text-gray-50 truncate text-base leading-snug ${canClickItem ? CLICKABLE_TITLE_CLASS : ''}`}
+        onClick={canClickItem ? () => onTitleClick(stream.server_id, stream.item_id!) : undefined}
+      >
         {stream.title}
       </div>
       {stream.year > 0 && (
@@ -117,7 +130,7 @@ function TranscodeInfo({ stream }: { stream: ActiveStream }) {
   )
 }
 
-export function StreamCard({ stream, isAdmin }: StreamCardProps) {
+export function StreamCard({ stream, isAdmin, onTitleClick }: StreamCardProps) {
   const [showTerminate, setShowTerminate] = useState(false)
 
   const progress = stream.duration_ms > 0
@@ -157,7 +170,7 @@ export function StreamCard({ stream, isAdmin }: StreamCardProps) {
           <div>
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
-                <MediaTitle stream={stream} />
+                <MediaTitle stream={stream} onTitleClick={onTitleClick} />
               </div>
               {isAdmin && (
                 <button

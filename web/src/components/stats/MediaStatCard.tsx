@@ -1,13 +1,7 @@
 import { useState } from 'react'
 import type { MediaStat } from '../../types'
-import { useItemDetails } from '../../hooks/useItemDetails'
-import { MediaDetailModal } from '../MediaDetailModal'
+import { useMediaDetailModal } from '../../hooks/useMediaDetailModal'
 import { thumbUrl } from '../../lib/format'
-
-interface SelectedItem {
-  serverId: number
-  itemId: string
-}
 
 interface MediaStatCardProps {
   title: string
@@ -16,18 +10,13 @@ interface MediaStatCardProps {
 
 export function MediaStatCard({ title, items }: MediaStatCardProps) {
   const [hoveredIdx, setHoveredIdx] = useState<number | null>(null)
-  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
-
-  const { data: itemDetails, loading: detailsLoading } = useItemDetails(
-    selectedItem?.serverId ?? 0,
-    selectedItem?.itemId ?? null
-  )
+  const { handleTitleClick, modal } = useMediaDetailModal()
 
   const displayedItem = hoveredIdx !== null ? items[hoveredIdx] : items[0]
 
   const handleItemClick = (item: MediaStat) => {
     if (item.item_id && item.server_id) {
-      setSelectedItem({ serverId: item.server_id, itemId: item.item_id })
+      handleTitleClick(item.server_id, item.item_id)
     }
   }
 
@@ -92,13 +81,7 @@ export function MediaStatCard({ title, items }: MediaStatCardProps) {
         </div>
       )}
 
-      {selectedItem && (
-        <MediaDetailModal
-          item={itemDetails}
-          loading={detailsLoading}
-          onClose={() => setSelectedItem(null)}
-        />
-      )}
+      {modal}
     </div>
   )
 }

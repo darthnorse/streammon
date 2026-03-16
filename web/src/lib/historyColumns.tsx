@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
-import type { WatchHistoryEntry } from '../types'
+import type { WatchHistoryEntry, TitleClickHandler } from '../types'
 import { formatDuration, formatDate, formatEpisode, parseSeasonFromTitle, formatLocation } from './format'
-import { getMediaLabel } from './constants'
+import { getMediaLabel, CLICKABLE_TITLE_CLASS } from './constants'
 import { GeoIPPopover } from '../components/GeoIPPopover'
 
 export interface ColumnDef {
@@ -17,7 +17,7 @@ export interface ColumnDef {
 
 interface EntryTitleProps {
   entry: WatchHistoryEntry
-  onTitleClick?: (serverId: number, itemId: string) => void
+  onTitleClick?: TitleClickHandler
 }
 
 export function EntryTitle({ entry, onTitleClick }: EntryTitleProps) {
@@ -33,13 +33,13 @@ export function EntryTitle({ entry, onTitleClick }: EntryTitleProps) {
     return (
       <div>
         <div
-          className={`font-medium text-gray-900 dark:text-gray-50 truncate ${canClickSeries ? 'cursor-pointer hover:text-accent hover:underline dark:hover:text-accent transition-colors' : ''}`}
+          className={`font-medium text-gray-900 dark:text-gray-50 truncate ${canClickSeries ? CLICKABLE_TITLE_CLASS : ''}`}
           onClick={canClickSeries ? () => onTitleClick(entry.server_id, entry.grandparent_item_id!) : undefined}
         >
           {entry.grandparent_title}
         </div>
         <div
-          className={`text-xs text-muted dark:text-muted-dark truncate ${canClickItem ? 'cursor-pointer hover:text-accent hover:underline dark:hover:text-accent transition-colors' : ''}`}
+          className={`text-xs text-muted dark:text-muted-dark truncate ${canClickItem ? CLICKABLE_TITLE_CLASS : ''}`}
           onClick={canClickItem ? () => onTitleClick(entry.server_id, entry.item_id!) : undefined}
         >
           {subtitle}
@@ -61,7 +61,7 @@ export function EntryTitle({ entry, onTitleClick }: EntryTitleProps) {
   }
   return (
     <div
-      className={`font-medium text-gray-900 dark:text-gray-50 truncate ${canClickItem ? 'cursor-pointer hover:text-accent hover:underline dark:hover:text-accent transition-colors' : ''}`}
+      className={`font-medium text-gray-900 dark:text-gray-50 truncate ${canClickItem ? CLICKABLE_TITLE_CLASS : ''}`}
       onClick={canClickItem ? () => onTitleClick(entry.server_id, entry.item_id!) : undefined}
     >
       {entry.title}
@@ -79,8 +79,6 @@ function UserLink({ name }: { name: string }) {
     </Link>
   )
 }
-
-export type TitleClickHandler = (serverId: number, itemId: string) => void
 
 export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[] {
   return [

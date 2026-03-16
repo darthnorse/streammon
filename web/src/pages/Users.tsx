@@ -1,8 +1,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useFetch } from '../hooks/useFetch'
-import { useItemDetails } from '../hooks/useItemDetails'
-import { MediaDetailModal } from '../components/MediaDetailModal'
+import { useMediaDetailModal } from '../hooks/useMediaDetailModal'
 import type { UserSummary } from '../types'
 import { MS_PER_HOUR, MS_PER_DAY } from '../lib/constants'
 
@@ -71,11 +70,7 @@ function getTrustColor(score: number): string {
 export function Users() {
   const { data: users, loading, error } = useFetch<UserSummary[]>('/api/users/summary')
   const [sort, setSort] = useState<SortState>(loadSortState)
-  const [selectedItem, setSelectedItem] = useState<{ serverId: number; itemId: string } | null>(null)
-  const { data: itemDetails, loading: itemLoading } = useItemDetails(
-    selectedItem?.serverId ?? 0,
-    selectedItem?.itemId ?? null
-  )
+  const { handleTitleClick, modal } = useMediaDetailModal()
 
   useEffect(() => {
     saveSortState(sort)
@@ -218,12 +213,12 @@ export function Users() {
                     {user.last_played_title ? (
                       <div
                         className="cursor-pointer hover:text-accent transition-colors"
-                        onClick={() => setSelectedItem({
-                          serverId: user.last_played_server_id,
-                          itemId: user.last_played_media_type === 'episode' && user.last_played_grandparent_item_id
+                        onClick={() => handleTitleClick(
+                          user.last_played_server_id,
+                          user.last_played_media_type === 'episode' && user.last_played_grandparent_item_id
                             ? user.last_played_grandparent_item_id
                             : user.last_played_item_id
-                        })}
+                        )}
                       >
                         <div className="font-medium truncate">
                           {user.last_played_grandparent_title || user.last_played_title}
@@ -259,13 +254,7 @@ export function Users() {
         </div>
       )}
 
-      {selectedItem && (
-        <MediaDetailModal
-          item={itemDetails}
-          loading={itemLoading}
-          onClose={() => setSelectedItem(null)}
-        />
-      )}
+      {modal}
     </div>
   )
 }

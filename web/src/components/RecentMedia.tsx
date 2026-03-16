@@ -1,8 +1,6 @@
-import { useState } from 'react'
 import { useFetch } from '../hooks/useFetch'
-import { useItemDetails } from '../hooks/useItemDetails'
+import { useMediaDetailModal } from '../hooks/useMediaDetailModal'
 import { thumbUrl } from '../lib/format'
-import { MediaDetailModal } from './MediaDetailModal'
 import type { LibraryItem } from '../types'
 
 const serverColors: Record<string, string> = {
@@ -11,19 +9,9 @@ const serverColors: Record<string, string> = {
   jellyfin: 'bg-purple-500',
 }
 
-interface SelectedItem {
-  serverId: number
-  itemId: string
-}
-
 export function RecentMedia() {
   const { data, loading, error } = useFetch<LibraryItem[]>('/api/dashboard/recent-media')
-  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
-
-  const { data: itemDetails, loading: detailsLoading } = useItemDetails(
-    selectedItem?.serverId ?? 0,
-    selectedItem?.itemId ?? null
-  )
+  const { handleTitleClick, modal } = useMediaDetailModal()
 
   if (loading) {
     return (
@@ -47,7 +35,7 @@ export function RecentMedia() {
 
   const handleItemClick = (item: LibraryItem) => {
     if (item.item_id) {
-      setSelectedItem({ serverId: item.server_id, itemId: item.item_id })
+      handleTitleClick(item.server_id, item.item_id)
     }
   }
 
@@ -93,13 +81,7 @@ export function RecentMedia() {
         ))}
       </div>
 
-      {selectedItem && (
-        <MediaDetailModal
-          item={itemDetails}
-          loading={detailsLoading}
-          onClose={() => setSelectedItem(null)}
-        />
-      )}
+      {modal}
     </div>
   )
 }

@@ -146,3 +146,5 @@ export const formSelectClass = `w-full px-3 py-2.5 rounded-lg text-sm
 
 export const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
 export const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
+
+export const CLICKABLE_TITLE_CLASS = 'cursor-pointer hover:text-accent hover:underline dark:hover:text-accent transition-colors'

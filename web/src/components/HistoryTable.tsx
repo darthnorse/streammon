@@ -1,13 +1,12 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import type { WatchHistoryEntry, WatchSession } from '../types'
+import type { WatchHistoryEntry, WatchSession, TitleClickHandler } from '../types'
 import { formatDuration, formatDate, formatLocation } from '../lib/format'
 import { getMediaLabel } from '../lib/constants'
 import { getHistoryColumns, EntryTitle } from '../lib/historyColumns'
 import { useColumnConfig } from '../hooks/useColumnConfig'
-import { useItemDetails } from '../hooks/useItemDetails'
+import { useMediaDetailModal } from '../hooks/useMediaDetailModal'
 import { ColumnSettings } from './ColumnSettings'
-import { MediaDetailModal } from './MediaDetailModal'
 import { api } from '../lib/api'
 
 type SortDirection = 'asc' | 'desc'
@@ -37,7 +36,7 @@ function SortIcon({ direction, active }: { direction: SortDirection; active: boo
 interface HistoryCardProps {
   entry: WatchHistoryEntry
   hideUser?: boolean
-  onTitleClick?: (serverId: number, itemId: string) => void
+  onTitleClick?: TitleClickHandler
   expanded?: boolean
   sessions?: WatchSession[]
   onToggle?: () => void
@@ -130,16 +129,11 @@ function SessionSubRows({ sessions, colSpan }: { sessions: WatchSession[]; colSp
 const EMPTY_EXCLUDE: string[] = []
 const USER_EXCLUDE = ['user']
 
-interface SelectedItem {
-  serverId: number
-  itemId: string
-}
-
 export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSort, onSort, serverSideSorting }: HistoryTableProps) {
   const entries = rawEntries ?? []
   const excludeColumns = hideUser ? USER_EXCLUDE : EMPTY_EXCLUDE
   const [internalSort, setInternalSort] = useState<SortState | null>(null)
-  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null)
+  const { handleTitleClick, modal } = useMediaDetailModal()
   const [expandedRows, setExpandedRows] = useState<Set<number>>(() => new Set())
   const [sessionCache, setSessionCache] = useState<Record<number, WatchSession[]>>({})
   const sessionCacheRef = useRef(sessionCache)
@@ -155,10 +149,6 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
   // Use controlled state if provided, otherwise use internal state
   const sort = controlledSort !== undefined ? controlledSort : internalSort
   const setSort = onSort || setInternalSort
-
-  const handleTitleClick = useCallback((serverId: number, itemId: string) => {
-    setSelectedItem({ serverId, itemId })
-  }, [])
 
   const toggleExpand = useCallback(async (historyId: number) => {
     setExpandedRows(prev => {
@@ -189,11 +179,6 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
   const { visibleColumns, toggleColumn, moveColumn, resetToDefaults } = useColumnConfig(
     columns,
     excludeColumns
-  )
-
-  const { data: itemDetails, loading: detailsLoading } = useItemDetails(
-    selectedItem?.serverId ?? 0,
-    selectedItem?.itemId ?? null
   )
 
   const orderedColumns = useMemo(() =>
@@ -332,13 +317,7 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
         </div>
       </div>
 
-      {selectedItem && (
-        <MediaDetailModal
-          item={itemDetails}
-          loading={detailsLoading}
-          onClose={() => setSelectedItem(null)}
-        />
-      )}
+      {modal}
     </>
   )
 }

@@ -4,14 +4,13 @@ import { useMultiSelect } from '../hooks/useMultiSelect'
 import { useMountedRef } from '../hooks/useMountedRef'
 import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
-import { useItemDetails } from '../hooks/useItemDetails'
+import { useMediaDetailModal } from '../hooks/useMediaDetailModal'
 import { api, ApiError } from '../lib/api'
 import { PER_PAGE_OPTIONS, SERVER_ACCENT, mediaTypeLabels } from '../lib/constants'
 import { readSSEStream } from '../lib/sse'
 import { formatCount, formatSize, formatShortDate } from '../lib/format'
 import { useUnits } from '../hooks/useUnits'
 import { Pagination } from './Pagination'
-import { MediaDetailModal } from './MediaDetailModal'
 import { MaintenanceRuleForm } from './MaintenanceRuleForm'
 import { CrossServerDeleteDialog } from './CrossServerDeleteDialog'
 import { Dropdown } from './Dropdown'
@@ -35,25 +34,10 @@ import type {
   LibraryItemCache,
   CriterionType,
   SyncProgress,
+  TitleClickHandler,
 } from '../types'
 
-function useMediaDetailModal() {
-  const [selectedItem, setSelectedItem] = useState<{ serverId: number; itemId: string } | null>(null)
-  const { data: itemDetails, loading: detailsLoading } = useItemDetails(
-    selectedItem?.serverId ?? 0,
-    selectedItem?.itemId ?? null
-  )
-  const modal = selectedItem ? (
-    <MediaDetailModal
-      item={itemDetails}
-      loading={detailsLoading}
-      onClose={() => setSelectedItem(null)}
-    />
-  ) : null
-  return { setSelectedItem, modal }
-}
-
-function ItemTitleButton({ item, onSelect }: { item?: LibraryItemCache; onSelect: (serverId: number, itemId: string) => void }) {
+function ItemTitleButton({ item, onSelect }: { item?: LibraryItemCache; onSelect: TitleClickHandler }) {
   if (!item) return <>Unknown</>
   return (
     <button
@@ -291,7 +275,7 @@ function CandidatesView({
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'partial' | 'error'; message: string; errors?: Array<{ title: string; error: string }> } | null>(null)
   const [rowMenuOpen, setRowMenuOpen] = useState<number | null>(null)
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null)
-  const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
+  const { handleTitleClick, modal: detailModal } = useMediaDetailModal()
   const mountedRef = useMountedRef()
   const units = useUnits()
   const deleteAbortRef = useRef<AbortController | null>(null)
@@ -705,7 +689,7 @@ function CandidatesView({
                         />
                       </td>
                       <td className="px-4 py-3 font-medium">
-                        <ItemTitleButton item={candidate.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
+                        <ItemTitleButton item={candidate.item} onSelect={handleTitleClick} />
                       </td>
                       <td className="px-4 py-3 text-sm text-muted dark:text-muted-dark">
                         {candidate.item ? (
@@ -892,7 +876,7 @@ function GlobalExclusionsView({
   const [perPage, setPerPage] = usePersistedPerPage()
   const [operating, setOperating] = useState(false)
   const [operationResult, setOperationResult] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-  const { setSelectedItem, modal: detailModal } = useMediaDetailModal()
+  const { handleTitleClick, modal: detailModal } = useMediaDetailModal()
   const mountedRef = useMountedRef()
 
   const { sortField, sortDir, handleSort, sortParam } = useSortState(() => setPage(1))
@@ -1036,7 +1020,7 @@ function GlobalExclusionsView({
                         />
                       </td>
                       <td className="px-4 py-3 font-medium">
-                        <ItemTitleButton item={exclusion.item} onSelect={(s, i) => setSelectedItem({ serverId: s, itemId: i })} />
+                        <ItemTitleButton item={exclusion.item} onSelect={handleTitleClick} />
                       </td>
                       <td className="px-4 py-3 text-muted dark:text-muted-dark">
                         {exclusion.item?.media_type ? mediaTypeLabels[exclusion.item.media_type] : '-'}
