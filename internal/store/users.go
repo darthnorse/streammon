@@ -34,7 +34,7 @@ func scanAdminUser(scanner interface{ Scan(...any) error }) (AdminUser, error) {
 
 func (s *Store) GetOrCreateUser(name string) (*models.User, error) {
 	_, err := s.db.Exec(
-		`INSERT INTO users (name) VALUES (?) ON CONFLICT(name) DO NOTHING`, name,
+		`INSERT INTO users (name, provider) VALUES (?, '') ON CONFLICT(name) DO NOTHING`, name,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("upserting user: %w", err)
@@ -186,7 +186,7 @@ func (s *Store) ListUserSummaries() ([]UserSummary, error) {
 
 func (s *Store) GetOrCreateUserByEmail(email, name string) (*models.User, error) {
 	_, err := s.db.Exec(
-		`INSERT INTO users (name, email) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET email = excluded.email`,
+		`INSERT INTO users (name, email, provider) VALUES (?, ?, '') ON CONFLICT(name) DO UPDATE SET email = excluded.email`,
 		name, email,
 	)
 	if err != nil {
@@ -204,7 +204,7 @@ func (s *Store) GetOrCreateUserByEmail(email, name string) (*models.User, error)
 
 func (s *Store) UpdateUserAvatar(name, thumbURL string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO users (name, thumb_url) VALUES (?, ?)
+		`INSERT INTO users (name, thumb_url, provider) VALUES (?, ?, '')
 		 ON CONFLICT(name) DO UPDATE SET thumb_url = excluded.thumb_url, updated_at = CURRENT_TIMESTAMP`,
 		name, thumbURL,
 	)
