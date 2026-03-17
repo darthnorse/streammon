@@ -3,6 +3,7 @@ import type { Server, OIDCSettings, IntegrationSettings, OverseerrSettings, Sona
 import { api } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
+import { getDiscoverRegion, setDiscoverRegion } from '../lib/units'
 import { ServerForm } from '../components/ServerForm'
 import { OIDCForm } from '../components/OIDCForm'
 import { MaxMindForm, type MaxMindSettings } from '../components/MaxMindForm'
@@ -935,34 +936,76 @@ function TautulliEnrichment() {
 
 function DisplaySettings() {
   const { system, setSystem } = useUnits()
+  const [region, setRegionState] = useState(getDiscoverRegion)
+  const { data: regions, error: regionsError } = useFetch<{ iso_3166_1: string; english_name: string }[]>('/api/tmdb/regions')
+
+  useEffect(() => {
+    const handle = (e: Event) => setRegionState((e as CustomEvent<string>).detail)
+    window.addEventListener('discover-region-changed', handle)
+    return () => window.removeEventListener('discover-region-changed', handle)
+  }, [])
+
+  const handleRegionChange = (newRegion: string) => {
+    setRegionState(newRegion)
+    setDiscoverRegion(newRegion)
+  }
+
+  const sortedRegions = useMemo(() =>
+    (regions ?? []).slice().sort((a, b) => a.english_name.localeCompare(b.english_name)),
+    [regions]
+  )
 
   return (
-    <div className="card p-5">
-      <h3 className="font-semibold text-base mb-4">Units</h3>
-      <p className="text-sm text-muted dark:text-muted-dark mb-4">
-        Choose how distances and speeds are displayed throughout the app.
-      </p>
-      <div className="flex gap-2">
-        <button
-          onClick={() => setSystem('metric')}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-            system === 'metric'
-              ? 'bg-accent text-gray-900'
-              : 'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/20'
-          }`}
+    <div className="space-y-6">
+      <div className="card p-5">
+        <h3 className="font-semibold text-base mb-4">Units</h3>
+        <p className="text-sm text-muted dark:text-muted-dark mb-4">
+          Choose how distances and speeds are displayed throughout the app.
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setSystem('metric')}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              system === 'metric'
+                ? 'bg-accent text-gray-900'
+                : 'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/20'
+            }`}
+          >
+            Metric (km, km/h)
+          </button>
+          <button
+            onClick={() => setSystem('imperial')}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+              system === 'imperial'
+                ? 'bg-accent text-gray-900'
+                : 'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/20'
+            }`}
+          >
+            Imperial (mi, mph)
+          </button>
+        </div>
+      </div>
+
+      <div className="card p-5">
+        <h3 className="font-semibold text-base mb-4">Discover Region</h3>
+        <p className="text-sm text-muted dark:text-muted-dark mb-4">
+          Filter discover results to show movies and TV releasing in a specific region.
+        </p>
+        <select
+          value={region}
+          onChange={e => handleRegionChange(e.target.value)}
+          className={formSelectClass}
         >
-          Metric (km, km/h)
-        </button>
-        <button
-          onClick={() => setSystem('imperial')}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-            system === 'imperial'
-              ? 'bg-accent text-gray-900'
-              : 'bg-gray-100 dark:bg-white/10 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/20'
-          }`}
-        >
-          Imperial (mi, mph)
-        </button>
+          <option value="">All Regions</option>
+          {sortedRegions.map(r => (
+            <option key={r.iso_3166_1} value={r.iso_3166_1}>
+              {r.english_name}
+            </option>
+          ))}
+        </select>
+        {regionsError && (
+          <p className="text-xs text-muted dark:text-muted-dark mt-2">Could not load regions list</p>
+        )}
       </div>
     </div>
   )

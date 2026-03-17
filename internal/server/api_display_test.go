@@ -119,4 +119,151 @@ func TestDisplaySettings(t *testing.T) {
 			t.Fatalf("expected imperial, got %q", resp.UnitSystem)
 		}
 	})
+
+	t.Run("get default returns empty discover region", func(t *testing.T) {
+		srv, _ := newTestServerWrapped(t)
+
+		req := httptest.NewRequest(http.MethodGet, "/api/settings/display", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp displaySettingsResponse
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.DiscoverRegion != "" {
+			t.Fatalf("expected empty discover region (default), got %q", resp.DiscoverRegion)
+		}
+	})
+
+	t.Run("update discover region", func(t *testing.T) {
+		srv, st := newTestServerWrapped(t)
+
+		body := `{"discover_region":"US"}`
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/display", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		val, err := st.GetDiscoverRegion()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if val != "US" {
+			t.Fatalf("expected US, got %q", val)
+		}
+
+		var resp displaySettingsResponse
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.DiscoverRegion != "US" {
+			t.Fatalf("expected US in response, got %q", resp.DiscoverRegion)
+		}
+	})
+
+	t.Run("update discover region to empty clears it", func(t *testing.T) {
+		srv, st := newTestServerWrapped(t)
+
+		if err := st.SetDiscoverRegion("GB"); err != nil {
+			t.Fatal(err)
+		}
+
+		body := `{"discover_region":""}`
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/display", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		val, err := st.GetDiscoverRegion()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if val != "" {
+			t.Fatalf("expected empty, got %q", val)
+		}
+	})
+
+	t.Run("update only discover region does not affect unit system", func(t *testing.T) {
+		srv, st := newTestServerWrapped(t)
+
+		if err := st.SetUnitSystem("imperial"); err != nil {
+			t.Fatal(err)
+		}
+
+		body := `{"discover_region":"FR"}`
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/display", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		val, err := st.GetUnitSystem()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if val != "imperial" {
+			t.Fatalf("expected imperial unchanged, got %q", val)
+		}
+
+		var resp displaySettingsResponse
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.DiscoverRegion != "FR" {
+			t.Fatalf("expected FR, got %q", resp.DiscoverRegion)
+		}
+		if resp.UnitSystem != "imperial" {
+			t.Fatalf("expected imperial, got %q", resp.UnitSystem)
+		}
+	})
+
+	t.Run("update with invalid region returns 400", func(t *testing.T) {
+		srv, _ := newTestServerWrapped(t)
+
+		body := `{"discover_region":"invalid"}`
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/display", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("get after setting region returns it", func(t *testing.T) {
+		srv, st := newTestServerWrapped(t)
+
+		if err := st.SetDiscoverRegion("DE"); err != nil {
+			t.Fatal(err)
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/api/settings/display", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp displaySettingsResponse
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.DiscoverRegion != "DE" {
+			t.Fatalf("expected DE, got %q", resp.DiscoverRegion)
+		}
+	})
 }

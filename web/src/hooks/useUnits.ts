@@ -3,7 +3,7 @@ import {
   type UnitSystem,
   getUnitSystem,
   setUnitSystem as setUnitSystemAsync,
-  initUnitSystem,
+  initDisplaySettings,
   formatDistance,
   formatSpeed,
   getDistanceUnit,
@@ -18,7 +18,7 @@ export function useUnits() {
   const [system, setSystem] = useState<UnitSystem>(getUnitSystem)
 
   useEffect(() => {
-    initUnitSystem()
+    initDisplaySettings()
 
     const handleChange = (e: Event) => {
       const customEvent = e as CustomEvent<UnitSystem>

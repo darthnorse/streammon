@@ -103,12 +103,15 @@ func (c *Client) cached(ctx context.Context, cacheKey, path string, query url.Va
 	return data, nil
 }
 
-func (c *Client) pagedList(ctx context.Context, cachePrefix, path string, page int) (json.RawMessage, error) {
+func (c *Client) pagedList(ctx context.Context, cachePrefix, path string, page int, region string) (json.RawMessage, error) {
 	params := url.Values{}
 	if page > 0 {
 		params.Set("page", strconv.Itoa(page))
 	}
-	return c.cached(ctx, fmt.Sprintf("%s:%d", cachePrefix, page), path, params)
+	if region != "" {
+		params.Set("region", region)
+	}
+	return c.cached(ctx, fmt.Sprintf("%s:%s:%d", cachePrefix, region, page), path, params)
 }
 
 func (c *Client) Search(ctx context.Context, query string, page int) (json.RawMessage, error) {
@@ -121,24 +124,28 @@ func (c *Client) Search(ctx context.Context, query string, page int) (json.RawMe
 	return c.cached(ctx, cacheKey, "/search/multi", params)
 }
 
-func (c *Client) Trending(ctx context.Context, page int) (json.RawMessage, error) {
-	return c.pagedList(ctx, "trending", "/trending/all/week", page)
+func (c *Client) Trending(ctx context.Context, page int, _ string) (json.RawMessage, error) {
+	return c.pagedList(ctx, "trending", "/trending/all/week", page, "")
 }
 
-func (c *Client) PopularMovies(ctx context.Context, page int) (json.RawMessage, error) {
-	return c.pagedList(ctx, "movies/popular", "/movie/popular", page)
+func (c *Client) PopularMovies(ctx context.Context, page int, region string) (json.RawMessage, error) {
+	return c.pagedList(ctx, "movies/popular", "/movie/popular", page, region)
 }
 
-func (c *Client) UpcomingMovies(ctx context.Context, page int) (json.RawMessage, error) {
-	return c.pagedList(ctx, "movies/upcoming", "/movie/upcoming", page)
+func (c *Client) UpcomingMovies(ctx context.Context, page int, region string) (json.RawMessage, error) {
+	return c.pagedList(ctx, "movies/upcoming", "/movie/upcoming", page, region)
 }
 
-func (c *Client) PopularTV(ctx context.Context, page int) (json.RawMessage, error) {
-	return c.pagedList(ctx, "tv/popular", "/tv/popular", page)
+func (c *Client) PopularTV(ctx context.Context, page int, region string) (json.RawMessage, error) {
+	return c.pagedList(ctx, "tv/popular", "/tv/popular", page, region)
 }
 
-func (c *Client) UpcomingTV(ctx context.Context, page int) (json.RawMessage, error) {
-	return c.pagedList(ctx, "tv/upcoming", "/tv/on_the_air", page)
+func (c *Client) UpcomingTV(ctx context.Context, page int, region string) (json.RawMessage, error) {
+	return c.pagedList(ctx, "tv/upcoming", "/tv/on_the_air", page, region)
+}
+
+func (c *Client) Regions(ctx context.Context) (json.RawMessage, error) {
+	return c.cached(ctx, "config:countries", "/configuration/countries", nil)
 }
 
 func (c *Client) GetMovie(ctx context.Context, id int) (json.RawMessage, error) {

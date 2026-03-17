@@ -160,6 +160,7 @@ func (s *Server) routes() {
 			sr.Use(s.requireDiscover)
 			sr.Use(s.tmdbRequired)
 			sr.Get("/search", s.handleTMDBSearch)
+			sr.Get("/regions", s.handleTMDBRegions)
 			sr.Get("/discover/*", s.handleTMDBDiscover)
 			sr.Get("/movie/{id}", s.handleTMDBMovie)
 			sr.Get("/tv/{id}", s.handleTMDBTV)

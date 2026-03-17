@@ -2,21 +2,27 @@ import { api } from './api'
 
 export type UnitSystem = 'metric' | 'imperial'
 
-const STORAGE_KEY = 'streammon:units'
+const UNITS_KEY = 'streammon:units'
+const REGION_KEY = 'streammon:discover-region'
 
 interface DisplaySettings {
   unit_system: UnitSystem
+  discover_region: string
 }
 
 let initialized = false
 let initPromise: Promise<void> | null = null
 
 export function getUnitSystem(): UnitSystem {
-  const stored = localStorage.getItem(STORAGE_KEY)
+  const stored = localStorage.getItem(UNITS_KEY)
   return stored === 'imperial' ? 'imperial' : 'metric'
 }
 
-export async function initUnitSystem(): Promise<void> {
+export function getDiscoverRegion(): string {
+  return localStorage.getItem(REGION_KEY) ?? ''
+}
+
+export async function initDisplaySettings(): Promise<void> {
   if (initialized) return
   if (initPromise) return initPromise
 
@@ -24,11 +30,13 @@ export async function initUnitSystem(): Promise<void> {
     try {
       const settings = await api.get<DisplaySettings>('/api/settings/display')
       if (settings.unit_system) {
-        localStorage.setItem(STORAGE_KEY, settings.unit_system)
+        localStorage.setItem(UNITS_KEY, settings.unit_system)
         window.dispatchEvent(new CustomEvent('units-changed', { detail: settings.unit_system }))
       }
+      localStorage.setItem(REGION_KEY, settings.discover_region ?? '')
+      window.dispatchEvent(new CustomEvent('discover-region-changed', { detail: settings.discover_region ?? '' }))
     } catch (err) {
-      console.warn('Failed to fetch unit preference from server, using localStorage:', err)
+      console.warn('Failed to fetch display settings from server, using localStorage:', err)
     } finally {
       initialized = true
       initPromise = null
@@ -38,8 +46,19 @@ export async function initUnitSystem(): Promise<void> {
   return initPromise
 }
 
+export async function setDiscoverRegion(region: string): Promise<void> {
+  localStorage.setItem(REGION_KEY, region)
+  window.dispatchEvent(new CustomEvent('discover-region-changed', { detail: region }))
+
+  try {
+    await api.put('/api/settings/display', { discover_region: region })
+  } catch (err) {
+    console.warn('Failed to save discover region to server:', err)
+  }
+}
+
 export async function setUnitSystem(system: UnitSystem): Promise<void> {
-  localStorage.setItem(STORAGE_KEY, system)
+  localStorage.setItem(UNITS_KEY, system)
   window.dispatchEvent(new CustomEvent('units-changed', { detail: system }))
 
   try {

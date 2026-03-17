@@ -83,7 +83,12 @@ func (s *Server) handleTMDBSearch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleTMDBDiscover(w http.ResponseWriter, r *http.Request) {
 	category := chi.URLParam(r, "*")
 
-	dispatchers := map[string]func(context.Context, int) (json.RawMessage, error){
+	region, err := s.store.GetDiscoverRegion()
+	if err != nil {
+		log.Printf("failed to read discover region setting: %v", err)
+	}
+
+	dispatchers := map[string]func(context.Context, int, string) (json.RawMessage, error){
 		"trending":        s.tmdbClient.Trending,
 		"movies":          s.tmdbClient.PopularMovies,
 		"movies/upcoming": s.tmdbClient.UpcomingMovies,
@@ -100,7 +105,7 @@ func (s *Server) handleTMDBDiscover(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), tmdbTimeout)
 	defer cancel()
 
-	data, err := fn(ctx, parsePage(r))
+	data, err := fn(ctx, parsePage(r), region)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
@@ -112,6 +117,19 @@ func (s *Server) handleTMDBDiscover(w http.ResponseWriter, r *http.Request) {
 			mediaType = "tv"
 		}
 		data = injectMediaType(data, mediaType)
+	}
+
+	writeRawJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleTMDBRegions(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), tmdbTimeout)
+	defer cancel()
+
+	data, err := s.tmdbClient.Regions(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "upstream service error")
+		return
 	}
 
 	writeRawJSON(w, http.StatusOK, data)

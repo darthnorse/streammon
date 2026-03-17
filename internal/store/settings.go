@@ -368,6 +368,26 @@ func (s *Store) SetUnitSystem(system string) error {
 	return s.SetSetting(unitSystemKey, system)
 }
 
+const discoverRegionKey = "discover.region"
+
+func (s *Store) GetDiscoverRegion() (string, error) {
+	return s.GetSetting(discoverRegionKey)
+}
+
+func (s *Store) SetDiscoverRegion(region string) error {
+	if region != "" && !isValidRegionCode(region) {
+		return fmt.Errorf("invalid region code: %s", region)
+	}
+	return s.SetSetting(discoverRegionKey, region)
+}
+
+func isValidRegionCode(code string) bool {
+	if len(code) != 2 {
+		return false
+	}
+	return code[0] >= 'A' && code[0] <= 'Z' && code[1] >= 'A' && code[1] <= 'Z'
+}
+
 const watchedThresholdKey = "session.watched_threshold"
 const defaultWatchedThreshold = 85
 

@@ -199,7 +199,46 @@ func TestTrending(t *testing.T) {
 		w.Write(expected)
 	}), newTestStore(t))
 
-	data, err := c.Trending(context.Background(), 1)
+	data, err := c.Trending(context.Background(), 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(expected) {
+		t.Fatalf("got %s, want %s", data, expected)
+	}
+}
+
+func TestTrendingIgnoresRegion(t *testing.T) {
+	expected := json.RawMessage(`{"page":1,"results":[]}`)
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/trending/all/week" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("region"); got != "" {
+			t.Errorf("expected no region param, got %q", got)
+		}
+		w.Write(expected)
+	}), newTestStore(t))
+
+	data, err := c.Trending(context.Background(), 1, "US")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(expected) {
+		t.Fatalf("got %s, want %s", data, expected)
+	}
+}
+
+func TestRegions(t *testing.T) {
+	expected := json.RawMessage(`[{"iso_3166_1":"US","english_name":"United States"}]`)
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/configuration/countries" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Write(expected)
+	}), newTestStore(t))
+
+	data, err := c.Regions(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
