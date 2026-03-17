@@ -1,6 +1,7 @@
--- Fix users incorrectly marked as 'oidc' who actually use plex/emby/jellyfin.
+-- Fix users with missing or incorrect provider values.
 -- Migration 021 set DEFAULT 'oidc' for the provider column, so pre-existing users
 -- and users created via avatar sync/imports got the wrong provider value.
+-- Also handles users with empty provider from the code fix that set provider=''.
 
 -- Step 1: Fix users who have a provider token (strongest signal).
 -- Keep provider_id intact since it was set correctly during the original login.
@@ -9,10 +10,10 @@ SET provider = pt.provider,
     updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
 FROM provider_tokens pt
 WHERE users.id = pt.user_id
-  AND users.provider = 'oidc'
+  AND users.provider IN ('oidc', '')
   AND pt.provider IN ('plex', 'emby', 'jellyfin');
 
--- Step 2: Fix remaining 'oidc' users based on which server type they stream from.
+-- Step 2: Fix remaining unlinked users based on which server type they stream from.
 -- Uses the most recent watch history entry to determine the server type.
 UPDATE users
 SET provider = (
@@ -23,7 +24,7 @@ SET provider = (
 ),
     provider_id = '',
     updated_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
-WHERE provider = 'oidc'
+WHERE provider IN ('oidc', '')
   AND (password_hash = '' OR password_hash IS NULL)
   AND EXISTS (
     SELECT 1 FROM watch_history wh WHERE wh.user_name = users.name
