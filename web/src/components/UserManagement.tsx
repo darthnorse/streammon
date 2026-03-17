@@ -8,6 +8,18 @@ import { EmptyState } from './EmptyState'
 import type { AdminUser } from '../types'
 
 const btnOutline = 'px-3 py-1.5 text-xs font-medium rounded-md border border-border dark:border-border-dark hover:border-accent/30 transition-colors'
+
+const providerColors: Record<string, string> = {
+  plex: 'bg-warn/10 text-warn',
+  emby: 'bg-emby/10 text-emby',
+  jellyfin: 'bg-jellyfin/10 text-jellyfin',
+  oidc: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
+  local: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
+}
+
+function providerBadgeClass(provider: string): string {
+  return providerColors[provider] ?? providerColors.local
+}
 const btnDanger = 'px-3 py-1.5 text-xs font-medium rounded-md border border-red-300 dark:border-red-500/30 text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors'
 const disabledStyle = ' opacity-50 cursor-not-allowed'
 
@@ -180,7 +192,7 @@ export function UserManagement() {
                       <span className="text-xs text-muted dark:text-muted-dark">(you)</span>
                     )}
                     {user.provider && (
-                      <span className="text-xs px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${providerBadgeClass(user.provider)}`}>
                         {user.provider}
                       </span>
                     )}
