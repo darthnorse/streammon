@@ -184,7 +184,7 @@ func (s *Store) GetUnlinkedUserByName(name string) (*models.User, error) {
 
 func (s *Store) maybeUpdateAvatar(user *models.User, thumbURL string) {
 	if thumbURL != "" && thumbURL != user.ThumbURL {
-		if err := s.UpdateUserAvatar(user.Name, thumbURL); err != nil {
+		if err := s.UpdateUserAvatar(user.Name, thumbURL, ""); err != nil {
 			log.Printf("warning: failed to update avatar for %s: %v", user.Name, err)
 			return
 		}

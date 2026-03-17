@@ -202,11 +202,11 @@ func (s *Store) GetOrCreateUserByEmail(email, name string) (*models.User, error)
 	return &u, nil
 }
 
-func (s *Store) UpdateUserAvatar(name, thumbURL string) error {
+func (s *Store) UpdateUserAvatar(name, thumbURL, serverType string) error {
 	_, err := s.db.Exec(
-		`INSERT INTO users (name, thumb_url, provider) VALUES (?, ?, '')
+		`INSERT INTO users (name, thumb_url, provider) VALUES (?, ?, ?)
 		 ON CONFLICT(name) DO UPDATE SET thumb_url = excluded.thumb_url, updated_at = CURRENT_TIMESTAMP`,
-		name, thumbURL,
+		name, thumbURL, serverType,
 	)
 	if err != nil {
 		return fmt.Errorf("upserting user avatar: %w", err)
@@ -219,7 +219,7 @@ type SyncUserAvatarsResult struct {
 	Updated int `json:"updated"`
 }
 
-func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*SyncUserAvatarsResult, error) {
+func (s *Store) SyncUsersFromServer(serverID int64, serverType string, users []models.MediaUser) (*SyncUserAvatarsResult, error) {
 	result := &SyncUserAvatarsResult{}
 
 	existingUsers, err := s.ListUsers()
@@ -250,7 +250,7 @@ func (s *Store) SyncUsersFromServer(serverID int64, users []models.MediaUser) (*
 		}
 
 		if avatarChanged {
-			if err := s.UpdateUserAvatar(u.Name, thumbURL); err != nil {
+			if err := s.UpdateUserAvatar(u.Name, thumbURL, serverType); err != nil {
 				return nil, fmt.Errorf("updating avatar for %q: %w", u.Name, err)
 			}
 		}

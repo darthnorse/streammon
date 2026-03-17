@@ -7,6 +7,15 @@ import (
 	"streammon/internal/models"
 )
 
+func getUserProvider(t *testing.T, s *Store, name string) string {
+	t.Helper()
+	var provider string
+	if err := s.db.QueryRow(`SELECT provider FROM users WHERE name = ?`, name).Scan(&provider); err != nil {
+		t.Fatalf("getUserProvider(%q): %v", name, err)
+	}
+	return provider
+}
+
 func TestGetOrCreateUser_New(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
@@ -117,7 +126,7 @@ func TestUpdateUserAvatar_ExistingUser(t *testing.T) {
 
 	s.GetOrCreateUser("alice")
 
-	err := s.UpdateUserAvatar("alice", "https://plex.tv/users/abc/avatar")
+	err := s.UpdateUserAvatar("alice", "https://plex.tv/users/abc/avatar", "plex")
 	if err != nil {
 		t.Fatalf("UpdateUserAvatar: %v", err)
 	}
@@ -131,7 +140,7 @@ func TestUpdateUserAvatar_ExistingUser(t *testing.T) {
 func TestUpdateUserAvatar_NewUser(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	err := s.UpdateUserAvatar("newuser", "https://plex.tv/users/new/avatar")
+	err := s.UpdateUserAvatar("newuser", "https://plex.tv/users/new/avatar", "plex")
 	if err != nil {
 		t.Fatalf("UpdateUserAvatar: %v", err)
 	}
@@ -143,17 +152,27 @@ func TestUpdateUserAvatar_NewUser(t *testing.T) {
 	if user.ThumbURL != "https://plex.tv/users/new/avatar" {
 		t.Errorf("got thumb %q, want https://plex.tv/users/new/avatar", user.ThumbURL)
 	}
+
+	provider := getUserProvider(t, s, "newuser")
+	if provider != "plex" {
+		t.Errorf("got provider %q, want plex", provider)
+	}
 }
 
-func TestUpdateUserAvatar_Overwrite(t *testing.T) {
+func TestUpdateUserAvatar_DoesNotOverwriteProvider(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	s.UpdateUserAvatar("alice", "https://old-url")
-	s.UpdateUserAvatar("alice", "https://new-url")
+	s.UpdateUserAvatar("alice", "https://old-url", "plex")
+	s.UpdateUserAvatar("alice", "https://new-url", "emby")
 
 	user, _ := s.GetUser("alice")
 	if user.ThumbURL != "https://new-url" {
 		t.Errorf("got thumb %q, want https://new-url", user.ThumbURL)
+	}
+
+	provider := getUserProvider(t, s, "alice")
+	if provider != "plex" {
+		t.Errorf("got provider %q, want plex (should not be overwritten)", provider)
 	}
 }
 
@@ -165,7 +184,7 @@ func TestSyncUsersFromServer_PlexFullURLs(t *testing.T) {
 		{Name: "bob", ThumbURL: "https://plex.tv/users/def/avatar"},
 	}
 
-	result, err := s.SyncUsersFromServer(1, users)
+	result, err := s.SyncUsersFromServer(1, "plex", users)
 	if err != nil {
 		t.Fatalf("SyncUsersFromServer: %v", err)
 	}
@@ -186,7 +205,7 @@ func TestSyncUsersFromServer_EmbyProxyURLs(t *testing.T) {
 		{Name: "alice", ThumbURL: "user/abc123def456"},
 	}
 
-	result, err := s.SyncUsersFromServer(42, users)
+	result, err := s.SyncUsersFromServer(42, "emby", users)
 	if err != nil {
 		t.Fatalf("SyncUsersFromServer: %v", err)
 	}
@@ -209,7 +228,7 @@ func TestSyncUsersFromServer_SkipsEmptyThumb(t *testing.T) {
 		{Name: "bob", ThumbURL: "https://plex.tv/avatar"},
 	}
 
-	result, err := s.SyncUsersFromServer(1, users)
+	result, err := s.SyncUsersFromServer(1, "plex", users)
 	if err != nil {
 		t.Fatalf("SyncUsersFromServer: %v", err)
 	}
@@ -226,13 +245,13 @@ func TestSyncUsersFromServer_SkipsEmptyThumb(t *testing.T) {
 func TestSyncUsersFromServer_SkipsUnchanged(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	s.UpdateUserAvatar("alice", "https://plex.tv/avatar")
+	s.UpdateUserAvatar("alice", "https://plex.tv/avatar", "plex")
 
 	users := []models.MediaUser{
 		{Name: "alice", ThumbURL: "https://plex.tv/avatar"},
 	}
 
-	result, err := s.SyncUsersFromServer(1, users)
+	result, err := s.SyncUsersFromServer(1, "plex", users)
 	if err != nil {
 		t.Fatalf("SyncUsersFromServer: %v", err)
 	}
@@ -244,13 +263,13 @@ func TestSyncUsersFromServer_SkipsUnchanged(t *testing.T) {
 func TestSyncUsersFromServer_UpdatesExisting(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	s.UpdateUserAvatar("alice", "https://old-avatar")
+	s.UpdateUserAvatar("alice", "https://old-avatar", "plex")
 
 	users := []models.MediaUser{
 		{Name: "alice", ThumbURL: "https://new-avatar"},
 	}
 
-	result, err := s.SyncUsersFromServer(1, users)
+	result, err := s.SyncUsersFromServer(1, "plex", users)
 	if err != nil {
 		t.Fatalf("SyncUsersFromServer: %v", err)
 	}

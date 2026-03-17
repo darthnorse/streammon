@@ -117,7 +117,7 @@ func (p *PlexProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if existingUser != nil {
 		user = existingUser
 		if plexUser.Thumb != "" && plexUser.Thumb != user.ThumbURL {
-			_ = p.store.UpdateUserAvatar(user.Name, plexUser.Thumb)
+			_ = p.store.UpdateUserAvatar(user.Name, plexUser.Thumb, "plex")
 			user.ThumbURL = plexUser.Thumb
 		}
 	} else {

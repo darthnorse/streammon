@@ -251,7 +251,7 @@ func (s *Server) handleSyncUserAvatars(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		result, err := s.store.SyncUsersFromServer(srv.ID, users)
+		result, err := s.store.SyncUsersFromServer(srv.ID, string(srv.Type), users)
 		if err != nil {
 			log.Printf("SyncUsersFromServer %s: %v", srv.Name, err)
 			response.Errors = append(response.Errors, srv.Name+": "+err.Error())
