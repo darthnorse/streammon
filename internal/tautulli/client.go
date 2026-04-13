@@ -179,7 +179,7 @@ func (c *Client) doRequest(ctx context.Context, params url.Values, maxBodySize i
 	defer httputil.DrainBody(resp)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Tautulli returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("tautulli returned status %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
@@ -205,7 +205,7 @@ func (c *Client) TestConnection(ctx context.Context) error {
 	}
 
 	if r.Response.Result != "success" {
-		return fmt.Errorf("Tautulli error: %s", r.Response.Message)
+		return fmt.Errorf("tautulli error: %s", r.Response.Message)
 	}
 
 	return nil
@@ -230,7 +230,7 @@ func (c *Client) GetHistory(ctx context.Context, start, length int) ([]HistoryRe
 	}
 
 	if r.Response.Result != "success" {
-		return nil, 0, fmt.Errorf("Tautulli error: %s", r.Response.Message)
+		return nil, 0, fmt.Errorf("tautulli error: %s", r.Response.Message)
 	}
 
 	return r.Response.Data.Data, r.Response.Data.RecordsTotal, nil
@@ -252,7 +252,7 @@ func (c *Client) GetStreamData(ctx context.Context, rowID int) (*StreamData, err
 	}
 
 	if r.Response.Result != "success" {
-		return nil, fmt.Errorf("Tautulli error: %s", r.Response.Message)
+		return nil, fmt.Errorf("tautulli error: %s", r.Response.Message)
 	}
 
 	if len(r.Response.Data) == 0 || string(r.Response.Data) == "null" || string(r.Response.Data) == "{}" {

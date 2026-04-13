@@ -8,7 +8,7 @@ import (
 var (
 	ErrNotFound         = errors.New("not found")
 	ErrNotImplemented   = errors.New("not implemented")
-	ErrPlexPassRequired = errors.New("Plex Pass may be required")
+	ErrPlexPassRequired = errors.New("plex pass may be required")
 )
 
 type MediaType string

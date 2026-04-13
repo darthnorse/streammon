@@ -117,11 +117,7 @@ func (s *Server) getLibraryStorageMap(ctx context.Context) map[string]int64 {
 		for _, feature := range provider.Features {
 			if feature.Type == "content" {
 				for _, dir := range feature.Directories {
-					// Extract section ID from key like "/library/sections/15"
-					key := dir.Key
-					if strings.HasPrefix(key, "/library/sections/") {
-						key = strings.TrimPrefix(key, "/library/sections/")
-					}
+					key := strings.TrimPrefix(dir.Key, "/library/sections/")
 					if key != "" && dir.StorageTotal > 0 {
 						result[key] = dir.StorageTotal
 					}

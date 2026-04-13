@@ -77,7 +77,7 @@ func readResponse(resp *http.Response) (json.RawMessage, error) {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("Overseerr returned status %d: %s", resp.StatusCode, httputil.Truncate(body, 200))
+		return nil, fmt.Errorf("overseerr returned status %d: %s", resp.StatusCode, httputil.Truncate(body, 200))
 	}
 
 	return json.RawMessage(body), nil

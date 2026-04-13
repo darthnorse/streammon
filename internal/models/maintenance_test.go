@@ -117,7 +117,7 @@ func TestMaintenanceRuleInputValidate(t *testing.T) {
 					t.Errorf("Validate() error = %v, wantErr nil", err)
 				}
 				// Check that empty parameters get default
-				if tt.input.Parameters == nil || len(tt.input.Parameters) == 0 {
+				if len(tt.input.Parameters) == 0 {
 					t.Error("Parameters should be set to {} after validation")
 				}
 			} else {

@@ -2,7 +2,7 @@ module streammon
 
 go 1.26.0
 
-toolchain go1.26.1
+toolchain go1.26.2
 
 require (
 	github.com/coreos/go-oidc/v3 v3.17.0

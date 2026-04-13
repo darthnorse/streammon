@@ -98,7 +98,7 @@ func (c *Client) doRequest(ctx context.Context, path string, maxBodySize int64) 
 		return nil, fmt.Errorf("authentication failed (HTTP %d)", resp.StatusCode)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Jellystat returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("jellystat returned status %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBodySize))
@@ -123,7 +123,7 @@ func (c *Client) TestConnection(ctx context.Context) error {
 	}
 
 	if result.Error != "" {
-		return fmt.Errorf("Jellystat error: %s", result.Error)
+		return fmt.Errorf("jellystat error: %s", result.Error)
 	}
 
 	return nil
