@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -394,8 +395,53 @@ type libraryItemJSON struct {
 }
 
 func (c *Client) GetRecentlyAdded(ctx context.Context, limit int) ([]models.LibraryItem, error) {
-	reqURL := fmt.Sprintf("%s/Items?Recursive=true&SortBy=DateCreated&SortOrder=Descending&Limit=%d&IncludeItemTypes=Movie,Episode&Fields=DateCreated,ProviderIds,ProductionYear",
-		c.url, limit)
+	folders, err := c.getVirtualFolders(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var mediaFolderIDs []string
+	for _, f := range folders {
+		switch f.CollectionType {
+		case "movies", "tvshows":
+			mediaFolderIDs = append(mediaFolderIDs, f.ItemID)
+		}
+	}
+
+	if len(mediaFolderIDs) == 0 {
+		return []models.LibraryItem{}, nil
+	}
+
+	var allItems []models.LibraryItem
+	for _, parentID := range mediaFolderIDs {
+		items, err := c.getRecentlyAddedFromLibrary(ctx, parentID, limit)
+		if err != nil {
+			return nil, err
+		}
+		allItems = append(allItems, items...)
+	}
+
+	sort.Slice(allItems, func(i, j int) bool {
+		return allItems[i].AddedAt.After(allItems[j].AddedAt)
+	})
+	if len(allItems) > limit {
+		allItems = allItems[:limit]
+	}
+
+	return allItems, nil
+}
+
+func (c *Client) getRecentlyAddedFromLibrary(ctx context.Context, parentID string, limit int) ([]models.LibraryItem, error) {
+	params := url.Values{
+		"ParentId":         {parentID},
+		"Recursive":        {"true"},
+		"SortBy":           {"DateCreated"},
+		"SortOrder":        {"Descending"},
+		"Limit":            {fmt.Sprintf("%d", limit)},
+		"IncludeItemTypes": {"Movie,Episode"},
+		"Fields":           {"DateCreated,ProviderIds,ProductionYear"},
+	}
+	reqURL := c.url + "/Items?" + params.Encode()
 	body, err := c.doGet(ctx, reqURL, 10<<20)
 	if err != nil {
 		return nil, err

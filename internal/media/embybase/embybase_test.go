@@ -348,17 +348,29 @@ func TestGetRecentlyAdded(t *testing.T) {
 	}
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Emby-Token") != "test-key" {
-			t.Error("missing X-Emby-Token header")
-		}
-		if r.URL.Path != "/Items" {
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[{"Name":"Movies","CollectionType":"movies","ItemId":"lib1"},{"Name":"TV Shows","CollectionType":"tvshows","ItemId":"lib2"}]`))
+		case "/Items":
+			if r.Header.Get("X-Emby-Token") != "test-key" {
+				t.Error("missing X-Emby-Token header")
+			}
+			parentID := r.URL.Query().Get("ParentId")
+			if parentID != "lib1" && parentID != "lib2" {
+				t.Errorf("unexpected ParentId: %s", parentID)
+			}
+			if r.URL.Query().Get("SortBy") != "DateCreated" {
+				t.Error("missing SortBy=DateCreated query param")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if parentID == "lib1" {
+				w.Write(data)
+			} else {
+				w.Write([]byte(`{"Items":[]}`))
+			}
+		default:
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		if r.URL.Query().Get("SortBy") != "DateCreated" {
-			t.Error("missing SortBy=DateCreated query param")
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
 	}))
 	defer ts.Close()
 
@@ -426,7 +438,14 @@ func TestGetRecentlyAdded(t *testing.T) {
 
 func TestGetRecentlyAddedEmpty(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"Items":[]}`))
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[{"Name":"Movies","CollectionType":"movies","ItemId":"lib1"}]`))
+		case "/Items":
+			w.Write([]byte(`{"Items":[]}`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
 	}))
 	defer ts.Close()
 
@@ -442,7 +461,14 @@ func TestGetRecentlyAddedEmpty(t *testing.T) {
 
 func TestGetRecentlyAddedError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusUnauthorized)
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[{"Name":"Movies","CollectionType":"movies","ItemId":"lib1"}]`))
+		case "/Items":
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
 	}))
 	defer ts.Close()
 
@@ -450,6 +476,121 @@ func TestGetRecentlyAddedError(t *testing.T) {
 	_, err := c.GetRecentlyAdded(context.Background(), 10)
 	if err == nil {
 		t.Error("expected error for 401")
+	}
+}
+
+func TestGetRecentlyAddedExcludesDVR(t *testing.T) {
+	queriedParentIDs := make(map[string]bool)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[
+				{"Name":"Movies","CollectionType":"movies","ItemId":"lib-movies"},
+				{"Name":"TV Shows","CollectionType":"tvshows","ItemId":"lib-tv"},
+				{"Name":"DVR","CollectionType":"livetv","ItemId":"lib-dvr"}
+			]`))
+		case "/Items":
+			parentID := r.URL.Query().Get("ParentId")
+			queriedParentIDs[parentID] = true
+			w.Header().Set("Content-Type", "application/json")
+			switch parentID {
+			case "lib-movies":
+				w.Write([]byte(`{"Items":[{"Id":"m1","Name":"Movie1","Type":"Movie","DateCreated":"2024-02-01T12:00:00Z","ImageTags":{}}]}`))
+			case "lib-tv":
+				w.Write([]byte(`{"Items":[{"Id":"e1","Name":"Ep1","SeriesName":"Show1","Type":"Episode","DateCreated":"2024-01-31T12:00:00Z","ImageTags":{}}]}`))
+			default:
+				t.Errorf("queried unexpected library: %s", parentID)
+				w.Write([]byte(`{"Items":[]}`))
+			}
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, Name: "Test", URL: ts.URL, APIKey: "k"}, models.ServerTypeEmby)
+	items, err := c.GetRecentlyAdded(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items (DVR excluded), got %d", len(items))
+	}
+	if items[0].ItemID != "m1" {
+		t.Errorf("first item = %q, want m1", items[0].ItemID)
+	}
+	if items[1].ItemID != "e1" {
+		t.Errorf("second item = %q, want e1", items[1].ItemID)
+	}
+	if queriedParentIDs["lib-dvr"] {
+		t.Error("DVR library should not have been queried")
+	}
+}
+
+func TestGetRecentlyAddedNoMediaLibraries(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[{"Name":"DVR","CollectionType":"livetv","ItemId":"lib-dvr"}]`))
+		case "/Items":
+			t.Error("should not query items when no media libraries exist")
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "k"}, models.ServerTypeEmby)
+	items, err := c.GetRecentlyAdded(context.Background(), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Errorf("expected 0 items, got %d", len(items))
+	}
+}
+
+func TestGetRecentlyAddedVirtualFoldersError(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "k"}, models.ServerTypeEmby)
+	_, err := c.GetRecentlyAdded(context.Background(), 10)
+	if err == nil {
+		t.Error("expected error when virtual folders endpoint fails")
+	}
+}
+
+func TestGetRecentlyAddedPartialLibraryFailure(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/Library/VirtualFolders":
+			w.Write([]byte(`[
+				{"Name":"Movies","CollectionType":"movies","ItemId":"lib1"},
+				{"Name":"TV Shows","CollectionType":"tvshows","ItemId":"lib2"}
+			]`))
+		case "/Items":
+			parentID := r.URL.Query().Get("ParentId")
+			switch parentID {
+			case "lib1":
+				w.Write([]byte(`{"Items":[{"Id":"m1","Name":"Movie1","Type":"Movie","DateCreated":"2024-02-01T12:00:00Z","ImageTags":{}}]}`))
+			case "lib2":
+				w.WriteHeader(http.StatusInternalServerError)
+			default:
+				t.Errorf("unexpected ParentId: %s", parentID)
+			}
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{URL: ts.URL, APIKey: "k"}, models.ServerTypeEmby)
+	_, err := c.GetRecentlyAdded(context.Background(), 10)
+	if err == nil {
+		t.Error("expected error when a library's Items call fails")
 	}
 }
 
