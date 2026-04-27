@@ -52,6 +52,9 @@ func (m *mockLibraryServer) DeleteItem(ctx context.Context, itemID string) error
 func (m *mockLibraryServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
 	return nil, nil
 }
+func (m *mockLibraryServer) GetEpisodes(ctx context.Context, seasonID string) ([]models.Episode, error) {
+	return nil, nil
+}
 func (m *mockLibraryServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
 	return nil
 }

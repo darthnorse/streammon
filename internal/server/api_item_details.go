@@ -66,19 +66,33 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	searchTitle := details.Title
-	if details.SeriesTitle != "" {
-		searchTitle = details.SeriesTitle
-	}
-
 	// Viewers can only see their own watch history
 	userFilter := ""
 	if user := UserFromContext(r.Context()); user != nil && user.Role == models.RoleViewer {
 		userFilter = user.Name
 	}
-	history, err := s.store.HistoryForTitleByUser(searchTitle, userFilter, maxWatchHistoryEntries)
+
+	level := details.Level
+	historyKey := itemID
+	switch level {
+	case "show":
+		// itemID IS the show id; history rows for episodes have grandparent_item_id = show id.
+	case "season":
+		// For seasons, filter by show id + season_number; SeriesID is the show id.
+		historyKey = details.SeriesID
+		if historyKey == "" {
+			historyKey = details.ParentID
+		}
+	case "episode":
+		// itemID is the episode id; history.item_id matches.
+	case "movie", "":
+		// movies (or unknown) match by item_id directly.
+		level = "movie"
+	}
+
+	history, err := s.store.HistoryForItem(serverID, historyKey, level, details.SeasonNumber, userFilter, maxWatchHistoryEntries)
 	if err != nil {
-		log.Printf("WARN: HistoryForTitleByUser title=%q user=%q: %v", searchTitle, userFilter, err)
+		log.Printf("WARN: HistoryForItem server=%d item=%s level=%s: %v", serverID, historyKey, level, err)
 	}
 
 	resp := itemDetailsResponse{
