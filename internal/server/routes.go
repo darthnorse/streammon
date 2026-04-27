@@ -290,6 +290,7 @@ func (s *Server) routes() {
 		r.Use(RequireAuthManager(s.authManager))
 		r.Get("/api/servers/{id}/thumb/*", s.handleThumbProxy)
 		r.Get("/api/servers/{id}/items/*", s.handleGetItemDetails)
+		r.Get("/api/servers/{id}/children/*", s.handleGetChildren)
 		r.Get("/api/sonarr/poster/{seriesId}", s.handleSonarrPoster)
 		r.Get("/api/dashboard/sse", s.handleDashboardSSE)
 		r.With(RequireRole(models.RoleAdmin)).Post("/api/settings/playback-reporting/import", s.handlePlaybackReportingImport())
