@@ -517,6 +517,8 @@ type itemDetailsJSON struct {
 	Studios           []studioJSON        `json:"Studios"`
 	People            []personJSON        `json:"People"`
 	SeriesName        string              `json:"SeriesName"`
+	SeriesId          string              `json:"SeriesId,omitempty"`
+	SeasonId          string              `json:"SeasonId,omitempty"`
 	ParentIndexNumber int                 `json:"ParentIndexNumber"`
 	IndexNumber       int                 `json:"IndexNumber"`
 	MediaSources      []mediaSourceDetail `json:"MediaSources"`
@@ -775,6 +777,7 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 		Year:          item.ProductionYear,
 		Summary:       item.Overview,
 		MediaType:     embyMediaType(item.Type),
+		Level:         embyLevel(item.Type),
 		ThumbURL:      thumbURL,
 		Genres:        item.Genres,
 		Directors:     directors,
@@ -784,6 +787,8 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 		DurationMs:    ticksToMs(item.RunTimeTicks),
 		Studio:        studio,
 		SeriesTitle:   item.SeriesName,
+		SeriesID:      item.SeriesId,
+		ParentID:      item.SeasonId,
 		SeasonNumber:  item.ParentIndexNumber,
 		EpisodeNumber: item.IndexNumber,
 		ServerID:      c.serverID,
@@ -853,4 +858,19 @@ func (c *Client) GetUsers(ctx context.Context) ([]models.MediaUser, error) {
 	}
 
 	return result, nil
+}
+
+func embyLevel(t string) string {
+	switch t {
+	case "Episode":
+		return "episode"
+	case "Season":
+		return "season"
+	case "Series":
+		return "show"
+	case "Movie":
+		return "movie"
+	default:
+		return ""
+	}
 }

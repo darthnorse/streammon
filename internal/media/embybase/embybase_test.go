@@ -698,6 +698,9 @@ func TestGetItemDetails_Movie(t *testing.T) {
 	if details.TMDBID != "872585" {
 		t.Errorf("tmdb_id = %q, want 872585", details.TMDBID)
 	}
+	if details.Level != "movie" {
+		t.Errorf("level = %q, want movie", details.Level)
+	}
 }
 
 func TestGetItemDetails_Episode(t *testing.T) {
@@ -733,6 +736,15 @@ func TestGetItemDetails_Episode(t *testing.T) {
 	}
 	if details.TMDBID != "" {
 		t.Errorf("tmdb_id = %q, want empty for episodes (series-level ID resolved by API handler)", details.TMDBID)
+	}
+	if details.Level != "episode" {
+		t.Errorf("level = %q, want episode", details.Level)
+	}
+	if details.SeriesID != "series-bb" {
+		t.Errorf("series_id = %q, want series-bb", details.SeriesID)
+	}
+	if details.ParentID != "season-3" {
+		t.Errorf("parent_id = %q, want season-3", details.ParentID)
 	}
 }
 
@@ -793,6 +805,9 @@ func TestGetItemDetails_Series(t *testing.T) {
 	}
 	if details.TMDBID != "120911" {
 		t.Errorf("tmdb_id = %q, want 120911", details.TMDBID)
+	}
+	if details.Level != "show" {
+		t.Errorf("level = %q, want show", details.Level)
 	}
 }
 

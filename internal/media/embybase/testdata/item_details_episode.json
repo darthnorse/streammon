@@ -11,6 +11,8 @@
   "RunTimeTicks": 28800000000,
   "ProviderIds": {"Tmdb": "62085"},
   "SeriesName": "Breaking Bad",
+  "SeriesId": "series-bb",
+  "SeasonId": "season-3",
   "ParentIndexNumber": 5,
   "IndexNumber": 14,
   "People": [
