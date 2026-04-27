@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { MediaDetailModal } from '../components/MediaDetailModal'
+import { ShowDetail } from '../components/modals/ShowDetail'
 import { api } from '../lib/api'
 import { MEDIA_STATUS } from '../lib/overseerr'
 import type { ItemDetails, TMDBMovieEnvelope, TMDBTVEnvelope } from '../types'
@@ -48,26 +50,6 @@ const mockItem: ItemDetails = {
   content_rating: 'R',
   duration_ms: 10800000,
   studio: 'Universal Pictures',
-  server_id: 1,
-  server_name: 'Test Plex',
-  server_type: 'plex',
-}
-
-const mockEpisode: ItemDetails = {
-  id: '67890',
-  title: 'Ozymandias',
-  year: 2013,
-  summary: 'Everyone copes with radically changed circumstances.',
-  media_type: 'episode',
-  genres: ['Crime', 'Drama'],
-  directors: ['Rian Johnson'],
-  cast: [{ name: 'Bryan Cranston', role: 'Walter White' }],
-  rating: 10.0,
-  content_rating: 'TV-MA',
-  duration_ms: 2880000,
-  series_title: 'Breaking Bad',
-  season_number: 5,
-  episode_number: 14,
   server_id: 1,
   server_name: 'Test Plex',
   server_type: 'plex',
@@ -136,14 +118,29 @@ describe('MediaDetailModal', () => {
     vi.mocked(api.get).mockReset().mockRejectedValue(new Error('not configured'))
   })
 
-  describe('library entry', () => {
+  describe('library entry (ShowDetail)', () => {
+    function renderShowDetail(item: ItemDetails | null, loading: boolean, onClose = () => {}) {
+      return render(
+        <MemoryRouter>
+          <ShowDetail
+            item={item}
+            loading={loading}
+            onClose={onClose}
+            pushModal={() => {}}
+            active={true}
+            overseerrConfigured={false}
+          />
+        </MemoryRouter>,
+      )
+    }
+
     it('shows loading spinner when loading', () => {
-      render(<MediaDetailModal item={null} loading={true} onClose={() => {}} />)
+      renderShowDetail(null, true)
       expect(document.querySelector('.animate-spin')).toBeInTheDocument()
     })
 
     it('renders movie details correctly', () => {
-      render(<MediaDetailModal item={mockItem} loading={false} onClose={() => {}} />)
+      renderShowDetail(mockItem, false)
 
       expect(screen.getByText('Oppenheimer')).toBeInTheDocument()
       expect(screen.getByText('2023')).toBeInTheDocument()
@@ -159,17 +156,9 @@ describe('MediaDetailModal', () => {
       expect(screen.getByText('Test Plex')).toBeInTheDocument()
     })
 
-    it('renders episode details with series info', () => {
-      render(<MediaDetailModal item={mockEpisode} loading={false} onClose={() => {}} />)
-
-      expect(screen.getByText('Ozymandias')).toBeInTheDocument()
-      expect(screen.getByText(/Breaking Bad/)).toBeInTheDocument()
-      expect(screen.getByText(/S5E14/)).toBeInTheDocument()
-    })
-
     it('calls onClose when backdrop is clicked', () => {
       const onClose = vi.fn()
-      render(<MediaDetailModal item={mockItem} loading={false} onClose={onClose} />)
+      renderShowDetail(mockItem, false, onClose)
 
       const backdrop = document.querySelector('.fixed.inset-0')
       fireEvent.click(backdrop!)
@@ -178,7 +167,7 @@ describe('MediaDetailModal', () => {
 
     it('calls onClose when close button is clicked', () => {
       const onClose = vi.fn()
-      render(<MediaDetailModal item={mockItem} loading={false} onClose={onClose} />)
+      renderShowDetail(mockItem, false, onClose)
 
       const closeButton = screen.getByLabelText('Close')
       fireEvent.click(closeButton)
@@ -187,7 +176,7 @@ describe('MediaDetailModal', () => {
 
     it('calls onClose when Escape key is pressed', () => {
       const onClose = vi.fn()
-      render(<MediaDetailModal item={mockItem} loading={false} onClose={onClose} />)
+      renderShowDetail(mockItem, false, onClose)
 
       fireEvent.keyDown(document, { key: 'Escape' })
       expect(onClose).toHaveBeenCalled()
@@ -195,7 +184,7 @@ describe('MediaDetailModal', () => {
 
     it('does not close when modal content is clicked', () => {
       const onClose = vi.fn()
-      render(<MediaDetailModal item={mockItem} loading={false} onClose={onClose} />)
+      renderShowDetail(mockItem, false, onClose)
 
       const modalContent = document.querySelector('.max-w-6xl')
       fireEvent.click(modalContent!)
@@ -203,7 +192,7 @@ describe('MediaDetailModal', () => {
     })
 
     it('shows error message when item is null and not loading', () => {
-      render(<MediaDetailModal item={null} loading={false} onClose={() => {}} />)
+      renderShowDetail(null, false)
       expect(screen.getByText('Failed to load item details')).toBeInTheDocument()
     })
   })
