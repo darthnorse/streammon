@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import type { Server, OIDCSettings, IntegrationSettings, OverseerrSettings, SonarrSettings, RadarrSettings, EnrichmentStatus } from '../types'
-import { api } from '../lib/api'
+import { api, getMaintenanceSettings, updateMaintenanceSettings } from '../lib/api'
+import type { MaintenanceSettings } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { useUnits } from '../hooks/useUnits'
 import { getDiscoverRegion, setDiscoverRegion } from '../lib/units'
@@ -35,10 +36,11 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'geoip', label: 'GeoIP' },
   { key: 'import', label: 'Import' },
   { key: 'display', label: 'Display' },
+  { key: 'maintenance', label: 'Maintenance' },
   { key: 'about', label: 'About' },
 ]
 
-type TabKey = 'servers' | 'users' | 'guest' | 'auth' | 'integrations' | 'geoip' | 'import' | 'display' | 'about'
+type TabKey = 'servers' | 'users' | 'guest' | 'auth' | 'integrations' | 'geoip' | 'import' | 'display' | 'maintenance' | 'about'
 
 export function Settings() {
   const [tab, setTab] = useState<TabKey>('servers')
@@ -68,6 +70,22 @@ export function Settings() {
   const [householdResult, setHouseholdResult] = useState<{ created: number } | null>(null)
   const [syncingAvatars, setSyncingAvatars] = useState(false)
   const [avatarSyncResult, setAvatarSyncResult] = useState<{ synced: number; updated: number; errors?: string[] } | null>(null)
+  const [maintenance, setMaintenance] = useState<MaintenanceSettings | null>(null)
+
+  useEffect(() => {
+    getMaintenanceSettings()
+      .then(setMaintenance)
+      .catch(err => console.error('Failed to load maintenance settings', err))
+  }, [])
+
+  async function onToggleWidthAware(next: boolean) {
+    try {
+      const updated = await updateMaintenanceSettings({ resolution_width_aware: next })
+      setMaintenance(updated)
+    } catch (err) {
+      console.error('Failed to update maintenance settings', err)
+    }
+  }
 
   const serverList = servers ?? []
   const activeServers = serverList.filter(s => !s.deleted_at)
@@ -700,6 +718,35 @@ export function Settings() {
 
       {tab === 'display' && (
         <DisplaySettings />
+      )}
+
+      {tab === 'maintenance' && (
+        <div className="card p-5">
+          <h3 className="font-semibold text-base mb-4">Maintenance</h3>
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium text-sm">Width-aware resolution detection</h4>
+              <p className="text-sm text-muted dark:text-muted-dark mt-0.5">
+                Use width-bucketed classification for Low Resolution rules so cropped widescreen content (e.g. 1280×688) and 21:9 movies aren&apos;t misclassified. Disabled by default to preserve existing rule behavior.
+              </p>
+            </div>
+            <button
+              onClick={() => onToggleWidthAware(!(maintenance?.resolution_width_aware ?? false))}
+              disabled={maintenance === null}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ml-6 ${
+                (maintenance?.resolution_width_aware ?? false) ? 'bg-accent' : 'bg-gray-300 dark:bg-white/20'
+              } ${maintenance === null ? 'opacity-50 cursor-not-allowed' : ''}`}
+              role="switch"
+              aria-checked={maintenance?.resolution_width_aware ?? false}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${
+                  (maintenance?.resolution_width_aware ?? false) ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
       )}
 
       {tab === 'about' && (

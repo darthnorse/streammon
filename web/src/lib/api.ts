@@ -1,3 +1,17 @@
+export interface MaintenanceSettings {
+  resolution_width_aware: boolean
+}
+
+export async function getMaintenanceSettings(): Promise<MaintenanceSettings> {
+  return api.get<MaintenanceSettings>('/api/settings/maintenance')
+}
+
+export async function updateMaintenanceSettings(
+  patch: Partial<MaintenanceSettings>
+): Promise<MaintenanceSettings> {
+  return api.put<MaintenanceSettings>('/api/settings/maintenance', patch)
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message)
