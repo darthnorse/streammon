@@ -583,6 +583,21 @@ func plexMediaType(t string) models.MediaType {
 	}
 }
 
+func plexLevel(t string) string {
+	switch t {
+	case "episode":
+		return "episode"
+	case "season":
+		return "season"
+	case "show":
+		return "show"
+	case "movie", "clip":
+		return "movie"
+	default:
+		return ""
+	}
+}
+
 func plexExtraType(subtype string) models.ExtraType {
 	switch subtype {
 	case "trailer":

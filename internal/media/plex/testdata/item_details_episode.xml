@@ -4,7 +4,8 @@
          summary="Everyone copes with radically changed circumstances."
          thumb="/library/metadata/67890/thumb/1699000001"
          rating="10.0" contentRating="TV-MA" duration="2880000"
-         grandparentTitle="Breaking Bad" parentIndex="5" index="14">
+         grandparentTitle="Breaking Bad" parentIndex="5" index="14"
+         parentRatingKey="season-key" grandparentRatingKey="show-key">
     <Guid id="tmdb://1396" />
     <Genre tag="Crime" />
     <Genre tag="Drama" />

@@ -19,24 +19,26 @@ type itemDetailsContainer struct {
 }
 
 type itemDetailItem struct {
-	RatingKey        string             `xml:"ratingKey,attr"`
-	Title            string             `xml:"title,attr"`
-	Year             string             `xml:"year,attr"`
-	Summary          string             `xml:"summary,attr"`
-	Type             string             `xml:"type,attr"`
-	Thumb            string             `xml:"thumb,attr"`
-	Rating           string             `xml:"rating,attr"`
-	ContentRating    string             `xml:"contentRating,attr"`
-	Duration         string             `xml:"duration,attr"`
-	Studio           string             `xml:"studio,attr"`
-	GrandparentTitle string             `xml:"grandparentTitle,attr"`
-	ParentIndex      string             `xml:"parentIndex,attr"`
-	Index            string             `xml:"index,attr"`
-	Guids            []plexGuid         `xml:"Guid"`
-	Genres           []genreItem        `xml:"Genre"`
-	Directors        []directorItem     `xml:"Director"`
-	Roles            []roleItem         `xml:"Role"`
-	Media            []itemDetailMedia  `xml:"Media"`
+	RatingKey            string            `xml:"ratingKey,attr"`
+	Title                string            `xml:"title,attr"`
+	Year                 string            `xml:"year,attr"`
+	Summary              string            `xml:"summary,attr"`
+	Type                 string            `xml:"type,attr"`
+	Thumb                string            `xml:"thumb,attr"`
+	Rating               string            `xml:"rating,attr"`
+	ContentRating        string            `xml:"contentRating,attr"`
+	Duration             string            `xml:"duration,attr"`
+	Studio               string            `xml:"studio,attr"`
+	GrandparentTitle     string            `xml:"grandparentTitle,attr"`
+	ParentIndex          string            `xml:"parentIndex,attr"`
+	Index                string            `xml:"index,attr"`
+	ParentRatingKey      string            `xml:"parentRatingKey,attr"`
+	GrandparentRatingKey string            `xml:"grandparentRatingKey,attr"`
+	Guids                []plexGuid        `xml:"Guid"`
+	Genres               []genreItem       `xml:"Genre"`
+	Directors            []directorItem    `xml:"Director"`
+	Roles                []roleItem        `xml:"Role"`
+	Media                []itemDetailMedia `xml:"Media"`
 }
 
 type itemDetailMedia struct {
@@ -147,6 +149,9 @@ func parseItemDetails(data []byte, serverID int64, serverName string) (*models.I
 		ServerID:      serverID,
 		ServerName:    serverName,
 		ServerType:    models.ServerTypePlex,
+		Level:         plexLevel(item.Type),
+		SeriesID:      item.GrandparentRatingKey,
+		ParentID:      item.ParentRatingKey,
 	}
 
 	if item.Type != "episode" {
