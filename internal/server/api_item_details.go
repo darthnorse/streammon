@@ -95,6 +95,23 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WARN: HistoryForItem server=%d item=%s level=%s: %v", serverID, historyKey, level, err)
 	}
 
+	// Fallback for older history rows that were written before grandparent_item_id
+	// was populated: retry by title match if the id-keyed lookup found nothing.
+	if len(history) == 0 {
+		searchTitle := details.Title
+		if details.SeriesTitle != "" {
+			searchTitle = details.SeriesTitle
+		}
+		if searchTitle != "" {
+			fallback, fbErr := s.store.HistoryForTitleByUser(searchTitle, userFilter, maxWatchHistoryEntries)
+			if fbErr != nil {
+				log.Printf("WARN: HistoryForTitleByUser fallback title=%q: %v", searchTitle, fbErr)
+			} else {
+				history = fallback
+			}
+		}
+	}
+
 	resp := itemDetailsResponse{
 		ItemDetails:  details,
 		WatchHistory: history,

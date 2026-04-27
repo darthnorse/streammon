@@ -12,7 +12,8 @@ func (c *Client) GetEpisodes(ctx context.Context, seasonID string) ([]models.Epi
 	params := url.Values{
 		"ParentId":         {seasonID},
 		"IncludeItemTypes": {"Episode"},
-		"Fields":           {"Overview,IndexNumber,RunTimeTicks,PremiereDate"},
+		"Fields":           {"Overview,IndexNumber,RunTimeTicks,PremiereDate,ImageTags"},
+		"SortBy":           {"IndexNumber"},
 	}
 
 	var resp struct {

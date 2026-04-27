@@ -34,14 +34,6 @@ export function SeasonDetail({ item, loading, onClose, pushModal, active }: Seas
   )
   const { data: tmdbSeason } = useTMDBSeasonEnrichment(item?.tmdb_id, item?.season_number)
 
-  if (loading) {
-    return (
-      <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" role="dialog" aria-modal="true">
-        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
-      </div>
-    )
-  }
-
   const showId = item?.parent_id || ''
   const episodes = childrenData?.episodes ?? []
   const summary = tmdbSeason?.overview || item?.summary || ''
@@ -59,8 +51,13 @@ export function SeasonDetail({ item, loading, onClose, pushModal, active }: Seas
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </button>
-        <div className="overflow-y-auto max-h-[90dvh] p-5 sm:p-6 space-y-4">
-          {item && (
+        {loading && (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+        {!loading && item && (
+          <div className="overflow-y-auto max-h-[90dvh] p-5 sm:p-6 space-y-4">
             <div>
               {item.series_title && showId && (
                 <button
@@ -73,19 +70,19 @@ export function SeasonDetail({ item, loading, onClose, pushModal, active }: Seas
               <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-50 mt-1">{item.title}</h2>
               {summary && <p className="mt-3 text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{summary}</p>}
             </div>
-          )}
-          {childrenLoading ? (
-            <div className="text-sm text-muted dark:text-muted-dark">Loading episodes…</div>
-          ) : (
-            <EpisodesGrid
-              serverId={item?.server_id ?? 0}
-              episodes={episodes}
-              tmdbEpisodes={tmdbSeason?.episodes}
-              pushModal={pushModal}
-            />
-          )}
-          {item && <WatchHistory item={item} />}
-        </div>
+            {childrenLoading ? (
+              <div className="text-sm text-muted dark:text-muted-dark">Loading episodes…</div>
+            ) : (
+              <EpisodesGrid
+                serverId={item.server_id}
+                episodes={episodes}
+                tmdbEpisodes={tmdbSeason?.episodes}
+                pushModal={pushModal}
+              />
+            )}
+            <WatchHistory item={item} />
+          </div>
+        )}
       </div>
     </div>
   )

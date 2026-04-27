@@ -12,7 +12,8 @@ func (c *Client) GetSeasons(ctx context.Context, showID string) ([]models.Season
 	params := url.Values{
 		"ParentId":         {showID},
 		"IncludeItemTypes": {"Season"},
-		"Fields":           {"IndexNumber,ChildCount,ProductionYear"},
+		"Fields":           {"IndexNumber,ChildCount,ProductionYear,ImageTags"},
+		"SortBy":           {"IndexNumber"},
 	}
 
 	var resp struct {
