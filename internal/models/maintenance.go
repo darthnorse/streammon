@@ -54,6 +54,8 @@ type LibraryItemCache struct {
 	Year            int       `json:"year"`
 	AddedAt         time.Time `json:"added_at"`
 	VideoResolution string    `json:"video_resolution,omitempty"`
+	VideoWidth      int       `json:"video_width,omitempty"`
+	VideoHeight     int       `json:"video_height,omitempty"`
 	FileSize        int64     `json:"file_size,omitempty"`
 	EpisodeCount    int       `json:"episode_count,omitempty"`
 	LastWatchedAt   *time.Time `json:"last_watched_at,omitempty"`
