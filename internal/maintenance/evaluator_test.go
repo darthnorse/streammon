@@ -1436,7 +1436,9 @@ func TestEvaluateLowResolution_BucketedMode_DefaultBehavior(t *testing.T) {
 
 	// Setting NOT enabled → today's behavior: a cropped 720p file with
 	// VideoResolution="480p" and VideoWidth=1280, VideoHeight=688 IS flagged
-	// at threshold 480 because the bucketed string is what counts.
+	// at threshold 480 because the bucketed string is what counts. This is
+	// exactly the issue #3 misclassification — pinned here to prove the
+	// width-aware-off path preserves it bit-for-bit.
 	items := []models.LibraryItemCache{
 		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "cropped", MediaType: models.MediaTypeMovie,
 			Title: "Cropped 720p", VideoResolution: "480p", VideoWidth: 1280, VideoHeight: 688,

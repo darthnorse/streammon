@@ -75,6 +75,18 @@ func TestUpdateMaintenanceSettings_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestUpdateMaintenanceSettings_RejectsMissingField(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/maintenance", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing field, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestUpdateMaintenanceSettings_NonAdminForbidden(t *testing.T) {
 	srv, st := newTestServer(t)
 

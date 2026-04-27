@@ -28,12 +28,13 @@ func (s *Server) handleUpdateMaintenanceSettings(w http.ResponseWriter, r *http.
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if req.ResolutionWidthAware != nil {
-		if err := s.store.SetMaintenanceResolutionWidthAware(*req.ResolutionWidthAware); err != nil {
-			writeError(w, http.StatusInternalServerError, "internal")
-			return
-		}
+	if req.ResolutionWidthAware == nil {
+		writeError(w, http.StatusBadRequest, "resolution_width_aware is required")
+		return
 	}
-	widthAware, _ := s.store.GetMaintenanceResolutionWidthAware()
-	writeJSON(w, http.StatusOK, maintenanceSettingsResponse{ResolutionWidthAware: widthAware})
+	if err := s.store.SetMaintenanceResolutionWidthAware(*req.ResolutionWidthAware); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	writeJSON(w, http.StatusOK, maintenanceSettingsResponse{ResolutionWidthAware: *req.ResolutionWidthAware})
 }

@@ -71,19 +71,26 @@ export function Settings() {
   const [syncingAvatars, setSyncingAvatars] = useState(false)
   const [avatarSyncResult, setAvatarSyncResult] = useState<{ synced: number; updated: number; errors?: string[] } | null>(null)
   const [maintenance, setMaintenance] = useState<MaintenanceSettings | null>(null)
+  const [savingMaintenance, setSavingMaintenance] = useState(false)
 
   useEffect(() => {
+    if (tab !== 'maintenance') return
     getMaintenanceSettings()
       .then(setMaintenance)
-      .catch(err => console.error('Failed to load maintenance settings', err))
-  }, [])
+      .catch(err => setActionError(err instanceof Error ? err.message : 'Failed to load maintenance settings'))
+  }, [tab])
 
   async function onToggleWidthAware(next: boolean) {
+    if (savingMaintenance) return
+    setSavingMaintenance(true)
+    setActionError('')
     try {
       const updated = await updateMaintenanceSettings({ resolution_width_aware: next })
       setMaintenance(updated)
     } catch (err) {
-      console.error('Failed to update maintenance settings', err)
+      setActionError(err instanceof Error ? err.message : 'Failed to update maintenance settings')
+    } finally {
+      setSavingMaintenance(false)
     }
   }
 
@@ -732,10 +739,10 @@ export function Settings() {
             </div>
             <button
               onClick={() => onToggleWidthAware(!(maintenance?.resolution_width_aware ?? false))}
-              disabled={maintenance === null}
+              disabled={maintenance === null || savingMaintenance}
               className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ml-6 ${
                 (maintenance?.resolution_width_aware ?? false) ? 'bg-accent' : 'bg-gray-300 dark:bg-white/20'
-              } ${maintenance === null ? 'opacity-50 cursor-not-allowed' : ''}`}
+              } ${maintenance === null || savingMaintenance ? 'opacity-50 cursor-not-allowed' : ''}`}
               role="switch"
               aria-checked={maintenance?.resolution_width_aware ?? false}
             >
