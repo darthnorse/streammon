@@ -387,21 +387,17 @@ func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string,
 	return stats, nil
 }
 
-func (s *Store) HistoryForTitleByUser(title, userName string, limit int) ([]models.WatchHistoryEntry, error) {
-	var query string
-	var args []any
+func (s *Store) HistoryForTitleByUser(serverID int64, title, userName string, limit int) ([]models.WatchHistoryEntry, error) {
+	query := `SELECT ` + historyColumns + ` FROM watch_history
+		WHERE server_id = ? AND (title = ? OR grandparent_title = ?)`
+	args := []any{serverID, title, title}
 
 	if userName != "" {
-		query = `SELECT ` + historyColumns + ` FROM watch_history
-			WHERE (title = ? OR grandparent_title = ?) AND user_name = ?
-			ORDER BY started_at DESC LIMIT ?`
-		args = []any{title, title, userName, limit}
-	} else {
-		query = `SELECT ` + historyColumns + ` FROM watch_history
-			WHERE title = ? OR grandparent_title = ?
-			ORDER BY started_at DESC LIMIT ?`
-		args = []any{title, title, limit}
+		query += " AND user_name = ?"
+		args = append(args, userName)
 	}
+	query += " ORDER BY started_at DESC LIMIT ?"
+	args = append(args, limit)
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {

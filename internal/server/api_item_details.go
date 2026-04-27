@@ -66,7 +66,6 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Viewers can only see their own watch history
 	userFilter := ""
 	if user := UserFromContext(r.Context()); user != nil && user.Role == models.RoleViewer {
 		userFilter = user.Name
@@ -75,18 +74,12 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 	level := details.Level
 	historyKey := itemID
 	switch level {
-	case "show":
-		// itemID IS the show id; history rows for episodes have grandparent_item_id = show id.
 	case "season":
-		// For seasons, filter by show id + season_number; SeriesID is the show id.
 		historyKey = details.SeriesID
 		if historyKey == "" {
 			historyKey = details.ParentID
 		}
-	case "episode":
-		// itemID is the episode id; history.item_id matches.
 	case "movie", "":
-		// movies (or unknown) match by item_id directly.
 		level = "movie"
 	}
 
@@ -95,15 +88,14 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WARN: HistoryForItem server=%d item=%s level=%s: %v", serverID, historyKey, level, err)
 	}
 
-	// Fallback for older history rows that were written before grandparent_item_id
-	// was populated: retry by title match if the id-keyed lookup found nothing.
-	if len(history) == 0 {
-		searchTitle := details.Title
-		if details.SeriesTitle != "" {
-			searchTitle = details.SeriesTitle
+	// Fallback to title match for old rows missing grandparent_item_id (show/season only — needs a reliable show title).
+	if len(history) == 0 && (level == "show" || (level == "season" && details.SeriesTitle != "")) {
+		searchTitle := details.SeriesTitle
+		if searchTitle == "" {
+			searchTitle = details.Title
 		}
 		if searchTitle != "" {
-			fallback, fbErr := s.store.HistoryForTitleByUser(searchTitle, userFilter, maxWatchHistoryEntries)
+			fallback, fbErr := s.store.HistoryForTitleByUser(serverID, searchTitle, userFilter, maxWatchHistoryEntries)
 			if fbErr != nil {
 				log.Printf("WARN: HistoryForTitleByUser fallback title=%q: %v", searchTitle, fbErr)
 			} else {

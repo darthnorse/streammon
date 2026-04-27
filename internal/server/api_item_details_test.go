@@ -13,7 +13,7 @@ import (
 	"streammon/internal/store"
 )
 
-func setupItemDetailsHistory(t *testing.T) *store.Store {
+func setupItemDetailsHistory(t *testing.T) (*store.Store, int64) {
 	t.Helper()
 	_, st := newTestServer(t)
 	s := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k", MachineID: "m1", Enabled: true}
@@ -33,12 +33,12 @@ func setupItemDetailsHistory(t *testing.T) *store.Store {
 	}); err != nil {
 		t.Fatalf("InsertHistory: %v", err)
 	}
-	return st
+	return st, s.ID
 }
 
 func TestItemDetailsHistoryAdminSeesAllUsers(t *testing.T) {
-	st := setupItemDetailsHistory(t)
-	history, err := st.HistoryForTitleByUser("Test Movie", "", 10)
+	st, serverID := setupItemDetailsHistory(t)
+	history, err := st.HistoryForTitleByUser(serverID, "Test Movie", "", 10)
 	if err != nil {
 		t.Fatalf("HistoryForTitleByUser: %v", err)
 	}
@@ -48,8 +48,8 @@ func TestItemDetailsHistoryAdminSeesAllUsers(t *testing.T) {
 }
 
 func TestItemDetailsHistoryViewerSeesOnlyOwnHistory(t *testing.T) {
-	st := setupItemDetailsHistory(t)
-	history, err := st.HistoryForTitleByUser("Test Movie", "alice", 10)
+	st, serverID := setupItemDetailsHistory(t)
+	history, err := st.HistoryForTitleByUser(serverID, "Test Movie", "alice", 10)
 	if err != nil {
 		t.Fatalf("HistoryForTitleByUser: %v", err)
 	}
@@ -257,6 +257,73 @@ func TestItemDetailsEpisodeFiltersByItemID(t *testing.T) {
 	}
 	if resp.WatchHistory[0].ItemID != "ep-1" {
 		t.Fatalf("expected ep-1, got %q", resp.WatchHistory[0].ItemID)
+	}
+}
+
+// Old rows missing grandparent_item_id should still surface via the title-match
+// fallback at show level; rows on a different server must not leak through.
+func TestItemDetailsShowFallbackIsServerScoped(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	plex := &models.Server{Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k", MachineID: "p1", Enabled: true}
+	emby := &models.Server{Name: "Emby", Type: models.ServerTypeEmby, URL: "http://emby", APIKey: "k", MachineID: "e1", Enabled: true}
+	if err := st.CreateServer(plex); err != nil {
+		t.Fatalf("CreateServer plex: %v", err)
+	}
+	if err := st.CreateServer(emby); err != nil {
+		t.Fatalf("CreateServer emby: %v", err)
+	}
+
+	now := time.Now().UTC().Add(-12 * time.Hour)
+
+	// Old row on Plex without grandparent_item_id (forces fallback).
+	if err := st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: plex.ID, ItemID: "old-ep", GrandparentItemID: "",
+		UserName: "alice", MediaType: models.MediaTypeTV,
+		Title: "Pilot", GrandparentTitle: "Common Title",
+		SeasonNumber: 1, EpisodeNumber: 1,
+		StartedAt: now, StoppedAt: now.Add(20 * time.Minute),
+	}); err != nil {
+		t.Fatalf("insert plex: %v", err)
+	}
+	// Same-titled row on Emby — must NOT leak when querying Plex.
+	if err := st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: emby.ID, ItemID: "emby-ep", GrandparentItemID: "",
+		UserName: "alice", MediaType: models.MediaTypeTV,
+		Title: "Pilot", GrandparentTitle: "Common Title",
+		SeasonNumber: 1, EpisodeNumber: 1,
+		StartedAt: now.Add(time.Hour), StoppedAt: now.Add(time.Hour + 20*time.Minute),
+	}); err != nil {
+		t.Fatalf("insert emby: %v", err)
+	}
+
+	p := setupTestPoller(t, srv.Unwrap(), st)
+	p.AddServer(plex.ID, &mockItemDetailsServer{
+		serverID: plex.ID,
+		details: &models.ItemDetails{
+			ID: "show-Y", Title: "Common Title", MediaType: models.MediaTypeTV,
+			Level: "show", SeriesTitle: "Common Title",
+			ServerID: plex.ID, ServerName: "Plex", ServerType: models.ServerTypePlex,
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/servers/%d/items/show-Y", plex.ID), nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp itemDetailsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.WatchHistory) != 1 {
+		t.Fatalf("expected 1 history entry from Plex only (fallback must be server-scoped), got %d", len(resp.WatchHistory))
+	}
+	if resp.WatchHistory[0].ServerID != plex.ID {
+		t.Fatalf("fallback returned cross-server row: server_id=%d", resp.WatchHistory[0].ServerID)
 	}
 }
 
