@@ -1361,6 +1361,40 @@ func TestListTVTMDBIDs(t *testing.T) {
 	}
 }
 
+func TestUpsertLibraryItem_PersistsVideoDimensions(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	item := models.LibraryItemCache{
+		ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1",
+		MediaType: models.MediaTypeMovie, Title: "Cropped 720p",
+		AddedAt:         time.Now().UTC(),
+		VideoResolution: "480p", VideoWidth: 1280, VideoHeight: 688,
+	}
+	if _, err := s.UpsertLibraryItems(ctx, []models.LibraryItemCache{item}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	items, err := s.ListLibraryItems(ctx, srv.ID, "lib1")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if items[0].VideoWidth != 1280 {
+		t.Errorf("VideoWidth = %d, want 1280", items[0].VideoWidth)
+	}
+	if items[0].VideoHeight != 688 {
+		t.Errorf("VideoHeight = %d, want 688", items[0].VideoHeight)
+	}
+}
+
 func TestGetAllLibraryTotalSizes(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
