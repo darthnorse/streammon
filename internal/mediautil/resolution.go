@@ -21,12 +21,9 @@ func HeightToResolution(height int) string {
 	}
 }
 
-// HeightFromWidth returns the conventional logical-height tier for an encoded
-// video width, in pixels. This is more stable than raw height for classifying
-// content because aspect ratio doesn't shift the tier — a 1280-wide source is
-// 720p whether it's encoded as 1280x720 (16:9) or 1280x540 (cinemascope).
-// Returns 0 for widths below 720 (anything narrower is sub-SD and best left
-// to the caller to handle).
+// HeightFromWidth returns the conventional height tier for a width.
+// Width is stable across aspect ratios; raw height is not.
+// Returns 0 for widths below 720.
 func HeightFromWidth(width int) int {
 	switch {
 	case width >= 3840:

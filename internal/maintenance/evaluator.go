@@ -437,19 +437,19 @@ func deduplicateCandidates(candidates []models.BatchCandidate, items []models.Li
 	return result
 }
 
-// resolveLogicalHeight returns the height to compare against the rule threshold.
-// In width-aware mode, returns max(HeightFromWidth(width), height) when raw
-// dimensions are present; this correctly classifies cropped widescreen and
-// 21:9 sources without reclassifying true SD upward. Falls back to the
-// bucketed VideoResolution string when raw dimensions are unavailable
-// (legacy rows synced before migration 052).
+// resolveLogicalHeight picks the height to compare against the rule threshold.
+// Width-aware mode keeps cropped widescreen and 21:9 sources from being
+// misclassified; rows missing raw dimensions fall through to the bucketed
+// string (legacy / pre-052 rows).
 func resolveLogicalHeight(item models.LibraryItemCache, widthAware bool) int {
-	if widthAware && (item.VideoWidth > 0 || item.VideoHeight > 0) {
+	if widthAware {
 		h := item.VideoHeight
-		if w := mediautil.HeightFromWidth(item.VideoWidth); w > h {
-			h = w
+		if bucket := mediautil.HeightFromWidth(item.VideoWidth); bucket > h {
+			h = bucket
 		}
-		return h
+		if h > 0 {
+			return h
+		}
 	}
 	if item.VideoResolution == "" {
 		return 0

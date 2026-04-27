@@ -17,6 +17,7 @@ import { EmptyState } from '../components/EmptyState'
 import { IntegrationCard } from '../components/IntegrationCard'
 import { UserManagement } from '../components/UserManagement'
 import { GuestAccessSettings } from '../components/GuestAccessSettings'
+import { ToggleSwitch } from '../components/ToggleSwitch'
 import { ServerDeleteDialog } from '../components/ServerDeleteDialog'
 import { PlaybackReportingImportForm } from '../components/PlaybackReportingImportForm'
 import { btnOutline, btnDanger, formSelectClass } from '../lib/constants'
@@ -727,34 +728,28 @@ export function Settings() {
         <DisplaySettings />
       )}
 
-      {tab === 'maintenance' && (
-        <div className="card p-5">
-          <h3 className="font-semibold text-base mb-4">Maintenance</h3>
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="font-medium text-sm">Width-aware resolution detection</h4>
-              <p className="text-sm text-muted dark:text-muted-dark mt-0.5">
-                Use width-bucketed classification for Low Resolution rules so cropped widescreen content (e.g. 1280×688) and 21:9 movies aren&apos;t misclassified. Disabled by default to preserve existing rule behavior.
-              </p>
-            </div>
-            <button
-              onClick={() => onToggleWidthAware(!(maintenance?.resolution_width_aware ?? false))}
-              disabled={maintenance === null || savingMaintenance}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ml-6 ${
-                (maintenance?.resolution_width_aware ?? false) ? 'bg-accent' : 'bg-gray-300 dark:bg-white/20'
-              } ${maintenance === null || savingMaintenance ? 'opacity-50 cursor-not-allowed' : ''}`}
-              role="switch"
-              aria-checked={maintenance?.resolution_width_aware ?? false}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${
-                  (maintenance?.resolution_width_aware ?? false) ? 'translate-x-5' : 'translate-x-0'
-                }`}
+      {tab === 'maintenance' && (() => {
+        const widthAware = maintenance?.resolution_width_aware ?? false
+        return (
+          <div className="card p-5">
+            <h3 className="font-semibold text-base mb-4">Maintenance</h3>
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="font-medium text-sm">Width-aware resolution detection</h4>
+                <p className="text-sm text-muted dark:text-muted-dark mt-0.5">
+                  Use width-bucketed classification for Low Resolution rules so cropped widescreen content (e.g. 1280×688) and 21:9 movies aren&apos;t misclassified. Disabled by default to preserve existing rule behavior.
+                </p>
+              </div>
+              <ToggleSwitch
+                enabled={widthAware}
+                onToggle={() => onToggleWidthAware(!widthAware)}
+                disabled={maintenance === null || savingMaintenance}
+                className="ml-6"
               />
-            </button>
+            </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {tab === 'about' && (
         <div className="card p-6 space-y-4">

@@ -3,6 +3,7 @@ import { useFetch } from '../hooks/useFetch'
 import { api } from '../lib/api'
 import { errorMessage } from '../lib/utils'
 import { EmptyState } from './EmptyState'
+import { ToggleSwitch } from './ToggleSwitch'
 
 interface GuestSettingsResponse {
   settings: Record<string, boolean>
@@ -29,21 +30,7 @@ function ToggleRow({ title, description, enabled, saving, settingKey, onToggle, 
         <h4 className="font-medium text-sm">{title}</h4>
         <p className="text-sm text-muted dark:text-muted-dark mt-0.5">{description}</p>
       </div>
-      <button
-        onClick={() => onToggle(settingKey)}
-        disabled={isDisabled}
-        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ${
-          enabled ? 'bg-accent' : 'bg-gray-300 dark:bg-white/20'
-        } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-        role="switch"
-        aria-checked={enabled}
-      >
-        <span
-          className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${
-            enabled ? 'translate-x-5' : 'translate-x-0'
-          }`}
-        />
-      </button>
+      <ToggleSwitch enabled={enabled} onToggle={() => onToggle(settingKey)} disabled={isDisabled} />
     </div>
   )
 }

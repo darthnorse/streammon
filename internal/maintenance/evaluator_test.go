@@ -141,6 +141,32 @@ func seedTwoTestServers(t *testing.T, s *store.Store) (*models.Server, *models.S
 	return srvA, srvB
 }
 
+func newTestEvaluator(t *testing.T) (*Evaluator, *models.Server) {
+	t.Helper()
+	s := newTestStoreWithMigrations(t)
+	srv := seedTestServer(t, s)
+	return NewEvaluator(s, nil, nil), srv
+}
+
+func mkLowResItem(srvID int64, itemID, title, res string, w, h int) models.LibraryItemCache {
+	now := time.Now().UTC()
+	return models.LibraryItemCache{
+		ServerID: srvID, LibraryID: "lib1", ItemID: itemID,
+		MediaType: models.MediaTypeMovie, Title: title,
+		VideoResolution: res, VideoWidth: w, VideoHeight: h,
+		AddedAt: now, SyncedAt: now,
+	}
+}
+
+func lowResRule(srvID int64, maxHeight int) *models.MaintenanceRule {
+	return &models.MaintenanceRule{
+		CriterionType: models.CriterionLowResolution,
+		MediaType:     models.MediaTypeMovie,
+		Libraries:     []models.RuleLibrary{{ServerID: srvID, LibraryID: "lib1"}},
+		Parameters:    json.RawMessage(fmt.Sprintf(`{"max_height":%d}`, maxHeight)),
+	}
+}
+
 func TestEvaluateUnwatchedMovie(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
@@ -1353,13 +1379,6 @@ func TestEvaluateKeepLatestSeasonsGenreNoTMDBID(t *testing.T) {
 	}
 }
 
-func newTestEvaluator(t *testing.T) (*Evaluator, *models.Server) {
-	t.Helper()
-	s := newTestStoreWithMigrations(t)
-	srv := seedTestServer(t, s)
-	return NewEvaluator(s, nil, nil), srv
-}
-
 func TestEvaluateKeepLatestSeasonsProgress(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	srv := seedTestServer(t, s)
@@ -1431,30 +1450,16 @@ func TestEvaluateKeepLatestSeasonsProgress(t *testing.T) {
 }
 
 func TestEvaluateLowResolution_BucketedMode_DefaultBehavior(t *testing.T) {
+	// Width-aware off: bucketed-string behavior preserved (issue #3 reproduced, not fixed).
 	e, srv := newTestEvaluator(t)
-	now := time.Now().UTC()
-
-	// Setting NOT enabled → today's behavior: a cropped 720p file with
-	// VideoResolution="480p" and VideoWidth=1280, VideoHeight=688 IS flagged
-	// at threshold 480 because the bucketed string is what counts. This is
-	// exactly the issue #3 misclassification — pinned here to prove the
-	// width-aware-off path preserves it bit-for-bit.
 	items := []models.LibraryItemCache{
-		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "cropped", MediaType: models.MediaTypeMovie,
-			Title: "Cropped 720p", VideoResolution: "480p", VideoWidth: 1280, VideoHeight: 688,
-			AddedAt: now, SyncedAt: now},
+		mkLowResItem(srv.ID, "cropped", "Cropped 720p", "480p", 1280, 688),
 	}
 	if _, err := e.store.UpsertLibraryItems(context.Background(), items); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	rule := &models.MaintenanceRule{
-		CriterionType: models.CriterionLowResolution,
-		MediaType:     models.MediaTypeMovie,
-		Libraries:     []models.RuleLibrary{{ServerID: srv.ID, LibraryID: "lib1"}},
-		Parameters:    json.RawMessage(`{"max_height":480}`),
-	}
-	results, _, err := e.evaluateLowResolution(context.Background(), rule)
+	results, _, err := e.evaluateLowResolution(context.Background(), lowResRule(srv.ID, 480))
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
@@ -1468,33 +1473,19 @@ func TestEvaluateLowResolution_WidthAwareMode_HandlesCroppedAnd21x9(t *testing.T
 	if err := e.store.SetMaintenanceResolutionWidthAware(true); err != nil {
 		t.Fatalf("enable width-aware: %v", err)
 	}
-	now := time.Now().UTC()
-
 	items := []models.LibraryItemCache{
-		// Cropped 720p: width 1280, height 688. Threshold 480 → must NOT flag (HeightFromWidth=720).
-		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "cropped_720p", MediaType: models.MediaTypeMovie,
-			Title: "Cropped 720p", VideoResolution: "480p", VideoWidth: 1280, VideoHeight: 688,
-			AddedAt: now, SyncedAt: now},
-		// 21:9 1080p: width 1920, height 800. Threshold 480 → must NOT flag (HeightFromWidth=1080).
-		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "ws_1080p", MediaType: models.MediaTypeMovie,
-			Title: "21:9 1080p", VideoResolution: "720p", VideoWidth: 1920, VideoHeight: 800,
-			AddedAt: now, SyncedAt: now},
-		// True SD: width 720, height 480. Threshold 480 → must flag (HeightFromWidth=480, height=480, max=480).
-		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "true_sd", MediaType: models.MediaTypeMovie,
-			Title: "True SD", VideoResolution: "480p", VideoWidth: 720, VideoHeight: 480,
-			AddedAt: now, SyncedAt: now},
+		// Cropped 720p: width 1280 → bucket 720, NOT flagged at threshold 480.
+		mkLowResItem(srv.ID, "cropped_720p", "Cropped 720p", "480p", 1280, 688),
+		// 21:9 1080p: width 1920 → bucket 1080, NOT flagged.
+		mkLowResItem(srv.ID, "ws_1080p", "21:9 1080p", "720p", 1920, 800),
+		// True SD: width 720 → bucket 480, flagged at threshold 480.
+		mkLowResItem(srv.ID, "true_sd", "True SD", "480p", 720, 480),
 	}
 	if _, err := e.store.UpsertLibraryItems(context.Background(), items); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	rule := &models.MaintenanceRule{
-		CriterionType: models.CriterionLowResolution,
-		MediaType:     models.MediaTypeMovie,
-		Libraries:     []models.RuleLibrary{{ServerID: srv.ID, LibraryID: "lib1"}},
-		Parameters:    json.RawMessage(`{"max_height":480}`),
-	}
-	results, _, err := e.evaluateLowResolution(context.Background(), rule)
+	results, _, err := e.evaluateLowResolution(context.Background(), lowResRule(srv.ID, 480))
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
@@ -1504,30 +1495,19 @@ func TestEvaluateLowResolution_WidthAwareMode_HandlesCroppedAnd21x9(t *testing.T
 }
 
 func TestEvaluateLowResolution_WidthAwareMode_FallbackForLegacyRows(t *testing.T) {
+	// Legacy row (pre-052, width=height=0) falls back to the bucketed string.
 	e, srv := newTestEvaluator(t)
 	if err := e.store.SetMaintenanceResolutionWidthAware(true); err != nil {
 		t.Fatalf("enable width-aware: %v", err)
 	}
-	now := time.Now().UTC()
-
-	// Legacy row: VideoWidth=0, VideoHeight=0 (not yet re-synced after migration 052).
-	// Width-aware mode must fall back to parseResolutionHeight(VideoResolution).
 	items := []models.LibraryItemCache{
-		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "legacy", MediaType: models.MediaTypeMovie,
-			Title: "Legacy SD", VideoResolution: "480p", VideoWidth: 0, VideoHeight: 0,
-			AddedAt: now, SyncedAt: now},
+		mkLowResItem(srv.ID, "legacy", "Legacy SD", "480p", 0, 0),
 	}
 	if _, err := e.store.UpsertLibraryItems(context.Background(), items); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
 
-	rule := &models.MaintenanceRule{
-		CriterionType: models.CriterionLowResolution,
-		MediaType:     models.MediaTypeMovie,
-		Libraries:     []models.RuleLibrary{{ServerID: srv.ID, LibraryID: "lib1"}},
-		Parameters:    json.RawMessage(`{"max_height":480}`),
-	}
-	results, _, err := e.evaluateLowResolution(context.Background(), rule)
+	results, _, err := e.evaluateLowResolution(context.Background(), lowResRule(srv.ID, 480))
 	if err != nil {
 		t.Fatalf("evaluate: %v", err)
 	}
