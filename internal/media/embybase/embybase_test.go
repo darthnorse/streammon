@@ -1808,3 +1808,38 @@ func TestDeleteItemErrorIncludesBody(t *testing.T) {
 		t.Errorf("error = %q, want %q", err.Error(), want)
 	}
 }
+
+func TestFetchLibraryBatch_PopulatesVideoDimensions(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Users" {
+			w.Write([]byte(`[]`))
+			return
+		}
+		itemType := r.URL.Query().Get("IncludeItemTypes")
+		if itemType == "Movie" {
+			w.Write([]byte(`{"Items":[{
+				"Id":"m1","Name":"Cropped","Type":"Movie","DateCreated":"2026-01-01T00:00:00Z",
+				"ProductionYear":2024,
+				"MediaSources":[{"Size":1000,"MediaStreams":[{"Type":"Video","Width":1280,"Height":688}]}]
+			}],"TotalRecordCount":1}`))
+		} else {
+			w.Write([]byte(`{"Items":[],"TotalRecordCount":0}`))
+		}
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+	items, err := c.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].VideoWidth != 1280 {
+		t.Errorf("VideoWidth = %d, want 1280", items[0].VideoWidth)
+	}
+	if items[0].VideoHeight != 688 {
+		t.Errorf("VideoHeight = %d, want 688", items[0].VideoHeight)
+	}
+}

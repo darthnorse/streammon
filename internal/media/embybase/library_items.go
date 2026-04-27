@@ -217,6 +217,7 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 	var items []models.LibraryItemCache
 	for _, item := range itemsResp.Items {
 		var resolution string
+		var videoWidth, videoHeight int
 		var fileSize int64
 
 		if len(item.MediaSources) > 0 {
@@ -224,6 +225,8 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 			for _, stream := range item.MediaSources[0].Streams {
 				if stream.Type == "Video" && stream.Height > 0 {
 					resolution = mediautil.HeightToResolution(stream.Height)
+					videoWidth = stream.Width
+					videoHeight = stream.Height
 					break
 				}
 			}
@@ -259,6 +262,8 @@ func (c *Client) fetchLibraryBatch(ctx context.Context, libraryID, itemType stri
 			AddedAt:         addedAt,
 			LastWatchedAt:   lastWatchedAt,
 			VideoResolution: resolution,
+			VideoWidth:      videoWidth,
+			VideoHeight:     videoHeight,
 			FileSize:        fileSize,
 			EpisodeCount:    episodeCount,
 			ThumbURL:        item.ID,
