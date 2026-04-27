@@ -196,6 +196,11 @@ func (s *Server) routes() {
 			sr.With(RequireRole(models.RoleAdmin)).Put("/", s.handleUpdateDisplaySettings)
 		})
 
+		r.Route("/settings/maintenance", func(sr chi.Router) {
+			sr.Get("/", s.handleGetMaintenanceSettings)
+			sr.With(RequireRole(models.RoleAdmin)).Put("/", s.handleUpdateMaintenanceSettings)
+		})
+
 		r.Route("/settings/idle-timeout", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
 			sr.Get("/", s.handleGetIdleTimeout)
