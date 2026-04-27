@@ -209,9 +209,22 @@ type KeepLatestSeasonsParams struct {
 }
 
 type Season struct {
-	ID     string `json:"id"`
-	Number int    `json:"number"`
-	Title  string `json:"title"`
+	ID           string `json:"id"`
+	Number       int    `json:"number"`
+	Title        string `json:"title"`
+	ThumbURL     string `json:"thumb_url,omitempty"`
+	EpisodeCount int    `json:"episode_count,omitempty"`
+	Year         int    `json:"year,omitempty"`
+}
+
+type Episode struct {
+	ID         string `json:"id"`
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
+	ThumbURL   string `json:"thumb_url,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
+	AirDate    string `json:"air_date,omitempty"`
 }
 
 type BulkDeleteResult struct {

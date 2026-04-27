@@ -370,6 +370,12 @@ type ItemDetails struct {
 	ServerName    string       `json:"server_name"`
 	ServerType    ServerType   `json:"server_type"`
 
+	// Level distinguishes show/season/episode/movie for modal routing without
+	// touching MediaType, which migration 046 normalized for rules/history.
+	Level    string `json:"level,omitempty"`
+	SeriesID string `json:"series_id,omitempty"`
+	ParentID string `json:"parent_id,omitempty"`
+
 	VideoResolution string `json:"video_resolution,omitempty"`
 	VideoCodec      string `json:"video_codec,omitempty"`
 	AudioCodec      string `json:"audio_codec,omitempty"`
