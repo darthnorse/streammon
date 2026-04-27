@@ -27,7 +27,7 @@ func TestGetSeasons(t *testing.T) {
 		w.Write([]byte(`{
 			"Items": [
 				{"Id": "season0", "Name": "Specials", "IndexNumber": 0},
-				{"Id": "season1", "Name": "Season 1", "IndexNumber": 1},
+				{"Id": "season1", "Name": "Season 1", "IndexNumber": 1, "ChildCount": 10, "ProductionYear": 2020, "ImageTags": {"Primary": "tag123"}},
 				{"Id": "season2", "Name": "Season 2", "IndexNumber": 2}
 			]
 		}`))
@@ -68,6 +68,15 @@ func TestGetSeasons(t *testing.T) {
 	}
 	if seasons[1].Title != "Season 1" {
 		t.Errorf("season[1].Title = %q, want Season 1", seasons[1].Title)
+	}
+	if seasons[1].EpisodeCount != 10 {
+		t.Errorf("season[1].EpisodeCount = %d, want 10", seasons[1].EpisodeCount)
+	}
+	if seasons[1].Year != 2020 {
+		t.Errorf("season[1].Year = %d, want 2020", seasons[1].Year)
+	}
+	if seasons[1].ThumbURL == "" {
+		t.Errorf("season[1].ThumbURL is empty, want non-empty")
 	}
 
 	if seasons[2].ID != "season2" {

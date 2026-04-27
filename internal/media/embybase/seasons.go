@@ -12,14 +12,17 @@ func (c *Client) GetSeasons(ctx context.Context, showID string) ([]models.Season
 	params := url.Values{
 		"ParentId":         {showID},
 		"IncludeItemTypes": {"Season"},
-		"Fields":           {"IndexNumber"},
+		"Fields":           {"IndexNumber,ChildCount,ProductionYear"},
 	}
 
 	var resp struct {
 		Items []struct {
-			ID          string `json:"Id"`
-			Name        string `json:"Name"`
-			IndexNumber int    `json:"IndexNumber"`
+			ID             string            `json:"Id"`
+			Name           string            `json:"Name"`
+			IndexNumber    int               `json:"IndexNumber"`
+			ChildCount     int               `json:"ChildCount"`
+			ProductionYear int               `json:"ProductionYear"`
+			ImageTags      map[string]string `json:"ImageTags"`
 		} `json:"Items"`
 	}
 	if err := c.fetchItemsPage(ctx, params, &resp); err != nil {
@@ -29,9 +32,12 @@ func (c *Client) GetSeasons(ctx context.Context, showID string) ([]models.Season
 	seasons := make([]models.Season, 0, len(resp.Items))
 	for _, item := range resp.Items {
 		seasons = append(seasons, models.Season{
-			ID:     item.ID,
-			Number: item.IndexNumber,
-			Title:  item.Name,
+			ID:           item.ID,
+			Number:       item.IndexNumber,
+			Title:        item.Name,
+			ThumbURL:     resolveThumbURL("", "", item.ID, item.ImageTags),
+			EpisodeCount: item.ChildCount,
+			Year:         item.ProductionYear,
 		})
 	}
 	return seasons, nil
