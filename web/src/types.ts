@@ -204,6 +204,8 @@ export interface LibraryItem {
   server_type: ServerType
   season_number?: number
   episode_number?: number
+  season_batch?: boolean
+  episode_count?: number
 }
 
 export interface CastMember {

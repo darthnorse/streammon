@@ -93,6 +93,10 @@ func fallbackDedupeKeys(item models.LibraryItem) []string {
 		if showName == "" {
 			showName = item.Title
 		}
+		// Distinct key so a whole-season batch can't collide with a real S{n}E0 special.
+		if item.SeasonBatch {
+			return []string{fmt.Sprintf("%s:s%d:season-batch", showName, item.SeasonNumber)}
+		}
 		return []string{fmt.Sprintf("%s:s%de%d", showName, item.SeasonNumber, item.EpisodeNumber)}
 	}
 	// For movies, track both title-only and title+year to handle servers that don't return year

@@ -14,12 +14,12 @@ var (
 type MediaType string
 
 const (
-	MediaTypeMovie      MediaType = "movie"
-	MediaTypeTV         MediaType = "episode"
-	MediaTypeLiveTV     MediaType = "livetv"
-	MediaTypeMusic      MediaType = "track"
-	MediaTypeAudiobook  MediaType = "audiobook"
-	MediaTypeBook       MediaType = "book"
+	MediaTypeMovie     MediaType = "movie"
+	MediaTypeTV        MediaType = "episode"
+	MediaTypeLiveTV    MediaType = "livetv"
+	MediaTypeMusic     MediaType = "track"
+	MediaTypeAudiobook MediaType = "audiobook"
+	MediaTypeBook      MediaType = "book"
 )
 
 type ExtraType string
@@ -325,19 +325,22 @@ func (e ExternalIDs) DedupeKey() string {
 }
 
 type LibraryItem struct {
-	ItemID        string      `json:"item_id"`
-	Title         string      `json:"title"`
-	SeriesTitle   string      `json:"series_title,omitempty"`
-	Year          int         `json:"year,omitempty"`
-	MediaType     MediaType   `json:"media_type"`
-	ThumbURL      string      `json:"thumb_url,omitempty"`
-	AddedAt       time.Time   `json:"added_at"`
-	ServerID      int64       `json:"server_id"`
-	ServerName    string      `json:"server_name"`
-	ServerType    ServerType  `json:"server_type"`
-	SeasonNumber  int         `json:"season_number,omitempty"`
-	EpisodeNumber int         `json:"episode_number,omitempty"`
-	ExternalIDs   ExternalIDs `json:"external_ids,omitempty"`
+	ItemID        string     `json:"item_id"`
+	Title         string     `json:"title"`
+	SeriesTitle   string     `json:"series_title,omitempty"`
+	Year          int        `json:"year,omitempty"`
+	MediaType     MediaType  `json:"media_type"`
+	ThumbURL      string     `json:"thumb_url,omitempty"`
+	AddedAt       time.Time  `json:"added_at"`
+	ServerID      int64      `json:"server_id"`
+	ServerName    string     `json:"server_name"`
+	ServerType    ServerType `json:"server_type"`
+	SeasonNumber  int        `json:"season_number,omitempty"`
+	EpisodeNumber int        `json:"episode_number,omitempty"`
+	// True for a whole-season add (no specific episode); used by dedup and "Season N" rendering.
+	SeasonBatch  bool        `json:"season_batch,omitempty"`
+	EpisodeCount int         `json:"episode_count,omitempty"`
+	ExternalIDs  ExternalIDs `json:"external_ids,omitempty"`
 }
 
 type CastMember struct {

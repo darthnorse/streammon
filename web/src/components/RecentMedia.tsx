@@ -9,6 +9,19 @@ const serverColors: Record<string, string> = {
   jellyfin: 'bg-purple-500',
 }
 
+export function metaLine(item: LibraryItem): string {
+  if (item.media_type === 'episode' && item.season_batch && item.season_number != null) {
+    if (item.episode_count && item.episode_count > 0) {
+      return `Season ${item.season_number} · ${item.episode_count} ${item.episode_count === 1 ? 'episode' : 'episodes'}`
+    }
+    return `Season ${item.season_number}`
+  }
+  if (item.media_type === 'episode' && item.season_number != null && item.episode_number != null) {
+    return `S${item.season_number} · E${item.episode_number}`
+  }
+  return item.year && item.year > 0 ? String(item.year) : ''
+}
+
 export function RecentMedia() {
   const { data, loading, error } = useFetch<LibraryItem[]>('/api/dashboard/recent-media')
   const { handleTitleClick, modal } = useMediaDetailModal()
@@ -72,9 +85,7 @@ export function RecentMedia() {
                 {item.title}
               </div>
               <div className="text-[11px] text-muted dark:text-muted-dark truncate">
-                {item.media_type === 'episode' && item.season_number != null && item.episode_number != null
-                  ? `S${item.season_number} · E${item.episode_number}`
-                  : item.year && item.year > 0 ? item.year : ''}
+                {metaLine(item)}
               </div>
             </div>
           </div>

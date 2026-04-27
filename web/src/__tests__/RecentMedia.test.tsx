@@ -1,7 +1,21 @@
 import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithRouter } from '../test-utils'
-import { RecentMedia } from '../components/RecentMedia'
+import { RecentMedia, metaLine } from '../components/RecentMedia'
+import type { LibraryItem } from '../types'
+
+function makeItem(overrides: Partial<LibraryItem> = {}): LibraryItem {
+  return {
+    item_id: 'id',
+    title: 'Title',
+    media_type: 'movie',
+    added_at: new Date().toISOString(),
+    server_id: 1,
+    server_name: 'Server',
+    server_type: 'plex',
+    ...overrides,
+  }
+}
 
 vi.mock('../hooks/useFetch', () => ({
   useFetch: vi.fn(),
@@ -72,5 +86,53 @@ describe('RecentMedia', () => {
     const { container } = renderWithRouter(<RecentMedia />)
     const dot = container.querySelector('.bg-purple-500')
     expect(dot).toBeInTheDocument()
+  })
+})
+
+describe('metaLine', () => {
+  it('renders the year for movies', () => {
+    expect(metaLine(makeItem({ media_type: 'movie', year: 2024 }))).toBe('2024')
+  })
+
+  it('returns empty string for movies without a year', () => {
+    expect(metaLine(makeItem({ media_type: 'movie' }))).toBe('')
+  })
+
+  it('renders S{n} · E{m} for episodes with full numbering', () => {
+    expect(metaLine(makeItem({ media_type: 'episode', season_number: 5, episode_number: 14 }))).toBe('S5 · E14')
+  })
+
+  it('renders Season {n} · {count} episodes for season-batch with leafCount', () => {
+    expect(metaLine(makeItem({
+      media_type: 'episode',
+      season_batch: true,
+      season_number: 1,
+      episode_count: 5,
+    }))).toBe('Season 1 · 5 episodes')
+  })
+
+  it('uses singular "episode" for season-batch with one episode', () => {
+    expect(metaLine(makeItem({
+      media_type: 'episode',
+      season_batch: true,
+      season_number: 1,
+      episode_count: 1,
+    }))).toBe('Season 1 · 1 episode')
+  })
+
+  it('renders Season {n} when season-batch has no episode count', () => {
+    expect(metaLine(makeItem({
+      media_type: 'episode',
+      season_batch: true,
+      season_number: 2,
+    }))).toBe('Season 2')
+  })
+
+  it('falls back to year for an episode missing the episode number', () => {
+    expect(metaLine(makeItem({
+      media_type: 'episode',
+      season_number: 5,
+      year: 2024,
+    }))).toBe('2024')
   })
 })

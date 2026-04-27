@@ -16,8 +16,9 @@ import (
 )
 
 type recentlyAddedContainer struct {
-	XMLName xml.Name            `xml:"MediaContainer"`
-	Videos  []recentlyAddedItem `xml:"Video"`
+	XMLName     xml.Name                 `xml:"MediaContainer"`
+	Videos      []recentlyAddedItem      `xml:"Video"`
+	Directories []recentlyAddedDirectory `xml:"Directory"`
 }
 
 type recentlyAddedItem struct {
@@ -33,6 +34,19 @@ type recentlyAddedItem struct {
 	ParentIndex      string     `xml:"parentIndex,attr"`
 	Index            string     `xml:"index,attr"`
 	Guids            []plexGuid `xml:"Guid"`
+}
+
+// Plex emits these for whole-season batch adds; show metadata is on the parent.
+type recentlyAddedDirectory struct {
+	Title           string `xml:"title,attr"`
+	Type            string `xml:"type,attr"`
+	RatingKey       string `xml:"ratingKey,attr"`
+	ParentRatingKey string `xml:"parentRatingKey,attr"`
+	ParentTitle     string `xml:"parentTitle,attr"`
+	ParentYear      string `xml:"parentYear,attr"`
+	Index           string `xml:"index,attr"`
+	LeafCount       string `xml:"leafCount,attr"`
+	AddedAt         string `xml:"addedAt,attr"`
 }
 
 type plexGuid struct {
@@ -98,7 +112,12 @@ func (s *Server) fetchHubRecentlyAdded(ctx context.Context, mediaType string, li
 		return nil, fmt.Errorf("plex parse hub recently added: %w", err)
 	}
 
-	items := make([]models.LibraryItem, 0, len(data.Videos))
+	items := make([]models.LibraryItem, 0, len(data.Videos)+len(data.Directories))
+	for _, dir := range data.Directories {
+		if item, ok := directoryToLibraryItem(dir, s.serverID, s.serverName); ok {
+			items = append(items, item)
+		}
+	}
 	for _, item := range data.Videos {
 		title := item.Title
 		if item.GrandparentTitle != "" {
@@ -130,6 +149,37 @@ func (s *Server) fetchHubRecentlyAdded(ctx context.Context, mediaType string, li
 	}
 
 	return items, nil
+}
+
+// Surfaces a whole-season Directory as a single TV item; SeasonBatch flags it for dedup and rendering.
+func directoryToLibraryItem(d recentlyAddedDirectory, serverID int64, serverName string) (models.LibraryItem, bool) {
+	if d.Type != "season" {
+		return models.LibraryItem{}, false
+	}
+	showTitle := d.ParentTitle
+	if showTitle == "" {
+		showTitle = d.Title
+	}
+	// Prefer parentRatingKey so the show poster + show-level click-through resolve; the season ratingKey is a degraded fallback.
+	showKey := d.ParentRatingKey
+	if showKey == "" {
+		showKey = d.RatingKey
+	}
+	return models.LibraryItem{
+		ItemID:       showKey,
+		Title:        showTitle,
+		SeriesTitle:  showTitle,
+		Year:         atoi(d.ParentYear),
+		MediaType:    models.MediaTypeTV,
+		ThumbURL:     showKey,
+		AddedAt:      time.Unix(atoi64(d.AddedAt), 0).UTC(),
+		ServerID:     serverID,
+		ServerName:   serverName,
+		ServerType:   models.ServerTypePlex,
+		SeasonNumber: atoi(d.Index),
+		SeasonBatch:  true,
+		EpisodeCount: atoi(d.LeafCount),
+	}, true
 }
 
 func parsePlexGuids(guids []plexGuid) models.ExternalIDs {

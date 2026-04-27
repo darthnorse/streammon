@@ -11,7 +11,11 @@ import (
 )
 
 func TestGetRecentlyAdded(t *testing.T) {
-	data, err := os.ReadFile("testdata/recently_added.xml")
+	movies, err := os.ReadFile("testdata/recently_added.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	shows, err := os.ReadFile("testdata/recently_added_shows.xml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,12 +28,15 @@ func TestGetRecentlyAdded(t *testing.T) {
 		if r.URL.Path != "/hubs/home/recentlyAdded" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		typeParam := r.URL.Query().Get("type")
-		if typeParam != "1" && typeParam != "2" {
-			t.Errorf("unexpected type parameter: %s", typeParam)
-		}
 		requestCount++
-		w.Write(data)
+		switch r.URL.Query().Get("type") {
+		case "1":
+			w.Write(movies)
+		case "2":
+			w.Write(shows)
+		default:
+			t.Errorf("unexpected type parameter: %s", r.URL.Query().Get("type"))
+		}
 	}))
 	defer ts.Close()
 
@@ -50,9 +57,9 @@ func TestGetRecentlyAdded(t *testing.T) {
 		t.Errorf("expected 2 requests (movies + shows), got %d", requestCount)
 	}
 
-	// 3 items per type × 2 types = 6 total
-	if len(items) != 6 {
-		t.Fatalf("expected 6 items, got %d", len(items))
+	// 2 movies + 1 episode + 1 season directory = 4 total
+	if len(items) != 4 {
+		t.Fatalf("expected 4 items, got %d", len(items))
 	}
 
 	item := items[0]
@@ -81,29 +88,120 @@ func TestGetRecentlyAdded(t *testing.T) {
 		t.Errorf("server type = %q, want plex", item.ServerType)
 	}
 
-	// Verify episode uses series poster (grandparentRatingKey) for thumb
-	hasEpisode := false
+	// Episode uses series poster (grandparentRatingKey) for thumb. Assert exactly
+	// one match so we'd catch a regression that emits duplicates.
+	episodeMatches := 0
+	var episode models.LibraryItem
 	for _, it := range items {
 		if it.Title == "Breaking Bad - Ozymandias" {
-			hasEpisode = true
-			if it.MediaType != models.MediaTypeTV {
-				t.Errorf("episode media type = %q, want episode", it.MediaType)
-			}
-			if it.ThumbURL != "55555" {
-				t.Errorf("episode thumb = %q, want 55555 (series grandparentRatingKey)", it.ThumbURL)
-			}
-			if it.SeasonNumber != 5 {
-				t.Errorf("season number = %d, want 5", it.SeasonNumber)
-			}
-			if it.EpisodeNumber != 14 {
-				t.Errorf("episode number = %d, want 14", it.EpisodeNumber)
-			}
-			break
+			episodeMatches++
+			episode = it
 		}
 	}
-	if !hasEpisode {
-		t.Error("expected to find episode 'Breaking Bad - Ozymandias'")
+	if episodeMatches != 1 {
+		t.Fatalf("expected exactly 1 'Breaking Bad - Ozymandias' entry, got %d", episodeMatches)
 	}
+	if episode.MediaType != models.MediaTypeTV {
+		t.Errorf("episode media type = %q, want episode", episode.MediaType)
+	}
+	if episode.ThumbURL != "55555" {
+		t.Errorf("episode thumb = %q, want 55555 (series grandparentRatingKey)", episode.ThumbURL)
+	}
+	if episode.SeasonNumber != 5 {
+		t.Errorf("season number = %d, want 5", episode.SeasonNumber)
+	}
+	if episode.EpisodeNumber != 14 {
+		t.Errorf("episode number = %d, want 14", episode.EpisodeNumber)
+	}
+
+	// Whole-season Directory entry: Plex returns these when an entire season is
+	// added in a batch instead of per-episode <Video> entries. Assert exactly
+	// one match so a future regression that emits the directory through the
+	// movies hub as well would fail.
+	seasonMatches := 0
+	var season models.LibraryItem
+	for _, it := range items {
+		if it.SeriesTitle == "Secret Service" {
+			seasonMatches++
+			season = it
+		}
+	}
+	if seasonMatches != 1 {
+		t.Fatalf("expected exactly 1 'Secret Service' entry, got %d", seasonMatches)
+	}
+	if season.Title != "Secret Service" {
+		t.Errorf("season title = %q, want Secret Service", season.Title)
+	}
+	if season.MediaType != models.MediaTypeTV {
+		t.Errorf("season media type = %q, want episode", season.MediaType)
+	}
+	if season.SeasonNumber != 1 {
+		t.Errorf("season number = %d, want 1", season.SeasonNumber)
+	}
+	if season.EpisodeNumber != 0 {
+		t.Errorf("episode number = %d, want 0 (whole-season add)", season.EpisodeNumber)
+	}
+	if !season.SeasonBatch {
+		t.Error("expected SeasonBatch=true for whole-season Directory entry")
+	}
+	if season.EpisodeCount != 5 {
+		t.Errorf("episode count = %d, want 5 (leafCount)", season.EpisodeCount)
+	}
+	if season.ItemID != "33333" {
+		t.Errorf("season item id = %q, want 33333 (parentRatingKey for show)", season.ItemID)
+	}
+	if season.ThumbURL != "33333" {
+		t.Errorf("season thumb = %q, want 33333 (parentRatingKey for show poster)", season.ThumbURL)
+	}
+	if season.Year != 2026 {
+		t.Errorf("season year = %d, want 2026", season.Year)
+	}
+}
+
+func TestDirectoryToLibraryItem(t *testing.T) {
+	t.Run("falls back to title when parentTitle is empty", func(t *testing.T) {
+		got, ok := directoryToLibraryItem(recentlyAddedDirectory{
+			Type:            "season",
+			Title:           "Fallback Show",
+			ParentRatingKey: "show-key",
+			Index:           "1",
+			AddedAt:         "1706000000",
+		}, 1, "Plex")
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		if got.Title != "Fallback Show" || got.SeriesTitle != "Fallback Show" {
+			t.Errorf("title/series = %q/%q, want Fallback Show/Fallback Show", got.Title, got.SeriesTitle)
+		}
+	})
+
+	t.Run("falls back to ratingKey when parentRatingKey is empty", func(t *testing.T) {
+		got, ok := directoryToLibraryItem(recentlyAddedDirectory{
+			Type:        "season",
+			ParentTitle: "Show",
+			RatingKey:   "season-key",
+			Index:       "1",
+			AddedAt:     "1706000000",
+		}, 1, "Plex")
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		if got.ItemID != "season-key" || got.ThumbURL != "season-key" {
+			t.Errorf("itemID/thumb = %q/%q, want season-key/season-key", got.ItemID, got.ThumbURL)
+		}
+	})
+
+	t.Run("ignores non-season directory types", func(t *testing.T) {
+		_, ok := directoryToLibraryItem(recentlyAddedDirectory{
+			Type:      "show",
+			Title:     "Some Show",
+			RatingKey: "show-key",
+			AddedAt:   "1706000000",
+		}, 1, "Plex")
+		if ok {
+			t.Error("expected ok=false for type=show (not yet supported)")
+		}
+	})
 }
 
 func TestGetRecentlyAddedEmpty(t *testing.T) {
