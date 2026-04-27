@@ -19,6 +19,7 @@ type MediaServer interface {
 	GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error)
 	DeleteItem(ctx context.Context, itemID string) error
 	GetSeasons(ctx context.Context, showID string) ([]models.Season, error)
+	GetEpisodes(ctx context.Context, seasonID string) ([]models.Episode, error)
 	TerminateSession(ctx context.Context, sessionID string, message string) error
 }
 
