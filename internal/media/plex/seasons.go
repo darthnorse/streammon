@@ -13,8 +13,8 @@ import (
 )
 
 type seasonsContainer struct {
-	XMLName     xml.Name        `xml:"MediaContainer"`
-	Directories []seasonDirXML  `xml:"Directory"`
+	XMLName     xml.Name       `xml:"MediaContainer"`
+	Directories []seasonDirXML `xml:"Directory"`
 }
 
 type seasonDirXML struct {
