@@ -241,7 +241,49 @@ export interface ItemDetails {
   container?: string
   bitrate?: number
   tmdb_id?: string
+  level?: 'show' | 'season' | 'episode' | 'movie' | ''
+  series_id?: string
+  parent_id?: string
   watch_history?: WatchHistoryEntry[]
+}
+
+export interface Season {
+  id: string
+  number: number
+  title: string
+  thumb_url?: string
+  episode_count?: number
+  year?: number
+}
+
+export interface Episode {
+  id: string
+  number: number
+  title: string
+  thumb_url?: string
+  summary?: string
+  duration_ms?: number
+  air_date?: string
+}
+
+export interface ChildrenSeasons { seasons: Season[] }
+export interface ChildrenEpisodes { episodes: Episode[] }
+
+export interface TMDBSeasonEpisode {
+  episode_number: number
+  name?: string
+  overview?: string
+  still_path?: string | null
+  air_date?: string
+  runtime?: number
+  vote_average?: number
+}
+
+export interface TMDBSeasonDetails {
+  name?: string
+  overview?: string
+  air_date?: string
+  episodes?: TMDBSeasonEpisode[]
 }
 
 export interface MediaStat {
@@ -1086,4 +1128,8 @@ export type TitleClickHandler = (serverId: number, itemId: string) => void
 export type ModalEntry =
   | { type: 'person'; personId: number }
   | ({ type: 'tmdb' } & SelectedMedia)
+  | { type: 'library'; serverId: number; itemId: string }
+  | { type: 'show'; serverId: number; itemId: string }
+  | { type: 'season'; serverId: number; itemId: string }
+  | { type: 'episode'; serverId: number; itemId: string }
 
