@@ -18,9 +18,12 @@ type seasonsContainer struct {
 }
 
 type seasonDirXML struct {
-	RatingKey string `xml:"ratingKey,attr"`
-	Index     int    `xml:"index,attr"`
-	Title     string `xml:"title,attr"`
+	RatingKey  string `xml:"ratingKey,attr"`
+	Index      int    `xml:"index,attr"`
+	Title      string `xml:"title,attr"`
+	Thumb      string `xml:"thumb,attr"`
+	LeafCount  int    `xml:"leafCount,attr"`
+	ParentYear int    `xml:"parentYear,attr"`
 }
 
 func (s *Server) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
@@ -54,9 +57,12 @@ func (s *Server) GetSeasons(ctx context.Context, showID string) ([]models.Season
 	seasons := make([]models.Season, 0, len(container.Directories))
 	for _, dir := range container.Directories {
 		seasons = append(seasons, models.Season{
-			ID:     dir.RatingKey,
-			Number: dir.Index,
-			Title:  dir.Title,
+			ID:           dir.RatingKey,
+			Number:       dir.Index,
+			Title:        dir.Title,
+			ThumbURL:     dir.RatingKey,
+			EpisodeCount: dir.LeafCount,
+			Year:         dir.ParentYear,
 		})
 	}
 	return seasons, nil

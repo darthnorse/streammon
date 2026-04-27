@@ -12,7 +12,7 @@ import (
 func TestGetSeasons(t *testing.T) {
 	xml := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer>
-  <Directory ratingKey="100" index="0" title="Specials" />
+  <Directory ratingKey="100" index="0" title="Specials" thumb="/library/metadata/100/thumb/1" leafCount="10" parentYear="2020" />
   <Directory ratingKey="101" index="1" title="Season 1" />
   <Directory ratingKey="102" index="2" title="Season 2" />
 </MediaContainer>`
@@ -46,6 +46,15 @@ func TestGetSeasons(t *testing.T) {
 	}
 	if seasons[0].Title != "Specials" {
 		t.Errorf("season[0].Title = %q, want Specials", seasons[0].Title)
+	}
+	if seasons[0].ThumbURL != seasons[0].ID {
+		t.Errorf("season[0].ThumbURL = %q, want %q", seasons[0].ThumbURL, seasons[0].ID)
+	}
+	if seasons[0].EpisodeCount != 10 {
+		t.Errorf("season[0].EpisodeCount = %d, want 10", seasons[0].EpisodeCount)
+	}
+	if seasons[0].Year != 2020 {
+		t.Errorf("season[0].Year = %d, want 2020", seasons[0].Year)
 	}
 
 	if seasons[1].ID != "101" {
