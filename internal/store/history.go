@@ -420,6 +420,54 @@ func (s *Store) HistoryForTitleByUser(title, userName string, limit int) ([]mode
 	return items, rows.Err()
 }
 
+// HistoryForItem returns watch history filtered by item identity at the given
+// hierarchy level. level is one of "episode" | "season" | "show" | "movie".
+// seasonNumber is only consulted when level == "season".
+func (s *Store) HistoryForItem(serverID int64, itemID, level string, seasonNumber int, userName string, limit int) ([]models.WatchHistoryEntry, error) {
+	var where string
+	args := []any{serverID}
+
+	switch level {
+	case "episode":
+		where = "server_id = ? AND item_id = ?"
+		args = append(args, itemID)
+	case "season":
+		where = "server_id = ? AND grandparent_item_id = ? AND season_number = ?"
+		args = append(args, itemID, seasonNumber)
+	case "show":
+		where = "server_id = ? AND grandparent_item_id = ?"
+		args = append(args, itemID)
+	case "movie":
+		where = "server_id = ? AND item_id = ?"
+		args = append(args, itemID)
+	default:
+		return nil, fmt.Errorf("history for item: unknown level %q", level)
+	}
+
+	if userName != "" {
+		where += " AND user_name = ?"
+		args = append(args, userName)
+	}
+	args = append(args, limit)
+
+	query := `SELECT ` + historyColumns + ` FROM watch_history WHERE ` + where + ` ORDER BY started_at DESC LIMIT ?`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("history for item: %w", err)
+	}
+	defer rows.Close()
+
+	items := []models.WatchHistoryEntry{}
+	for rows.Next() {
+		e, err := scanHistoryEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, e)
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) HistoryExists(serverID int64, userName, title string, startedAt time.Time) (bool, error) {
 	var exists int
 	err := s.db.QueryRow(historyDedupSQL,

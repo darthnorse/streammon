@@ -2025,3 +2025,94 @@ func TestMigration039BackfillsSessions(t *testing.T) {
 	}
 }
 
+
+func TestHistoryForItem(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	base := time.Now().UTC().Add(-24 * time.Hour)
+
+	insert := func(itemID, grandparentID, user, title string, season, episode int, startedAt time.Time) {
+		t.Helper()
+		err := s.InsertHistory(&models.WatchHistoryEntry{
+			ServerID:          serverID,
+			ItemID:            itemID,
+			GrandparentItemID: grandparentID,
+			UserName:          user,
+			MediaType:         models.MediaTypeTV,
+			Title:             title,
+			GrandparentTitle:  "Show One",
+			SeasonNumber:      season,
+			EpisodeNumber:     episode,
+			StartedAt:         startedAt,
+			StoppedAt:         startedAt.Add(30 * time.Minute),
+		})
+		if err != nil {
+			t.Fatalf("InsertHistory(%s): %v", title, err)
+		}
+	}
+
+	insert("ep1", "show1", "alice", "Pilot", 1, 1, base)
+	insert("ep2", "show1", "bob", "Second", 1, 2, base.Add(2*time.Hour))
+	insert("ep3", "show1", "alice", "S2E1", 2, 1, base.Add(4*time.Hour))
+
+	t.Run("episode level filters by item_id", func(t *testing.T) {
+		got, err := s.HistoryForItem(serverID, "ep1", "episode", 0, "", 10)
+		if err != nil {
+			t.Fatalf("HistoryForItem: %v", err)
+		}
+		if len(got) != 1 {
+			t.Fatalf("expected 1 row, got %d", len(got))
+		}
+		if got[0].ItemID != "ep1" {
+			t.Fatalf("expected item_id ep1, got %q", got[0].ItemID)
+		}
+	})
+
+	t.Run("season level filters by grandparent and season_number", func(t *testing.T) {
+		got, err := s.HistoryForItem(serverID, "show1", "season", 1, "", 10)
+		if err != nil {
+			t.Fatalf("HistoryForItem: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("expected 2 s1 rows, got %d", len(got))
+		}
+		for _, e := range got {
+			if e.SeasonNumber != 1 {
+				t.Fatalf("expected season 1, got %d", e.SeasonNumber)
+			}
+		}
+	})
+
+	t.Run("show level filters by grandparent_item_id", func(t *testing.T) {
+		got, err := s.HistoryForItem(serverID, "show1", "show", 0, "", 10)
+		if err != nil {
+			t.Fatalf("HistoryForItem: %v", err)
+		}
+		if len(got) != 3 {
+			t.Fatalf("expected 3 rows, got %d", len(got))
+		}
+	})
+
+	t.Run("user filter restricts", func(t *testing.T) {
+		got, err := s.HistoryForItem(serverID, "show1", "show", 0, "alice", 10)
+		if err != nil {
+			t.Fatalf("HistoryForItem: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("expected 2 alice rows, got %d", len(got))
+		}
+		for _, e := range got {
+			if e.UserName != "alice" {
+				t.Fatalf("expected alice, got %q", e.UserName)
+			}
+		}
+	})
+
+	t.Run("unknown level returns error", func(t *testing.T) {
+		_, err := s.HistoryForItem(serverID, "show1", "weird", 0, "", 10)
+		if err == nil {
+			t.Fatal("expected error for unknown level")
+		}
+	})
+}
