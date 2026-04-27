@@ -30,6 +30,7 @@ type itemDetailItem struct {
 	Duration             string            `xml:"duration,attr"`
 	Studio               string            `xml:"studio,attr"`
 	GrandparentTitle     string            `xml:"grandparentTitle,attr"`
+	ParentTitle          string            `xml:"parentTitle,attr"`
 	ParentIndex          string            `xml:"parentIndex,attr"`
 	Index                string            `xml:"index,attr"`
 	ParentRatingKey      string            `xml:"parentRatingKey,attr"`
@@ -129,6 +130,21 @@ func parseItemDetails(data []byte, serverID int64, serverName string) (*models.I
 
 	thumbURL := normalizeThumb(item.Thumb)
 
+	// Plex's index/parentIndex/grandparentTitle semantics differ by item type:
+	// for an episode parentIndex is the season number and grandparentTitle is the show;
+	// for a season index is the season number and parentTitle is the show.
+	level := plexLevel(item.Type)
+	var seasonNumber, episodeNumber int
+	seriesTitle := item.GrandparentTitle
+	switch level {
+	case "episode":
+		seasonNumber = atoi(item.ParentIndex)
+		episodeNumber = atoi(item.Index)
+	case "season":
+		seasonNumber = atoi(item.Index)
+		seriesTitle = item.ParentTitle
+	}
+
 	details := &models.ItemDetails{
 		ID:            item.RatingKey,
 		Title:         item.Title,
@@ -143,13 +159,13 @@ func parseItemDetails(data []byte, serverID int64, serverName string) (*models.I
 		ContentRating: item.ContentRating,
 		DurationMs:    atoi64(item.Duration),
 		Studio:        item.Studio,
-		SeriesTitle:   item.GrandparentTitle,
-		SeasonNumber:  atoi(item.ParentIndex),
-		EpisodeNumber: atoi(item.Index),
+		SeriesTitle:   seriesTitle,
+		SeasonNumber:  seasonNumber,
+		EpisodeNumber: episodeNumber,
 		ServerID:      serverID,
 		ServerName:    serverName,
 		ServerType:    models.ServerTypePlex,
-		Level:         plexLevel(item.Type),
+		Level:         level,
 		SeriesID:      item.GrandparentRatingKey,
 		ParentID:      item.ParentRatingKey,
 	}

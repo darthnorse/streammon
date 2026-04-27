@@ -1,0 +1,11 @@
+{
+  "Id": "season-2",
+  "Name": "Season 2",
+  "ProductionYear": 2003,
+  "Type": "Season",
+  "ImageTags": {"Primary": "tag-season"},
+  "RunTimeTicks": 0,
+  "IndexNumber": 2,
+  "SeriesName": "8 Simple Rules",
+  "SeriesId": "series-99"
+}

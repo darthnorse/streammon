@@ -771,13 +771,22 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 		studio = item.Studios[0].Name
 	}
 
+	// For an Episode, ParentIndexNumber is the season number; for a Season, IndexNumber is.
+	level := embyLevel(item.Type)
+	seasonNumber := item.ParentIndexNumber
+	episodeNumber := item.IndexNumber
+	if level == "season" {
+		seasonNumber = item.IndexNumber
+		episodeNumber = 0
+	}
+
 	details := &models.ItemDetails{
 		ID:            item.ID,
 		Title:         item.Name,
 		Year:          item.ProductionYear,
 		Summary:       item.Overview,
 		MediaType:     embyMediaType(item.Type),
-		Level:         embyLevel(item.Type),
+		Level:         level,
 		ThumbURL:      thumbURL,
 		Genres:        item.Genres,
 		Directors:     directors,
@@ -789,8 +798,8 @@ func (c *Client) GetItemDetails(ctx context.Context, itemID string) (*models.Ite
 		SeriesTitle:   item.SeriesName,
 		SeriesID:      item.SeriesId,
 		ParentID:      item.SeasonId,
-		SeasonNumber:  item.ParentIndexNumber,
-		EpisodeNumber: item.IndexNumber,
+		SeasonNumber:  seasonNumber,
+		EpisodeNumber: episodeNumber,
 		ServerID:      c.serverID,
 		ServerName:    c.serverName,
 		ServerType:    c.serverType,

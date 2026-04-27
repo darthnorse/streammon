@@ -165,6 +165,43 @@ func TestGetItemDetails_Episode(t *testing.T) {
 	}
 }
 
+func TestGetItemDetails_Season(t *testing.T) {
+	data, err := os.ReadFile("testdata/item_details_season.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(data)
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, Name: "TestPlex", URL: ts.URL, APIKey: "tok"})
+
+	details, err := srv.GetItemDetails(context.Background(), "204185")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if details.Level != "season" {
+		t.Errorf("level = %q, want season", details.Level)
+	}
+	// Plex puts the season number in `index`, not `parentIndex` (parentIndex is the show's index, always 1).
+	if details.SeasonNumber != 2 {
+		t.Errorf("season number = %d, want 2 (from index, not parentIndex)", details.SeasonNumber)
+	}
+	if details.EpisodeNumber != 0 {
+		t.Errorf("episode number = %d, want 0 for a season", details.EpisodeNumber)
+	}
+	// Plex puts the show title in `parentTitle` for seasons, not `grandparentTitle` (which is empty).
+	if details.SeriesTitle != "8 Simple Rules" {
+		t.Errorf("series title = %q, want 8 Simple Rules (from parentTitle)", details.SeriesTitle)
+	}
+	if details.ParentID != "204156" {
+		t.Errorf("parent_id = %q, want 204156 (show ratingKey)", details.ParentID)
+	}
+}
+
 func TestGetItemDetails_NotFound(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)

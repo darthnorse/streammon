@@ -748,6 +748,43 @@ func TestGetItemDetails_Episode(t *testing.T) {
 	}
 }
 
+func TestGetItemDetails_Season(t *testing.T) {
+	data, err := os.ReadFile("testdata/item_details_season.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrappedData := wrapInItemsArray(data)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write(wrappedData)
+	}))
+	defer ts.Close()
+
+	c := New(models.Server{ID: 1, Name: "TestEmby", URL: ts.URL, APIKey: "tok"}, models.ServerTypeEmby)
+
+	details, err := c.GetItemDetails(context.Background(), "season-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if details.Level != "season" {
+		t.Errorf("level = %q, want season", details.Level)
+	}
+	// Emby puts the season number in IndexNumber for Season-typed items, not ParentIndexNumber.
+	if details.SeasonNumber != 2 {
+		t.Errorf("season number = %d, want 2 (from IndexNumber)", details.SeasonNumber)
+	}
+	if details.EpisodeNumber != 0 {
+		t.Errorf("episode number = %d, want 0 for a season", details.EpisodeNumber)
+	}
+	if details.SeriesTitle != "8 Simple Rules" {
+		t.Errorf("series title = %q, want 8 Simple Rules", details.SeriesTitle)
+	}
+	if details.SeriesID != "series-99" {
+		t.Errorf("series_id = %q, want series-99", details.SeriesID)
+	}
+}
+
 func TestGetItemDetails_Series(t *testing.T) {
 	data, err := os.ReadFile("testdata/item_details_series.json")
 	if err != nil {
