@@ -9,6 +9,7 @@ import { TMDB_IMG } from '../../lib/tmdb'
 import { MEDIA_STATUS, mediaStatusBadge } from '../../lib/overseerr'
 import { CastChip } from '../CastChip'
 import { ModalStackRenderer } from '../ModalStackRenderer'
+import { SeasonsGrid } from './SeasonsGrid'
 import {
   StarRating,
   TechInfo,
@@ -36,6 +37,7 @@ export function ShowDetail({
   item,
   loading,
   onClose,
+  pushModal,
   active,
   overseerrConfigured,
 }: ShowDetailProps) {
@@ -293,6 +295,10 @@ export function ShowDetail({
                     )}
                   </div>
                 </div>
+
+                {item.level === 'show' && (
+                  <SeasonsGrid serverId={item.server_id} showId={item.id} pushModal={pushModal} />
+                )}
 
                 {(hasTMDBCast || (item.cast && item.cast.length > 0)) && (
                   <div className="space-y-2">
