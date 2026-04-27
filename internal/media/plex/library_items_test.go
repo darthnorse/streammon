@@ -502,3 +502,41 @@ func TestEnrichLastWatched_EmptyMap(t *testing.T) {
 		t.Error("should remain nil with empty history map")
 	}
 }
+
+func TestFetchLibraryBatch_PopulatesVideoDimensions(t *testing.T) {
+	moviesXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer totalSize="1">
+  <Video ratingKey="1" type="movie" title="Cropped" year="2024" addedAt="1700000000">
+    <Media videoResolution="720" width="1280" height="688">
+      <Part size="1000"/>
+    </Media>
+  </Video>
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeMovie:
+			w.Write([]byte(moviesXML))
+		default:
+			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+	items, err := srv.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+
+	item := items[0]
+	if item.VideoWidth != 1280 {
+		t.Errorf("VideoWidth = %d, want 1280", item.VideoWidth)
+	}
+	if item.VideoHeight != 688 {
+		t.Errorf("VideoHeight = %d, want 688", item.VideoHeight)
+	}
+}

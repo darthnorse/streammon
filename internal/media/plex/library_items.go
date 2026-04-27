@@ -48,6 +48,7 @@ type libraryItemXML struct {
 
 type mediaInfoXML struct {
 	VideoResolution string        `xml:"videoResolution,attr"`
+	Width           string        `xml:"width,attr"`
 	Height          string        `xml:"height,attr"`
 	Parts           []partInfoXML `xml:"Part"`
 }
@@ -194,6 +195,7 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 	var items []models.LibraryItemCache
 	for _, item := range xmlItems {
 		var resolution string
+		var videoWidth, videoHeight int
 		var fileSize int64
 		for _, media := range item.Media {
 			if resolution == "" {
@@ -201,6 +203,12 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 				if resolution == "" && media.Height != "" {
 					resolution = heightToResolution(media.Height)
 				}
+			}
+			if videoHeight == 0 && media.Height != "" {
+				videoHeight = atoi(media.Height)
+			}
+			if videoWidth == 0 && media.Width != "" {
+				videoWidth = atoi(media.Width)
 			}
 			for _, part := range media.Parts {
 				fileSize += part.Size
@@ -227,6 +235,8 @@ func (s *Server) fetchLibraryBatch(ctx context.Context, libraryID, typeFilter st
 			AddedAt:         time.Unix(atoi64(item.AddedAt), 0).UTC(),
 			LastWatchedAt:   lastWatchedAt,
 			VideoResolution: resolution,
+			VideoWidth:      videoWidth,
+			VideoHeight:     videoHeight,
 			FileSize:        fileSize,
 			EpisodeCount:    episodeCount,
 			ThumbURL:        item.RatingKey,
