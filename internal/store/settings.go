@@ -533,3 +533,21 @@ func (s *Store) SetIdleTimeoutMinutes(min int) error {
 	return s.SetSetting(idleTimeoutKey, strconv.Itoa(min))
 }
 
+const maintenanceResolutionWidthAwareKey = "maintenance.resolution_width_aware"
+
+func (s *Store) GetMaintenanceResolutionWidthAware() (bool, error) {
+	val, err := s.GetSetting(maintenanceResolutionWidthAwareKey)
+	if err != nil {
+		return false, err
+	}
+	return val == "true", nil
+}
+
+func (s *Store) SetMaintenanceResolutionWidthAware(enabled bool) error {
+	val := "false"
+	if enabled {
+		val = "true"
+	}
+	return s.SetSetting(maintenanceResolutionWidthAwareKey, val)
+}
+

@@ -978,3 +978,38 @@ func TestGuestSettingsRejectUnknownKey(t *testing.T) {
 		t.Fatal("expected error for unknown key")
 	}
 }
+
+func TestMaintenanceResolutionWidthAware_DefaultFalse(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	got, err := s.GetMaintenanceResolutionWidthAware()
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got {
+		t.Errorf("default = true, want false")
+	}
+}
+
+func TestMaintenanceResolutionWidthAware_RoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if err := s.SetMaintenanceResolutionWidthAware(true); err != nil {
+		t.Fatalf("set true: %v", err)
+	}
+	got, err := s.GetMaintenanceResolutionWidthAware()
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got {
+		t.Errorf("after set(true), got false")
+	}
+	if err := s.SetMaintenanceResolutionWidthAware(false); err != nil {
+		t.Fatalf("set false: %v", err)
+	}
+	got, err = s.GetMaintenanceResolutionWidthAware()
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got {
+		t.Errorf("after set(false), got true")
+	}
+}
