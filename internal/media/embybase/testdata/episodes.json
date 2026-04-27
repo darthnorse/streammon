@@ -1,0 +1,23 @@
+{
+  "Items": [
+    {
+      "Id": "ep1",
+      "Name": "Pilot",
+      "IndexNumber": 1,
+      "Overview": "The first one.",
+      "RunTimeTicks": 28800000000,
+      "PremiereDate": "2020-01-15T00:00:00Z",
+      "ImageTags": {"Primary": "tag111"}
+    },
+    {
+      "Id": "ep2",
+      "Name": "The Second",
+      "IndexNumber": 2,
+      "Overview": "",
+      "RunTimeTicks": 27000000000,
+      "PremiereDate": "2020-01-22T00:00:00Z",
+      "ImageTags": {"Primary": "tag222"}
+    }
+  ],
+  "TotalRecordCount": 2
+}
