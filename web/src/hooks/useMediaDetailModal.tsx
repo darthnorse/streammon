@@ -1,26 +1,31 @@
-import { useState, useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { TitleClickHandler } from '../types'
-import { useItemDetails } from './useItemDetails'
-import { MediaDetailModal } from '../components/MediaDetailModal'
+import { useModalStack } from './useModalStack'
+import { useFetch } from './useFetch'
+import { ModalStackRenderer } from '../components/ModalStackRenderer'
 
 export function useMediaDetailModal() {
-  const [selectedItem, setSelectedItem] = useState<{ serverId: number; itemId: string } | null>(null)
-  const { data: itemDetails, loading: detailsLoading } = useItemDetails(
-    selectedItem?.serverId ?? 0,
-    selectedItem?.itemId ?? null
-  )
+  const { stack, push, pop } = useModalStack()
 
   const handleTitleClick: TitleClickHandler = useCallback((serverId, itemId) => {
-    setSelectedItem({ serverId, itemId })
-  }, [])
+    push({ type: 'library', serverId, itemId })
+  }, [push])
 
-  const close = useCallback(() => setSelectedItem(null), [])
+  const { data: configData } = useFetch<{ configured: boolean }>(
+    stack.length > 0 ? '/api/overseerr/configured' : null,
+  )
+  const { data: libraryIdsData } = useFetch<{ ids: string[] }>(
+    stack.length > 0 ? '/api/library/tmdb-ids' : null,
+  )
+  const libraryIds = useMemo(() => new Set(libraryIdsData?.ids ?? []), [libraryIdsData])
 
-  const modal = selectedItem ? (
-    <MediaDetailModal
-      item={itemDetails}
-      loading={detailsLoading}
-      onClose={close}
+  const modal = stack.length > 0 ? (
+    <ModalStackRenderer
+      stack={stack}
+      pushModal={push}
+      popModal={pop}
+      overseerrConfigured={!!configData?.configured}
+      libraryIds={libraryIds}
     />
   ) : null
 
