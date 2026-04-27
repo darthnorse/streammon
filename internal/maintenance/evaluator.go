@@ -437,7 +437,6 @@ func deduplicateCandidates(candidates []models.BatchCandidate, items []models.Li
 	return result
 }
 
-// resolveLogicalHeight picks the height to compare against the rule threshold.
 // Width-aware mode keeps cropped widescreen and 21:9 sources from being
 // misclassified; rows missing raw dimensions fall through to the bucketed
 // string (legacy / pre-052 rows).

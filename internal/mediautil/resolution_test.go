@@ -11,12 +11,10 @@ func TestHeightFromWidth(t *testing.T) {
 		{"4K UHD", 3840, 2160},
 		{"DCI 4K", 4096, 2160},
 		{"1080p", 1920, 1080},
-		{"1080p widescreen 1920", 1920, 1080},
 		{"720p", 1280, 720},
-		{"720p cropped 1280", 1280, 720},
 		{"SD widescreen 1024", 1024, 480},
-		{"SD 480p 720", 720, 480},
-		{"sub-SD 640", 640, 0},
+		{"480p threshold", 720, 480},
+		{"sub-SD", 640, 0},
 		{"zero", 0, 0},
 	}
 	for _, tt := range tests {

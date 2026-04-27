@@ -21,9 +21,7 @@ func HeightToResolution(height int) string {
 	}
 }
 
-// HeightFromWidth returns the conventional height tier for a width.
 // Width is stable across aspect ratios; raw height is not.
-// Returns 0 for widths below 720.
 func HeightFromWidth(width int) int {
 	switch {
 	case width >= 3840:
