@@ -160,6 +160,12 @@ func (c *Client) GetTV(ctx context.Context, id int) (json.RawMessage, error) {
 	return c.cached(ctx, fmt.Sprintf("tv:%d", id), fmt.Sprintf("/tv/%d", id), params)
 }
 
+func (c *Client) GetTVSeason(ctx context.Context, tvID, seasonNumber int) (json.RawMessage, error) {
+	return c.cached(ctx,
+		fmt.Sprintf("tv:%d:season:%d", tvID, seasonNumber),
+		fmt.Sprintf("/tv/%d/season/%d", tvID, seasonNumber), nil)
+}
+
 func (c *Client) GetPerson(ctx context.Context, id int) (json.RawMessage, error) {
 	params := url.Values{}
 	params.Set("append_to_response", "combined_credits")

@@ -21,9 +21,9 @@ type mockLibraryServer struct {
 	err       error
 }
 
-func (m *mockLibraryServer) Name() string                                            { return m.name }
-func (m *mockLibraryServer) Type() models.ServerType                                 { return m.srvType }
-func (m *mockLibraryServer) TestConnection(ctx context.Context) error                { return nil }
+func (m *mockLibraryServer) Name() string                             { return m.name }
+func (m *mockLibraryServer) Type() models.ServerType                  { return m.srvType }
+func (m *mockLibraryServer) TestConnection(ctx context.Context) error { return nil }
 func (m *mockLibraryServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
 	return nil, nil
 }

@@ -67,9 +67,9 @@ type mockItemDetailsServer struct {
 	err      error
 }
 
-func (m *mockItemDetailsServer) Name() string                  { return "mock" }
-func (m *mockItemDetailsServer) Type() models.ServerType       { return models.ServerTypePlex }
-func (m *mockItemDetailsServer) ServerID() int64               { return m.serverID }
+func (m *mockItemDetailsServer) Name() string            { return "mock" }
+func (m *mockItemDetailsServer) Type() models.ServerType { return models.ServerTypePlex }
+func (m *mockItemDetailsServer) ServerID() int64         { return m.serverID }
 func (m *mockItemDetailsServer) TestConnection(ctx context.Context) error {
 	return nil
 }
@@ -191,7 +191,6 @@ func TestItemDetailsNoTMDBID(t *testing.T) {
 	}
 }
 
-
 func TestItemDetailsEpisodeFiltersByItemID(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
@@ -226,18 +225,18 @@ func TestItemDetailsEpisodeFiltersByItemID(t *testing.T) {
 	p.AddServer(s.ID, &mockItemDetailsServer{
 		serverID: s.ID,
 		details: &models.ItemDetails{
-			ID:               "ep-1",
-			Title:            "Pilot",
-			MediaType:        models.MediaTypeTV,
-			Level:            "episode",
-			SeriesID:         "show-1",
-			ParentID:         "season-1",
-			SeasonNumber:     1,
-			EpisodeNumber:    1,
-			SeriesTitle:      "My Show",
-			ServerID:         s.ID,
-			ServerName:       "Plex",
-			ServerType:       models.ServerTypePlex,
+			ID:            "ep-1",
+			Title:         "Pilot",
+			MediaType:     models.MediaTypeTV,
+			Level:         "episode",
+			SeriesID:      "show-1",
+			ParentID:      "season-1",
+			SeasonNumber:  1,
+			EpisodeNumber: 1,
+			SeriesTitle:   "My Show",
+			ServerID:      s.ID,
+			ServerName:    "Plex",
+			ServerType:    models.ServerTypePlex,
 		},
 	})
 

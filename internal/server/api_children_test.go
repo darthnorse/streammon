@@ -12,19 +12,19 @@ import (
 )
 
 type mockChildrenServer struct {
-	serverID int64
-	details  *models.ItemDetails
-	detailsErr error
-	seasons  []models.Season
-	episodes []models.Episode
+	serverID    int64
+	details     *models.ItemDetails
+	detailsErr  error
+	seasons     []models.Season
+	episodes    []models.Episode
 	seasonsErr  error
 	episodesErr error
 }
 
-func (m *mockChildrenServer) Name() string                                 { return "mock" }
-func (m *mockChildrenServer) Type() models.ServerType                      { return models.ServerTypePlex }
-func (m *mockChildrenServer) ServerID() int64                              { return m.serverID }
-func (m *mockChildrenServer) TestConnection(ctx context.Context) error     { return nil }
+func (m *mockChildrenServer) Name() string                             { return "mock" }
+func (m *mockChildrenServer) Type() models.ServerType                  { return models.ServerTypePlex }
+func (m *mockChildrenServer) ServerID() int64                          { return m.serverID }
+func (m *mockChildrenServer) TestConnection(ctx context.Context) error { return nil }
 func (m *mockChildrenServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
 	return nil, nil
 }

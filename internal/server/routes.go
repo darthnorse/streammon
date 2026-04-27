@@ -164,6 +164,7 @@ func (s *Server) routes() {
 			sr.Get("/discover/*", s.handleTMDBDiscover)
 			sr.Get("/movie/{id}", s.handleTMDBMovie)
 			sr.Get("/tv/{id}", s.handleTMDBTV)
+			sr.Get("/tv/{id}/season/{seasonNumber}", s.handleTMDBSeason)
 			sr.Post("/tv/statuses", s.handleTMDBTVStatuses)
 			sr.Get("/person/{id}", s.handleTMDBPerson)
 			sr.Get("/collection/{id}", s.handleTMDBCollection)

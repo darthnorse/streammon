@@ -1332,7 +1332,7 @@ func TestInsertHistoryBatchConsolidates(t *testing.T) {
 		},
 		{
 			ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
-			Title: "Different Movie",
+			Title:     "Different Movie",
 			StartedAt: now, StoppedAt: now.Add(10 * time.Minute),
 		},
 	}
@@ -2024,7 +2024,6 @@ func TestMigration039BackfillsSessions(t *testing.T) {
 		}
 	}
 }
-
 
 func TestHistoryForItem(t *testing.T) {
 	s := newTestStoreWithMigrations(t)

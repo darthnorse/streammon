@@ -26,9 +26,9 @@ type fakeMediaServer struct {
 	syncOrder *[]string
 }
 
-func (f *fakeMediaServer) Name() string                    { return f.name }
-func (f *fakeMediaServer) Type() models.ServerType         { return models.ServerTypePlex }
-func (f *fakeMediaServer) ServerID() int64                 { return f.id }
+func (f *fakeMediaServer) Name() string                         { return f.name }
+func (f *fakeMediaServer) Type() models.ServerType              { return models.ServerTypePlex }
+func (f *fakeMediaServer) ServerID() int64                      { return f.id }
 func (f *fakeMediaServer) TestConnection(context.Context) error { return nil }
 func (f *fakeMediaServer) GetSessions(context.Context) ([]models.ActiveStream, error) {
 	return nil, nil
@@ -44,6 +44,9 @@ func (f *fakeMediaServer) GetUsers(context.Context) ([]models.MediaUser, error) 
 }
 func (f *fakeMediaServer) DeleteItem(context.Context, string) error { return nil }
 func (f *fakeMediaServer) GetSeasons(context.Context, string) ([]models.Season, error) {
+	return nil, nil
+}
+func (f *fakeMediaServer) GetEpisodes(context.Context, string) ([]models.Episode, error) {
 	return nil, nil
 }
 func (f *fakeMediaServer) TerminateSession(context.Context, string, string) error {

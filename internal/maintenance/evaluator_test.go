@@ -893,12 +893,12 @@ func TestDeduplicateCandidates(t *testing.T) {
 
 	t.Run("mixed scenario", func(t *testing.T) {
 		items := []models.LibraryItemCache{
-			{ID: 1, TMDBID: "100"},         // dup group A
-			{ID: 2, TMDBID: "100"},         // dup group A (removed)
-			{ID: 3, IMDBID: "tt200"},       // unique
-			{ID: 4},                         // no external ID
-			{ID: 5, TVDBID: "300"},         // dup group B
-			{ID: 6, TVDBID: "300"},         // dup group B (removed)
+			{ID: 1, TMDBID: "100"},   // dup group A
+			{ID: 2, TMDBID: "100"},   // dup group A (removed)
+			{ID: 3, IMDBID: "tt200"}, // unique
+			{ID: 4},                  // no external ID
+			{ID: 5, TVDBID: "300"},   // dup group B
+			{ID: 6, TVDBID: "300"},   // dup group B (removed)
 		}
 		candidates := []models.BatchCandidate{
 			{LibraryItemID: 1}, {LibraryItemID: 2}, {LibraryItemID: 3},
@@ -1024,9 +1024,9 @@ type mockMediaServer struct {
 	seasons map[string][]models.Season
 }
 
-func (m *mockMediaServer) Name() string                        { return "mock" }
-func (m *mockMediaServer) Type() models.ServerType             { return models.ServerTypePlex }
-func (m *mockMediaServer) ServerID() int64                     { return 0 }
+func (m *mockMediaServer) Name() string            { return "mock" }
+func (m *mockMediaServer) Type() models.ServerType { return models.ServerTypePlex }
+func (m *mockMediaServer) ServerID() int64         { return 0 }
 func (m *mockMediaServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
 	return nil, nil
 }
@@ -1049,6 +1049,9 @@ func (m *mockMediaServer) GetLibraryItems(ctx context.Context, libraryID string)
 func (m *mockMediaServer) DeleteItem(ctx context.Context, itemID string) error { return nil }
 func (m *mockMediaServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
 	return m.seasons[showID], nil
+}
+func (m *mockMediaServer) GetEpisodes(ctx context.Context, seasonID string) ([]models.Episode, error) {
+	return nil, nil
 }
 func (m *mockMediaServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
 	return nil

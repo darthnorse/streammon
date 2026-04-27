@@ -380,9 +380,9 @@ type mockDeleteServer struct {
 	seasons   []models.Season // returned by GetSeasons
 }
 
-func (m *mockDeleteServer) Name() string                                            { return "mock" }
-func (m *mockDeleteServer) Type() models.ServerType                                 { return models.ServerTypePlex }
-func (m *mockDeleteServer) TestConnection(ctx context.Context) error                { return nil }
+func (m *mockDeleteServer) Name() string                             { return "mock" }
+func (m *mockDeleteServer) Type() models.ServerType                  { return models.ServerTypePlex }
+func (m *mockDeleteServer) TestConnection(ctx context.Context) error { return nil }
 func (m *mockDeleteServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
 	return nil, nil
 }

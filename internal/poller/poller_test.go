@@ -18,8 +18,8 @@ type mockServer struct {
 	err      error
 }
 
-func (m *mockServer) Name() string             { return m.name }
-func (m *mockServer) Type() models.ServerType  { return models.ServerTypePlex }
+func (m *mockServer) Name() string                             { return m.name }
+func (m *mockServer) Type() models.ServerType                  { return models.ServerTypePlex }
 func (m *mockServer) TestConnection(ctx context.Context) error { return nil }
 func (m *mockServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
 	m.mu.Lock()
@@ -46,6 +46,9 @@ func (m *mockServer) DeleteItem(ctx context.Context, itemID string) error {
 	return nil
 }
 func (m *mockServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
+	return nil, nil
+}
+func (m *mockServer) GetEpisodes(ctx context.Context, seasonID string) ([]models.Episode, error) {
 	return nil, nil
 }
 func (m *mockServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
@@ -290,7 +293,7 @@ func TestServerErrorWithNoExistingSessions(t *testing.T) {
 
 	ms := &mockServer{
 		name: "bad",
-		err: fmt.Errorf("connection refused"),
+		err:  fmt.Errorf("connection refused"),
 	}
 	p.AddServer(1, ms)
 

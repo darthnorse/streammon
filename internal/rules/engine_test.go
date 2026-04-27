@@ -359,16 +359,16 @@ func TestEngine_RefreshRules(t *testing.T) {
 }
 
 type mockMediaServer struct {
-	id              int64
-	serverType      models.ServerType
-	terminatedIDs   []string
-	terminateErr    error
-	mu              sync.Mutex
+	id            int64
+	serverType    models.ServerType
+	terminatedIDs []string
+	terminateErr  error
+	mu            sync.Mutex
 }
 
-func (m *mockMediaServer) Name() string                          { return "test-server" }
-func (m *mockMediaServer) Type() models.ServerType               { return m.serverType }
-func (m *mockMediaServer) ServerID() int64                       { return m.id }
+func (m *mockMediaServer) Name() string                             { return "test-server" }
+func (m *mockMediaServer) Type() models.ServerType                  { return m.serverType }
+func (m *mockMediaServer) ServerID() int64                          { return m.id }
 func (m *mockMediaServer) TestConnection(ctx context.Context) error { return nil }
 func (m *mockMediaServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
 	return nil, nil
@@ -390,6 +390,9 @@ func (m *mockMediaServer) GetLibraryItems(ctx context.Context, libraryID string)
 }
 func (m *mockMediaServer) DeleteItem(ctx context.Context, itemID string) error { return nil }
 func (m *mockMediaServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
+	return nil, nil
+}
+func (m *mockMediaServer) GetEpisodes(ctx context.Context, seasonID string) ([]models.Episode, error) {
 	return nil, nil
 }
 func (m *mockMediaServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
@@ -490,7 +493,7 @@ func TestEngine_AutoTerminate_ConcurrentStreams(t *testing.T) {
 	e.SetServerResolver(resolver)
 
 	config := models.ConcurrentStreamsConfig{
-		MaxStreams:     1,
+		MaxStreams:    1,
 		AutoTerminate: true,
 	}
 	configJSON, _ := json.Marshal(config)
@@ -541,7 +544,7 @@ func TestEngine_AutoTerminate_Failed(t *testing.T) {
 	e.SetServerResolver(resolver)
 
 	config := models.ConcurrentStreamsConfig{
-		MaxStreams:     1,
+		MaxStreams:    1,
 		AutoTerminate: true,
 	}
 	configJSON, _ := json.Marshal(config)
@@ -583,7 +586,7 @@ func TestEngine_AutoTerminate_NotificationGetsActionTaken(t *testing.T) {
 	e.SetNotifier(notif)
 
 	config := models.ConcurrentStreamsConfig{
-		MaxStreams:     1,
+		MaxStreams:    1,
 		AutoTerminate: true,
 	}
 	configJSON, _ := json.Marshal(config)
