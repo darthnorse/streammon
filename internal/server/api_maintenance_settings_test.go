@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"streammon/internal/auth"
-	"streammon/internal/models"
 )
 
 func TestGetMaintenanceSettings_DefaultFalse(t *testing.T) {
@@ -90,6 +89,4 @@ func TestUpdateMaintenanceSettings_NonAdminForbidden(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403 for non-admin PUT, got %d: %s", w.Code, w.Body.String())
 	}
-
-	_ = models.RoleViewer // ensure import used
 }
