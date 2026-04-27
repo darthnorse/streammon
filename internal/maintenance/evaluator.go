@@ -190,6 +190,11 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 		return nil, nil, err
 	}
 
+	widthAware, err := e.store.GetMaintenanceResolutionWidthAware()
+	if err != nil {
+		return nil, nil, fmt.Errorf("get resolution mode: %w", err)
+	}
+
 	total := countByMediaType(items, rule.MediaType)
 
 	var results []models.BatchCandidate
@@ -210,11 +215,7 @@ func (e *Evaluator) evaluateLowResolution(ctx context.Context, rule *models.Main
 			Library: item.LibraryID,
 		})
 
-		if item.VideoResolution == "" {
-			continue
-		}
-
-		height := parseResolutionHeight(item.VideoResolution)
+		height := resolveLogicalHeight(item, widthAware)
 		if height > 0 && height <= params.MaxHeight {
 			results = append(results, models.BatchCandidate{
 				LibraryItemID: item.ID,
@@ -434,6 +435,26 @@ func deduplicateCandidates(candidates []models.BatchCandidate, items []models.Li
 		}
 	}
 	return result
+}
+
+// resolveLogicalHeight returns the height to compare against the rule threshold.
+// In width-aware mode, returns max(HeightFromWidth(width), height) when raw
+// dimensions are present; this correctly classifies cropped widescreen and
+// 21:9 sources without reclassifying true SD upward. Falls back to the
+// bucketed VideoResolution string when raw dimensions are unavailable
+// (legacy rows synced before migration 052).
+func resolveLogicalHeight(item models.LibraryItemCache, widthAware bool) int {
+	if widthAware && (item.VideoWidth > 0 || item.VideoHeight > 0) {
+		h := item.VideoHeight
+		if w := mediautil.HeightFromWidth(item.VideoWidth); w > h {
+			h = w
+		}
+		return h
+	}
+	if item.VideoResolution == "" {
+		return 0
+	}
+	return parseResolutionHeight(item.VideoResolution)
 }
 
 var resolutionRegex = regexp.MustCompile(`^(\d+)p?$`)
