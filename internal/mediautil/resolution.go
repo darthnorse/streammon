@@ -22,6 +22,7 @@ func HeightToResolution(height int) string {
 }
 
 // Width is stable across aspect ratios; raw height is not.
+// Threshold table is also encoded in candidateLogicalHeightSQL — keep in sync.
 func HeightFromWidth(width int) int {
 	switch {
 	case width >= 3840:

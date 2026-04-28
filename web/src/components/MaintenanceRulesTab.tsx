@@ -6,6 +6,7 @@ import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { usePersistedPerPage } from '../hooks/usePersistedPerPage'
 import { useMediaDetailModal } from '../hooks/useMediaDetailModal'
 import { api, ApiError } from '../lib/api'
+import type { MaintenanceSettings } from '../lib/api'
 import { PER_PAGE_OPTIONS, SERVER_ACCENT, mediaTypeLabels } from '../lib/constants'
 import { readSSEStream } from '../lib/sse'
 import { formatCount, formatSize, formatShortDate } from '../lib/format'
@@ -299,7 +300,7 @@ function CandidatesView({
   const { data, loading, refetch } = useFetch<MaintenanceCandidatesResponse>(
     `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}${sortParam}${libraryFilterParam}${statusParam}`
   )
-  const { data: maintenanceSettings } = useFetch<{ resolution_width_aware: boolean }>('/api/settings/maintenance')
+  const { data: maintenanceSettings } = useFetch<MaintenanceSettings>('/api/settings/maintenance')
   const widthAware = maintenanceSettings?.resolution_width_aware ?? false
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
@@ -711,11 +712,11 @@ function CandidatesView({
                       {!isTV && (
                         <td className="px-4 py-3 text-muted dark:text-muted-dark">
                           {candidate.item?.video_resolution || '-'}
-                          {widthAware && candidate.item?.video_width && candidate.item?.video_height ? (
+                          {widthAware && (candidate.item?.video_width ?? 0) > 0 && (candidate.item?.video_height ?? 0) > 0 && (
                             <span className="ml-1 text-xs opacity-70">
-                              · {candidate.item.video_width}×{candidate.item.video_height}
+                              · {candidate.item?.video_width}×{candidate.item?.video_height}
                             </span>
-                          ) : null}
+                          )}
                         </td>
                       )}
                       {!isKeepLatest && (

@@ -18,10 +18,7 @@ var candidateSelectColumns = `
 	i.tmdb_id, i.tvdb_id, i.imdb_id, i.tmdb_status, i.synced_at,
 	(SELECT COUNT(*) FROM watch_history wh WHERE wh.server_id = i.server_id AND (wh.item_id = i.item_id OR wh.grandparent_item_id = i.item_id) AND ` + minPlayCond("wh") + `) as play_count`
 
-// candidateLogicalHeightSQL mirrors resolveLogicalHeight in width-aware mode:
-// max(width-bucket, raw height). Used as the sort key when
-// maintenance.resolution_width_aware is true so the Resolution column orders
-// by encoded truth instead of Plex's bucketed label.
+// SQL mirror of mediautil.HeightFromWidth + resolveLogicalHeight; keep in sync.
 const candidateLogicalHeightSQL = `
 	CASE
 		WHEN i.video_width >= 3840 THEN MAX(2160, i.video_height)

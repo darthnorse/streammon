@@ -21,15 +21,18 @@ func seedMaintenanceTestData(t *testing.T, s *Store) (serverID int64, ruleID int
 	}
 
 	items := []models.LibraryItemCache{{
-		ServerID:   srv.ID,
-		LibraryID:  "lib1",
-		ItemID:     "item1",
-		MediaType:  models.MediaTypeMovie,
-		Title:      "Test Movie",
-		Year:       2024,
-		AddedAt:    time.Now().UTC().AddDate(0, 0, -100),
-		FileSize:   1024 * 1024 * 1024,
-		SyncedAt:   time.Now().UTC(),
+		ServerID:        srv.ID,
+		LibraryID:       "lib1",
+		ItemID:          "item1",
+		MediaType:       models.MediaTypeMovie,
+		Title:           "Test Movie",
+		Year:            2024,
+		AddedAt:         time.Now().UTC().AddDate(0, 0, -100),
+		VideoResolution: "1080p",
+		VideoWidth:      1920,
+		VideoHeight:     1080,
+		FileSize:        1024 * 1024 * 1024,
+		SyncedAt:        time.Now().UTC(),
 	}}
 	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
 		t.Fatal(err)
@@ -286,41 +289,9 @@ func TestListCandidatesForRuleItemPopulated(t *testing.T) {
 	if result.Items[0].Item.FileSize != 1024*1024*1024 {
 		t.Errorf("item file size = %d, want %d", result.Items[0].Item.FileSize, 1024*1024*1024)
 	}
-}
-
-func TestListCandidatesForRule_PopulatesVideoDimensions(t *testing.T) {
-	s := newTestStoreWithMigrations(t)
-	ctx := context.Background()
-
-	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
-
-	items := []models.LibraryItemCache{{
-		ServerID: serverID, LibraryID: "lib1", ItemID: "cropped",
-		MediaType: models.MediaTypeMovie, Title: "Cropped",
-		Year: 2024, AddedAt: time.Now().UTC(), SyncedAt: time.Now().UTC(),
-		VideoResolution: "720p", VideoWidth: 1280, VideoHeight: 688,
-	}}
-	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
-		t.Fatal(err)
-	}
-	seedCandidatesFromItems(t, s, ctx, serverID, ruleID)
-
-	result, err := s.ListCandidatesForRule(ctx, ruleID, models.CandidateListOptions{Page: 1, PerPage: 10})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var found *models.LibraryItemCache
-	for _, c := range result.Items {
-		if c.Item != nil && c.Item.ItemID == "cropped" {
-			found = c.Item
-			break
-		}
-	}
-	if found == nil {
-		t.Fatal("cropped item not in candidates list")
-	}
-	if found.VideoWidth != 1280 || found.VideoHeight != 688 {
-		t.Errorf("dimensions = %dx%d, want 1280x688", found.VideoWidth, found.VideoHeight)
+	if result.Items[0].Item.VideoWidth != 1920 || result.Items[0].Item.VideoHeight != 1080 {
+		t.Errorf("dimensions = %dx%d, want 1920x1080",
+			result.Items[0].Item.VideoWidth, result.Items[0].Item.VideoHeight)
 	}
 }
 
@@ -332,7 +303,7 @@ func TestListCandidatesForRuleSortByResolution_WidthAware(t *testing.T) {
 
 	now := time.Now().UTC()
 	items := []models.LibraryItemCache{
-		// Plex labels all three "720p"; encoded widths reveal real tiers.
+		// Plex labels these "720p"; encoded widths reveal real tiers.
 		{ServerID: serverID, LibraryID: "lib1", ItemID: "ws_1080p", MediaType: models.MediaTypeMovie,
 			Title: "Cropped 1080p", Year: 2024, AddedAt: now, SyncedAt: now,
 			VideoResolution: "720p", VideoWidth: 1920, VideoHeight: 1078},
@@ -342,6 +313,11 @@ func TestListCandidatesForRuleSortByResolution_WidthAware(t *testing.T) {
 		{ServerID: serverID, LibraryID: "lib1", ItemID: "true_sd", MediaType: models.MediaTypeMovie,
 			Title: "True SD", Year: 2024, AddedAt: now, SyncedAt: now,
 			VideoResolution: "480p", VideoWidth: 720, VideoHeight: 480},
+		// Legacy pre-052 row: no dimensions. SQL fallback is `ELSE 0`,
+		// so this sorts to the very top in ASC order.
+		{ServerID: serverID, LibraryID: "lib1", ItemID: "legacy", MediaType: models.MediaTypeMovie,
+			Title: "Legacy", Year: 2024, AddedAt: now, SyncedAt: now,
+			VideoResolution: "1080p"},
 	}
 	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
 		t.Fatal(err)
@@ -357,14 +333,14 @@ func TestListCandidatesForRuleSortByResolution_WidthAware(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tracked := map[string]bool{"ws_1080p": true, "true_720p": true, "true_sd": true}
+	tracked := map[string]bool{"ws_1080p": true, "true_720p": true, "true_sd": true, "legacy": true}
 	var ids []string
 	for _, c := range result.Items {
 		if c.Item != nil && tracked[c.Item.ItemID] {
 			ids = append(ids, c.Item.ItemID)
 		}
 	}
-	wantOrder := []string{"true_sd", "true_720p", "ws_1080p"}
+	wantOrder := []string{"legacy", "true_sd", "true_720p", "ws_1080p"}
 	if !reflect.DeepEqual(ids, wantOrder) {
 		t.Fatalf("widthAware sort order = %v, want %v", ids, wantOrder)
 	}
@@ -400,17 +376,18 @@ func TestListCandidatesForRuleSortByResolution_BucketedDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	tracked := map[string]string{"a": "1080p", "b": "480p", "c": "720p"}
 	var resolutions []string
 	for _, c := range result.Items {
-		if c.Item != nil && c.Item.VideoResolution != "" {
-			resolutions = append(resolutions, c.Item.VideoResolution)
+		if c.Item != nil {
+			if _, ok := tracked[c.Item.ItemID]; ok {
+				resolutions = append(resolutions, c.Item.VideoResolution)
+			}
 		}
 	}
-	wantPrefix := []string{"1080p", "480p", "720p"}
-	for i, want := range wantPrefix {
-		if i >= len(resolutions) || resolutions[i] != want {
-			t.Fatalf("bucketed sort order = %v, want prefix %v", resolutions, wantPrefix)
-		}
+	wantOrder := []string{"1080p", "480p", "720p"}
+	if !reflect.DeepEqual(resolutions, wantOrder) {
+		t.Fatalf("bucketed sort order = %v, want %v", resolutions, wantOrder)
 	}
 }
 
