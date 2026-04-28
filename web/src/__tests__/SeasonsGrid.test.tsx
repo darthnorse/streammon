@@ -29,17 +29,16 @@ describe('SeasonsGrid', () => {
     expect(screen.getByText(/failed to load seasons/i)).toBeInTheDocument()
   })
 
-  it('renders nothing when there is only one season', () => {
+  it('renders the grid when there is one season so users can drill into episodes', () => {
     mockUseFetch.mockReturnValue({
-      data: { seasons: [{ id: 's-1', number: 1, title: 'Season 1' }] },
+      data: { seasons: [{ id: 's-1', number: 1, title: 'Season 1', episode_count: 8 }] },
       loading: false,
       error: null,
       refetch: vi.fn(),
     })
-    const { container } = renderWithRouter(
-      <SeasonsGrid serverId={1} showId="show-1" pushModal={vi.fn()} />,
-    )
-    expect(container.firstChild).toBeNull()
+    renderWithRouter(<SeasonsGrid serverId={1} showId="show-1" pushModal={vi.fn()} />)
+    expect(screen.getByText('Season 1')).toBeInTheDocument()
+    expect(screen.getByText('8 episodes')).toBeInTheDocument()
   })
 
   it('renders nothing when there are zero seasons', () => {

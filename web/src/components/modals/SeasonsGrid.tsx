@@ -14,7 +14,7 @@ export function SeasonsGrid({ serverId, showId, pushModal }: SeasonsGridProps) {
   if (loading) return <div className="text-sm text-muted dark:text-muted-dark">Loading seasons…</div>
   if (error) return <div className="text-sm text-red-500 dark:text-red-400">Failed to load seasons</div>
   const seasons = data?.seasons ?? []
-  if (seasons.length <= 1) return null
+  if (seasons.length === 0) return null
 
   return (
     <div className="space-y-2">
