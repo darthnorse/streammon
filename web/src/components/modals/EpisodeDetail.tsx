@@ -173,8 +173,8 @@ export function EpisodeDetail({ item, loading, onClose, pushModal, active }: Epi
                               ) : (
                                 <span>S{item.season_number}</span>
                               )}
-                              {item.episode_number != null && <span>E{item.episode_number}</span>}
-                              <span> · </span>
+                              {item.episode_number != null && <span> · E{item.episode_number}</span>}
+                              <span> — </span>
                             </>
                           )}
                           {title}

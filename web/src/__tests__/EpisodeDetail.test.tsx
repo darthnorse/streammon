@@ -114,6 +114,19 @@ describe('EpisodeDetail', () => {
     expect(screen.getByText('S1')).toBeInTheDocument()
   })
 
+  it('renders the season/episode/title meta as "S{n} · E{m} — {title}"', () => {
+    renderWithRouter(
+      <EpisodeDetail
+        item={makeEpisodeItem({ season_number: 3, episode_number: 7, title: 'The Ballad of Paladin' })}
+        loading={false}
+        onClose={() => {}}
+        pushModal={vi.fn()}
+        active={true}
+      />,
+    )
+    expect(document.body.textContent).toMatch(/S3 · E7 — The Ballad of Paladin/)
+  })
+
   it('shows loading spinner when loading', () => {
     renderWithRouter(
       <EpisodeDetail
