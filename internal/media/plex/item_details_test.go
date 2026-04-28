@@ -186,6 +186,9 @@ func TestGetItemDetails_Season(t *testing.T) {
 	if details.Level != "season" {
 		t.Errorf("level = %q, want season", details.Level)
 	}
+	if details.MediaType != models.MediaTypeTV {
+		t.Errorf("media type = %q, want %q (seasons are TV content)", details.MediaType, models.MediaTypeTV)
+	}
 	// Plex puts the season number in `index`, not `parentIndex` (parentIndex is the show's index, always 1).
 	if details.SeasonNumber != 2 {
 		t.Errorf("season number = %d, want 2 (from index, not parentIndex)", details.SeasonNumber)
@@ -301,6 +304,44 @@ func TestGetItemDetails_NoGuids(t *testing.T) {
 
 	if details.TMDBID != "" {
 		t.Errorf("tmdb_id = %q, want empty string for item with no Guids", details.TMDBID)
+	}
+}
+
+func TestGetItemDetails_SeasonInheritsTMDBIDFromShow(t *testing.T) {
+	seasonXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer size="1">
+  <Directory ratingKey="555" type="season" title="Season 1" parentTitle="My Show" parentRatingKey="500" index="1"/>
+</MediaContainer>`
+	showXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer size="1">
+  <Directory ratingKey="500" type="show" title="My Show" year="2020">
+    <Guid id="tmdb://12345"/>
+    <Guid id="imdb://tt9876543"/>
+  </Directory>
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/library/metadata/555":
+			w.Write([]byte(seasonXML))
+		case "/library/metadata/500":
+			w.Write([]byte(showXML))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, Name: "TestPlex", URL: ts.URL, APIKey: "tok"})
+	details, err := srv.GetItemDetails(context.Background(), "555")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if details.Level != "season" {
+		t.Errorf("level = %q, want season", details.Level)
+	}
+	if details.TMDBID != "12345" {
+		t.Errorf("tmdb_id = %q, want 12345 (inherited from parent show)", details.TMDBID)
 	}
 }
 

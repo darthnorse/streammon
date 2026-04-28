@@ -573,7 +573,7 @@ func plexMediaType(t string) models.MediaType {
 	switch t {
 	case "movie", "clip":
 		return models.MediaTypeMovie
-	case "episode", "show":
+	case "episode", "show", "season":
 		return models.MediaTypeTV
 	case "track":
 		return models.MediaTypeMusic

@@ -66,6 +66,24 @@ type roleItem struct {
 }
 
 func (s *Server) GetItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
+	details, err := s.fetchItemDetails(ctx, itemID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Plex omits <Guid> on season metadata inconsistently; fall back to the
+	// parent show's tmdb_id. fetchItemDetails (not the public method) so this
+	// never recurses if the parent itself lacks Guids.
+	if details.Level == "season" && details.TMDBID == "" && details.ParentID != "" {
+		if parent, perr := s.fetchItemDetails(ctx, details.ParentID); perr == nil && parent != nil {
+			details.TMDBID = parent.TMDBID
+		}
+	}
+
+	return details, nil
+}
+
+func (s *Server) fetchItemDetails(ctx context.Context, itemID string) (*models.ItemDetails, error) {
 	url := fmt.Sprintf("%s/library/metadata/%s", s.url, url.PathEscape(itemID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
