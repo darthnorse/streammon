@@ -35,7 +35,7 @@ export function SeasonDetail({ item, loading, onClose, pushModal, active }: Seas
     item?.id ?? null,
   )
   const { data: tmdbSeason } = useTMDBSeasonEnrichment(item?.tmdb_id, item?.season_number)
-  const showEnrichment = useTMDBEnrichment(item?.tmdb_id, 'episode')
+  const showEnrichment = useTMDBEnrichment(item?.tmdb_id, item?.media_type)
   const tmdbTV = showEnrichment.tv
 
   const showId = item?.parent_id || ''
