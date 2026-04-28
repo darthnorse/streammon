@@ -51,11 +51,25 @@ describe('SeasonDetail', () => {
     mockUseFetch.mockReset()
   })
 
-  it('renders the season title', () => {
+  it('renders the season title under the show name', () => {
     setUseFetch()
     renderWithRouter(
       <SeasonDetail
         item={makeSeasonItem()}
+        loading={false}
+        onClose={() => {}}
+        pushModal={vi.fn()}
+        active={true}
+      />,
+    )
+    expect(screen.getByText('Season 1')).toBeInTheDocument()
+  })
+
+  it('renders the season title as the heading when there is no parent show', () => {
+    setUseFetch()
+    renderWithRouter(
+      <SeasonDetail
+        item={makeSeasonItem({ series_title: undefined, parent_id: undefined })}
         loading={false}
         onClose={() => {}}
         pushModal={vi.fn()}
