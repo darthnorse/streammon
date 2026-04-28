@@ -78,6 +78,32 @@ func TestGetSeasons(t *testing.T) {
 	}
 }
 
+func TestGetSeasonsSkipsAllEpisodesPseudoEntry(t *testing.T) {
+	xml := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer>
+  <Directory title="All episodes" leafCount="45" />
+  <Directory ratingKey="101" index="1" title="Season 1" />
+  <Directory ratingKey="102" index="2" title="Season 2" />
+</MediaContainer>`
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(xml))
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{URL: ts.URL, APIKey: "tok"})
+	seasons, err := srv.GetSeasons(context.Background(), "555")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seasons) != 2 {
+		t.Fatalf("expected 2 seasons (All episodes filtered), got %d", len(seasons))
+	}
+	if seasons[0].ID != "101" || seasons[1].ID != "102" {
+		t.Errorf("unexpected seasons: [%s, %s]", seasons[0].ID, seasons[1].ID)
+	}
+}
+
 func TestGetSeasonsEmpty(t *testing.T) {
 	xml := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer>

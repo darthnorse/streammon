@@ -56,6 +56,11 @@ func (s *Server) GetSeasons(ctx context.Context, showID string) ([]models.Season
 
 	seasons := make([]models.Season, 0, len(container.Directories))
 	for _, dir := range container.Directories {
+		// Plex emits a synthetic "All episodes" Directory with no ratingKey
+		// alongside real seasons; skip it (no nav target, no poster).
+		if dir.RatingKey == "" {
+			continue
+		}
 		seasons = append(seasons, models.Season{
 			ID:           dir.RatingKey,
 			Number:       dir.Index,
