@@ -135,15 +135,16 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, opts mo
 		return nil, fmt.Errorf("count exclusions: %w", err)
 	}
 
-	widthAware, err := s.GetMaintenanceResolutionWidthAware()
-	if err != nil {
-		return nil, fmt.Errorf("get resolution mode: %w", err)
-	}
-
 	orderBy := "i.added_at DESC"
 	if col, ok := validCandidateSortColumns[opts.SortBy]; ok {
-		if opts.SortBy == "resolution" && widthAware {
-			col = candidateLogicalHeightSQL
+		if opts.SortBy == "resolution" {
+			widthAware, err := s.GetMaintenanceResolutionWidthAware()
+			if err != nil {
+				return nil, fmt.Errorf("get resolution mode: %w", err)
+			}
+			if widthAware {
+				col = candidateLogicalHeightSQL
+			}
 		}
 		dir := "DESC"
 		if opts.SortOrder == "asc" {
