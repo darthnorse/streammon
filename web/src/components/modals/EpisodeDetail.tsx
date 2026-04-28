@@ -146,21 +146,23 @@ export function EpisodeDetail({ item, loading, onClose, pushModal, active }: Epi
 
                   <div className="flex-1 min-w-0 space-y-3">
                     <div>
+                      {item.series_title && item.series_id ? (
+                        <button
+                          id={titleId}
+                          onClick={() => pushModal({ type: 'show', serverId: item.server_id, itemId: item.series_id! })}
+                          className="text-2xl font-bold text-gray-900 dark:text-gray-50 hover:text-accent hover:underline text-left"
+                        >
+                          {item.series_title}
+                        </button>
+                      ) : (
+                        <h2 id={titleId} className="text-2xl font-bold text-gray-900 dark:text-gray-50">
+                          {item.series_title || title}
+                        </h2>
+                      )}
                       {item.series_title && (
-                        <div className="text-sm text-muted dark:text-muted-dark mb-1">
-                          {item.series_id ? (
-                            <button
-                              onClick={() => pushModal({ type: 'show', serverId: item.server_id, itemId: item.series_id! })}
-                              className="hover:text-accent hover:underline"
-                            >
-                              {item.series_title}
-                            </button>
-                          ) : (
-                            <span>{item.series_title}</span>
-                          )}
+                        <div className="text-base font-medium text-gray-700 dark:text-gray-300 mt-1">
                           {item.season_number != null && (
                             <>
-                              <span> · </span>
                               {item.parent_id ? (
                                 <button
                                   onClick={() => pushModal({ type: 'season', serverId: item.server_id, itemId: item.parent_id! })}
@@ -172,13 +174,12 @@ export function EpisodeDetail({ item, loading, onClose, pushModal, active }: Epi
                                 <span>S{item.season_number}</span>
                               )}
                               {item.episode_number != null && <span>E{item.episode_number}</span>}
+                              <span> · </span>
                             </>
                           )}
+                          {title}
                         </div>
                       )}
-                      <h2 id={titleId} className="text-2xl font-bold text-gray-900 dark:text-gray-50">
-                        {title}
-                      </h2>
                       <div className="flex flex-wrap items-center gap-2 mt-1.5 text-sm text-muted dark:text-muted-dark">
                         {year && <span>{year}</span>}
                         {durationStr && (

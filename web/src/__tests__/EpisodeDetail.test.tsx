@@ -28,10 +28,23 @@ function makeEpisodeItem(overrides: Partial<ItemDetails> = {}): ItemDetails {
 }
 
 describe('EpisodeDetail', () => {
-  it('renders the episode title', () => {
+  it('renders the episode title under the show name', () => {
     renderWithRouter(
       <EpisodeDetail
         item={makeEpisodeItem()}
+        loading={false}
+        onClose={() => {}}
+        pushModal={vi.fn()}
+        active={true}
+      />,
+    )
+    expect(screen.getByText('Pilot')).toBeInTheDocument()
+  })
+
+  it('renders the episode title as the heading when there is no parent show', () => {
+    renderWithRouter(
+      <EpisodeDetail
+        item={makeEpisodeItem({ series_title: undefined, series_id: undefined, parent_id: undefined })}
         loading={false}
         onClose={() => {}}
         pushModal={vi.fn()}
