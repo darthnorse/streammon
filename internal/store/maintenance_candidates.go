@@ -14,9 +14,23 @@ import (
 var candidateSelectColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
-	i.added_at, i.last_watched_at, i.video_resolution, i.file_size, i.episode_count, i.thumb_url,
+	i.added_at, i.last_watched_at, i.video_resolution, i.video_width, i.video_height, i.file_size, i.episode_count, i.thumb_url,
 	i.tmdb_id, i.tvdb_id, i.imdb_id, i.tmdb_status, i.synced_at,
 	(SELECT COUNT(*) FROM watch_history wh WHERE wh.server_id = i.server_id AND (wh.item_id = i.item_id OR wh.grandparent_item_id = i.item_id) AND ` + minPlayCond("wh") + `) as play_count`
+
+// candidateLogicalHeightSQL mirrors resolveLogicalHeight in width-aware mode:
+// max(width-bucket, raw height). Used as the sort key when
+// maintenance.resolution_width_aware is true so the Resolution column orders
+// by encoded truth instead of Plex's bucketed label.
+const candidateLogicalHeightSQL = `
+	CASE
+		WHEN i.video_width >= 3840 THEN MAX(2160, i.video_height)
+		WHEN i.video_width >= 1920 THEN MAX(1080, i.video_height)
+		WHEN i.video_width >= 1280 THEN MAX(720, i.video_height)
+		WHEN i.video_width >= 720  THEN MAX(480, i.video_height)
+		WHEN i.video_height > 0    THEN i.video_height
+		ELSE 0
+	END`
 
 func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceCandidate, error) {
 	var c models.MaintenanceCandidate
@@ -25,7 +39,7 @@ func scanCandidate(scanner interface{ Scan(...any) error }) (models.MaintenanceC
 	err := scanner.Scan(
 		&c.ID, &c.RuleID, &c.LibraryItemID, &c.Reason, &c.ComputedAt,
 		&item.ID, &item.ServerID, &item.LibraryID, &item.ItemID, &item.MediaType,
-		&item.Title, &item.Year, &item.AddedAt, &lastWatchedAt, &item.VideoResolution, &item.FileSize,
+		&item.Title, &item.Year, &item.AddedAt, &lastWatchedAt, &item.VideoResolution, &item.VideoWidth, &item.VideoHeight, &item.FileSize,
 		&item.EpisodeCount, &item.ThumbURL,
 		&item.TMDBID, &item.TVDBID, &item.IMDBID, &item.TMDBStatus, &item.SyncedAt,
 		&c.PlayCount,
@@ -121,8 +135,16 @@ func (s *Store) ListCandidatesForRule(ctx context.Context, ruleID int64, opts mo
 		return nil, fmt.Errorf("count exclusions: %w", err)
 	}
 
+	widthAware, err := s.GetMaintenanceResolutionWidthAware()
+	if err != nil {
+		return nil, fmt.Errorf("get resolution mode: %w", err)
+	}
+
 	orderBy := "i.added_at DESC"
 	if col, ok := validCandidateSortColumns[opts.SortBy]; ok {
+		if opts.SortBy == "resolution" && widthAware {
+			col = candidateLogicalHeightSQL
+		}
 		dir := "DESC"
 		if opts.SortOrder == "asc" {
 			dir = "ASC"

@@ -299,6 +299,8 @@ function CandidatesView({
   const { data, loading, refetch } = useFetch<MaintenanceCandidatesResponse>(
     `/api/maintenance/rules/${rule.id}/candidates?page=${page}&per_page=${perPage}${searchParam}${sortParam}${libraryFilterParam}${statusParam}`
   )
+  const { data: maintenanceSettings } = useFetch<{ resolution_width_aware: boolean }>('/api/settings/maintenance')
+  const widthAware = maintenanceSettings?.resolution_width_aware ?? false
 
   const totalPages = data ? Math.ceil(data.total / perPage) : 0
   const filteredItems = data?.items || []
@@ -709,6 +711,11 @@ function CandidatesView({
                       {!isTV && (
                         <td className="px-4 py-3 text-muted dark:text-muted-dark">
                           {candidate.item?.video_resolution || '-'}
+                          {widthAware && candidate.item?.video_width && candidate.item?.video_height ? (
+                            <span className="ml-1 text-xs opacity-70">
+                              · {candidate.item.video_width}×{candidate.item.video_height}
+                            </span>
+                          ) : null}
                         </td>
                       )}
                       {!isKeepLatest && (

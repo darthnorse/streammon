@@ -648,6 +648,8 @@ export interface LibraryItemCache {
   added_at: string
   last_watched_at?: string
   video_resolution?: string
+  video_width?: number
+  video_height?: number
   file_size?: number
   episode_count?: number
   thumb_url?: string

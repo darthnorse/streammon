@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -284,6 +285,132 @@ func TestListCandidatesForRuleItemPopulated(t *testing.T) {
 	}
 	if result.Items[0].Item.FileSize != 1024*1024*1024 {
 		t.Errorf("item file size = %d, want %d", result.Items[0].Item.FileSize, 1024*1024*1024)
+	}
+}
+
+func TestListCandidatesForRule_PopulatesVideoDimensions(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
+
+	items := []models.LibraryItemCache{{
+		ServerID: serverID, LibraryID: "lib1", ItemID: "cropped",
+		MediaType: models.MediaTypeMovie, Title: "Cropped",
+		Year: 2024, AddedAt: time.Now().UTC(), SyncedAt: time.Now().UTC(),
+		VideoResolution: "720p", VideoWidth: 1280, VideoHeight: 688,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+	seedCandidatesFromItems(t, s, ctx, serverID, ruleID)
+
+	result, err := s.ListCandidatesForRule(ctx, ruleID, models.CandidateListOptions{Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *models.LibraryItemCache
+	for _, c := range result.Items {
+		if c.Item != nil && c.Item.ItemID == "cropped" {
+			found = c.Item
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("cropped item not in candidates list")
+	}
+	if found.VideoWidth != 1280 || found.VideoHeight != 688 {
+		t.Errorf("dimensions = %dx%d, want 1280x688", found.VideoWidth, found.VideoHeight)
+	}
+}
+
+func TestListCandidatesForRuleSortByResolution_WidthAware(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		// Plex labels all three "720p"; encoded widths reveal real tiers.
+		{ServerID: serverID, LibraryID: "lib1", ItemID: "ws_1080p", MediaType: models.MediaTypeMovie,
+			Title: "Cropped 1080p", Year: 2024, AddedAt: now, SyncedAt: now,
+			VideoResolution: "720p", VideoWidth: 1920, VideoHeight: 1078},
+		{ServerID: serverID, LibraryID: "lib1", ItemID: "true_720p", MediaType: models.MediaTypeMovie,
+			Title: "True 720p", Year: 2024, AddedAt: now, SyncedAt: now,
+			VideoResolution: "720p", VideoWidth: 1280, VideoHeight: 720},
+		{ServerID: serverID, LibraryID: "lib1", ItemID: "true_sd", MediaType: models.MediaTypeMovie,
+			Title: "True SD", Year: 2024, AddedAt: now, SyncedAt: now,
+			VideoResolution: "480p", VideoWidth: 720, VideoHeight: 480},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+	seedCandidatesFromItems(t, s, ctx, serverID, ruleID)
+	if err := s.SetMaintenanceResolutionWidthAware(true); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := s.ListCandidatesForRule(ctx, ruleID, models.CandidateListOptions{
+		Page: 1, PerPage: 10, SortBy: "resolution", SortOrder: "asc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracked := map[string]bool{"ws_1080p": true, "true_720p": true, "true_sd": true}
+	var ids []string
+	for _, c := range result.Items {
+		if c.Item != nil && tracked[c.Item.ItemID] {
+			ids = append(ids, c.Item.ItemID)
+		}
+	}
+	wantOrder := []string{"true_sd", "true_720p", "ws_1080p"}
+	if !reflect.DeepEqual(ids, wantOrder) {
+		t.Fatalf("widthAware sort order = %v, want %v", ids, wantOrder)
+	}
+}
+
+func TestListCandidatesForRuleSortByResolution_BucketedDefault(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: serverID, LibraryID: "lib1", ItemID: "a", MediaType: models.MediaTypeMovie,
+			Title: "A", Year: 2024, AddedAt: now, SyncedAt: now,
+			VideoResolution: "1080p", VideoWidth: 1920, VideoHeight: 1080},
+		{ServerID: serverID, LibraryID: "lib1", ItemID: "b", MediaType: models.MediaTypeMovie,
+			Title: "B", Year: 2024, AddedAt: now, SyncedAt: now,
+			VideoResolution: "480p", VideoWidth: 720, VideoHeight: 480},
+		{ServerID: serverID, LibraryID: "lib1", ItemID: "c", MediaType: models.MediaTypeMovie,
+			Title: "C", Year: 2024, AddedAt: now, SyncedAt: now,
+			VideoResolution: "720p", VideoWidth: 1280, VideoHeight: 720},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+	seedCandidatesFromItems(t, s, ctx, serverID, ruleID)
+
+	// widthAware OFF (default): sort is the lexicographic video_resolution column.
+	result, err := s.ListCandidatesForRule(ctx, ruleID, models.CandidateListOptions{
+		Page: 1, PerPage: 10, SortBy: "resolution", SortOrder: "asc",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var resolutions []string
+	for _, c := range result.Items {
+		if c.Item != nil && c.Item.VideoResolution != "" {
+			resolutions = append(resolutions, c.Item.VideoResolution)
+		}
+	}
+	wantPrefix := []string{"1080p", "480p", "720p"}
+	for i, want := range wantPrefix {
+		if i >= len(resolutions) || resolutions[i] != want {
+			t.Fatalf("bucketed sort order = %v, want prefix %v", resolutions, wantPrefix)
+		}
 	}
 }
 
