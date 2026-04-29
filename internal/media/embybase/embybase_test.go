@@ -1960,3 +1960,61 @@ func TestParseSessionsNonLiveTVUnaffected(t *testing.T) {
 		t.Errorf("GrandparentTitle = %q, want %q", s.GrandparentTitle, "Lost")
 	}
 }
+
+func TestParseSessionsLiveTVProgramThumbnail(t *testing.T) {
+	data := []byte(`[
+		{
+			"Id": "sess-thumb",
+			"UserName": "alice",
+			"NowPlayingItem": {
+				"Id": "ch-cbs",
+				"Name": "CBS",
+				"Type": "TvChannel",
+				"ImageTags": {"Primary": "ch-tag"},
+				"CurrentProgram": {
+					"Id": "prog-late-show",
+					"Name": "The Late Show",
+					"ImageTags": {"Primary": "prog-tag"}
+				}
+			},
+			"PlayState": {"PositionTicks": 0}
+		}
+	]`)
+
+	streams, err := parseSessions(data, 1, "test", models.ServerTypeEmby)
+	if err != nil {
+		t.Fatalf("parseSessions: %v", err)
+	}
+	s := streams[0]
+	if s.ThumbURL != "prog-late-show" {
+		t.Errorf("ThumbURL = %q, want %q (program image preferred over channel logo)", s.ThumbURL, "prog-late-show")
+	}
+}
+
+func TestParseSessionsLiveTVFallsBackToChannelThumb(t *testing.T) {
+	data := []byte(`[
+		{
+			"Id": "sess-fallback",
+			"UserName": "bob",
+			"NowPlayingItem": {
+				"Id": "ch-bbc",
+				"Name": "BBC One",
+				"Type": "TvChannel",
+				"ImageTags": {"Primary": "ch-tag"},
+				"CurrentProgram": {
+					"Name": "Some Program"
+				}
+			},
+			"PlayState": {"PositionTicks": 0}
+		}
+	]`)
+
+	streams, err := parseSessions(data, 1, "test", models.ServerTypeJellyfin)
+	if err != nil {
+		t.Fatalf("parseSessions: %v", err)
+	}
+	s := streams[0]
+	if s.ThumbURL != "ch-bbc" {
+		t.Errorf("ThumbURL = %q, want %q (channel logo when program has no image)", s.ThumbURL, "ch-bbc")
+	}
+}
