@@ -47,6 +47,24 @@ export function EntryTitle({ entry, onTitleClick }: EntryTitleProps) {
       </div>
     )
   }
+  if (entry.media_type === 'livetv') {
+    const showProgram = entry.title && entry.title !== entry.grandparent_title
+    const subtitle = entry.parent_title
+      ? `${entry.title} · ${entry.parent_title}`
+      : entry.title
+    return (
+      <div>
+        <div className="font-medium text-gray-900 dark:text-gray-50 truncate">
+          {entry.grandparent_title || entry.title}
+        </div>
+        {showProgram && (
+          <div className="text-xs text-muted dark:text-muted-dark truncate">
+            {subtitle}
+          </div>
+        )}
+      </div>
+    )
+  }
   if (entry.extra_type && entry.parent_title) {
     return (
       <div>
