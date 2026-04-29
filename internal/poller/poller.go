@@ -405,7 +405,16 @@ func (p *Poller) poll(ctx context.Context) {
 				}
 			}
 
-			if prev, ok := oldSessions[key]; ok {
+			prev, ok := oldSessions[key]
+			if ok && isLiveTVProgramChange(prev, s) {
+				p.persistHistory(prev)
+				delete(oldSessions, key)
+				log.Printf("live TV program change: user=%q channel=%q old=%q new=%q",
+					s.UserName, s.GrandparentTitle, prev.Title, s.Title)
+				ok = false
+			}
+
+			if ok {
 				s.StartedAt = prev.StartedAt
 				s.PausedMs = prev.PausedMs
 				s.LastPausedAt = prev.LastPausedAt
@@ -698,4 +707,16 @@ func sessionPrefix(serverID int64, sessionID string) string {
 func isDLNA(s models.ActiveStream) bool {
 	return strings.EqualFold(s.Platform, "DLNA") ||
 		strings.Contains(strings.ToLower(s.Player), "dlna")
+}
+
+// isLiveTVProgramChange detects when an Emby/Jellyfin live-TV session continues
+// on the same channel but the EPG program has rolled over. Plex assigns each
+// EPG entry its own ratingKey, so the existing item-change handoff handles it
+// there; on Emby/Jellyfin the channel itemID is constant across programs, so we
+// detect the transition by title.
+func isLiveTVProgramChange(prev, s models.ActiveStream) bool {
+	if prev.MediaType != models.MediaTypeLiveTV || prev.Title == "" {
+		return false
+	}
+	return prev.Title != s.Title || prev.ParentTitle != s.ParentTitle
 }
