@@ -714,9 +714,24 @@ func isDLNA(s models.ActiveStream) bool {
 // EPG entry its own ratingKey, so the existing item-change handoff handles it
 // there; on Emby/Jellyfin the channel itemID is constant across programs, so we
 // detect the transition by title.
+//
+// We only fire when both prev and current carry a real program (Title differs
+// from the channel name) and the program Title itself changed. This avoids
+// fragmenting history on EPG dropouts (Title flips to the channel name and
+// back) and on EpisodeTitle/ParentTitle metadata updates that some providers
+// push mid-broadcast.
 func isLiveTVProgramChange(prev, s models.ActiveStream) bool {
-	if prev.MediaType != models.MediaTypeLiveTV || prev.Title == "" {
+	if prev.MediaType != models.MediaTypeLiveTV || s.MediaType != models.MediaTypeLiveTV {
 		return false
 	}
-	return prev.Title != s.Title || prev.ParentTitle != s.ParentTitle
+	if !hasLiveTVProgram(prev) || !hasLiveTVProgram(s) {
+		return false
+	}
+	return prev.Title != s.Title
+}
+
+// hasLiveTVProgram reports whether a live-TV stream has EPG program data
+// (i.e., Title is a program name, not the channel fallback).
+func hasLiveTVProgram(s models.ActiveStream) bool {
+	return s.Title != "" && s.Title != s.GrandparentTitle
 }
