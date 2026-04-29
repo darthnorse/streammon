@@ -632,3 +632,55 @@ func TestDeriveDynamicRange(t *testing.T) {
 		})
 	}
 }
+
+func TestParseSessionsLiveTVClassification(t *testing.T) {
+	srv := &Server{serverID: 1, serverName: "plex-test"}
+	xmlBody := []byte(`<?xml version="1.0"?>
+<MediaContainer size="1">
+  <Video sessionKey="42" ratingKey="123" type="episode" live="1"
+         title="Evening News" grandparentTitle="ABC News">
+    <Player title="iPad" product="Plex for iOS" address="10.0.0.9" state="playing"/>
+    <Session id="sess-live-1" bandwidth="4000"/>
+    <User title="dave"/>
+  </Video>
+</MediaContainer>`)
+
+	streams, err := srv.parseSessions(context.Background(), xmlBody)
+	if err != nil {
+		t.Fatalf("parseSessions: %v", err)
+	}
+	if len(streams) != 1 {
+		t.Fatalf("got %d streams, want 1", len(streams))
+	}
+	s := streams[0]
+	if s.MediaType != models.MediaTypeLiveTV {
+		t.Errorf("MediaType = %q, want %q (live=\"1\" episode must be Live TV)", s.MediaType, models.MediaTypeLiveTV)
+	}
+	if s.Title != "Evening News" {
+		t.Errorf("Title = %q, want %q (Plex already provides program as title)", s.Title, "Evening News")
+	}
+	if s.GrandparentTitle != "ABC News" {
+		t.Errorf("GrandparentTitle = %q, want %q (channel/series)", s.GrandparentTitle, "ABC News")
+	}
+}
+
+func TestParseSessionsRegularEpisodeNotLiveTV(t *testing.T) {
+	srv := &Server{serverID: 1, serverName: "plex-test"}
+	xmlBody := []byte(`<?xml version="1.0"?>
+<MediaContainer size="1">
+  <Video sessionKey="43" ratingKey="124" type="episode"
+         title="Pilot" grandparentTitle="Lost">
+    <Player title="iPad" product="Plex for iOS" address="10.0.0.9" state="playing"/>
+    <Session id="sess-2" bandwidth="4000"/>
+    <User title="alice"/>
+  </Video>
+</MediaContainer>`)
+
+	streams, err := srv.parseSessions(context.Background(), xmlBody)
+	if err != nil {
+		t.Fatalf("parseSessions: %v", err)
+	}
+	if streams[0].MediaType != models.MediaTypeTV {
+		t.Errorf("MediaType = %q, want %q (no live attr → regular TV)", streams[0].MediaType, models.MediaTypeTV)
+	}
+}
