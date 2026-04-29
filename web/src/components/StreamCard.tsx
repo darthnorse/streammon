@@ -46,6 +46,24 @@ function MediaTitle({ stream, onTitleClick }: { stream: ActiveStream; onTitleCli
       </>
     )
   }
+  if (stream.media_type === 'livetv') {
+    const showProgram = stream.title && stream.title !== stream.grandparent_title
+    const subtitle = stream.parent_title
+      ? `${stream.title} · ${stream.parent_title}`
+      : stream.title
+    return (
+      <>
+        <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-base leading-snug">
+          {stream.grandparent_title || stream.title}
+        </div>
+        {showProgram && (
+          <div className="text-sm text-gray-600 dark:text-gray-300 truncate mt-1">
+            {subtitle}
+          </div>
+        )}
+      </>
+    )
+  }
   if (stream.extra_type && stream.parent_title) {
     return (
       <>
