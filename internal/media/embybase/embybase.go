@@ -150,9 +150,11 @@ type nowPlaying struct {
 }
 
 type currentProgram struct {
-	Name           string `json:"Name"`
-	EpisodeTitle   string `json:"EpisodeTitle"`
-	ProductionYear int    `json:"ProductionYear"`
+	ID             string            `json:"Id"`
+	Name           string            `json:"Name"`
+	EpisodeTitle   string            `json:"EpisodeTitle"`
+	ProductionYear int               `json:"ProductionYear"`
+	ImageTags      map[string]string `json:"ImageTags"`
 }
 
 type mediaSource struct {
@@ -248,6 +250,11 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 		}
 		if as.ExtraType != "" && s.NowPlaying.ParentId != "" {
 			as.ThumbURL = s.NowPlaying.ParentId
+		}
+		if as.MediaType == models.MediaTypeLiveTV {
+			if cp := s.NowPlaying.CurrentProgram; cp != nil && cp.ID != "" && cp.ImageTags["Primary"] != "" {
+				as.ThumbURL = cp.ID
+			}
 		}
 		var container string
 		var bitrate int64
