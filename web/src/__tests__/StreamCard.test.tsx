@@ -78,6 +78,35 @@ describe('StreamCard', () => {
     expect(screen.getByText('Official Trailer')).toBeDefined()
   })
 
+  it('renders live TV with EPG program: channel as primary, program as subtitle', () => {
+    renderWithRouter(
+      <StreamCard stream={{
+        ...baseStream,
+        media_type: 'livetv',
+        title: 'The Late Show',
+        grandparent_title: 'CBS',
+        parent_title: 'Guest: Jane Doe',
+      }} />
+    )
+    expect(screen.getByText('CBS')).toBeDefined()
+    expect(screen.getByText(/The Late Show/)).toBeDefined()
+  })
+
+  it('renders live TV without EPG: only channel name shown', () => {
+    renderWithRouter(
+      <StreamCard stream={{
+        ...baseStream,
+        media_type: 'livetv',
+        title: 'BBC One',
+        grandparent_title: 'BBC One',
+        parent_title: '',
+      }} />
+    )
+    expect(screen.getByText('BBC One')).toBeDefined()
+    // Title should not appear twice
+    expect(screen.queryAllByText('BBC One').length).toBe(1)
+  })
+
   describe('clickable titles', () => {
     it('calls onTitleClick with server_id and item_id for a movie', async () => {
       const onClick = vi.fn()
