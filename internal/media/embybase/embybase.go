@@ -231,7 +231,9 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			as.GrandparentTitle = channel
 			if cp := s.NowPlaying.CurrentProgram; cp != nil && cp.Name != "" {
 				as.Title = cp.Name
-				as.ParentTitle = cp.EpisodeTitle
+				if cp.EpisodeTitle != "" {
+					as.ParentTitle = cp.EpisodeTitle
+				}
 				if cp.ProductionYear > 0 {
 					as.Year = cp.ProductionYear
 				}
