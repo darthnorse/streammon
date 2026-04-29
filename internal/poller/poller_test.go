@@ -431,6 +431,98 @@ func TestRatingKeyChangeCreatesHistory(t *testing.T) {
 	}
 }
 
+func TestLiveTVProgramChangeCreatesHistory(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	// Poll 1: live TV session — channel CBS, program "The Late Show"
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "ch-cbs",
+				MediaType: models.MediaTypeLiveTV,
+				Title:     "The Late Show", GrandparentTitle: "CBS",
+				ParentTitle: "Guest A",
+				UserName:    "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Poll 2: same session/channel, EPG advanced to a new program
+	ms.setSessions([]models.ActiveStream{
+		{SessionID: "s1", ServerID: srv.ID, ItemID: "ch-cbs",
+			MediaType: models.MediaTypeLiveTV,
+			Title:     "Late Late Show", GrandparentTitle: "CBS",
+			ParentTitle: "Guest B",
+			UserName:    "alice", StartedAt: time.Now().UTC()},
+	})
+	triggerAndWaitPoll(t, p)
+
+	p.Stop()
+
+	// One history entry for the previous program
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 history entry after program change, got %d", result.Total)
+	}
+	if result.Items[0].Title != "The Late Show" {
+		t.Errorf("expected persisted title %q, got %q", "The Late Show", result.Items[0].Title)
+	}
+	if result.Items[0].MediaType != models.MediaTypeLiveTV {
+		t.Errorf("expected persisted media_type %q, got %q", models.MediaTypeLiveTV, result.Items[0].MediaType)
+	}
+
+	// Live session continues with the new program
+	sessions := p.CurrentSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 active session, got %d", len(sessions))
+	}
+	if sessions[0].Title != "Late Late Show" {
+		t.Errorf("expected active title %q, got %q", "Late Late Show", sessions[0].Title)
+	}
+}
+
+func TestLiveTVSameProgramNoHandoff(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	// Two consecutive polls with identical program — no handoff, no history rows
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "ch-cbs",
+				MediaType: models.MediaTypeLiveTV,
+				Title:     "The Late Show", GrandparentTitle: "CBS",
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+	triggerAndWaitPoll(t, p)
+
+	p.Stop()
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected 0 history entries while program unchanged, got %d", result.Total)
+	}
+}
+
 func TestNearEndWatched(t *testing.T) {
 	s, srv := newTestStoreWithServer(t)
 	p := newTestPoller(t, s)
