@@ -1843,3 +1843,120 @@ func TestFetchLibraryBatch_PopulatesVideoDimensions(t *testing.T) {
 		t.Errorf("VideoHeight = %d, want 688", items[0].VideoHeight)
 	}
 }
+
+func TestParseSessionsLiveTVWithProgram(t *testing.T) {
+	data := []byte(`[
+		{
+			"Id": "sess-1",
+			"UserName": "alice",
+			"Client": "Emby Web",
+			"DeviceName": "Chrome",
+			"RemoteEndPoint": "10.0.0.5",
+			"NowPlayingItem": {
+				"Id": "ch-cbs",
+				"Name": "CBS",
+				"Type": "TvChannel",
+				"CurrentProgram": {
+					"Name": "The Late Show",
+					"EpisodeTitle": "Guest: Jane Doe",
+					"ProductionYear": 2026
+				}
+			},
+			"PlayState": {"PositionTicks": 0, "IsPaused": false}
+		}
+	]`)
+
+	streams, err := parseSessions(data, 1, "test", models.ServerTypeEmby)
+	if err != nil {
+		t.Fatalf("parseSessions: %v", err)
+	}
+	if len(streams) != 1 {
+		t.Fatalf("got %d streams, want 1", len(streams))
+	}
+	s := streams[0]
+	if s.MediaType != models.MediaTypeLiveTV {
+		t.Errorf("MediaType = %q, want %q", s.MediaType, models.MediaTypeLiveTV)
+	}
+	if s.GrandparentTitle != "CBS" {
+		t.Errorf("GrandparentTitle (channel) = %q, want %q", s.GrandparentTitle, "CBS")
+	}
+	if s.Title != "The Late Show" {
+		t.Errorf("Title (program) = %q, want %q", s.Title, "The Late Show")
+	}
+	if s.ParentTitle != "Guest: Jane Doe" {
+		t.Errorf("ParentTitle (episode subtitle) = %q, want %q", s.ParentTitle, "Guest: Jane Doe")
+	}
+	if s.Year != 2026 {
+		t.Errorf("Year = %d, want 2026", s.Year)
+	}
+}
+
+func TestParseSessionsLiveTVWithoutProgram(t *testing.T) {
+	data := []byte(`[
+		{
+			"Id": "sess-2",
+			"UserName": "bob",
+			"NowPlayingItem": {
+				"Id": "ch-bbc",
+				"Name": "BBC One",
+				"Type": "TvChannel"
+			},
+			"PlayState": {"PositionTicks": 0}
+		}
+	]`)
+
+	streams, err := parseSessions(data, 1, "test", models.ServerTypeJellyfin)
+	if err != nil {
+		t.Fatalf("parseSessions: %v", err)
+	}
+	if len(streams) != 1 {
+		t.Fatalf("got %d streams, want 1", len(streams))
+	}
+	s := streams[0]
+	if s.MediaType != models.MediaTypeLiveTV {
+		t.Errorf("MediaType = %q, want %q", s.MediaType, models.MediaTypeLiveTV)
+	}
+	if s.GrandparentTitle != "BBC One" {
+		t.Errorf("GrandparentTitle = %q, want %q", s.GrandparentTitle, "BBC One")
+	}
+	if s.Title != "BBC One" {
+		t.Errorf("Title fallback = %q, want %q (channel name)", s.Title, "BBC One")
+	}
+	if s.ParentTitle != "" {
+		t.Errorf("ParentTitle = %q, want empty", s.ParentTitle)
+	}
+}
+
+func TestParseSessionsNonLiveTVUnaffected(t *testing.T) {
+	data := []byte(`[
+		{
+			"Id": "sess-3",
+			"UserName": "carol",
+			"NowPlayingItem": {
+				"Id": "ep-1",
+				"Name": "Pilot",
+				"Type": "Episode",
+				"SeriesName": "Lost",
+				"SeasonName": "Season 1",
+				"ParentIndexNumber": 1,
+				"IndexNumber": 1
+			},
+			"PlayState": {"PositionTicks": 0}
+		}
+	]`)
+
+	streams, err := parseSessions(data, 1, "test", models.ServerTypeEmby)
+	if err != nil {
+		t.Fatalf("parseSessions: %v", err)
+	}
+	s := streams[0]
+	if s.MediaType != models.MediaTypeTV {
+		t.Errorf("MediaType = %q, want %q", s.MediaType, models.MediaTypeTV)
+	}
+	if s.Title != "Pilot" {
+		t.Errorf("Title = %q, want %q", s.Title, "Pilot")
+	}
+	if s.GrandparentTitle != "Lost" {
+		t.Errorf("GrandparentTitle = %q, want %q", s.GrandparentTitle, "Lost")
+	}
+}
