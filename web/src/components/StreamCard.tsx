@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { ActiveStream, TitleClickHandler } from '../types'
 import { formatTimestamp, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, thumbUrl } from '../lib/format'
 import { getMediaLabel, CLICKABLE_TITLE_CLASS } from '../lib/constants'
+import { getLiveTVTitleParts } from '../lib/mediaTitle'
 import { GeoIPPopover } from './GeoIPPopover'
 import { TerminateSessionDialog } from './TerminateSessionDialog'
 
@@ -47,16 +48,13 @@ function MediaTitle({ stream, onTitleClick }: { stream: ActiveStream; onTitleCli
     )
   }
   if (stream.media_type === 'livetv') {
-    const showProgram = stream.title && stream.title !== stream.grandparent_title
-    const subtitle = stream.parent_title
-      ? `${stream.title} · ${stream.parent_title}`
-      : stream.title
+    const { primary, subtitle, showSubtitle } = getLiveTVTitleParts(stream)
     return (
       <>
         <div className="font-semibold text-gray-900 dark:text-gray-50 truncate text-base leading-snug">
-          {stream.grandparent_title || stream.title}
+          {primary}
         </div>
-        {showProgram && (
+        {showSubtitle && (
           <div className="text-sm text-gray-600 dark:text-gray-300 truncate mt-1">
             {subtitle}
           </div>

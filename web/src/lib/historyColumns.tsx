@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import type { WatchHistoryEntry, TitleClickHandler } from '../types'
 import { formatDuration, formatDate, formatEpisode, parseSeasonFromTitle, formatLocation } from './format'
 import { getMediaLabel, CLICKABLE_TITLE_CLASS } from './constants'
+import { getLiveTVTitleParts } from './mediaTitle'
 import { GeoIPPopover } from '../components/GeoIPPopover'
 
 export interface ColumnDef {
@@ -48,16 +49,13 @@ export function EntryTitle({ entry, onTitleClick }: EntryTitleProps) {
     )
   }
   if (entry.media_type === 'livetv') {
-    const showProgram = entry.title && entry.title !== entry.grandparent_title
-    const subtitle = entry.parent_title
-      ? `${entry.title} · ${entry.parent_title}`
-      : entry.title
+    const { primary, subtitle, showSubtitle } = getLiveTVTitleParts(entry)
     return (
       <div>
         <div className="font-medium text-gray-900 dark:text-gray-50 truncate">
-          {entry.grandparent_title || entry.title}
+          {primary}
         </div>
-        {showProgram && (
+        {showSubtitle && (
           <div className="text-xs text-muted dark:text-muted-dark truncate">
             {subtitle}
           </div>
