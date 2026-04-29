@@ -7,8 +7,11 @@ interface SessionsState {
   connected: boolean
 }
 
-const EMPTY: SessionsState = { sessions: [], connected: false }
-const SessionsContext = createContext<SessionsState>(EMPTY)
+// connected=true in the inert state because "not subscribed" is not a failure
+// any consumer should render as "Reconnecting"; only the active path can flip
+// connected to false via an SSE error.
+const INERT: SessionsState = { sessions: [], connected: true }
+const SessionsContext = createContext<SessionsState>(INERT)
 
 export function useSessions(): SessionsState {
   return useContext(SessionsContext)
@@ -19,9 +22,11 @@ interface SessionsProviderProps {
   children: ReactNode
 }
 
+// Two distinct component bodies so useSSE is only called when enabled —
+// collapsing the branches would violate React's hooks rules.
 export function SessionsProvider({ enabled, children }: SessionsProviderProps) {
   if (!enabled) {
-    return <SessionsContext.Provider value={EMPTY}>{children}</SessionsContext.Provider>
+    return <SessionsContext.Provider value={INERT}>{children}</SessionsContext.Provider>
   }
   return <ActiveSessionsProvider>{children}</ActiveSessionsProvider>
 }
