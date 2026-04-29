@@ -523,6 +523,138 @@ func TestLiveTVSameProgramNoHandoff(t *testing.T) {
 	}
 }
 
+// EPG dropout: program disappears mid-session and the adapter falls back to
+// the channel name as Title. This must NOT be treated as a program change.
+func TestLiveTVEPGDropoutNoSplit(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "ch-cbs",
+				MediaType: models.MediaTypeLiveTV,
+				Title:     "The Late Show", GrandparentTitle: "CBS",
+				UserName: "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// EPG drops out — adapter falls back to channel as Title
+	ms.setSessions([]models.ActiveStream{
+		{SessionID: "s1", ServerID: srv.ID, ItemID: "ch-cbs",
+			MediaType: models.MediaTypeLiveTV,
+			Title:     "CBS", GrandparentTitle: "CBS",
+			UserName: "alice", StartedAt: time.Now().UTC()},
+	})
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected 0 history entries on EPG dropout, got %d", result.Total)
+	}
+}
+
+// Some EPG providers update EpisodeTitle (subtitle) mid-program. This must
+// NOT split history into a new row — the program (Title) is unchanged.
+func TestLiveTVParentTitleChangeNoSplit(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "ch-cbs",
+				MediaType: models.MediaTypeLiveTV,
+				Title:     "The Late Show", GrandparentTitle: "CBS",
+				ParentTitle: "Guest A",
+				UserName:    "alice", StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	ms.setSessions([]models.ActiveStream{
+		{SessionID: "s1", ServerID: srv.ID, ItemID: "ch-cbs",
+			MediaType: models.MediaTypeLiveTV,
+			Title:     "The Late Show", GrandparentTitle: "CBS",
+			ParentTitle: "Guest B",
+			UserName:    "alice", StartedAt: time.Now().UTC()},
+	})
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected 0 history entries on subtitle-only change, got %d", result.Total)
+	}
+}
+
+// Lock in (c): after a program rollover, the new active session must start
+// with zero PausedMs and a StartedAt close to the rollover moment, not
+// inherited from the previous program.
+func TestLiveTVProgramChangeResetsCounters(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	pollOneStart := time.Now().UTC()
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: srv.ID, ItemID: "ch-cbs",
+				MediaType: models.MediaTypeLiveTV,
+				Title:     "The Late Show", GrandparentTitle: "CBS",
+				UserName: "alice", StartedAt: pollOneStart},
+		},
+	}
+	p.AddServer(srv.ID, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	waitPoll(t, p)
+
+	// Wait long enough that the rollover moment is distinguishable
+	time.Sleep(20 * time.Millisecond)
+	rolloverAt := time.Now().UTC()
+	ms.setSessions([]models.ActiveStream{
+		{SessionID: "s1", ServerID: srv.ID, ItemID: "ch-cbs",
+			MediaType: models.MediaTypeLiveTV,
+			Title:     "Late Late Show", GrandparentTitle: "CBS",
+			UserName: "alice", StartedAt: rolloverAt},
+	})
+	triggerAndWaitPoll(t, p)
+	p.Stop()
+
+	sessions := p.CurrentSessions()
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 active session, got %d", len(sessions))
+	}
+	if sessions[0].PausedMs != 0 {
+		t.Errorf("PausedMs = %d, want 0 (reset on rollover)", sessions[0].PausedMs)
+	}
+	if sessions[0].StartedAt.Before(rolloverAt) {
+		t.Errorf("StartedAt = %v, want >= rolloverAt %v (must not inherit prior program's StartedAt)",
+			sessions[0].StartedAt, rolloverAt)
+	}
+}
+
 func TestNearEndWatched(t *testing.T) {
 	s, srv := newTestStoreWithServer(t)
 	p := newTestPoller(t, s)
