@@ -49,6 +49,35 @@ describe('HistoryTable', () => {
     expect(screen.getAllByText('Trailer').length).toBeGreaterThan(0)
   })
 
+  it('renders live TV with EPG: channel as primary, program as subtitle', () => {
+    renderWithRouter(
+      <HistoryTable entries={[{
+        ...baseHistoryEntry,
+        media_type: 'livetv',
+        title: 'The Late Show',
+        grandparent_title: 'CBS',
+        parent_title: 'Guest: Jane Doe',
+      }]} />
+    )
+    expect(screen.getAllByText('CBS').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/The Late Show/).length).toBeGreaterThan(0)
+  })
+
+  it('renders live TV without EPG: only channel name shown once', () => {
+    renderWithRouter(
+      <HistoryTable entries={[{
+        ...baseHistoryEntry,
+        media_type: 'livetv',
+        title: 'BBC One',
+        grandparent_title: 'BBC One',
+        parent_title: '',
+      }]} />
+    )
+    const rows = screen.getAllByTestId('history-row')
+    const titleCellMatches = rows[0].textContent?.match(/BBC One/g) || []
+    expect(titleCellMatches.length).toBe(1)
+  })
+
   it('renders user name as link', () => {
     renderWithRouter(<HistoryTable entries={[baseHistoryEntry]} />)
     const links = screen.getAllByRole('link', { name: 'alice' })
