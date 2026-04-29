@@ -50,27 +50,13 @@ func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, users)
 }
 
-func (s *Server) handleListUserSummaries(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleListUserSummaries(w http.ResponseWriter, _ *http.Request) {
 	summaries, err := s.store.ListUserSummaries()
 	if err != nil {
 		log.Printf("ListUserSummaries error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-
-	user := UserFromContext(r.Context())
-	if user != nil && user.Role == models.RoleViewer {
-		filtered := make([]store.UserSummary, 0)
-		for _, s := range summaries {
-			if s.Name == user.Name {
-				filtered = append(filtered, s)
-				break
-			}
-		}
-		writeJSON(w, http.StatusOK, filtered)
-		return
-	}
-
 	writeJSON(w, http.StatusOK, summaries)
 }
 

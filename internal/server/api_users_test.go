@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"streammon/internal/auth"
 	"streammon/internal/models"
 )
 
@@ -255,5 +256,31 @@ func TestSyncUserAvatars_ServerConnectionError(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if len(resp.Errors) != 1 {
 		t.Errorf("expected 1 error for unreachable server, got %d: %v", len(resp.Errors), resp.Errors)
+	}
+}
+
+func TestListUserSummaries_ViewerForbidden(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	viewerToken := createViewerSession(t, st, "viewer")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/users/summary", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.Server.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("viewer hitting /api/users/summary: status = %d, want 403", w.Code)
+	}
+}
+
+func TestListUserSummaries_AdminAllowed(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/users/summary", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("admin hitting /api/users/summary: status = %d, want 200", w.Code)
 	}
 }

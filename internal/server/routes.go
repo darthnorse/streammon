@@ -67,7 +67,7 @@ func (s *Server) routes() {
 		r.Get("/history/{id}/sessions", s.handleListSessions)
 
 		r.Get("/users", s.handleListUsers)
-		r.Get("/users/summary", s.handleListUserSummaries)
+		r.With(RequireRole(models.RoleAdmin)).Get("/users/summary", s.handleListUserSummaries)
 		r.With(RequireRole(models.RoleAdmin)).Post("/users/sync-avatars", s.handleSyncUserAvatars)
 		r.Get("/users/{name}", s.handleGetUser)
 		r.Get("/users/{name}/locations", s.handleGetUserLocations)
