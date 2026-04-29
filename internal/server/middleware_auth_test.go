@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,9 +10,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+
 	"streammon/internal/auth"
 	"streammon/internal/models"
 )
+
+func resetAuthRateLimiter(t *testing.T) {
+	t.Helper()
+	globalAuthRateLimiter.mu.Lock()
+	defer globalAuthRateLimiter.mu.Unlock()
+	globalAuthRateLimiter.attempts = make(map[string][]time.Time)
+}
 
 func contextWithUser(ctx context.Context, u *models.User) context.Context {
 	return context.WithValue(ctx, userContextKey, u)
@@ -172,6 +183,43 @@ func TestRequireSetupComplete_AllowsWhenUsersExist(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200 when users exist, got %d", w.Code)
+	}
+}
+
+// Reproduces the X-Forwarded-For bypass: middleware.RealIP rewrites RemoteAddr
+// from the header, so a client rotating X-Forwarded-For per request used to
+// land in fresh limiter buckets and never hit the cap. With the raw-socket
+// capture in place, all attempts key on the actual peer.
+func TestRateLimitAuth_IgnoresSpoofedXForwardedFor(t *testing.T) {
+	resetAuthRateLimiter(t)
+
+	r := chi.NewRouter()
+	r.Use(CaptureRawRemoteAddr)
+	r.Use(middleware.RealIP)
+	r.With(RateLimitAuth).Post("/login", func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"bad creds"}`, http.StatusUnauthorized)
+	})
+
+	ts := httptest.NewServer(r)
+	defer ts.Close()
+
+	var lastStatus int
+	for i := 0; i < 11; i++ {
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/login", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("10.0.0.%d", i+1))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		lastStatus = resp.StatusCode
+	}
+
+	if lastStatus != http.StatusTooManyRequests {
+		t.Errorf("11th attempt with rotating X-Forwarded-For: status = %d, want 429", lastStatus)
 	}
 }
 

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log"
 	"net"
 	"net/http"
@@ -9,6 +10,33 @@ import (
 )
 
 const maxBodySize = 1 << 20 // 1MB
+
+type rawRemoteAddrKey struct{}
+
+// CaptureRawRemoteAddr stashes r.RemoteAddr in the request context before any
+// later middleware (notably middleware.RealIP) can rewrite it from
+// X-Forwarded-For. Rate limiters that must key on the actual socket peer should
+// read the captured value via rawClientIP.
+func CaptureRawRemoteAddr(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), rawRemoteAddrKey{}, r.RemoteAddr)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// rawClientIP returns the host portion of the original socket peer captured by
+// CaptureRawRemoteAddr. Falls back to r.RemoteAddr (which may have been
+// rewritten by middleware.RealIP) if the capture middleware is not installed.
+func rawClientIP(r *http.Request) string {
+	addr, ok := r.Context().Value(rawRemoteAddrKey{}).(string)
+	if !ok {
+		addr = r.RemoteAddr
+	}
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
+}
 
 type rateLimiter struct {
 	mu       sync.Mutex
@@ -99,10 +127,7 @@ func StopRateLimiter() {
 func rateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Query().Get("search") != "" {
-			ip := r.RemoteAddr
-			if host, _, err := net.SplitHostPort(ip); err == nil {
-				ip = host
-			}
+			ip := rawClientIP(r)
 			if !searchRateLimiter.allow(ip) {
 				log.Printf("search rate limit: ip=%s path=%s", ip, r.URL.Path)
 				w.Header().Set("Retry-After", "60")

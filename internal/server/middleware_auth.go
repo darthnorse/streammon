@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"log"
-	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -201,15 +200,12 @@ func (r *statusRecorder) WriteHeader(code int) {
 
 // RateLimitAuth applies rate limiting to authentication endpoints.
 // Only failed attempts (4xx/5xx responses) count toward the limit.
-// NOTE: Uses RemoteAddr only. If behind a trusted reverse proxy that sets
-// X-Forwarded-For, configure the proxy to set RemoteAddr correctly instead.
+// Keys on the raw socket peer captured by CaptureRawRemoteAddr so a spoofed
+// X-Forwarded-For (already applied by middleware.RealIP) cannot rotate the
+// limiter's bucket.
 func RateLimitAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Use RemoteAddr directly - don't trust X-Forwarded-For which can be spoofed.
-		ip := r.RemoteAddr
-		if host, _, err := net.SplitHostPort(ip); err == nil {
-			ip = host
-		}
+		ip := rawClientIP(r)
 
 		if !globalAuthRateLimiter.check(ip) {
 			log.Printf("auth rate limit: ip=%s path=%s", ip, r.URL.Path)

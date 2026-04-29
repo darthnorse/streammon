@@ -70,6 +70,7 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 	if srv.authManager == nil {
 		panic("server: authManager is required — use WithAuthManager")
 	}
+	srv.router.Use(CaptureRawRemoteAddr)
 	srv.router.Use(middleware.RealIP)
 	srv.router.Use(middleware.Recoverer)
 	srv.router.Use(securityHeaders)
