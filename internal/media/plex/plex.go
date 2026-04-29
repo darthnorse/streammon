@@ -260,6 +260,7 @@ type plexItem struct {
 	ParentRatingKey       string            `xml:"parentRatingKey,attr"`
 	GrandparentRatingKey  string            `xml:"grandparentRatingKey,attr"`
 	Type                  string            `xml:"type,attr"`
+	Live                  string            `xml:"live,attr"`
 	Title                 string            `xml:"title,attr"`
 	ParentTitle           string            `xml:"parentTitle,attr"`
 	GrandparentTitle      string            `xml:"grandparentTitle,attr"`
@@ -442,6 +443,9 @@ func buildStream(item plexItem, serverID int64, serverName string, srcInfo *sour
 		Bandwidth:         atoi64(item.Session.Bandwidth) * 1000, // Plex reports kbps
 		StartedAt:         time.Now().UTC(),
 		State:             plexPlayerState(item.Player.State),
+	}
+	if item.Live == "1" {
+		as.MediaType = models.MediaTypeLiveTV
 	}
 	// ThumbURL stores a rating key (e.g., "55555"), a local path fragment
 	// (e.g., "library/metadata/12345/thumb/123"), or an external HTTP URL.
