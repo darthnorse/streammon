@@ -4,8 +4,10 @@ import { Sidebar } from './Sidebar'
 import { MobileNav } from './MobileNav'
 import { ThemeToggle } from './ThemeToggle'
 import { ProfileModal } from './ProfileModal'
+import { TabTitle } from './TabTitle'
 import { UserAvatar } from './UserAvatar'
 import { useAuth } from '../context/AuthContext'
+import { SessionsProvider } from '../context/SessionsContext'
 import { useFetch } from '../hooks/useFetch'
 import { useRequestCount } from '../hooks/useRequestCount'
 import type { IntegrationStatus } from '../lib/constants'
@@ -41,41 +43,44 @@ export function Layout() {
   }, [integrationsLoaded, sonarrConfigured, overseerrConfigured, guestSettings, isAdmin])
 
   return (
-    <div className="flex min-h-screen scanlines">
-      <Sidebar onOpenProfile={() => setShowProfile(true)} integrations={integrations} pendingCount={pendingCount} />
+    <SessionsProvider enabled={isAdmin}>
+      <div className="flex min-h-screen scanlines">
+        <Sidebar onOpenProfile={() => setShowProfile(true)} integrations={integrations} pendingCount={pendingCount} />
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <header className="lg:hidden flex items-center justify-between px-4 h-14
-                          border-b border-border dark:border-border-dark
-                          bg-panel dark:bg-panel-dark sticky top-0 z-40">
-          <div className="flex items-center gap-2.5">
-            <img src="/android-chrome-192x192.png" alt="" className="w-7 h-7" />
-            <span className="text-accent font-mono font-semibold text-sm tracking-widest uppercase">
-              StreamMon
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <ThemeToggle />
-            {user && (
-              <button
-                onClick={() => setShowProfile(true)}
-                className="shrink-0"
-                aria-label="Open profile"
-              >
-                <UserAvatar name={user.name} thumbUrl={user.thumb_url} />
-              </button>
-            )}
-          </div>
-        </header>
+        <div className="flex-1 flex flex-col min-w-0">
+          <header className="lg:hidden flex items-center justify-between px-4 h-14
+                            border-b border-border dark:border-border-dark
+                            bg-panel dark:bg-panel-dark sticky top-0 z-40">
+            <div className="flex items-center gap-2.5">
+              <img src="/android-chrome-192x192.png" alt="" className="w-7 h-7" />
+              <span className="text-accent font-mono font-semibold text-sm tracking-widest uppercase">
+                StreamMon
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              {user && (
+                <button
+                  onClick={() => setShowProfile(true)}
+                  className="shrink-0"
+                  aria-label="Open profile"
+                >
+                  <UserAvatar name={user.name} thumbUrl={user.thumb_url} />
+                </button>
+              )}
+            </div>
+          </header>
 
-        <main className="flex-1 p-4 md:p-6 lg:p-8 pb-20 lg:pb-8">
-          <Outlet context={{ pendingCount } satisfies LayoutOutletContext} />
-        </main>
+          <main className="flex-1 p-4 md:p-6 lg:p-8 pb-20 lg:pb-8">
+            <Outlet context={{ pendingCount } satisfies LayoutOutletContext} />
+          </main>
+        </div>
+
+        <MobileNav integrations={integrations} pendingCount={pendingCount} />
+
+        {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+        {isAdmin && <TabTitle />}
       </div>
-
-      <MobileNav integrations={integrations} pendingCount={pendingCount} />
-
-      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
-    </div>
+    </SessionsProvider>
   )
 }

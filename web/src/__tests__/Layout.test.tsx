@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithRouter } from '../test-utils'
 import { Layout } from '../components/Layout'
@@ -18,6 +18,10 @@ vi.mock('../hooks/useFetch', () => ({
 
 vi.mock('../hooks/useRequestCount', () => ({
   useRequestCount: vi.fn(() => ({ data: null, loading: false, error: null, refetch: vi.fn() })),
+}))
+
+vi.mock('../hooks/useSSE', () => ({
+  useSSE: vi.fn(() => ({ sessions: [], connected: true })),
 }))
 
 import { useRequestCount } from '../hooks/useRequestCount'
@@ -52,6 +56,10 @@ const viewerUser = {
 describe('Layout', () => {
   beforeEach(() => {
     mockUseAuth.mockReturnValue({ ...baseAuth, user: adminUser })
+  })
+
+  afterEach(() => {
+    document.title = 'StreamMon'
   })
 
   it('renders sidebar nav links', () => {

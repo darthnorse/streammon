@@ -1,4 +1,4 @@
-import { useSSE } from '../hooks/useSSE'
+import { useSessions } from '../context/SessionsContext'
 import { useAuth } from '../context/AuthContext'
 import { useMediaDetailModal } from '../hooks/useMediaDetailModal'
 import { StreamCard } from '../components/StreamCard'
@@ -9,7 +9,7 @@ import { WatchStats } from '../components/WatchStats'
 import { formatBitrate } from '../lib/format'
 
 export function Dashboard() {
-  const { sessions, connected } = useSSE('/api/dashboard/sse')
+  const { sessions, connected } = useSessions()
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const { handleTitleClick, modal } = useMediaDetailModal()

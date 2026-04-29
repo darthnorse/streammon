@@ -4,13 +4,13 @@ import { renderWithRouter } from '../test-utils'
 import { Dashboard } from '../pages/Dashboard'
 import { baseStream } from './fixtures'
 
-vi.mock('../hooks/useSSE', () => ({
-  useSSE: vi.fn(),
+vi.mock('../context/SessionsContext', () => ({
+  useSessions: vi.fn(),
 }))
 
-import { useSSE } from '../hooks/useSSE'
+import { useSessions } from '../context/SessionsContext'
 
-const mockUseSSE = vi.mocked(useSSE)
+const mockUseSessions = vi.mocked(useSessions)
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -18,21 +18,21 @@ afterEach(() => {
 
 describe('Dashboard', () => {
   it('shows empty state when no sessions', () => {
-    mockUseSSE.mockReturnValue({ sessions: [], connected: true })
+    mockUseSessions.mockReturnValue({ sessions: [], connected: true })
     renderWithRouter(<Dashboard />)
     expect(screen.getByText(/no active streams/i)).toBeDefined()
   })
 
   it('renders stream cards for active sessions', () => {
     const stream = { ...baseStream, user_name: 'bob', title: 'The Matrix', year: 1999 }
-    mockUseSSE.mockReturnValue({ sessions: [stream], connected: true })
+    mockUseSessions.mockReturnValue({ sessions: [stream], connected: true })
     renderWithRouter(<Dashboard />)
     expect(screen.getByText('bob')).toBeDefined()
     expect(screen.getByText('The Matrix')).toBeDefined()
   })
 
   it('shows stream count', () => {
-    mockUseSSE.mockReturnValue({
+    mockUseSessions.mockReturnValue({
       sessions: [
         { ...baseStream, session_id: 's1', user_name: 'a' },
         { ...baseStream, session_id: 's2', user_name: 'b', media_type: 'episode' },
