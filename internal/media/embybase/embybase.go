@@ -146,6 +146,13 @@ type nowPlaying struct {
 	MediaStreams           []mediaStream     `json:"MediaStreams"`
 	ParentIndexNumber     int               `json:"ParentIndexNumber"`
 	IndexNumber           int               `json:"IndexNumber"`
+	CurrentProgram        *currentProgram   `json:"CurrentProgram"`
+}
+
+type currentProgram struct {
+	Name           string `json:"Name"`
+	EpisodeTitle   string `json:"EpisodeTitle"`
+	ProductionYear int    `json:"ProductionYear"`
 }
 
 type mediaSource struct {
@@ -218,6 +225,19 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			IPAddress:         s.RemoteIP,
 			StartedAt:         time.Now().UTC(),
 			State:             embyPlayerState(s.PlayState),
+		}
+		if as.MediaType == models.MediaTypeLiveTV {
+			channel := s.NowPlaying.Name
+			as.GrandparentTitle = channel
+			if cp := s.NowPlaying.CurrentProgram; cp != nil && cp.Name != "" {
+				as.Title = cp.Name
+				as.ParentTitle = cp.EpisodeTitle
+				if cp.ProductionYear > 0 {
+					as.Year = cp.ProductionYear
+				}
+			} else {
+				as.Title = channel
+			}
 		}
 		as.ThumbURL = resolveThumbURL(s.NowPlaying.SeriesId, s.NowPlaying.SeriesPrimaryImageTag, s.NowPlaying.ID, s.NowPlaying.ImageTags)
 		as.ExtraType = embyExtraType(s.NowPlaying.ExtraType)
