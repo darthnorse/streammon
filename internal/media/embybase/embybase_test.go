@@ -2018,3 +2018,34 @@ func TestParseSessionsLiveTVFallsBackToChannelThumb(t *testing.T) {
 		t.Errorf("ThumbURL = %q, want %q (channel logo when program has no image)", s.ThumbURL, "ch-bbc")
 	}
 }
+
+// Locks in AND semantics: program with an Id but no ImageTags map must NOT
+// override the channel thumb (the program image is unfetchable without a tag).
+func TestParseSessionsLiveTVProgramIdWithoutImageTagsFallsBack(t *testing.T) {
+	data := []byte(`[
+		{
+			"Id": "sess-and",
+			"UserName": "carol",
+			"NowPlayingItem": {
+				"Id": "ch-abc",
+				"Name": "ABC",
+				"Type": "TvChannel",
+				"ImageTags": {"Primary": "ch-tag"},
+				"CurrentProgram": {
+					"Id": "prog-no-image",
+					"Name": "Some Program"
+				}
+			},
+			"PlayState": {"PositionTicks": 0}
+		}
+	]`)
+
+	streams, err := parseSessions(data, 1, "test", models.ServerTypeEmby)
+	if err != nil {
+		t.Fatalf("parseSessions: %v", err)
+	}
+	s := streams[0]
+	if s.ThumbURL != "ch-abc" {
+		t.Errorf("ThumbURL = %q, want %q (channel logo when program has Id but no ImageTags)", s.ThumbURL, "ch-abc")
+	}
+}

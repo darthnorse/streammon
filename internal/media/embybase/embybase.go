@@ -248,13 +248,12 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 		if as.ExtraType == "" && s.NowPlaying.Type == "Trailer" {
 			as.ExtraType = models.ExtraTypeTrailer
 		}
-		if as.ExtraType != "" && s.NowPlaying.ParentId != "" {
-			as.ThumbURL = s.NowPlaying.ParentId
-		}
 		if as.MediaType == models.MediaTypeLiveTV {
 			if cp := s.NowPlaying.CurrentProgram; cp != nil && cp.ID != "" && cp.ImageTags["Primary"] != "" {
 				as.ThumbURL = cp.ID
 			}
+		} else if as.ExtraType != "" && s.NowPlaying.ParentId != "" {
+			as.ThumbURL = s.NowPlaying.ParentId
 		}
 		var container string
 		var bitrate int64
