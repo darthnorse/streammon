@@ -178,10 +178,11 @@ func (s *Server) handlePlaybackReportingImport() http.HandlerFunc {
 		}
 		defer mu.Unlock()
 
-		// 50 MiB max upload
-		const maxUpload = 50 << 20
-		if err := r.ParseMultipartForm(maxUpload); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid multipart form")
+		const maxUpload = 50 << 20      // 50 MiB file cap
+		const multipartSlack = 1 << 20  // 1 MiB headroom for form fields and multipart envelope
+		r.Body = http.MaxBytesReader(w, r.Body, maxUpload+multipartSlack)
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			writeError(w, http.StatusRequestEntityTooLarge, "upload too large or invalid multipart form")
 			return
 		}
 
@@ -213,9 +214,13 @@ func (s *Server) handlePlaybackReportingImport() http.HandlerFunc {
 		}
 		defer file.Close()
 
-		data, err := io.ReadAll(io.LimitReader(file, maxUpload))
+		data, err := io.ReadAll(io.LimitReader(file, maxUpload+1))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "failed to read file")
+			return
+		}
+		if int64(len(data)) > maxUpload {
+			writeError(w, http.StatusRequestEntityTooLarge, "file exceeds 50 MiB limit")
 			return
 		}
 

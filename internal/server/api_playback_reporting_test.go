@@ -1,6 +1,11 @@
 package server
 
 import (
+	"bytes"
+	"io"
+	"mime/multipart"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -252,5 +257,32 @@ func TestParsePlaybackReportingTSV_BadDuration(t *testing.T) {
 	entries := parsePlaybackReportingTSV(input, userMap, 1)
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries for bad duration, got %d", len(entries))
+	}
+}
+
+func TestPlaybackReportingImport_RejectsOversizedUpload(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	// Build a multipart body whose file part exceeds the 50 MiB cap.
+	// 51 MiB of payload plus a small server_id field must be rejected
+	// without ever being written to disk.
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		defer pw.Close()
+		defer mw.Close()
+		mw.WriteField("server_id", "1")
+		fw, _ := mw.CreateFormFile("file", "huge.tsv")
+		oversize := bytes.Repeat([]byte("x"), (50<<20)+(1<<20)+1)
+		fw.Write(oversize)
+	}()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/playback-reporting/import", pr)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("oversized upload: status = %d, want 413", w.Code)
 	}
 }
