@@ -22,9 +22,11 @@ interface EpisodeDetailProps {
   onClose: () => void
   pushModal: (entry: ModalEntry) => void
   active: boolean
+  libraryIds?: Set<string>
+  mediaStatuses?: Map<string, number>
 }
 
-export function EpisodeDetail({ item, loading, onClose, pushModal, active }: EpisodeDetailProps) {
+export function EpisodeDetail({ item, loading, onClose, pushModal, active, libraryIds, mediaStatuses }: EpisodeDetailProps) {
   const { stack, push: pushInner, pop: popInner } = useModalStack()
 
   const enrichment = useTMDBEnrichment(item?.tmdb_id, item?.media_type)
@@ -278,7 +280,8 @@ export function EpisodeDetail({ item, loading, onClose, pushModal, active }: Epi
           pushModal={pushInner}
           popModal={popInner}
           overseerrConfigured={false}
-          libraryIds={new Set()}
+          libraryIds={libraryIds ?? new Set()}
+          mediaStatuses={mediaStatuses}
         />
       )}
     </>

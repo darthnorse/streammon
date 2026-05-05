@@ -1,3 +1,10 @@
+// Compact "Show Name Season N Episode M" → "Show Name SNxEM" — TMDB classifies
+// some TV special episodes as standalone movie entries with these verbose names.
+export function compactEpisodeTitle<T extends string | undefined>(s: T): T {
+  if (!s) return s
+  return s.replace(/\bSeason\s+(\d+)\s+Episode\s+(\d+)\b/i, 'S$1E$2') as T
+}
+
 /**
  * Format a number with locale-specific thousands separators
  */

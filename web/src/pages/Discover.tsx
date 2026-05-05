@@ -383,6 +383,7 @@ export function Discover() {
           popModal={popModal}
           overseerrConfigured={overseerrConfigured}
           libraryIds={libraryIds}
+          mediaStatuses={mediaStatuses}
         />
       )}
     </div>

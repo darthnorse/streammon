@@ -1,7 +1,7 @@
 import { Component, useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
 import { HeatmapLayer } from 'react-leaflet-heatmap-layer-v3'
-import type { LatLngBoundsExpression } from 'leaflet'
+import type { LatLngBoundsExpression, LeafletEvent } from 'leaflet'
 import { useIsDark } from '../../hooks/useIsDark'
 import { formatLocation } from '../../lib/format'
 import { COLOR_DEFAULT } from '../../lib/mapUtils'
@@ -73,12 +73,26 @@ class MapErrorBoundary extends Component<MapErrorBoundaryProps, MapErrorBoundary
   }
 }
 
+function locationSetKey(locations: GeoResult[]): string {
+  return locations
+    .map((loc) => loc.ip ?? `${loc.lat},${loc.lng}`)
+    .sort()
+    .join('|')
+}
+
 function MapBoundsUpdater({ locations }: { locations: GeoResult[] }) {
   const map = useMap()
   const userInteractedRef = useRef(false)
+  const lastSetKeyRef = useRef<string>('')
 
   useEffect(() => {
-    const onInteraction = () => { userInteractedRef.current = true }
+    const onInteraction = (e: LeafletEvent) => {
+      // Leaflet sets originalEvent only for user-triggered events; programmatic
+      // setView/fitBounds calls fire zoomstart without an originalEvent.
+      if ('originalEvent' in e && e.originalEvent) {
+        userInteractedRef.current = true
+      }
+    }
     map.on('zoomstart', onInteraction)
     map.on('dragstart', onInteraction)
     return () => {
@@ -88,8 +102,20 @@ function MapBoundsUpdater({ locations }: { locations: GeoResult[] }) {
   }, [map])
 
   useEffect(() => {
-    if (userInteractedRef.current) return
-    if (locations.length === 0) return
+    if (locations.length === 0) {
+      lastSetKeyRef.current = ''
+      return
+    }
+
+    const setKey = locationSetKey(locations)
+    const setChanged = setKey !== lastSetKeyRef.current
+
+    if (!setChanged && userInteractedRef.current) return
+
+    if (setChanged) {
+      userInteractedRef.current = false
+      lastSetKeyRef.current = setKey
+    }
 
     if (locations.length === 1) {
       map.setView([locations[0].lat, locations[0].lng], 10)

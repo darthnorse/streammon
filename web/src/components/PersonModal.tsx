@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { api } from '../lib/api'
 import { TMDB_IMG } from '../lib/tmdb'
+import { compactEpisodeTitle } from '../lib/format'
 import { MediaCard } from './MediaCard'
 import { MEDIA_GRID_CLASS } from '../lib/constants'
 import type { TMDBPersonDetails, TMDBPersonCredit } from '../types'
@@ -11,6 +12,7 @@ interface PersonModalProps {
   onClose: () => void
   onMediaClick?: (mediaType: 'movie' | 'tv', mediaId: number) => void
   libraryIds?: Set<string>
+  mediaStatuses?: Map<string, number>
   active?: boolean
 }
 
@@ -22,7 +24,7 @@ function sortByNewest(credits: TMDBPersonCredit[]): TMDBPersonCredit[] {
   })
 }
 
-export function PersonModal({ personId, onClose, onMediaClick, libraryIds, active = true }: PersonModalProps) {
+export function PersonModal({ personId, onClose, onMediaClick, libraryIds, mediaStatuses, active = true }: PersonModalProps) {
   const [person, setPerson] = useState<TMDBPersonDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -201,8 +203,8 @@ export function PersonModal({ personId, onClose, onMediaClick, libraryIds, activ
                       item={{
                         id: credit.id,
                         media_type: credit.media_type,
-                        title: credit.title,
-                        name: credit.name,
+                        title: compactEpisodeTitle(credit.title),
+                        name: compactEpisodeTitle(credit.name),
                         poster_path: credit.poster_path,
                         release_date: credit.release_date,
                         first_air_date: credit.first_air_date,
@@ -210,6 +212,7 @@ export function PersonModal({ personId, onClose, onMediaClick, libraryIds, activ
                       }}
                       onClick={() => onMediaClick?.(credit.media_type, credit.id)}
                       available={libraryIds?.has(String(credit.id))}
+                      fallbackMediaStatus={mediaStatuses?.get(`${credit.media_type}:${credit.id}`)}
                     />
                   ))}
                 </div>

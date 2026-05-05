@@ -98,6 +98,8 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
     seasonNumbers,
   })
 
+  const showRequestedPill = !requestSuccess && (overseerrStatus === MEDIA_STATUS.PENDING || overseerrStatus === MEDIA_STATUS.PROCESSING)
+
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key !== 'Escape') return
     e.stopImmediatePropagation()
@@ -230,7 +232,7 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                       </span>
                     </div>
 
-                    {overseerrStatus && overseerrStatus > MEDIA_STATUS.UNKNOWN && (
+                    {overseerrStatus && overseerrStatus > MEDIA_STATUS.UNKNOWN && !showRequestedPill && (
                       <div className="mt-2">{mediaStatusBadge(overseerrStatus)}</div>
                     )}
 
@@ -381,6 +383,24 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                   {requestError && (
                     <div className="text-sm text-red-500 dark:text-red-400 mt-2">{requestError}</div>
                   )}
+                </div>
+              )}
+
+              {/* Top-of-modal mediaStatusBadge is hidden only for PENDING/PROCESSING (replaced
+                  by this prominent pill). All other Overseerr states (UNKNOWN, AVAILABLE,
+                  PARTIALLY_AVAILABLE, BLOCKLISTED, DELETED) keep the regular small badge. */}
+              {showRequestedPill && (
+                <div className="border-t border-border dark:border-border-dark pt-4">
+                  <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-accent/10 text-accent border border-accent/30">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span className="text-sm font-semibold">Already Requested</span>
+                    <span className="text-xs opacity-60">·</span>
+                    <span className="text-sm">
+                      {overseerrStatus === MEDIA_STATUS.PENDING ? 'Pending Approval' : 'Processing'}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>

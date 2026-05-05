@@ -18,6 +18,7 @@ interface ModalStackRendererProps {
   popModal: () => void
   overseerrConfigured: boolean
   libraryIds: Set<string>
+  mediaStatuses?: Map<string, number>
 }
 
 export function ModalStackRenderer({
@@ -26,6 +27,7 @@ export function ModalStackRenderer({
   popModal,
   overseerrConfigured,
   libraryIds,
+  mediaStatuses,
 }: ModalStackRendererProps) {
   return (
     <>
@@ -43,6 +45,7 @@ export function ModalStackRenderer({
                   onClose={popModal}
                   onMediaClick={(type, id) => pushModal({ type: 'tmdb', mediaType: type, mediaId: id })}
                   libraryIds={libraryIds}
+                  mediaStatuses={mediaStatuses}
                   active={isTop}
                 />
               </div>
@@ -72,6 +75,8 @@ export function ModalStackRenderer({
                   pushModal={pushModal}
                   active={isTop}
                   overseerrConfigured={overseerrConfigured}
+                  libraryIds={libraryIds}
+                  mediaStatuses={mediaStatuses}
                 />
               </div>
             )
@@ -91,9 +96,11 @@ interface LibraryEntryModalProps {
   pushModal: (entry: ModalEntry) => void
   active: boolean
   overseerrConfigured: boolean
+  libraryIds?: Set<string>
+  mediaStatuses?: Map<string, number>
 }
 
-function LibraryEntryModal({ entry, onClose, pushModal, active, overseerrConfigured }: LibraryEntryModalProps) {
+function LibraryEntryModal({ entry, onClose, pushModal, active, overseerrConfigured, libraryIds, mediaStatuses }: LibraryEntryModalProps) {
   const { data, loading } = useItemDetails(entry.serverId, entry.itemId)
 
   const level = entry.type === 'library' ? (data?.level ?? '') : entry.type
@@ -117,6 +124,8 @@ function LibraryEntryModal({ entry, onClose, pushModal, active, overseerrConfigu
         onClose={onClose}
         pushModal={pushModal}
         active={active}
+        libraryIds={libraryIds}
+        mediaStatuses={mediaStatuses}
       />
     )
   }
@@ -128,6 +137,8 @@ function LibraryEntryModal({ entry, onClose, pushModal, active, overseerrConfigu
       pushModal={pushModal}
       active={active}
       overseerrConfigured={overseerrConfigured}
+      libraryIds={libraryIds}
+      mediaStatuses={mediaStatuses}
     />
   )
 }

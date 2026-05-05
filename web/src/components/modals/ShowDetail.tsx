@@ -31,6 +31,8 @@ interface ShowDetailProps {
   pushModal: (entry: ModalEntry) => void
   active: boolean
   overseerrConfigured: boolean
+  libraryIds?: Set<string>
+  mediaStatuses?: Map<string, number>
 }
 
 export function ShowDetail({
@@ -40,6 +42,8 @@ export function ShowDetail({
   pushModal,
   active,
   overseerrConfigured,
+  libraryIds,
+  mediaStatuses,
 }: ShowDetailProps) {
   const { stack, push: pushInner, pop: popInner } = useModalStack()
 
@@ -436,7 +440,8 @@ export function ShowDetail({
           pushModal={pushInner}
           popModal={popInner}
           overseerrConfigured={overseerrConfigured}
-          libraryIds={new Set()}
+          libraryIds={libraryIds ?? new Set()}
+          mediaStatuses={mediaStatuses}
         />
       )}
     </>

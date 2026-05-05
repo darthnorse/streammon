@@ -290,8 +290,7 @@ describe('MediaDetailModal', () => {
       await waitFor(() => {
         expect(screen.getByText('Already Requested')).toBeInTheDocument()
       })
-      // "Processing" appears in both the top status badge and the indicator pill
-      expect(screen.getAllByText('Processing').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Processing')).toHaveLength(1)
     })
 
     it('does not show "Already Requested" indicator for available movie', async () => {

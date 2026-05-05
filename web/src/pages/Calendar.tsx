@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import { useModalStack } from '../hooks/useModalStack'
 import { EmptyState } from '../components/EmptyState'
 import { ModalStackRenderer } from '../components/ModalStackRenderer'
+import { useOverseerrMediaStatuses } from '../hooks/useOverseerrMediaStatuses'
 import { MEDIA_GRID_CLASS } from '../lib/constants'
 import type { SonarrEpisode } from '../types'
 
@@ -70,6 +71,7 @@ export function Calendar() {
     stack.length > 0 ? '/api/library/tmdb-ids' : null
   )
   const libraryIds = useMemo(() => new Set(libraryData?.ids ?? []), [libraryData])
+  const mediaStatuses = useOverseerrMediaStatuses(overseerrAvailable && stack.length > 0)
 
   const { today, start, end, label } = useMemo(() => {
     const now = new Date()
@@ -230,6 +232,7 @@ export function Calendar() {
           popModal={popModal}
           overseerrConfigured={overseerrAvailable}
           libraryIds={libraryIds}
+          mediaStatuses={mediaStatuses}
         />
       )}
     </div>
