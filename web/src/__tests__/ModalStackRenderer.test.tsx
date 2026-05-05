@@ -27,7 +27,9 @@ vi.mock('../hooks/useFetch', () => ({
 
 vi.mock('../hooks/useRequestCount', () => ({
   useRequestCount: vi.fn(() => ({ data: null, loading: false, error: null, refetch: vi.fn() })),
+  useRequestChangedListener: vi.fn(),
   dispatchRequestChanged: vi.fn(),
+  REQUEST_CHANGED_EVENT: 'overseerr-request-changed',
 }))
 
 describe('ModalStackRenderer', () => {

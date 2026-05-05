@@ -30,7 +30,9 @@ vi.mock('../components/PersonModal', () => ({
 
 vi.mock('../hooks/useRequestCount', () => ({
   useRequestCount: vi.fn(() => ({ data: null, loading: false, error: null, refetch: vi.fn() })),
+  useRequestChangedListener: vi.fn(),
   dispatchRequestChanged: vi.fn(),
+  REQUEST_CHANGED_EVENT: 'overseerr-request-changed',
 }))
 
 const mockItem: ItemDetails = {
@@ -262,9 +264,46 @@ describe('MediaDetailModal', () => {
         expect(screen.getByText('Inception')).toBeInTheDocument()
       })
       await waitFor(() => {
-        expect(screen.getByText('Pending')).toBeInTheDocument()
+        expect(screen.getByText('Already Requested')).toBeInTheDocument()
       })
       expect(screen.queryByText('Request Movie')).not.toBeInTheDocument()
+    })
+
+    it('shows "Already Requested" indicator for pending movie', async () => {
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.PENDING)
+      render(
+        <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Already Requested')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Pending Approval')).toBeInTheDocument()
+    })
+
+    it('shows "Already Requested" indicator for processing movie', async () => {
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.PROCESSING)
+      render(
+        <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Already Requested')).toBeInTheDocument()
+      })
+      // "Processing" appears in both the top status badge and the indicator pill
+      expect(screen.getAllByText('Processing').length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('does not show "Already Requested" indicator for available movie', async () => {
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.AVAILABLE)
+      render(
+        <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Available')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Already Requested')).not.toBeInTheDocument()
     })
 
     it('shows fetch error when API call fails', async () => {
@@ -351,7 +390,7 @@ describe('MediaDetailModal', () => {
         expect(screen.getByText('Breaking Bad')).toBeInTheDocument()
       })
       await waitFor(() => {
-        expect(screen.getByText('Pending')).toBeInTheDocument()
+        expect(screen.getByText('Already Requested')).toBeInTheDocument()
       })
       expect(screen.queryByText('Request TV Show')).not.toBeInTheDocument()
       expect(screen.queryByText('Request More')).not.toBeInTheDocument()
