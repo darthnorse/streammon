@@ -76,6 +76,272 @@ func TestRequireAuthManager_ValidSession(t *testing.T) {
 	}
 }
 
+func TestRequireAuthManager_ValidAPIKey(t *testing.T) {
+	resetAuthRateLimiter(t)
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
+
+	plain, err := auth.GenerateAPIKey()
+	if err != nil {
+		t.Fatalf("GenerateAPIKey: %v", err)
+	}
+	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+		t.Fatalf("SetAPIKey: %v", err)
+	}
+
+	mw := RequireAuthManager(mgr)
+	var gotUser *models.User
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser = UserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-API-Key", plain)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d (%s)", w.Code, w.Body.String())
+	}
+	if gotUser == nil {
+		t.Fatal("expected synthetic user in context")
+	}
+	if gotUser.Role != models.RoleAdmin {
+		t.Errorf("expected synthetic admin, got role=%s", gotUser.Role)
+	}
+	if !gotUser.APIKeyAuth {
+		t.Error("expected APIKeyAuth=true on synthetic user")
+	}
+}
+
+func TestRequireAuthManager_InvalidAPIKey_ReturnsAuthError_AndRateLimits(t *testing.T) {
+	resetAuthRateLimiter(t)
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
+
+	plain, _ := auth.GenerateAPIKey()
+	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+		t.Fatalf("SetAPIKey: %v", err)
+	}
+
+	mw := RequireAuthManager(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run on bad key")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-API-Key", "sm_wrong")
+	req.RemoteAddr = "10.0.0.1:1234"
+	req = req.WithContext(context.WithValue(req.Context(), rawRemoteAddrKey{}, req.RemoteAddr))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+
+	globalAuthRateLimiter.mu.Lock()
+	count := len(globalAuthRateLimiter.attempts["10.0.0.1"])
+	globalAuthRateLimiter.mu.Unlock()
+	if count != 1 {
+		t.Errorf("expected rate-limit counter incremented once, got %d", count)
+	}
+}
+
+func TestRequireAuthManager_EmptyAPIKeyHeader_Rejects(t *testing.T) {
+	resetAuthRateLimiter(t)
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
+
+	user, _ := st.GetOrCreateUser("testuser")
+	token, _ := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
+
+	mw := RequireAuthManager(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run on empty API key header")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-API-Key", "")
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: token})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 (empty header must not fall through to cookie), got %d", w.Code)
+	}
+}
+
+func TestRequireAuthManager_APIKeyRateLimitBlocksAfterThreshold(t *testing.T) {
+	resetAuthRateLimiter(t)
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
+
+	plain, _ := auth.GenerateAPIKey()
+	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+		t.Fatalf("SetAPIKey: %v", err)
+	}
+
+	mw := RequireAuthManager(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Saturate the bucket via 10 bad attempts.
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-API-Key", "sm_"+strings.Repeat("0", 64))
+		req.RemoteAddr = "10.0.0.2:1234"
+		req = req.WithContext(context.WithValue(req.Context(), rawRemoteAddrKey{}, req.RemoteAddr))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: expected 401, got %d", i, w.Code)
+		}
+	}
+
+	// 11th attempt — even with a *valid* key — must be 429.
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-API-Key", plain)
+	req.RemoteAddr = "10.0.0.2:1234"
+	req = req.WithContext(context.WithValue(req.Context(), rawRemoteAddrKey{}, req.RemoteAddr))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429 after rate-limit exceeded, got %d", w.Code)
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429")
+	}
+}
+
+func TestRequireAuthManager_APIKey_RejectsMalformedShape(t *testing.T) {
+	resetAuthRateLimiter(t)
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
+
+	plain, _ := auth.GenerateAPIKey()
+	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+		t.Fatalf("SetAPIKey: %v", err)
+	}
+
+	mw := RequireAuthManager(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run on bad shape")
+	}))
+
+	for _, bad := range []string{"too-short", "abc_" + strings.Repeat("0", 64), "sm_short"} {
+		req := httptest.NewRequest("GET", "/", nil)
+		req.Header.Set("X-API-Key", bad)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("input %q: expected 401, got %d", bad, w.Code)
+		}
+	}
+}
+
+func TestRequireAuthManager_APIKey_RejectsMultipleHeaders(t *testing.T) {
+	resetAuthRateLimiter(t)
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
+
+	plain, _ := auth.GenerateAPIKey()
+	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+		t.Fatalf("SetAPIKey: %v", err)
+	}
+
+	mw := RequireAuthManager(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run when duplicates are sent")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Add("X-API-Key", plain)
+	req.Header.Add("X-API-Key", plain)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 on duplicate X-API-Key, got %d", w.Code)
+	}
+}
+
+func TestRequireAuthManager_APIKey_RejectedBeforeSetup(t *testing.T) {
+	resetAuthRateLimiter(t)
+	st := newEmptyStore(t)
+	mgr := auth.NewManager(st)
+
+	// Even with a stored hash, no admin user exists (setup incomplete).
+	plain, _ := auth.GenerateAPIKey()
+	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+		t.Fatalf("SetAPIKey: %v", err)
+	}
+
+	mw := RequireAuthManager(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler must not run when setup is required")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-API-Key", plain)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 before setup, got %d", w.Code)
+	}
+}
+
+func TestRequireInteractiveSession_AllowsCookie(t *testing.T) {
+	user := &models.User{ID: 1, Name: "u", Role: models.RoleAdmin}
+	handler := RequireInteractiveSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest("GET", "/", nil).WithContext(contextWithUser(context.Background(), user))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected 200 for cookie session, got %d", w.Code)
+	}
+}
+
+func TestRequireInteractiveSession_RejectsAPIKey(t *testing.T) {
+	user := &models.User{ID: -1, Name: "api", Role: models.RoleAdmin, APIKeyAuth: true}
+	handler := RequireInteractiveSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run for API-key principals")
+	}))
+	req := httptest.NewRequest("GET", "/", nil).WithContext(contextWithUser(context.Background(), user))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403, got %d", w.Code)
+	}
+}
+
+func TestRequireAuthManager_BadAPIKey_DoesNotFallThroughToCookie(t *testing.T) {
+	resetAuthRateLimiter(t)
+	_, st := newTestServer(t)
+	mgr := auth.NewManager(st)
+
+	user, _ := st.GetOrCreateUser("testuser")
+	token, _ := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))
+
+	mw := RequireAuthManager(mgr)
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not run when API key is invalid")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("X-API-Key", "sm_wrong")
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: token})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
 func TestRequireRole_Forbidden(t *testing.T) {
 	mw := RequireRole(models.RoleAdmin)
 

@@ -17,6 +17,7 @@ import { EmptyState } from '../components/EmptyState'
 import { IntegrationCard } from '../components/IntegrationCard'
 import { UserManagement } from '../components/UserManagement'
 import { GuestAccessSettings } from '../components/GuestAccessSettings'
+import { APIAccessSettings } from '../components/APIAccessSettings'
 import { ToggleSwitch } from '../components/ToggleSwitch'
 import { ServerDeleteDialog } from '../components/ServerDeleteDialog'
 import { PlaybackReportingImportForm } from '../components/PlaybackReportingImportForm'
@@ -35,13 +36,14 @@ const tabs: { key: TabKey; label: string }[] = [
   { key: 'auth', label: 'Authentication' },
   { key: 'integrations', label: 'Integrations' },
   { key: 'geoip', label: 'GeoIP' },
+  { key: 'api', label: 'API' },
   { key: 'import', label: 'Import' },
   { key: 'display', label: 'Display' },
   { key: 'maintenance', label: 'Maintenance' },
   { key: 'about', label: 'About' },
 ]
 
-type TabKey = 'servers' | 'users' | 'guest' | 'auth' | 'integrations' | 'geoip' | 'import' | 'display' | 'maintenance' | 'about'
+type TabKey = 'servers' | 'users' | 'guest' | 'auth' | 'api' | 'integrations' | 'geoip' | 'import' | 'display' | 'maintenance' | 'about'
 
 export function Settings() {
   const [tab, setTab] = useState<TabKey>('servers')
@@ -512,6 +514,8 @@ export function Settings() {
           )}
         </>
       )}
+
+      {tab === 'api' && <APIAccessSettings />}
 
       {tab === 'integrations' && (
         <div className="space-y-4">

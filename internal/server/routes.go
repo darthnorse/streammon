@@ -50,8 +50,8 @@ func (s *Server) routes() {
 		r.Use(RequireAuthManager(s.authManager))
 
 		r.Get("/me", s.handleMe)
-		r.Put("/me", s.handleUpdateProfile)
-		r.With(RateLimitAuth).Post("/me/password", s.handleChangePassword)
+		r.With(RequireInteractiveSession).Put("/me", s.handleUpdateProfile)
+		r.With(RequireInteractiveSession, RateLimitAuth).Post("/me/password", s.handleChangePassword)
 
 		r.Get("/servers", s.handleListServers)
 		r.With(RequireRole(models.RoleAdmin)).Post("/servers", s.handleCreateServer)
@@ -288,6 +288,16 @@ func (s *Server) routes() {
 			sr.Put("/{id}/role", s.handleAdminUpdateUserRole)
 			sr.Post("/{id}/unlink", s.handleAdminUnlinkUser)
 			sr.Delete("/{id}", s.handleAdminDeleteUser)
+		})
+
+		// Programmatic API key (synthetic-admin, single key, header-only).
+		// Mutating routes require an interactive session — a leaked key cannot
+		// self-rotate or self-revoke.
+		r.Route("/admin/api-key", func(sr chi.Router) {
+			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Get("/", s.handleGetAPIKeyStatus)
+			sr.With(RequireInteractiveSession, RateLimitAuth).Post("/rotate", s.handleRotateAPIKey)
+			sr.With(RequireInteractiveSession).Delete("/", s.handleRevokeAPIKey)
 		})
 	})
 

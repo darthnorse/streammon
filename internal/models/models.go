@@ -142,6 +142,12 @@ type User struct {
 	ThumbURL  string    `json:"thumb_url"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// APIKeyAuth marks a request as authenticated via X-API-Key (synthetic admin).
+	// Not persisted; populated only on the in-memory context user. Handlers that
+	// must not be reachable by API-key callers (e.g. api-key rotate/revoke) check
+	// this flag.
+	APIKeyAuth bool `json:"-"`
 }
 
 type WatchHistoryEntry struct {

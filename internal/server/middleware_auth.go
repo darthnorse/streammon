@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,11 +21,60 @@ func UserFromContext(ctx context.Context) *models.User {
 	return u
 }
 
-// RequireAuthManager creates auth middleware using the auth.Manager
-// SECURITY: No fallback to default admin - auth is always required
+// expectedAPIKeyLength is the full length of a valid plaintext key:
+// the prefix plus 32 bytes hex-encoded.
+const expectedAPIKeyLength = len(auth.APIKeyPrefix) + 64
+
+// RequireAuthManager creates auth middleware using the auth.Manager.
+// Two paths:
+//  1. X-API-Key header → hash-compared against the stored API key. On match,
+//     a synthetic admin user is injected (no DB lookup). Mismatch is 401 and
+//     bumps the global auth rate limiter — does not fall through to cookies.
+//  2. No header → existing session-cookie path.
+//
+// SECURITY: No fallback to default admin - auth is always required.
 func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Use Values, not Get: an explicitly-empty header (e.g. "X-API-Key: ")
+			// must reject + rate-limit, not silently fall through to cookie auth.
+			if vals := r.Header.Values("X-API-Key"); len(vals) > 0 {
+				ip := rawClientIP(r)
+
+				// Rate-limit before doing any work on attacker-controlled input.
+				if !globalAuthRateLimiter.check(ip) {
+					w.Header().Set("Retry-After", "900")
+					http.Error(w, `{"error":"too many auth attempts, try again later"}`, http.StatusTooManyRequests)
+					return
+				}
+
+				// Defense-in-depth: API-key acceptance only after setup is complete.
+				if required, err := mgr.IsSetupRequired(); err != nil || required {
+					globalAuthRateLimiter.record(ip)
+					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					return
+				}
+
+				// Reject duplicates and malformed inputs before hashing — bounds work
+				// on attacker input and disambiguates intent.
+				if len(vals) > 1 || !validAPIKeyShape(vals[0]) {
+					globalAuthRateLimiter.record(ip)
+					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					return
+				}
+
+				apiKey := vals[0]
+				storedHash, err := mgr.Store().GetAPIKeyHash()
+				if err != nil || !auth.CompareAPIKeyHash(storedHash, apiKey) {
+					globalAuthRateLimiter.record(ip)
+					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					return
+				}
+				ctx := context.WithValue(r.Context(), userContextKey, syntheticAPIKeyUser())
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+
 			cookie, err := r.Cookie(auth.CookieName)
 			if err != nil {
 				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
@@ -43,6 +93,42 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// validAPIKeyShape returns true iff the key matches the documented format
+// (prefix + 64 hex chars). Cheap pre-check that bounds the SHA-256 work done
+// on attacker-controlled input.
+func validAPIKeyShape(s string) bool {
+	if len(s) != expectedAPIKeyLength {
+		return false
+	}
+	return strings.HasPrefix(s, auth.APIKeyPrefix)
+}
+
+// syntheticAPIKeyUser is the in-memory admin principal used for X-API-Key
+// requests. ID=-1 is a sentinel; this user is never written to or looked up
+// in the DB, so it cannot collide with any real row.
+func syntheticAPIKeyUser() *models.User {
+	return &models.User{
+		ID:         -1,
+		Name:       "api",
+		Role:       models.RoleAdmin,
+		APIKeyAuth: true,
+	}
+}
+
+// RequireInteractiveSession rejects requests authenticated via X-API-Key.
+// Apply to handlers that mutate the caller's own user record, manage the API
+// key itself, or otherwise only make sense for a real human session.
+func RequireInteractiveSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := UserFromContext(r.Context())
+		if user == nil || user.APIKeyAuth {
+			http.Error(w, `{"error":"interactive session required"}`, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // setupCheck creates middleware that checks setup status.
