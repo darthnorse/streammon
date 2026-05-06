@@ -22,7 +22,6 @@ const mockUseFetch = vi.mocked(useFetch)
 describe('APIAccessSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
   it('renders unconfigured state with Generate button', () => {
@@ -34,52 +33,79 @@ describe('APIAccessSettings', () => {
     expect(screen.queryByRole('button', { name: 'Revoke' })).not.toBeInTheDocument()
   })
 
-  it('renders configured state with Rotate and Revoke buttons', () => {
+  it('renders configured state masked with Show/Copy/Rotate/Revoke', () => {
     mockUseFetch.mockReturnValue({
-      data: { configured: true, created_at: '2026-05-01T12:00:00Z' },
+      data: { configured: true, key: 'sm_secret_abc', created_at: '2026-05-01T12:00:00Z' },
       loading: false, error: null, refetch: vi.fn(),
     })
     render(<APIAccessSettings />)
 
-    expect(screen.getByText(/Active/)).toBeInTheDocument()
+    // Key is masked initially.
+    expect(screen.queryByText('sm_secret_abc')).not.toBeInTheDocument()
+    expect(screen.getByText(/Created/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show API key' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Rotate Key' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Revoke' })).toBeInTheDocument()
   })
 
-  it('reveals plaintext key after rotate and hides on dismiss', async () => {
+  it('toggles key visibility via the eye button', () => {
+    mockUseFetch.mockReturnValue({
+      data: { configured: true, key: 'sm_secret_abc' },
+      loading: false, error: null, refetch: vi.fn(),
+    })
+    render(<APIAccessSettings />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show API key' }))
+    expect(screen.getByText('sm_secret_abc')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide API key' }))
+    expect(screen.queryByText('sm_secret_abc')).not.toBeInTheDocument()
+  })
+
+  it('rotate confirms via dialog, refetches, and auto-reveals the new key', async () => {
     const refetch = vi.fn()
     mockUseFetch.mockReturnValue({ data: { configured: false }, loading: false, error: null, refetch })
-    vi.mocked(api.post).mockResolvedValue({ key: 'sm_abc123', created_at: '2026-05-01T12:00:00Z' })
+    vi.mocked(api.post).mockResolvedValue({ key: 'sm_new_value', created_at: '2026-05-01T12:00:00Z' })
 
     render(<APIAccessSettings />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Generate Key' }))
-    await waitFor(() => {
-      expect(screen.getByText('sm_abc123')).toBeInTheDocument()
-    })
-    expect(screen.getByText(/Copy this key now/)).toBeInTheDocument()
-    expect(refetch).toHaveBeenCalled()
+    expect(screen.getByText('Generate API key?')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
-    expect(screen.queryByText('sm_abc123')).not.toBeInTheDocument()
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith('/api/admin/api-key/rotate')
+    })
+    expect(refetch).toHaveBeenCalled()
   })
 
-  it('does not call API when user cancels rotate confirmation', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(false)
-    mockUseFetch.mockReturnValue({ data: { configured: true }, loading: false, error: null, refetch: vi.fn() })
+  it('cancelling the rotate dialog does not call the API', () => {
+    mockUseFetch.mockReturnValue({
+      data: { configured: true, key: 'sm_existing' },
+      loading: false, error: null, refetch: vi.fn(),
+    })
 
     render(<APIAccessSettings />)
     fireEvent.click(screen.getByRole('button', { name: 'Rotate Key' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
     expect(api.post).not.toHaveBeenCalled()
+    expect(screen.queryByText('Rotate API key?')).not.toBeInTheDocument()
   })
 
-  it('calls revoke endpoint and refreshes', async () => {
+  it('confirming revoke clears the key', async () => {
     const refetch = vi.fn()
-    mockUseFetch.mockReturnValue({ data: { configured: true }, loading: false, error: null, refetch })
+    mockUseFetch.mockReturnValue({
+      data: { configured: true, key: 'sm_existing' },
+      loading: false, error: null, refetch,
+    })
     vi.mocked(api.del).mockResolvedValue(undefined)
 
     render(<APIAccessSettings />)
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+    const revokeButtons = screen.getAllByRole('button', { name: 'Revoke' })
+    fireEvent.click(revokeButtons[revokeButtons.length - 1])
 
     await waitFor(() => {
       expect(api.del).toHaveBeenCalledWith('/api/admin/api-key')
@@ -93,6 +119,7 @@ describe('APIAccessSettings', () => {
 
     render(<APIAccessSettings />)
     fireEvent.click(screen.getByRole('button', { name: 'Generate Key' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Generate' }))
 
     await waitFor(() => {
       expect(screen.getByText(/Generate failed: boom/)).toBeInTheDocument()

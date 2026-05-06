@@ -50,12 +50,9 @@ func TestRotateAPIKey_PersistsHashAndReturnsPlaintext(t *testing.T) {
 		t.Fatal("expected plaintext key in response")
 	}
 
-	hash, _ := st.GetAPIKeyHash()
-	if hash != auth.HashAPIKey(resp.Key) {
-		t.Error("stored hash does not match plaintext")
-	}
-	if hash == resp.Key {
-		t.Error("stored value must be the hash, not the plaintext")
+	stored, _ := st.GetAPIKey()
+	if stored != resp.Key {
+		t.Errorf("expected stored value %q, got %q", resp.Key, stored)
 	}
 	createdAt, _ := st.GetAPIKeyCreatedAt()
 	if time.Since(createdAt) > 5*time.Second {
@@ -85,11 +82,47 @@ func TestRotateAPIKey_StatusReportsConfigured(t *testing.T) {
 	}
 }
 
+func TestGetAPIKeyStatus_ReturnsPlaintextWhenConfigured(t *testing.T) {
+	ts, st := newTestServerWrapped(t)
+	if err := st.SetAPIKey("sm_visible", time.Now().UTC()); err != nil {
+		t.Fatalf("SetAPIKey: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/api-key", nil)
+	w := httptest.NewRecorder()
+	ts.ServeHTTP(w, req)
+
+	var resp apiKeyStatusResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Key != "sm_visible" {
+		t.Errorf("expected plaintext sm_visible, got %q", resp.Key)
+	}
+}
+
+func TestGetAPIKeyStatus_RejectsAPIKeyAuth(t *testing.T) {
+	srv, st := newTestServer(t)
+	plain, _ := auth.GenerateAPIKey()
+	if err := st.SetAPIKey(plain, time.Now().UTC()); err != nil {
+		t.Fatalf("SetAPIKey: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/api-key", nil)
+	req.Header.Set("X-API-Key", plain)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Errorf("expected 403 (interactive-only), got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
 func TestRotateAPIKey_RejectsAPIKeyAuth(t *testing.T) {
 	srv, st := newTestServer(t)
 
 	plain, _ := auth.GenerateAPIKey()
-	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+	if err := st.SetAPIKey(plain, time.Now().UTC()); err != nil {
 		t.Fatalf("SetAPIKey: %v", err)
 	}
 
@@ -103,10 +136,10 @@ func TestRotateAPIKey_RejectsAPIKeyAuth(t *testing.T) {
 	}
 }
 
-func TestRevokeAPIKey_ClearsStoredHash(t *testing.T) {
+func TestRevokeAPIKey_ClearsStoredKey(t *testing.T) {
 	ts, st := newTestServerWrapped(t)
 
-	if err := st.SetAPIKey("hash-x", time.Now().UTC()); err != nil {
+	if err := st.SetAPIKey("sm_x", time.Now().UTC()); err != nil {
 		t.Fatalf("SetAPIKey: %v", err)
 	}
 
@@ -117,9 +150,9 @@ func TestRevokeAPIKey_ClearsStoredHash(t *testing.T) {
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	hash, _ := st.GetAPIKeyHash()
-	if hash != "" {
-		t.Errorf("expected empty hash after revoke, got %q", hash)
+	stored, _ := st.GetAPIKey()
+	if stored != "" {
+		t.Errorf("expected empty value after revoke, got %q", stored)
 	}
 }
 
@@ -127,7 +160,7 @@ func TestRevokeAPIKey_RejectsAPIKeyAuth(t *testing.T) {
 	srv, st := newTestServer(t)
 
 	plain, _ := auth.GenerateAPIKey()
-	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+	if err := st.SetAPIKey(plain, time.Now().UTC()); err != nil {
 		t.Fatalf("SetAPIKey: %v", err)
 	}
 

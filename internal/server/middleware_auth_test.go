@@ -85,7 +85,7 @@ func TestRequireAuthManager_ValidAPIKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateAPIKey: %v", err)
 	}
-	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+	if err := st.SetAPIKey(plain, time.Now().UTC()); err != nil {
 		t.Fatalf("SetAPIKey: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestRequireAuthManager_InvalidAPIKey_ReturnsAuthError_AndRateLimits(t *test
 	mgr := auth.NewManager(st)
 
 	plain, _ := auth.GenerateAPIKey()
-	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+	if err := st.SetAPIKey(plain, time.Now().UTC()); err != nil {
 		t.Fatalf("SetAPIKey: %v", err)
 	}
 
@@ -179,7 +179,7 @@ func TestRequireAuthManager_APIKeyRateLimitBlocksAfterThreshold(t *testing.T) {
 	mgr := auth.NewManager(st)
 
 	plain, _ := auth.GenerateAPIKey()
-	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+	if err := st.SetAPIKey(plain, time.Now().UTC()); err != nil {
 		t.Fatalf("SetAPIKey: %v", err)
 	}
 
@@ -222,7 +222,7 @@ func TestRequireAuthManager_APIKey_RejectsMalformedShape(t *testing.T) {
 	mgr := auth.NewManager(st)
 
 	plain, _ := auth.GenerateAPIKey()
-	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+	if err := st.SetAPIKey(plain, time.Now().UTC()); err != nil {
 		t.Fatalf("SetAPIKey: %v", err)
 	}
 
@@ -248,7 +248,7 @@ func TestRequireAuthManager_APIKey_RejectsMultipleHeaders(t *testing.T) {
 	mgr := auth.NewManager(st)
 
 	plain, _ := auth.GenerateAPIKey()
-	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+	if err := st.SetAPIKey(plain, time.Now().UTC()); err != nil {
 		t.Fatalf("SetAPIKey: %v", err)
 	}
 
@@ -274,7 +274,7 @@ func TestRequireAuthManager_APIKey_RejectedBeforeSetup(t *testing.T) {
 
 	// Even with a stored hash, no admin user exists (setup incomplete).
 	plain, _ := auth.GenerateAPIKey()
-	if err := st.SetAPIKey(auth.HashAPIKey(plain), time.Now().UTC()); err != nil {
+	if err := st.SetAPIKey(plain, time.Now().UTC()); err != nil {
 		t.Fatalf("SetAPIKey: %v", err)
 	}
 

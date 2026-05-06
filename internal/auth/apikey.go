@@ -2,7 +2,6 @@ package auth
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
 )
@@ -20,14 +19,11 @@ func GenerateAPIKey() (string, error) {
 	return APIKeyPrefix + hex.EncodeToString(b), nil
 }
 
-func HashAPIKey(plain string) string {
-	sum := sha256.Sum256([]byte(plain))
-	return hex.EncodeToString(sum[:])
-}
-
-func CompareAPIKeyHash(storedHash, plain string) bool {
-	if storedHash == "" {
+// CompareAPIKey constant-time-compares the stored plaintext against an
+// incoming candidate. An empty stored value never matches.
+func CompareAPIKey(stored, candidate string) bool {
+	if stored == "" {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(storedHash), []byte(HashAPIKey(plain))) == 1
+	return subtle.ConstantTimeCompare([]byte(stored), []byte(candidate)) == 1
 }

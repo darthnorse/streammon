@@ -64,8 +64,8 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 				}
 
 				apiKey := vals[0]
-				storedHash, err := mgr.Store().GetAPIKeyHash()
-				if err != nil || !auth.CompareAPIKeyHash(storedHash, apiKey) {
+				stored, err := mgr.Store().GetAPIKey()
+				if err != nil || !auth.CompareAPIKey(stored, apiKey) {
 					globalAuthRateLimiter.record(ip)
 					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 					return

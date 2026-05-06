@@ -27,29 +27,15 @@ func TestGenerateAPIKey_Unique(t *testing.T) {
 	}
 }
 
-func TestHashAPIKey_Deterministic(t *testing.T) {
-	in := "sm_abc123"
-	if HashAPIKey(in) != HashAPIKey(in) {
-		t.Error("HashAPIKey is not deterministic")
-	}
-}
-
-func TestHashAPIKey_DiffersByInput(t *testing.T) {
-	if HashAPIKey("sm_a") == HashAPIKey("sm_b") {
-		t.Error("different inputs produced same hash")
-	}
-}
-
-func TestCompareAPIKeyHash(t *testing.T) {
+func TestCompareAPIKey(t *testing.T) {
 	plain := "sm_secret"
-	hash := HashAPIKey(plain)
-	if !CompareAPIKeyHash(hash, plain) {
-		t.Error("expected match for correct key")
+	if !CompareAPIKey(plain, plain) {
+		t.Error("expected match for equal values")
 	}
-	if CompareAPIKeyHash(hash, "sm_wrong") {
-		t.Error("expected mismatch for wrong key")
+	if CompareAPIKey(plain, "sm_other") {
+		t.Error("expected mismatch for different values")
 	}
-	if CompareAPIKeyHash("", plain) {
-		t.Error("empty stored hash must never match")
+	if CompareAPIKey("", plain) {
+		t.Error("empty stored value must never match")
 	}
 }

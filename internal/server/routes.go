@@ -291,13 +291,14 @@ func (s *Server) routes() {
 		})
 
 		// Programmatic API key (synthetic-admin, single key, header-only).
-		// Mutating routes require an interactive session — a leaked key cannot
-		// self-rotate or self-revoke.
+		// Every endpoint requires an interactive session — a leaked X-API-Key
+		// caller cannot read, rotate, or revoke the key itself.
 		r.Route("/admin/api-key", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
+			sr.Use(RequireInteractiveSession)
 			sr.Get("/", s.handleGetAPIKeyStatus)
-			sr.With(RequireInteractiveSession, RateLimitAuth).Post("/rotate", s.handleRotateAPIKey)
-			sr.With(RequireInteractiveSession).Delete("/", s.handleRevokeAPIKey)
+			sr.With(RateLimitAuth).Post("/rotate", s.handleRotateAPIKey)
+			sr.Delete("/", s.handleRevokeAPIKey)
 		})
 	})
 

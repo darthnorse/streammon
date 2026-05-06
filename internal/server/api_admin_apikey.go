@@ -9,6 +9,7 @@ import (
 
 type apiKeyStatusResponse struct {
 	Configured bool       `json:"configured"`
+	Key        string     `json:"key,omitempty"`
 	CreatedAt  *time.Time `json:"created_at,omitempty"`
 }
 
@@ -17,14 +18,18 @@ type apiKeyRotateResponse struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// handleGetAPIKeyStatus returns the configured key (plaintext) and its
+// creation time. Mounted under RequireInteractiveSession so a leaked X-API-Key
+// caller cannot extract the key value.
 func (s *Server) handleGetAPIKeyStatus(w http.ResponseWriter, r *http.Request) {
-	hash, err := s.store.GetAPIKeyHash()
+	value, err := s.store.GetAPIKey()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	resp := apiKeyStatusResponse{Configured: hash != ""}
+	resp := apiKeyStatusResponse{Configured: value != ""}
 	if resp.Configured {
+		resp.Key = value
 		createdAt, err := s.store.GetAPIKeyCreatedAt()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "internal")
@@ -37,9 +42,9 @@ func (s *Server) handleGetAPIKeyStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// handleRotateAPIKey generates a new key, stores its hash, and returns the
-// plaintext to the caller exactly once. The route is mounted under
-// RequireInteractiveSession so a leaked API key cannot self-rotate.
+// handleRotateAPIKey generates a new key, stores it, and returns the plaintext.
+// Subsequent GETs will also return it; the rotate response is the immediate
+// confirmation. Mounted under RequireInteractiveSession.
 func (s *Server) handleRotateAPIKey(w http.ResponseWriter, r *http.Request) {
 	plain, err := auth.GenerateAPIKey()
 	if err != nil {
@@ -47,7 +52,7 @@ func (s *Server) handleRotateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	createdAt := time.Now().UTC()
-	if err := s.store.SetAPIKey(auth.HashAPIKey(plain), createdAt); err != nil {
+	if err := s.store.SetAPIKey(plain, createdAt); err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
