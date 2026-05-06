@@ -19,6 +19,35 @@ type ConfirmAction = 'rotate' | 'revoke'
 
 const MASK = '••••••••••••••••••••••••••'
 
+// Copy to clipboard with an HTTP-friendly fallback.
+// navigator.clipboard requires a Secure Context (HTTPS or localhost), which
+// rules out most LAN-only StreamMon deployments. The textarea fallback works
+// over plain HTTP at the cost of being deprecated.
+async function writeToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // fall through to fallback
+    }
+  }
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return ok
+  } catch {
+    return false
+  }
+}
+
 function EyeIcon() {
   return (
     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -82,12 +111,11 @@ export function APIAccessSettings() {
 
   async function copyKey() {
     if (!status?.key) return
-    try {
-      await navigator.clipboard.writeText(status.key)
+    if (await writeToClipboard(status.key)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard may be unavailable in non-HTTPS contexts; user can still copy manually.
+    } else {
+      setError('Could not copy to clipboard. Select and copy the key manually.')
     }
   }
 
