@@ -90,6 +90,21 @@ Full documentation is available in the [Wiki](https://github.com/darthnorse/stre
 - [Reverse Proxy](https://github.com/darthnorse/streammon/wiki/Reverse-Proxy) -- CORS and X-Forwarded-For setup
 - [Development](https://github.com/darthnorse/streammon/wiki/Development) -- Building from source
 
+## API
+
+Interactive API documentation is served by every StreamMon instance at `/docs`:
+
+- **Browser:** `http://your-streammon-host:7935/docs` -- Redoc UI with searchable endpoint list and request/response examples.
+- **Spec:** `http://your-streammon-host:7935/openapi.yaml` -- OpenAPI 3.0 YAML.
+
+Generate an admin API key in **Settings → API**, then send it in the `X-API-Key` header:
+
+```bash
+curl -H 'X-API-Key: sm_…' http://your-streammon-host:7935/api/me
+```
+
+The `/docs` page is public (no login required) so external integrations can read the spec without an account.
+
 ## Tech Stack
 
 - **Backend:** Go, Chi router, SQLite (WAL mode), SSE
