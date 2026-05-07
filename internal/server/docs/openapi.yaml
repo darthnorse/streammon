@@ -292,6 +292,98 @@ paths:
                     watch_time_ms: { type: integer, format: int64 }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /api/users:
+    get:
+      summary: List users
+      description: All users known to StreamMon, with aggregate watch counts.
+      tags: [Users]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users/{name}:
+    get:
+      summary: User profile
+      tags: [Users]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+          example: alice
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { description: User not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users/{name}/stats:
+    get:
+      summary: User detail stats
+      description: Watch time, session count, devices, ISPs.
+      tags: [Users]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserStats' }
+        '404': { description: User not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users/{name}/locations:
+    get:
+      summary: User locations
+      description: Distinct IPs the user has streamed from, with geolocation.
+      tags: [Users]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GeoResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users/{name}/violations:
+    get:
+      summary: User rule violations
+      tags: [Users]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RuleViolation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
 components:
   securitySchemes:
     apiKeyAuth:
