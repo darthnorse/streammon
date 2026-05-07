@@ -89,8 +89,10 @@ func TestGetSessions(t *testing.T) {
 	if s.VideoDecision != models.TranscodeDecisionTranscode {
 		t.Errorf("video decision = %q, want transcode", s.VideoDecision)
 	}
-	if s.AudioDecision != models.TranscodeDecisionDirectPlay {
-		t.Errorf("audio decision = %q, want direct play", s.AudioDecision)
+	// IsAudioDirect=true inside a TranscodingInfo block → Copy (audio rode through
+	// the transcoder unchanged). Pure DirectPlay is signalled by no TranscodingInfo.
+	if s.AudioDecision != models.TranscodeDecisionCopy {
+		t.Errorf("audio decision = %q, want copy", s.AudioDecision)
 	}
 	if !s.TranscodeHWDecode {
 		t.Error("expected HW decode true (vaapi)")
@@ -120,49 +122,18 @@ func TestGetSessions(t *testing.T) {
 	}
 }
 
-func TestEmbyVideoDecision(t *testing.T) {
-	cases := []struct {
-		name           string
-		isDirect       bool
-		srcCodec       string
-		txCodec        string
-		srcHeight      int
-		txHeight       int
-		want           models.TranscodeDecision
-	}{
-		{"direct play", true, "h264", "", 1080, 0, models.TranscodeDecisionDirectPlay},
-		{"remux same codec same res", false, "h264", "h264", 1080, 1080, models.TranscodeDecisionCopy},
-		{"remux same codec res unknown", false, "h264", "h264", 0, 0, models.TranscodeDecisionCopy},
-		{"downscale same codec different res", false, "h264", "h264", 1080, 720, models.TranscodeDecisionTranscode},
-		{"different codec", false, "hevc", "h264", 1080, 1080, models.TranscodeDecisionTranscode},
-		{"missing source codec", false, "", "h264", 0, 0, models.TranscodeDecisionTranscode},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got := embyVideoDecision(tc.isDirect, tc.srcCodec, tc.txCodec, tc.srcHeight, tc.txHeight)
-			if got != tc.want {
-				t.Errorf("got %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestEmbyAudioDecision(t *testing.T) {
+func TestEmbyTranscodingDecision(t *testing.T) {
 	cases := []struct {
 		name     string
 		isDirect bool
-		srcCodec string
-		txCodec  string
 		want     models.TranscodeDecision
 	}{
-		{"direct play", true, "aac", "", models.TranscodeDecisionDirectPlay},
-		{"passthrough same codec", false, "aac", "aac", models.TranscodeDecisionCopy},
-		{"transcoded different codec", false, "ac3", "aac", models.TranscodeDecisionTranscode},
-		{"missing source codec", false, "", "aac", models.TranscodeDecisionTranscode},
+		{"direct (codec preserved, remuxed through transcoder)", true, models.TranscodeDecisionCopy},
+		{"not direct (codec touched)", false, models.TranscodeDecisionTranscode},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := embyAudioDecision(tc.isDirect, tc.srcCodec, tc.txCodec)
+			got := embyTranscodingDecision(tc.isDirect)
 			if got != tc.want {
 				t.Errorf("got %q, want %q", got, tc.want)
 			}
@@ -1804,7 +1775,6 @@ func TestDeriveDynamicRange(t *testing.T) {
 		})
 	}
 }
-
 
 func TestDeleteItem(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

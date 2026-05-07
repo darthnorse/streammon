@@ -270,14 +270,12 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 		}
 		as.Container = container
 		as.Bitrate = bitrate
-		var sourceVideoHeight int
 		for _, ms := range mediaStreams {
 			switch ms.Type {
 			case "Video":
 				as.VideoCodec = ms.Codec
 				if ms.Height > 0 {
 					as.VideoResolution = fmt.Sprintf("%dp", ms.Height)
-					sourceVideoHeight = ms.Height
 				}
 				if as.DynamicRange == "" {
 					as.DynamicRange = deriveDynamicRange(ms)
@@ -298,10 +296,8 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			as.TranscodeContainer = ti.Container
 			as.TranscodeVideoCodec = ti.VideoCodec
 			as.TranscodeAudioCodec = ti.AudioCodec
-			// Emby/Jellyfin only flag IsVideoDirect / IsAudioDirect (true/false) and
-			// don't expose a separate "copy" / direct-stream decision. Derive it.
-			as.VideoDecision = embyVideoDecision(ti.IsVideoDirect, as.VideoCodec, ti.VideoCodec, sourceVideoHeight, ti.Height)
-			as.AudioDecision = embyAudioDecision(ti.IsAudioDirect, as.AudioCodec, ti.AudioCodec)
+			as.VideoDecision = embyTranscodingDecision(ti.IsVideoDirect)
+			as.AudioDecision = embyTranscodingDecision(ti.IsAudioDirect)
 			if ti.Height > 0 {
 				as.TranscodeVideoResolution = fmt.Sprintf("%dp", ti.Height)
 			}
@@ -315,32 +311,22 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 	return streams, nil
 }
 
-// embyVideoDecision derives the three-way video decision. Emby/Jellyfin
-// TranscodingInfo only flags IsVideoDirect; "copy" (remux/passthrough) is
-// inferred when the codec matches AND no resolution change is happening.
-// A same-codec stream with a resolution change is still a real transcode
-// (downscale).
-func embyVideoDecision(isDirect bool, sourceCodec, transcodeCodec string, sourceHeight, transcodeHeight int) models.TranscodeDecision {
+// embyTranscodingDecision returns the per-stream decision for a session that
+// has a TranscodingInfo block (i.e., the session went through the transcoder
+// pipeline). Emby's IsXxxDirect flag captures whether the codec is being
+// touched:
+//
+//   - isDirect=true  → Copy   (codec preserved; the stream rode through the
+//                              transcoder unchanged — remux/passthrough)
+//   - isDirect=false → Transcode (codec is being changed, downscaled, or
+//                              transrated)
+//
+// This conflates Plex's distinct "directplay" and "copy" per-stream values
+// into Copy because IsVideoDirect/IsAudioDirect alone can't distinguish them.
+// True DirectPlay (no transcoder pipeline at all) is signalled by the absence
+// of TranscodingInfo, handled by the caller's `else` branch.
+func embyTranscodingDecision(isDirect bool) models.TranscodeDecision {
 	if isDirect {
-		return models.TranscodeDecisionDirectPlay
-	}
-	if sourceCodec == "" || !strings.EqualFold(sourceCodec, transcodeCodec) {
-		return models.TranscodeDecisionTranscode
-	}
-	if sourceHeight > 0 && transcodeHeight > 0 && sourceHeight != transcodeHeight {
-		return models.TranscodeDecisionTranscode
-	}
-	return models.TranscodeDecisionCopy
-}
-
-// embyAudioDecision derives the three-way audio decision. Emby's
-// IsAudioDirect signal doesn't differentiate remux from re-encode; same-codec
-// passthrough is treated as a copy.
-func embyAudioDecision(isDirect bool, sourceCodec, transcodeCodec string) models.TranscodeDecision {
-	if isDirect {
-		return models.TranscodeDecisionDirectPlay
-	}
-	if sourceCodec != "" && strings.EqualFold(sourceCodec, transcodeCodec) {
 		return models.TranscodeDecisionCopy
 	}
 	return models.TranscodeDecisionTranscode

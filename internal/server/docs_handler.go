@@ -117,6 +117,12 @@ func contentTypeFor(name string) string {
 	switch ext {
 	case ".yaml", ".yml":
 		return "application/yaml; charset=utf-8"
+	case ".js":
+		// Pin to application/javascript explicitly. Go's mime.TypeByExtension
+		// returns text/javascript for .js, which is also valid (RFC 9239) but
+		// causes downstream cache-key / log churn on header changes. Keep the
+		// historical Content-Type stable.
+		return "application/javascript; charset=utf-8"
 	}
 	return mime.TypeByExtension(ext)
 }
