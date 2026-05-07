@@ -31,7 +31,7 @@ docker-compose.yml
 # Claude
 .claude/
 CLAUDE.md
-docs/
+/docs/
 wiki-content/
 .worktrees/
 streammon.db
