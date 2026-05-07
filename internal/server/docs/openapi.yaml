@@ -529,6 +529,51 @@ paths:
                     items: { $ref: '#/components/schemas/StatBucket' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /api/admin/api-key:
+    get:
+      summary: Get API key status
+      description: |
+        Returns the current API key (plaintext) and creation timestamp. Requires an
+        interactive (cookie) session — a leaked API key cannot read its own value.
+      tags: [Auth]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIKeyStatus' }
+              example:
+                configured: true
+                key: "sm_3f06aa…"
+                created_at: "2026-05-06T12:34:56Z"
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      summary: Revoke the API key
+      description: Immediately invalidates the key. Requires interactive session.
+      tags: [Auth]
+      responses:
+        '204': { description: Revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/api-key/rotate:
+    post:
+      summary: Rotate (or generate) the API key
+      description: |
+        Generates a new key, persists it (encrypted at rest if `TOKEN_ENCRYPTION_KEY` is
+        configured), and returns the plaintext. Requires interactive session.
+      tags: [Auth]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIKeyRotateResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
 components:
   securitySchemes:
     apiKeyAuth:
