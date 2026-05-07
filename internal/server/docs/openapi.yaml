@@ -62,7 +62,139 @@ tags:
   - name: Stats
     description: Aggregated viewing statistics
 
-paths: {}
+paths:
+  /api/me:
+    get:
+      summary: Whoami
+      description: Returns the authenticated principal. Useful as a key sanity check.
+      tags: [Auth]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+              example:
+                id: -1
+                name: api
+                email: ""
+                role: admin
+                thumb_url: ""
+                created_at: "0001-01-01T00:00:00Z"
+                updated_at: "0001-01-01T00:00:00Z"
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/servers:
+    get:
+      summary: List servers
+      description: All Plex / Emby / Jellyfin servers configured in StreamMon.
+      tags: [Servers]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Server' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/servers/{id}:
+    get:
+      summary: Server detail
+      tags: [Servers]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Server' }
+        '404': { description: Server not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/dashboard/sessions:
+    get:
+      summary: Active streams (snapshot)
+      description: |
+        REST snapshot of all currently-active streams. The same data is pushed via SSE on
+        `/api/dashboard/sse`; pick this endpoint for poll-based widgets, the SSE stream
+        for live UIs.
+      tags: [Live]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActiveStream' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/dashboard/sse:
+    get:
+      summary: Active streams (Server-Sent Events)
+      description: |
+        Streams the current `ActiveStream` array as JSON in an SSE `data:` line on every
+        poll cycle (~5 s). Reconnect on any error using EventSource semantics.
+      tags: [Live]
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE event stream; each `data:` line is a JSON-encoded array of ActiveStream objects.
+              example: |
+                data: [{"session_id":"abc","server_id":1,"user_name":"alice","title":"Foo","started_at":"2026-05-06T12:00:00Z"}]
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/dashboard/summary:
+    get:
+      summary: Live summary (widget-friendly)
+      description: |
+        Flat counts derived from the current sessions, intended for homepage.dev custom-API
+        widgets that don't want to do JSONPath aggregation client-side.
+      tags: [Live]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardSummary' }
+              example:
+                stream_count: 3
+                direct_play_count: 2
+                transcode_count: 1
+                total_bandwidth_bps: 35000000
+                active_user_count: 2
+                server_count: 2
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/dashboard/recent-media:
+    get:
+      summary: Recently added items
+      description: |
+        Items recently added to libraries on servers where `show_recent_media` is enabled.
+      tags: [Live]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  description: |
+                    Heterogeneous shape varying by server type. See
+                    `internal/server/api_recent_media.go` for the canonical struct.
+        '401': { $ref: '#/components/responses/Unauthorized' }
 
 components:
   securitySchemes:
