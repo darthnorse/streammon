@@ -120,6 +120,56 @@ func TestGetSessions(t *testing.T) {
 	}
 }
 
+func TestEmbyVideoDecision(t *testing.T) {
+	cases := []struct {
+		name           string
+		isDirect       bool
+		srcCodec       string
+		txCodec        string
+		srcHeight      int
+		txHeight       int
+		want           models.TranscodeDecision
+	}{
+		{"direct play", true, "h264", "", 1080, 0, models.TranscodeDecisionDirectPlay},
+		{"remux same codec same res", false, "h264", "h264", 1080, 1080, models.TranscodeDecisionCopy},
+		{"remux same codec res unknown", false, "h264", "h264", 0, 0, models.TranscodeDecisionCopy},
+		{"downscale same codec different res", false, "h264", "h264", 1080, 720, models.TranscodeDecisionTranscode},
+		{"different codec", false, "hevc", "h264", 1080, 1080, models.TranscodeDecisionTranscode},
+		{"missing source codec", false, "", "h264", 0, 0, models.TranscodeDecisionTranscode},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := embyVideoDecision(tc.isDirect, tc.srcCodec, tc.txCodec, tc.srcHeight, tc.txHeight)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestEmbyAudioDecision(t *testing.T) {
+	cases := []struct {
+		name     string
+		isDirect bool
+		srcCodec string
+		txCodec  string
+		want     models.TranscodeDecision
+	}{
+		{"direct play", true, "aac", "", models.TranscodeDecisionDirectPlay},
+		{"passthrough same codec", false, "aac", "aac", models.TranscodeDecisionCopy},
+		{"transcoded different codec", false, "ac3", "aac", models.TranscodeDecisionTranscode},
+		{"missing source codec", false, "", "aac", models.TranscodeDecisionTranscode},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := embyAudioDecision(tc.isDirect, tc.srcCodec, tc.txCodec)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTrailerSession(t *testing.T) {
 	data := []byte(`[{
 		"Id": "trailer1",

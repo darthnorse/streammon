@@ -5,22 +5,29 @@ import (
 	"fmt"
 )
 
-// LibraryServerSummary is the per-server breakdown of library item counts.
+// LibraryCounts is the bare count payload shared by per-server entries and
+// the aggregated top-level total. New media buckets only need to be added
+// here once.
 //
 // Note on the data model: rows with media_type='episode' represent TV SERIES,
 // one row per series; the episode_count column on each row carries the actual
 // episode count. So Shows = number of series; Episodes = sum of episodes
 // across all series; Movies = count of media_type='movie' rows; Other =
 // count of any other media_type (track/audiobook/book/livetv/etc).
+type LibraryCounts struct {
+	TotalItems int `json:"total_items"`
+	Movies     int `json:"movies"`
+	Shows      int `json:"shows"`
+	Episodes   int `json:"episodes"`
+	Other      int `json:"other"`
+	Libraries  int `json:"libraries"`
+}
+
+// LibraryServerSummary is the per-server breakdown of library item counts.
 type LibraryServerSummary struct {
 	ServerID   int64  `json:"server_id"`
 	ServerName string `json:"server_name"`
-	TotalItems int    `json:"total_items"`
-	Movies     int    `json:"movies"`
-	Shows      int    `json:"shows"`
-	Episodes   int    `json:"episodes"`
-	Other      int    `json:"other"`
-	Libraries  int    `json:"libraries"`
+	LibraryCounts
 }
 
 // LibrarySummary returns one entry per active (non-soft-deleted) server with

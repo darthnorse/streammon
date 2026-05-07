@@ -14,28 +14,32 @@ import (
 //go:embed all:docs
 var docsFS embed.FS
 
-// docsETags caches the SHA-256-derived ETag for each embedded docs file.
-// Computed once on registerDocsRoutes; cheap because the corpus is tiny.
-var docsETags = map[string]string{}
-
 // registerDocsRoutes wires the public, unauthenticated documentation endpoints.
 // Must be called BEFORE the SPA catch-all so the SPA NotFound handler doesn't
 // preempt these paths.
+//
+// Caching strategy:
+//   - The vendored `redoc.standalone.js` is treated as immutable for a long
+//     time (~30 days). It only changes when we bump the pinned version, and
+//     stale clients will still revalidate via ETag eventually.
+//   - `index.html` and `openapi.yaml` are unversioned and update with the
+//     binary, so we use a short max-age and force revalidation on each
+//     request — the ETag handles 304s without a re-download.
 func (s *Server) registerDocsRoutes() {
 	subFS, err := fs.Sub(docsFS, "docs")
 	if err != nil {
 		panic(err)
 	}
-	docsETags = computeDocsETags(subFS)
+	etags := computeDocsETags(subFS)
 
 	// /openapi.yaml — convenience top-level alias for the spec.
 	s.router.Get("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
-		serveDocsFile(w, r, subFS, "openapi.yaml")
+		serveDocsFile(w, r, subFS, "openapi.yaml", etags)
 	})
 
 	// /docs — Redoc loader page.
 	s.router.Get("/docs", func(w http.ResponseWriter, r *http.Request) {
-		serveDocsFile(w, r, subFS, "index.html")
+		serveDocsFile(w, r, subFS, "index.html", etags)
 	})
 
 	// /docs/* — anything else under the docs/ dir.
@@ -44,11 +48,11 @@ func (s *Server) registerDocsRoutes() {
 		if name == "" {
 			name = "index.html"
 		}
-		serveDocsFile(w, r, subFS, name)
+		serveDocsFile(w, r, subFS, name, etags)
 	})
 }
 
-func serveDocsFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name string) {
+func serveDocsFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name string, etags map[string]string) {
 	// Defense-in-depth: reject anything that isn't a clean fs path. fs.ReadFile
 	// already does this, but stating it locally keeps the security property
 	// from depending on a transitive fs.FS implementation detail.
@@ -63,12 +67,10 @@ func serveDocsFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name stri
 		return
 	}
 
-	if etag := docsETags[name]; etag != "" {
+	if etag := etags[name]; etag != "" {
 		w.Header().Set("ETag", etag)
-		// Embed contents are immutable for the lifetime of the binary, so a
-		// long max-age is safe; ETag is the actual cache validator.
-		w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
-		if match := r.Header.Get("If-None-Match"); match != "" && match == etag {
+		w.Header().Set("Cache-Control", cacheControlFor(name))
+		if etagMatches(r.Header.Get("If-None-Match"), etag) {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
@@ -82,19 +84,41 @@ func serveDocsFile(w http.ResponseWriter, r *http.Request, fsys fs.FS, name stri
 	_, _ = w.Write(data)
 }
 
+// cacheControlFor returns the Cache-Control header for a docs asset. Versioned
+// assets (the Redoc bundle, which only changes on a version bump) get a long
+// immutable max-age. Unversioned assets (the spec and the loader HTML) get a
+// short max-age + must-revalidate so deploys are picked up promptly via ETag.
+func cacheControlFor(name string) string {
+	if name == "redoc.standalone.js" {
+		return "public, max-age=2592000, immutable" // 30 days
+	}
+	return "public, max-age=300, must-revalidate"
+}
+
+// etagMatches implements the RFC 7232 §3.2 If-None-Match comparison: accepts a
+// comma-separated list of ETags, ignores leading "W/" weak prefix, and treats
+// "*" as a wildcard match.
+func etagMatches(headerVal, etag string) bool {
+	if headerVal == "" {
+		return false
+	}
+	for _, candidate := range strings.Split(headerVal, ",") {
+		candidate = strings.TrimSpace(candidate)
+		candidate = strings.TrimPrefix(candidate, "W/")
+		if candidate == "*" || candidate == etag {
+			return true
+		}
+	}
+	return false
+}
+
 func contentTypeFor(name string) string {
-	switch path.Ext(name) {
+	ext := path.Ext(name)
+	switch ext {
 	case ".yaml", ".yml":
 		return "application/yaml; charset=utf-8"
-	case ".html":
-		return "text/html; charset=utf-8"
-	case ".js":
-		return "application/javascript; charset=utf-8"
 	}
-	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
-		return ct
-	}
-	return ""
+	return mime.TypeByExtension(ext)
 }
 
 func computeDocsETags(fsys fs.FS) map[string]string {

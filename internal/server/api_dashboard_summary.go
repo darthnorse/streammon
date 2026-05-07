@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"net/http"
 
 	"streammon/internal/models"
@@ -17,21 +16,28 @@ type dashboardSummaryResponse struct {
 	ServerCount       int   `json:"server_count"`
 }
 
-// classifyDecision buckets a session into one of three categories matching
-// the rest of the codebase's three-way model:
+// userKey deduplicates active users across servers. Two distinct users with
+// the same display name on different servers must not collapse, so the key
+// is keyed on (server_id, user_name) rather than name alone.
+type userKey struct {
+	serverID int64
+	name     string
+}
+
+// classifyDecision buckets a session into one of three values matching the
+// rest of the codebase's three-way model:
 //
-//   - transcode if either video OR audio is being transcoded
-//   - direct_stream if either video or audio is "copy" (remux/passthrough) and
-//     neither is transcoded
-//   - direct_play otherwise (true direct play with no codec changes)
-func classifyDecision(s models.ActiveStream) (transcode, directStream bool) {
+//   - Transcode  — either video OR audio is being transcoded
+//   - Copy       — either is "copy" (remux/passthrough) and neither is transcoded
+//   - DirectPlay — true direct play with no codec changes anywhere
+func classifyDecision(s models.ActiveStream) models.TranscodeDecision {
 	switch {
 	case s.VideoDecision == models.TranscodeDecisionTranscode || s.AudioDecision == models.TranscodeDecisionTranscode:
-		return true, false
+		return models.TranscodeDecisionTranscode
 	case s.VideoDecision == models.TranscodeDecisionCopy || s.AudioDecision == models.TranscodeDecisionCopy:
-		return false, true
+		return models.TranscodeDecisionCopy
 	default:
-		return false, false
+		return models.TranscodeDecisionDirectPlay
 	}
 }
 
@@ -51,22 +57,20 @@ func (s *Server) handleDashboardSummary(w http.ResponseWriter, r *http.Request) 
 	}
 
 	sessions := s.poller.CurrentSessions()
-	// Dedup users by (server_id, user_name) so two distinct users with the
-	// same display name on different server types don't collapse into one.
-	users := map[string]struct{}{}
+	users := map[userKey]struct{}{}
 	for _, sess := range sessions {
 		resp.StreamCount++
 		resp.TotalBandwidthBps += sess.Bandwidth
-		switch transcode, ds := classifyDecision(sess); {
-		case transcode:
+		switch classifyDecision(sess) {
+		case models.TranscodeDecisionTranscode:
 			resp.TranscodeCount++
-		case ds:
+		case models.TranscodeDecisionCopy:
 			resp.DirectStreamCount++
 		default:
 			resp.DirectPlayCount++
 		}
 		if sess.UserName != "" {
-			users[fmt.Sprintf("%d|%s", sess.ServerID, sess.UserName)] = struct{}{}
+			users[userKey{serverID: sess.ServerID, name: sess.UserName}] = struct{}{}
 		}
 	}
 	resp.ActiveUserCount = len(users)

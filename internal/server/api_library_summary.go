@@ -7,13 +7,8 @@ import (
 )
 
 type librarySummaryResponse struct {
-	TotalItems int                          `json:"total_items"`
-	Movies     int                          `json:"movies"`
-	Shows      int                          `json:"shows"`
-	Episodes   int                          `json:"episodes"`
-	Other      int                          `json:"other"`
-	Libraries  int                          `json:"libraries"`
-	PerServer  []store.LibraryServerSummary `json:"per_server"`
+	store.LibraryCounts
+	PerServer []store.LibraryServerSummary `json:"per_server"`
 }
 
 func (s *Server) handleLibrarySummary(w http.ResponseWriter, r *http.Request) {

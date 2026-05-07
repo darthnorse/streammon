@@ -270,12 +270,14 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 		}
 		as.Container = container
 		as.Bitrate = bitrate
+		var sourceVideoHeight int
 		for _, ms := range mediaStreams {
 			switch ms.Type {
 			case "Video":
 				as.VideoCodec = ms.Codec
 				if ms.Height > 0 {
 					as.VideoResolution = fmt.Sprintf("%dp", ms.Height)
+					sourceVideoHeight = ms.Height
 				}
 				if as.DynamicRange == "" {
 					as.DynamicRange = deriveDynamicRange(ms)
@@ -296,16 +298,10 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			as.TranscodeContainer = ti.Container
 			as.TranscodeVideoCodec = ti.VideoCodec
 			as.TranscodeAudioCodec = ti.AudioCodec
-			if ti.IsVideoDirect {
-				as.VideoDecision = models.TranscodeDecisionDirectPlay
-			} else {
-				as.VideoDecision = models.TranscodeDecisionTranscode
-			}
-			if ti.IsAudioDirect {
-				as.AudioDecision = models.TranscodeDecisionDirectPlay
-			} else {
-				as.AudioDecision = models.TranscodeDecisionTranscode
-			}
+			// Emby/Jellyfin only flag IsVideoDirect / IsAudioDirect (true/false) and
+			// don't expose a separate "copy" / direct-stream decision. Derive it.
+			as.VideoDecision = embyVideoDecision(ti.IsVideoDirect, as.VideoCodec, ti.VideoCodec, sourceVideoHeight, ti.Height)
+			as.AudioDecision = embyAudioDecision(ti.IsAudioDirect, as.AudioCodec, ti.AudioCodec)
 			if ti.Height > 0 {
 				as.TranscodeVideoResolution = fmt.Sprintf("%dp", ti.Height)
 			}
@@ -317,6 +313,37 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 		streams = append(streams, as)
 	}
 	return streams, nil
+}
+
+// embyVideoDecision derives the three-way video decision. Emby/Jellyfin
+// TranscodingInfo only flags IsVideoDirect; "copy" (remux/passthrough) is
+// inferred when the codec matches AND no resolution change is happening.
+// A same-codec stream with a resolution change is still a real transcode
+// (downscale).
+func embyVideoDecision(isDirect bool, sourceCodec, transcodeCodec string, sourceHeight, transcodeHeight int) models.TranscodeDecision {
+	if isDirect {
+		return models.TranscodeDecisionDirectPlay
+	}
+	if sourceCodec == "" || !strings.EqualFold(sourceCodec, transcodeCodec) {
+		return models.TranscodeDecisionTranscode
+	}
+	if sourceHeight > 0 && transcodeHeight > 0 && sourceHeight != transcodeHeight {
+		return models.TranscodeDecisionTranscode
+	}
+	return models.TranscodeDecisionCopy
+}
+
+// embyAudioDecision derives the three-way audio decision. Emby's
+// IsAudioDirect signal doesn't differentiate remux from re-encode; same-codec
+// passthrough is treated as a copy.
+func embyAudioDecision(isDirect bool, sourceCodec, transcodeCodec string) models.TranscodeDecision {
+	if isDirect {
+		return models.TranscodeDecisionDirectPlay
+	}
+	if sourceCodec != "" && strings.EqualFold(sourceCodec, transcodeCodec) {
+		return models.TranscodeDecisionCopy
+	}
+	return models.TranscodeDecisionTranscode
 }
 
 func playPos(ps *playState) int64 {

@@ -214,28 +214,30 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/LibrarySummary' }
               example:
-                total_items: 4231
+                # total_items = movies + shows + other (rows in library_items)
+                # episodes is a roll-up of episode_count across series, not row count
+                total_items: 2256
                 movies: 1820
                 shows: 311
-                episodes: 2100
-                other: 2100
+                episodes: 12400
+                other: 125
                 libraries: 4
                 per_server:
                   - server_id: 1
                     server_name: "Living Room Plex"
-                    total_items: 3000
+                    total_items: 1500
                     movies: 1200
                     shows: 200
-                    episodes: 1600
-                    other: 1600
+                    episodes: 9800
+                    other: 100
                     libraries: 2
                   - server_id: 2
                     server_name: "Backup Emby"
-                    total_items: 1231
+                    total_items: 756
                     movies: 620
                     shows: 111
-                    episodes: 500
-                    other: 500
+                    episodes: 2600
+                    other: 25
                     libraries: 2
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: Forbidden — admin role required }
@@ -670,7 +672,7 @@ components:
         direct_stream_count: { type: integer, example: 1 }
         transcode_count:     { type: integer, example: 1 }
         total_bandwidth_bps: { type: integer, format: int64, example: 43000000 }
-        active_user_count:   { type: integer, example: 3, description: "Distinct (server_id, user_name) tuples — same display name on different server types is counted twice." }
+        active_user_count:   { type: integer, example: 3, description: "Distinct (server_id, user_name) tuples — the same display name on two different servers is counted twice." }
         server_count:        { type: integer, example: 2 }
 
     LibraryServerSummary:

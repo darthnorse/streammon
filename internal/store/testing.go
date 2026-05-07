@@ -23,9 +23,10 @@ type LibraryItemSeed struct {
 // narrower than exposing arbitrary SQL: tests can only seed library_items,
 // preserving the store-encapsulation guarantee for everything else.
 //
-// This file is intentionally not _test.go because Go cannot expose test-only
-// helpers across package boundaries; the only escape valves are typed methods
-// like this one.
+// This file is intentionally not _test.go: cross-package consumers (e.g.
+// internal/server tests) cannot import symbols from this package's _test.go
+// files, so test helpers used across package boundaries must live in a
+// regular .go file with a clear "ForTest" suffix.
 func (s *Store) SeedLibraryItemsForTest(ctx context.Context, items []LibraryItemSeed) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
