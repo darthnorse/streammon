@@ -384,6 +384,151 @@ paths:
                 items: { $ref: '#/components/schemas/RuleViolation' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /api/rules:
+    get:
+      summary: List rules
+      tags: [Rules]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Rule' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      summary: Create a rule
+      description: Admin only.
+      tags: [Rules]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Rule' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rule' }
+        '400': { description: Invalid request body }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+
+  /api/rules/{id}:
+    get:
+      summary: Rule detail
+      tags: [Rules]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rule' }
+        '404': { description: Not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      summary: Update a rule
+      description: Admin only.
+      tags: [Rules]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Rule' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rule' }
+        '404': { description: Not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+    delete:
+      summary: Delete a rule
+      description: Admin only.
+      tags: [Rules]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204': { description: Deleted }
+        '404': { description: Not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+
+  /api/violations:
+    get:
+      summary: List rule violations
+      description: Admin only.
+      tags: [Rules]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RuleViolation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+
+  /api/stats:
+    get:
+      summary: Aggregated stats
+      description: |
+        Top media (movies, shows, users) and watch totals over a configurable window.
+        See `internal/server/api_stats.go` for the full response shape.
+      tags: [Stats]
+      parameters:
+        - in: query
+          name: days
+          description: Look-back window in days.
+          schema: { type: integer, default: 30 }
+        - in: query
+          name: limit
+          description: Top-N limit applied to the inner buckets.
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_watch_time_ms: { type: integer, format: int64 }
+                  total_sessions:      { type: integer }
+                  unique_users:        { type: integer }
+                  top_movies:
+                    type: array
+                    items: { $ref: '#/components/schemas/StatBucket' }
+                  top_shows:
+                    type: array
+                    items: { $ref: '#/components/schemas/StatBucket' }
+                  top_users:
+                    type: array
+                    items: { $ref: '#/components/schemas/StatBucket' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
 components:
   securitySchemes:
     apiKeyAuth:
