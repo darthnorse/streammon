@@ -196,6 +196,102 @@ paths:
                     `internal/server/api_recent_media.go` for the canonical struct.
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /api/library/summary:
+    get:
+      summary: Library size summary
+      description: |
+        Aggregated library item counts across servers. `shows` is the count of TV
+        series (one row per series); `episodes` sums the per-series episode_count.
+      tags: [Library]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibrarySummary' }
+              example:
+                total_items: 4231
+                movies: 1820
+                shows: 311
+                episodes: 2100
+                libraries: 4
+                per_server:
+                  - server_id: 1
+                    server_name: "Living Room Plex"
+                    total_items: 3000
+                    movies: 1200
+                    shows: 200
+                    episodes: 1600
+                    libraries: 2
+                  - server_id: 2
+                    server_name: "Backup Emby"
+                    total_items: 1231
+                    movies: 620
+                    shows: 111
+                    episodes: 500
+                    libraries: 2
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/history:
+    get:
+      summary: List watch history
+      description: Paginated watch history with optional filters. Viewers always see only their own rows regardless of `user`.
+      tags: [History]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1, minimum: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, default: 20, maximum: 200 }
+        - in: query
+          name: user
+          description: Filter by user name. Ignored for viewer principals (forced to self).
+          schema: { type: string }
+        - in: query
+          name: server_ids
+          description: Comma-separated server IDs.
+          schema: { type: string, example: "1,2" }
+        - in: query
+          name: sort_by
+          description: Allowed values; see `allowedSortColumns` in `internal/server/api_history.go`.
+          schema: { type: string }
+        - in: query
+          name: sort_order
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryListResponse' }
+        '400': { description: Invalid `server_ids` parameter }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/history/daily:
+    get:
+      summary: Daily watch history aggregates
+      description: Per-day aggregates for charts (counts and watch time bucketed by day).
+      tags: [History]
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    day:           { type: string, format: date }
+                    play_count:    { type: integer }
+                    watch_time_ms: { type: integer, format: int64 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
 components:
   securitySchemes:
     apiKeyAuth:
