@@ -12,12 +12,29 @@ import (
 	"streammon/internal/geoip"
 	"streammon/internal/httputil"
 	"streammon/internal/maintenance"
+	"streammon/internal/media"
 	"streammon/internal/models"
 	"streammon/internal/poller"
 	"streammon/internal/store"
 	"streammon/internal/tmdb"
 	"streammon/internal/version"
 )
+
+// pollerIface covers all poller methods used by the server package.
+// Using an interface here (rather than *poller.Poller directly) keeps handlers
+// testable with lightweight fakes.
+type pollerIface interface {
+	CurrentSessions() []models.ActiveStream
+	Subscribe() chan []models.ActiveStream
+	Unsubscribe(ch chan []models.ActiveStream)
+	AddServer(id int64, ms media.MediaServer)
+	RemoveServer(id int64)
+	GetServer(id int64) (media.MediaServer, bool)
+	RefreshIdleTimeout()
+}
+
+// Ensure *poller.Poller satisfies pollerIface at compile time.
+var _ pollerIface = (*poller.Poller)(nil)
 
 type GeoLookup interface {
 	Lookup(ip net.IP) *models.GeoResult
@@ -30,7 +47,7 @@ type RulesEngine interface {
 type Server struct {
 	router         chi.Router
 	store          *store.Store
-	poller         *poller.Poller
+	poller         pollerIface
 	authManager    *auth.Manager
 	corsOrigin     string
 	geoResolver    GeoLookup

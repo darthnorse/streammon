@@ -107,6 +107,8 @@ func testEncryptor(t *testing.T) *crypto.Encryptor {
 	return enc
 }
 
+func (s *Server) SetPollerForTest(p pollerIface) { s.poller = p }
+
 func newTestServerWithEncryptor(t *testing.T) (*Server, *store.Store) {
 	t.Helper()
 	return newTestServer(t, store.WithEncryptor(testEncryptor(t)))
