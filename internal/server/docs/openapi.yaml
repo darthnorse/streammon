@@ -1,0 +1,298 @@
+openapi: 3.0.3
+info:
+  title: StreamMon API
+  description: |
+    Programmatic access to StreamMon — a Tautulli-style monitor for Plex, Emby, and Jellyfin.
+
+    ## Authentication
+
+    All endpoints require an admin API key sent in the `X-API-Key` request header. Generate one
+    in **Settings → API**. Key format: `sm_` followed by 64 hex characters.
+
+    ```bash
+    curl -H 'X-API-Key: sm_…' https://your-host/api/me
+    ```
+
+    Failed authentication attempts are rate-limited at 10 per IP per 15 minutes (shared with login).
+    Wrong-shape headers, multiple `X-API-Key` values, and pre-setup requests all 401 immediately.
+
+    ## Synthetic admin
+
+    A request authenticated by API key acts as a synthetic admin (`id: -1`, `name: "api"`).
+    A few endpoints — those that mutate the caller's own user (`PUT /api/me`, `POST /api/me/password`)
+    or manage the API key itself (`/api/admin/api-key/*`) — return `403 interactive session required`
+    so a leaked key cannot rotate or revoke itself.
+
+    ## Pagination
+
+    History and other list endpoints use `limit` (default 50, max 200) and `offset` (default 0)
+    query parameters. Total counts are returned in the response body when applicable.
+
+    ## Timestamps
+
+    All timestamps are RFC 3339 UTC strings (`2026-05-06T12:34:56Z`). Render in the user's local
+    timezone client-side.
+  version: "1.0.0"
+  contact:
+    name: StreamMon
+    url: https://github.com/darthnorse/streammon
+
+servers:
+  - url: /
+    description: Same-origin (relative to the host serving these docs)
+
+security:
+  - apiKeyAuth: []
+
+tags:
+  - name: Auth
+    description: Identity + API key self-management
+  - name: Servers
+    description: Configured Plex / Emby / Jellyfin servers
+  - name: Live
+    description: Active streams snapshot, live SSE, summary widget data
+  - name: Library
+    description: Cached library item counts
+  - name: History
+    description: Watch history
+  - name: Users
+    description: User profiles, locations, violations
+  - name: Rules
+    description: Rule CRUD + recent violations
+  - name: Stats
+    description: Aggregated viewing statistics
+
+paths: {}
+
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Admin-level API key. Generate in Settings → API.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: unauthorized
+
+    User:
+      type: object
+      required: [id, name, role, created_at]
+      properties:
+        id:           { type: integer, format: int64, description: "`-1` indicates the synthetic API-key principal." }
+        name:         { type: string, example: alice }
+        email:        { type: string, format: email, example: alice@example.com }
+        role:         { type: string, enum: [admin, viewer] }
+        thumb_url:    { type: string, format: uri }
+        created_at:   { type: string, format: date-time }
+        updated_at:   { type: string, format: date-time }
+
+    Server:
+      type: object
+      required: [id, name, type, url, enabled, created_at]
+      properties:
+        id:                 { type: integer, format: int64 }
+        name:               { type: string, example: "Living Room Plex" }
+        type:               { type: string, enum: [plex, emby, jellyfin] }
+        url:                { type: string, format: uri }
+        machine_id:         { type: string, description: "Plex-only" }
+        enabled:            { type: boolean }
+        show_recent_media:  { type: boolean }
+        created_at:         { type: string, format: date-time }
+        updated_at:         { type: string, format: date-time }
+
+    ActiveStream:
+      type: object
+      required: [session_id, server_id, server_name, server_type, user_name, media_type, title, started_at]
+      properties:
+        session_id:                  { type: string }
+        server_id:                   { type: integer, format: int64 }
+        server_name:                 { type: string }
+        server_type:                 { type: string, enum: [plex, emby, jellyfin] }
+        user_name:                   { type: string }
+        media_type:                  { type: string, enum: [movie, episode, livetv, track, audiobook, book] }
+        title:                       { type: string }
+        parent_title:                { type: string }
+        grandparent_title:           { type: string }
+        year:                        { type: integer }
+        duration_ms:                 { type: integer, format: int64 }
+        progress_ms:                 { type: integer, format: int64 }
+        player:                      { type: string }
+        platform:                    { type: string }
+        ip_address:                  { type: string }
+        started_at:                  { type: string, format: date-time }
+        video_codec:                 { type: string }
+        audio_codec:                 { type: string }
+        video_resolution:            { type: string, example: "1080p" }
+        bitrate:                     { type: integer, format: int64 }
+        bandwidth:                   { type: integer, format: int64, description: "Estimated client bandwidth, bps." }
+        video_decision:              { type: string, enum: ["direct play", copy, transcode] }
+        audio_decision:              { type: string, enum: ["direct play", copy, transcode] }
+        state:                       { type: string, enum: [playing, paused, buffering] }
+
+    DashboardSummary:
+      type: object
+      required: [stream_count, direct_play_count, transcode_count, total_bandwidth_bps, active_user_count, server_count]
+      properties:
+        stream_count:        { type: integer, example: 3 }
+        direct_play_count:   { type: integer, example: 2 }
+        transcode_count:     { type: integer, example: 1 }
+        total_bandwidth_bps: { type: integer, format: int64, example: 35000000 }
+        active_user_count:   { type: integer, example: 2 }
+        server_count:        { type: integer, example: 2 }
+
+    LibraryServerSummary:
+      type: object
+      required: [server_id, server_name, total_items, movies, shows, episodes, libraries]
+      properties:
+        server_id:    { type: integer, format: int64 }
+        server_name:  { type: string }
+        total_items:  { type: integer }
+        movies:       { type: integer, description: "Count of media_type='movie' rows." }
+        shows:        { type: integer, description: "Count of TV series (one row per series)." }
+        episodes:     { type: integer, description: "Sum of episode_count across series." }
+        libraries:    { type: integer }
+
+    LibrarySummary:
+      type: object
+      required: [total_items, movies, shows, episodes, libraries, per_server]
+      properties:
+        total_items: { type: integer }
+        movies:      { type: integer }
+        shows:       { type: integer }
+        episodes:    { type: integer }
+        libraries:   { type: integer }
+        per_server:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryServerSummary' }
+
+    WatchHistoryEntry:
+      type: object
+      required: [id, server_id, user_name, media_type, title, started_at, watched_ms]
+      properties:
+        id:                  { type: integer, format: int64 }
+        server_id:           { type: integer, format: int64 }
+        item_id:             { type: string }
+        grandparent_item_id: { type: string }
+        user_name:           { type: string }
+        media_type:          { type: string, enum: [movie, episode, livetv, track, audiobook, book] }
+        title:               { type: string }
+        parent_title:        { type: string }
+        grandparent_title:   { type: string }
+        year:                { type: integer }
+        duration_ms:         { type: integer, format: int64 }
+        watched_ms:          { type: integer, format: int64 }
+        player:              { type: string }
+        platform:            { type: string }
+        ip_address:          { type: string }
+        started_at:          { type: string, format: date-time }
+        stopped_at:          { type: string, format: date-time }
+        created_at:          { type: string, format: date-time }
+        video_resolution:    { type: string }
+        transcode_decision:  { type: string }
+        video_codec:         { type: string }
+        audio_codec:         { type: string }
+
+    HistoryListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WatchHistoryEntry' }
+        total: { type: integer, description: "Total rows matching the filter (independent of `limit`)." }
+
+    UserStats:
+      type: object
+      properties:
+        user_name:     { type: string }
+        watch_time_ms: { type: integer, format: int64 }
+        session_count: { type: integer }
+        last_seen:     { type: string, format: date-time }
+        devices:       { type: array, items: { type: string } }
+        isps:          { type: array, items: { type: string } }
+
+    GeoResult:
+      type: object
+      properties:
+        ip:           { type: string }
+        country:      { type: string }
+        country_code: { type: string }
+        city:         { type: string }
+        region:       { type: string }
+        lat:          { type: number, format: double }
+        lng:          { type: number, format: double }
+        isp:          { type: string }
+        last_seen:    { type: string, format: date-time }
+
+    Rule:
+      type: object
+      required: [id, name, enabled, kind]
+      properties:
+        id:         { type: integer, format: int64 }
+        name:       { type: string }
+        enabled:    { type: boolean }
+        kind:       { type: string, description: "Rule type — see source for the full enum." }
+        config:     { type: object, description: "Per-rule settings; shape varies by `kind`." }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    RuleViolation:
+      type: object
+      required: [id, rule_id, user_name, occurred_at]
+      properties:
+        id:          { type: integer, format: int64 }
+        rule_id:     { type: integer, format: int64 }
+        user_name:   { type: string }
+        server_id:   { type: integer, format: int64 }
+        title:       { type: string }
+        details:     { type: string }
+        occurred_at: { type: string, format: date-time }
+
+    APIKeyStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured: { type: boolean }
+        key:        { type: string, description: "Plaintext value (only present when configured)." }
+        created_at: { type: string, format: date-time }
+
+    APIKeyRotateResponse:
+      type: object
+      required: [key, created_at]
+      properties:
+        key:        { type: string, example: "sm_3f06aa…" }
+        created_at: { type: string, format: date-time }
+
+    StatBucket:
+      type: object
+      properties:
+        title:         { type: string }
+        plays:         { type: integer }
+        watch_time_ms: { type: integer, format: int64 }
+        thumb_url:     { type: string }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid `X-API-Key` header.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: unauthorized }
+    Forbidden:
+      description: Endpoint requires an interactive session (cookie), not an API key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "interactive session required" }
+    RateLimited:
+      description: Too many failed auth attempts from this IP. Retry after 15 minutes.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
