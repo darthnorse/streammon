@@ -47,9 +47,11 @@ func TestDashboardSummary_AggregatesActiveStreams(t *testing.T) {
 	}
 	ts.Server.SetPollerForTest(&fakePoller{
 		sessions: []models.ActiveStream{
-			{UserName: "alice", Bandwidth: 10_000_000, VideoDecision: models.TranscodeDecisionDirectPlay},
-			{UserName: "bob", Bandwidth: 20_000_000, VideoDecision: models.TranscodeDecisionTranscode},
-			{UserName: "alice", Bandwidth: 5_000_000, VideoDecision: models.TranscodeDecisionDirectPlay},
+			{ServerID: 1, UserName: "alice", Bandwidth: 10_000_000, VideoDecision: models.TranscodeDecisionDirectPlay},
+			{ServerID: 1, UserName: "bob", Bandwidth: 20_000_000, VideoDecision: models.TranscodeDecisionTranscode},
+			{ServerID: 1, UserName: "alice", Bandwidth: 5_000_000, VideoDecision: models.TranscodeDecisionDirectPlay},
+			// One direct-stream (copy) session.
+			{ServerID: 1, UserName: "carol", Bandwidth: 8_000_000, VideoDecision: models.TranscodeDecisionCopy},
 		},
 	})
 
@@ -63,8 +65,8 @@ func TestDashboardSummary_AggregatesActiveStreams(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if resp.StreamCount != 3 {
-		t.Errorf("StreamCount=%d want 3", resp.StreamCount)
+	if resp.StreamCount != 4 {
+		t.Errorf("StreamCount=%d want 4", resp.StreamCount)
 	}
 	if resp.TranscodeCount != 1 {
 		t.Errorf("TranscodeCount=%d want 1", resp.TranscodeCount)
@@ -72,13 +74,41 @@ func TestDashboardSummary_AggregatesActiveStreams(t *testing.T) {
 	if resp.DirectPlayCount != 2 {
 		t.Errorf("DirectPlayCount=%d want 2", resp.DirectPlayCount)
 	}
-	if resp.TotalBandwidthBps != 35_000_000 {
-		t.Errorf("TotalBandwidthBps=%d want 35M", resp.TotalBandwidthBps)
+	if resp.DirectStreamCount != 1 {
+		t.Errorf("DirectStreamCount=%d want 1", resp.DirectStreamCount)
 	}
-	if resp.ActiveUserCount != 2 {
-		t.Errorf("ActiveUserCount=%d want 2", resp.ActiveUserCount)
+	if resp.TotalBandwidthBps != 43_000_000 {
+		t.Errorf("TotalBandwidthBps=%d want 43M", resp.TotalBandwidthBps)
+	}
+	if resp.ActiveUserCount != 3 {
+		t.Errorf("ActiveUserCount=%d want 3", resp.ActiveUserCount)
 	}
 	if resp.ServerCount != 1 {
 		t.Errorf("ServerCount=%d want 1", resp.ServerCount)
+	}
+}
+
+func TestDashboardSummary_DedupsAcrossServers(t *testing.T) {
+	ts, _ := newTestServerWrapped(t)
+
+	// Two distinct users with the same display name on different servers must
+	// not collapse into one in active_user_count.
+	ts.Server.SetPollerForTest(&fakePoller{
+		sessions: []models.ActiveStream{
+			{ServerID: 1, UserName: "Friend"},
+			{ServerID: 2, UserName: "Friend"},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/summary", nil)
+	w := httptest.NewRecorder()
+	ts.ServeHTTP(w, req)
+
+	var resp dashboardSummaryResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.ActiveUserCount != 2 {
+		t.Errorf("expected 2 distinct users (different servers, same name), got %d", resp.ActiveUserCount)
 	}
 }

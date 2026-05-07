@@ -10,30 +10,38 @@ import (
 // Note on the data model: rows with media_type='episode' represent TV SERIES,
 // one row per series; the episode_count column on each row carries the actual
 // episode count. So Shows = number of series; Episodes = sum of episodes
-// across all series; Movies = count of media_type='movie' rows.
+// across all series; Movies = count of media_type='movie' rows; Other =
+// count of any other media_type (track/audiobook/book/livetv/etc).
 type LibraryServerSummary struct {
-	ServerID   int64 `json:"server_id"`
-	TotalItems int   `json:"total_items"`
-	Movies     int   `json:"movies"`
-	Shows      int   `json:"shows"`
-	Episodes   int   `json:"episodes"`
-	Libraries  int   `json:"libraries"`
+	ServerID   int64  `json:"server_id"`
+	ServerName string `json:"server_name"`
+	TotalItems int    `json:"total_items"`
+	Movies     int    `json:"movies"`
+	Shows      int    `json:"shows"`
+	Episodes   int    `json:"episodes"`
+	Other      int    `json:"other"`
+	Libraries  int    `json:"libraries"`
 }
 
-// LibrarySummary returns one entry per server that has any library items,
-// with counts grouped by media type plus a distinct-library count.
+// LibrarySummary returns one entry per active (non-soft-deleted) server with
+// library items, with counts grouped by media type plus a distinct-library
+// count. Soft-deleted servers are excluded so widget consumers don't see
+// stale data with empty server names.
 func (s *Store) LibrarySummary(ctx context.Context) ([]LibraryServerSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
-			server_id,
-			COUNT(*)                                                                AS total,
-			SUM(CASE WHEN media_type = 'movie'   THEN 1             ELSE 0 END)     AS movies,
-			SUM(CASE WHEN media_type = 'episode' THEN 1             ELSE 0 END)     AS shows,
-			SUM(CASE WHEN media_type = 'episode' THEN episode_count ELSE 0 END)     AS episodes,
-			COUNT(DISTINCT library_id)                                              AS libraries
-		FROM library_items
-		GROUP BY server_id
-		ORDER BY server_id`)
+			li.server_id,
+			s.name                                                                    AS server_name,
+			COUNT(*)                                                                  AS total,
+			SUM(CASE WHEN li.media_type = 'movie'   THEN 1                ELSE 0 END) AS movies,
+			SUM(CASE WHEN li.media_type = 'episode' THEN 1                ELSE 0 END) AS shows,
+			SUM(CASE WHEN li.media_type = 'episode' THEN li.episode_count ELSE 0 END) AS episodes,
+			SUM(CASE WHEN li.media_type NOT IN ('movie','episode') THEN 1 ELSE 0 END) AS other,
+			COUNT(DISTINCT li.library_id)                                             AS libraries
+		FROM library_items li
+		JOIN servers s ON s.id = li.server_id AND s.deleted_at IS NULL
+		GROUP BY li.server_id, s.name
+		ORDER BY li.server_id`)
 	if err != nil {
 		return nil, fmt.Errorf("querying library summary: %w", err)
 	}
@@ -42,7 +50,7 @@ func (s *Store) LibrarySummary(ctx context.Context) ([]LibraryServerSummary, err
 	out := []LibraryServerSummary{}
 	for rows.Next() {
 		var e LibraryServerSummary
-		if err := rows.Scan(&e.ServerID, &e.TotalItems, &e.Movies, &e.Shows, &e.Episodes, &e.Libraries); err != nil {
+		if err := rows.Scan(&e.ServerID, &e.ServerName, &e.TotalItems, &e.Movies, &e.Shows, &e.Episodes, &e.Other, &e.Libraries); err != nil {
 			return nil, fmt.Errorf("scanning library summary row: %w", err)
 		}
 		out = append(out, e)

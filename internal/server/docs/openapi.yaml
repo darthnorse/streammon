@@ -159,7 +159,7 @@ paths:
       summary: Live summary (widget-friendly)
       description: |
         Flat counts derived from the current sessions, intended for homepage.dev custom-API
-        widgets that don't want to do JSONPath aggregation client-side.
+        widgets that don't want to do JSONPath aggregation client-side. Admin only.
       tags: [Live]
       responses:
         '200':
@@ -168,13 +168,15 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/DashboardSummary' }
               example:
-                stream_count: 3
+                stream_count: 4
                 direct_play_count: 2
+                direct_stream_count: 1
                 transcode_count: 1
-                total_bandwidth_bps: 35000000
-                active_user_count: 2
+                total_bandwidth_bps: 43000000
+                active_user_count: 3
                 server_count: 2
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
 
   /api/dashboard/recent-media:
     get:
@@ -200,8 +202,10 @@ paths:
     get:
       summary: Library size summary
       description: |
-        Aggregated library item counts across servers. `shows` is the count of TV
-        series (one row per series); `episodes` sums the per-series episode_count.
+        Aggregated library item counts across active (non-soft-deleted) servers.
+        `shows` is the count of TV series (one row per series); `episodes` sums
+        the per-series episode_count; `other` covers music/audiobook/book/livetv.
+        Admin only.
       tags: [Library]
       responses:
         '200':
@@ -214,6 +218,7 @@ paths:
                 movies: 1820
                 shows: 311
                 episodes: 2100
+                other: 2100
                 libraries: 4
                 per_server:
                   - server_id: 1
@@ -222,6 +227,7 @@ paths:
                     movies: 1200
                     shows: 200
                     episodes: 1600
+                    other: 1600
                     libraries: 2
                   - server_id: 2
                     server_name: "Backup Emby"
@@ -229,8 +235,10 @@ paths:
                     movies: 620
                     shows: 111
                     episodes: 500
+                    other: 500
                     libraries: 2
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
 
   /api/history:
     get:
@@ -645,22 +653,33 @@ components:
         bandwidth:                   { type: integer, format: int64, description: "Estimated client bandwidth, bps." }
         video_decision:              { type: string, enum: ["direct play", copy, transcode] }
         audio_decision:              { type: string, enum: ["direct play", copy, transcode] }
-        state:                       { type: string, enum: [playing, paused, buffering] }
+        state:                       { type: string, enum: [playing, paused, buffering, stopped] }
 
     DashboardSummary:
       type: object
-      required: [stream_count, direct_play_count, transcode_count, total_bandwidth_bps, active_user_count, server_count]
+      required: [stream_count, direct_play_count, direct_stream_count, transcode_count, total_bandwidth_bps, active_user_count, server_count]
+      description: |
+        Bucketing rule:
+          - `transcode_count`     — sessions with video OR audio = "transcode"
+          - `direct_stream_count` — sessions with video or audio = "copy" (remux/passthrough), no transcode
+          - `direct_play_count`   — true direct play, no codec changes anywhere
+        `stream_count = transcode + direct_stream + direct_play`.
       properties:
-        stream_count:        { type: integer, example: 3 }
+        stream_count:        { type: integer, example: 4 }
         direct_play_count:   { type: integer, example: 2 }
+        direct_stream_count: { type: integer, example: 1 }
         transcode_count:     { type: integer, example: 1 }
-        total_bandwidth_bps: { type: integer, format: int64, example: 35000000 }
-        active_user_count:   { type: integer, example: 2 }
+        total_bandwidth_bps: { type: integer, format: int64, example: 43000000 }
+        active_user_count:   { type: integer, example: 3, description: "Distinct (server_id, user_name) tuples — same display name on different server types is counted twice." }
         server_count:        { type: integer, example: 2 }
 
     LibraryServerSummary:
       type: object
-      required: [server_id, server_name, total_items, movies, shows, episodes, libraries]
+      required: [server_id, server_name, total_items, movies, shows, episodes, other, libraries]
+      description: |
+        Per-server breakdown. Soft-deleted servers are excluded. Note:
+        `total_items = movies + shows + other` (NOT `movies + shows + episodes` —
+        `episodes` is the per-series episode count rolled up, not row count).
       properties:
         server_id:    { type: integer, format: int64 }
         server_name:  { type: string }
@@ -668,16 +687,18 @@ components:
         movies:       { type: integer, description: "Count of media_type='movie' rows." }
         shows:        { type: integer, description: "Count of TV series (one row per series)." }
         episodes:     { type: integer, description: "Sum of episode_count across series." }
+        other:        { type: integer, description: "Count of all non-movie/non-episode rows (track, audiobook, book, livetv, etc.)." }
         libraries:    { type: integer }
 
     LibrarySummary:
       type: object
-      required: [total_items, movies, shows, episodes, libraries, per_server]
+      required: [total_items, movies, shows, episodes, other, libraries, per_server]
       properties:
         total_items: { type: integer }
         movies:      { type: integer }
         shows:       { type: integer }
         episodes:    { type: integer }
+        other:       { type: integer }
         libraries:   { type: integer }
         per_server:
           type: array
