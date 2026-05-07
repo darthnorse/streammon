@@ -595,13 +595,14 @@ components:
       type: object
       required: [id, name, role, created_at]
       properties:
-        id:           { type: integer, format: int64, description: "`-1` indicates the synthetic API-key principal." }
-        name:         { type: string, example: alice }
-        email:        { type: string, format: email, example: alice@example.com }
-        role:         { type: string, enum: [admin, viewer] }
-        thumb_url:    { type: string, format: uri }
-        created_at:   { type: string, format: date-time }
-        updated_at:   { type: string, format: date-time }
+        id:            { type: integer, format: int64, description: "`-1` indicates the synthetic API-key principal." }
+        name:          { type: string, example: alice }
+        email:         { type: string, format: email, example: alice@example.com }
+        role:          { type: string, enum: [admin, viewer] }
+        thumb_url:     { type: string, format: uri }
+        has_password:  { type: boolean, description: "True if the user has a local password set; false for SSO-only or synthetic principals." }
+        created_at:    { type: string, format: date-time }
+        updated_at:    { type: string, format: date-time }
 
     Server:
       type: object
