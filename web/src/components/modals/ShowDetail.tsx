@@ -254,12 +254,6 @@ export function ShowDetail({
                         <div className="mt-2">{mediaStatusBadge(overseerrStatus)}</div>
                       )}
 
-                      {isAdmin && distinctRequesters.length > 0 && (
-                        <div className="mt-2">
-                          <RequesterList requesters={distinctRequesters} />
-                        </div>
-                      )}
-
                       {networks && networks.length > 0 && (
                         <div className="mt-2">
                           <NetworkLogos networks={networks} />
@@ -428,6 +422,20 @@ export function ShowDetail({
                     {requestError && (
                       <div className="text-sm text-red-500 dark:text-red-400 mt-2">{requestError}</div>
                     )}
+                  </div>
+                )}
+
+                {isAdmin && distinctRequesters.length > 0 && (
+                  <div className="border-t border-border dark:border-border-dark pt-4">
+                    <div className="inline-flex items-start gap-3 px-4 py-2.5 rounded-lg bg-accent/10 text-accent border border-accent/30">
+                      <svg className="w-4 h-4 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <div className="space-y-1">
+                        <div className="text-sm font-semibold">Originally Requested</div>
+                        <RequesterList requesters={distinctRequesters} />
+                      </div>
+                    </div>
                   </div>
                 )}
 
