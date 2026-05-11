@@ -1,0 +1,832 @@
+openapi: 3.0.3
+info:
+  title: StreamMon API
+  description: |
+    Programmatic access to StreamMon — a Tautulli-style monitor for Plex, Emby, and Jellyfin.
+
+    ## Authentication
+
+    All endpoints require an admin API key sent in the `X-API-Key` request header. Generate one
+    in **Settings → API**. Key format: `sm_` followed by 64 hex characters.
+
+    ```bash
+    curl -H 'X-API-Key: sm_…' https://your-host/api/me
+    ```
+
+    Failed authentication attempts are rate-limited at 10 per IP per 15 minutes (shared with login).
+    Wrong-shape headers, multiple `X-API-Key` values, and pre-setup requests all 401 immediately.
+
+    ## Synthetic admin
+
+    A request authenticated by API key acts as a synthetic admin (`id: -1`, `name: "api"`).
+    A few endpoints — those that mutate the caller's own user (`PUT /api/me`, `POST /api/me/password`)
+    or manage the API key itself (`/api/admin/api-key/*`) — return `403 interactive session required`
+    so a leaked key cannot rotate or revoke itself.
+
+    ## Pagination
+
+    History and other list endpoints use `limit` (default 50, max 200) and `offset` (default 0)
+    query parameters. Total counts are returned in the response body when applicable.
+
+    ## Timestamps
+
+    All timestamps are RFC 3339 UTC strings (`2026-05-06T12:34:56Z`). Render in the user's local
+    timezone client-side.
+  version: "1.0.0"
+  contact:
+    name: StreamMon
+    url: https://github.com/darthnorse/streammon
+
+servers:
+  - url: /
+    description: Same-origin (relative to the host serving these docs)
+
+security:
+  - apiKeyAuth: []
+
+tags:
+  - name: Auth
+    description: Identity + API key self-management
+  - name: Servers
+    description: Configured Plex / Emby / Jellyfin servers
+  - name: Live
+    description: Active streams snapshot, live SSE, summary widget data
+  - name: Library
+    description: Cached library item counts
+  - name: History
+    description: Watch history
+  - name: Users
+    description: User profiles, locations, violations
+  - name: Rules
+    description: Rule CRUD + recent violations
+  - name: Stats
+    description: Aggregated viewing statistics
+
+paths:
+  /api/me:
+    get:
+      summary: Whoami
+      description: Returns the authenticated principal. Useful as a key sanity check.
+      tags: [Auth]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+              example:
+                id: -1
+                name: api
+                email: ""
+                role: admin
+                thumb_url: ""
+                created_at: "0001-01-01T00:00:00Z"
+                updated_at: "0001-01-01T00:00:00Z"
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/servers:
+    get:
+      summary: List servers
+      description: All Plex / Emby / Jellyfin servers configured in StreamMon.
+      tags: [Servers]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Server' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/servers/{id}:
+    get:
+      summary: Server detail
+      tags: [Servers]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Server' }
+        '404': { description: Server not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/dashboard/sessions:
+    get:
+      summary: Active streams (snapshot)
+      description: |
+        REST snapshot of all currently-active streams. The same data is pushed via SSE on
+        `/api/dashboard/sse`; pick this endpoint for poll-based widgets, the SSE stream
+        for live UIs.
+      tags: [Live]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ActiveStream' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/dashboard/sse:
+    get:
+      summary: Active streams (Server-Sent Events)
+      description: |
+        Streams the current `ActiveStream` array as JSON in an SSE `data:` line on every
+        poll cycle (~5 s). Reconnect on any error using EventSource semantics.
+      tags: [Live]
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: SSE event stream; each `data:` line is a JSON-encoded array of ActiveStream objects.
+              example: |
+                data: [{"session_id":"abc","server_id":1,"user_name":"alice","title":"Foo","started_at":"2026-05-06T12:00:00Z"}]
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/dashboard/summary:
+    get:
+      summary: Live summary (widget-friendly)
+      description: |
+        Flat counts derived from the current sessions, intended for homepage.dev custom-API
+        widgets that don't want to do JSONPath aggregation client-side. Admin only.
+      tags: [Live]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardSummary' }
+              example:
+                stream_count: 4
+                direct_play_count: 2
+                direct_stream_count: 1
+                transcode_count: 1
+                total_bandwidth_bps: 43000000
+                active_user_count: 3
+                server_count: 2
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+
+  /api/dashboard/recent-media:
+    get:
+      summary: Recently added items
+      description: |
+        Items recently added to libraries on servers where `show_recent_media` is enabled.
+      tags: [Live]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  description: |
+                    Heterogeneous shape varying by server type. See
+                    `internal/server/api_recent_media.go` for the canonical struct.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/library/summary:
+    get:
+      summary: Library size summary
+      description: |
+        Aggregated library item counts across active (non-soft-deleted) servers.
+        `shows` is the count of TV series (one row per series); `episodes` sums
+        the per-series episode_count; `other` covers music/audiobook/book/livetv.
+        Admin only.
+      tags: [Library]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LibrarySummary' }
+              example:
+                # total_items = movies + shows + other (rows in library_items)
+                # episodes is a roll-up of episode_count across series, not row count
+                total_items: 2256
+                movies: 1820
+                shows: 311
+                episodes: 12400
+                other: 125
+                libraries: 4
+                per_server:
+                  - server_id: 1
+                    server_name: "Living Room Plex"
+                    total_items: 1500
+                    movies: 1200
+                    shows: 200
+                    episodes: 9800
+                    other: 100
+                    libraries: 2
+                  - server_id: 2
+                    server_name: "Backup Emby"
+                    total_items: 756
+                    movies: 620
+                    shows: 111
+                    episodes: 2600
+                    other: 25
+                    libraries: 2
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+
+  /api/history:
+    get:
+      summary: List watch history
+      description: Paginated watch history with optional filters. Viewers always see only their own rows regardless of `user`.
+      tags: [History]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, default: 1, minimum: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, default: 20, maximum: 200 }
+        - in: query
+          name: user
+          description: Filter by user name. Ignored for viewer principals (forced to self).
+          schema: { type: string }
+        - in: query
+          name: server_ids
+          description: Comma-separated server IDs.
+          schema: { type: string, example: "1,2" }
+        - in: query
+          name: sort_by
+          description: Allowed values; see `allowedSortColumns` in `internal/server/api_history.go`.
+          schema: { type: string }
+        - in: query
+          name: sort_order
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistoryListResponse' }
+        '400': { description: Invalid `server_ids` parameter }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/history/daily:
+    get:
+      summary: Daily watch history aggregates
+      description: Per-day aggregates for charts (counts and watch time bucketed by day).
+      tags: [History]
+      parameters:
+        - in: query
+          name: days
+          schema: { type: integer, default: 30 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    day:           { type: string, format: date }
+                    play_count:    { type: integer }
+                    watch_time_ms: { type: integer, format: int64 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users:
+    get:
+      summary: List users
+      description: All users known to StreamMon, with aggregate watch counts.
+      tags: [Users]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users/{name}:
+    get:
+      summary: User profile
+      tags: [Users]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+          example: alice
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+        '404': { description: User not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users/{name}/stats:
+    get:
+      summary: User detail stats
+      description: Watch time, session count, devices, ISPs.
+      tags: [Users]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserStats' }
+        '404': { description: User not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users/{name}/locations:
+    get:
+      summary: User locations
+      description: Distinct IPs the user has streamed from, with geolocation.
+      tags: [Users]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/GeoResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/users/{name}/violations:
+    get:
+      summary: User rule violations
+      tags: [Users]
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RuleViolation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/rules:
+    get:
+      summary: List rules
+      tags: [Rules]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Rule' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      summary: Create a rule
+      description: Admin only.
+      tags: [Rules]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Rule' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rule' }
+        '400': { description: Invalid request body }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+
+  /api/rules/{id}:
+    get:
+      summary: Rule detail
+      tags: [Rules]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rule' }
+        '404': { description: Not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      summary: Update a rule
+      description: Admin only.
+      tags: [Rules]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Rule' }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Rule' }
+        '404': { description: Not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+    delete:
+      summary: Delete a rule
+      description: Admin only.
+      tags: [Rules]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer, format: int64 }
+      responses:
+        '204': { description: Deleted }
+        '404': { description: Not found }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+
+  /api/violations:
+    get:
+      summary: List rule violations
+      description: Admin only.
+      tags: [Rules]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/RuleViolation' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Forbidden — admin role required }
+
+  /api/stats:
+    get:
+      summary: Aggregated stats
+      description: |
+        Top media (movies, shows, users) and watch totals over a configurable window.
+        See `internal/server/api_stats.go` for the full response shape.
+      tags: [Stats]
+      parameters:
+        - in: query
+          name: days
+          description: Look-back window in days.
+          schema: { type: integer, default: 30 }
+        - in: query
+          name: limit
+          description: Top-N limit applied to the inner buckets.
+          schema: { type: integer, default: 10 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_watch_time_ms: { type: integer, format: int64 }
+                  total_sessions:      { type: integer }
+                  unique_users:        { type: integer }
+                  top_movies:
+                    type: array
+                    items: { $ref: '#/components/schemas/StatBucket' }
+                  top_shows:
+                    type: array
+                    items: { $ref: '#/components/schemas/StatBucket' }
+                  top_users:
+                    type: array
+                    items: { $ref: '#/components/schemas/StatBucket' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/admin/api-key:
+    get:
+      summary: Get API key status
+      description: |
+        Returns the current API key (plaintext) and creation timestamp. Requires an
+        interactive (cookie) session — a leaked API key cannot read its own value.
+      tags: [Auth]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIKeyStatus' }
+              example:
+                configured: true
+                key: "sm_3f06aa…"
+                created_at: "2026-05-06T12:34:56Z"
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    delete:
+      summary: Revoke the API key
+      description: Immediately invalidates the key. Requires interactive session.
+      tags: [Auth]
+      responses:
+        '204': { description: Revoked }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/admin/api-key/rotate:
+    post:
+      summary: Rotate (or generate) the API key
+      description: |
+        Generates a new key, persists it (encrypted at rest if `TOKEN_ENCRYPTION_KEY` is
+        configured), and returns the plaintext. Requires interactive session.
+      tags: [Auth]
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/APIKeyRotateResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: Admin-level API key. Generate in Settings → API.
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: unauthorized
+
+    User:
+      type: object
+      required: [id, name, role, created_at]
+      properties:
+        id:            { type: integer, format: int64, description: "`-1` indicates the synthetic API-key principal." }
+        name:          { type: string, example: alice }
+        email:         { type: string, format: email, example: alice@example.com }
+        role:          { type: string, enum: [admin, viewer] }
+        thumb_url:     { type: string, format: uri }
+        has_password:  { type: boolean, description: "True if the user has a local password set; false for SSO-only or synthetic principals." }
+        created_at:    { type: string, format: date-time }
+        updated_at:    { type: string, format: date-time }
+
+    Server:
+      type: object
+      required: [id, name, type, url, enabled, created_at]
+      properties:
+        id:                 { type: integer, format: int64 }
+        name:               { type: string, example: "Living Room Plex" }
+        type:               { type: string, enum: [plex, emby, jellyfin] }
+        url:                { type: string, format: uri }
+        machine_id:         { type: string, description: "Plex-only" }
+        enabled:            { type: boolean }
+        show_recent_media:  { type: boolean }
+        created_at:         { type: string, format: date-time }
+        updated_at:         { type: string, format: date-time }
+
+    ActiveStream:
+      type: object
+      required: [session_id, server_id, server_name, server_type, user_name, media_type, title, started_at]
+      properties:
+        session_id:                  { type: string }
+        server_id:                   { type: integer, format: int64 }
+        server_name:                 { type: string }
+        server_type:                 { type: string, enum: [plex, emby, jellyfin] }
+        user_name:                   { type: string }
+        media_type:                  { type: string, enum: [movie, episode, livetv, track, audiobook, book] }
+        title:                       { type: string }
+        parent_title:                { type: string }
+        grandparent_title:           { type: string }
+        year:                        { type: integer }
+        duration_ms:                 { type: integer, format: int64 }
+        progress_ms:                 { type: integer, format: int64 }
+        player:                      { type: string }
+        platform:                    { type: string }
+        ip_address:                  { type: string }
+        started_at:                  { type: string, format: date-time }
+        video_codec:                 { type: string }
+        audio_codec:                 { type: string }
+        video_resolution:            { type: string, example: "1080p" }
+        bitrate:                     { type: integer, format: int64 }
+        bandwidth:                   { type: integer, format: int64, description: "Estimated client bandwidth, bps." }
+        video_decision:              { type: string, enum: ["direct play", copy, transcode] }
+        audio_decision:              { type: string, enum: ["direct play", copy, transcode] }
+        state:                       { type: string, enum: [playing, paused, buffering, stopped] }
+
+    DashboardSummary:
+      type: object
+      required: [stream_count, direct_play_count, direct_stream_count, transcode_count, total_bandwidth_bps, active_user_count, server_count]
+      description: |
+        Bucketing rule:
+          - `transcode_count`     — sessions with video OR audio = "transcode"
+          - `direct_stream_count` — sessions with video or audio = "copy" (remux/passthrough), no transcode
+          - `direct_play_count`   — true direct play, no codec changes anywhere
+        `stream_count = transcode + direct_stream + direct_play`.
+      properties:
+        stream_count:        { type: integer, example: 4 }
+        direct_play_count:   { type: integer, example: 2 }
+        direct_stream_count: { type: integer, example: 1 }
+        transcode_count:     { type: integer, example: 1 }
+        total_bandwidth_bps: { type: integer, format: int64, example: 43000000 }
+        active_user_count:   { type: integer, example: 3, description: "Distinct (server_id, user_name) tuples — the same display name on two different servers is counted twice." }
+        server_count:        { type: integer, example: 2 }
+
+    LibraryServerSummary:
+      type: object
+      required: [server_id, server_name, total_items, movies, shows, episodes, other, libraries]
+      description: |
+        Per-server breakdown. Soft-deleted servers are excluded. Note:
+        `total_items = movies + shows + other` (NOT `movies + shows + episodes` —
+        `episodes` is the per-series episode count rolled up, not row count).
+      properties:
+        server_id:    { type: integer, format: int64 }
+        server_name:  { type: string }
+        total_items:  { type: integer }
+        movies:       { type: integer, description: "Count of media_type='movie' rows." }
+        shows:        { type: integer, description: "Count of TV series (one row per series)." }
+        episodes:     { type: integer, description: "Sum of episode_count across series." }
+        other:        { type: integer, description: "Count of all non-movie/non-episode rows (track, audiobook, book, livetv, etc.)." }
+        libraries:    { type: integer }
+
+    LibrarySummary:
+      type: object
+      required: [total_items, movies, shows, episodes, other, libraries, per_server]
+      properties:
+        total_items: { type: integer }
+        movies:      { type: integer }
+        shows:       { type: integer }
+        episodes:    { type: integer }
+        other:       { type: integer }
+        libraries:   { type: integer }
+        per_server:
+          type: array
+          items: { $ref: '#/components/schemas/LibraryServerSummary' }
+
+    WatchHistoryEntry:
+      type: object
+      required: [id, server_id, user_name, media_type, title, started_at, watched_ms]
+      properties:
+        id:                  { type: integer, format: int64 }
+        server_id:           { type: integer, format: int64 }
+        item_id:             { type: string }
+        grandparent_item_id: { type: string }
+        user_name:           { type: string }
+        media_type:          { type: string, enum: [movie, episode, livetv, track, audiobook, book] }
+        title:               { type: string }
+        parent_title:        { type: string }
+        grandparent_title:   { type: string }
+        year:                { type: integer }
+        duration_ms:         { type: integer, format: int64 }
+        watched_ms:          { type: integer, format: int64 }
+        player:              { type: string }
+        platform:            { type: string }
+        ip_address:          { type: string }
+        started_at:          { type: string, format: date-time }
+        stopped_at:          { type: string, format: date-time }
+        created_at:          { type: string, format: date-time }
+        video_resolution:    { type: string }
+        transcode_decision:  { type: string }
+        video_codec:         { type: string }
+        audio_codec:         { type: string }
+
+    HistoryListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/WatchHistoryEntry' }
+        total: { type: integer, description: "Total rows matching the filter (independent of `limit`)." }
+
+    UserStats:
+      type: object
+      properties:
+        user_name:     { type: string }
+        watch_time_ms: { type: integer, format: int64 }
+        session_count: { type: integer }
+        last_seen:     { type: string, format: date-time }
+        devices:       { type: array, items: { type: string } }
+        isps:          { type: array, items: { type: string } }
+
+    GeoResult:
+      type: object
+      properties:
+        ip:           { type: string }
+        country:      { type: string }
+        country_code: { type: string }
+        city:         { type: string }
+        region:       { type: string }
+        lat:          { type: number, format: double }
+        lng:          { type: number, format: double }
+        isp:          { type: string }
+        last_seen:    { type: string, format: date-time }
+
+    Rule:
+      type: object
+      required: [id, name, enabled, kind]
+      properties:
+        id:         { type: integer, format: int64 }
+        name:       { type: string }
+        enabled:    { type: boolean }
+        kind:       { type: string, description: "Rule type — see source for the full enum." }
+        config:     { type: object, description: "Per-rule settings; shape varies by `kind`." }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    RuleViolation:
+      type: object
+      required: [id, rule_id, user_name, occurred_at]
+      properties:
+        id:          { type: integer, format: int64 }
+        rule_id:     { type: integer, format: int64 }
+        user_name:   { type: string }
+        server_id:   { type: integer, format: int64 }
+        title:       { type: string }
+        details:     { type: string }
+        occurred_at: { type: string, format: date-time }
+
+    APIKeyStatus:
+      type: object
+      required: [configured]
+      properties:
+        configured: { type: boolean }
+        key:        { type: string, description: "Plaintext value (only present when configured)." }
+        created_at: { type: string, format: date-time }
+
+    APIKeyRotateResponse:
+      type: object
+      required: [key, created_at]
+      properties:
+        key:        { type: string, example: "sm_3f06aa…" }
+        created_at: { type: string, format: date-time }
+
+    StatBucket:
+      type: object
+      properties:
+        title:         { type: string }
+        plays:         { type: integer }
+        watch_time_ms: { type: integer, format: int64 }
+        thumb_url:     { type: string }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid `X-API-Key` header.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: unauthorized }
+    Forbidden:
+      description: Endpoint requires an interactive session (cookie), not an API key.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "interactive session required" }
+    RateLimited:
+      description: Too many failed auth attempts from this IP. Retry after 15 minutes.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

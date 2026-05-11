@@ -9,6 +9,8 @@ import (
 )
 
 func (s *Server) routes() {
+	s.registerDocsRoutes()
+
 	s.router.Get("/api/health", s.handleHealth)
 	// Public (no auth) so the frontend can show version before login
 	s.router.Get("/api/version", s.handleVersion)
@@ -74,8 +76,11 @@ func (s *Server) routes() {
 		r.Get("/users/{name}/stats", s.handleGetUserStats)
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
+		r.With(RequireRole(models.RoleAdmin)).Get("/dashboard/summary", s.handleDashboardSummary)
 		r.Get("/dashboard/recent-media", s.handleGetRecentMedia)
 		r.With(RequireRole(models.RoleAdmin)).Post("/sessions/terminate", s.handleTerminateSession)
+
+		r.With(RequireRole(models.RoleAdmin)).Get("/library/summary", s.handleLibrarySummary)
 
 		r.Get("/geoip/{ip}", s.handleGeoIPLookup)
 

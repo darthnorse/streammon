@@ -89,8 +89,10 @@ func TestGetSessions(t *testing.T) {
 	if s.VideoDecision != models.TranscodeDecisionTranscode {
 		t.Errorf("video decision = %q, want transcode", s.VideoDecision)
 	}
-	if s.AudioDecision != models.TranscodeDecisionDirectPlay {
-		t.Errorf("audio decision = %q, want direct play", s.AudioDecision)
+	// IsAudioDirect=true inside a TranscodingInfo block → Copy (audio rode through
+	// the transcoder unchanged). Pure DirectPlay is signalled by no TranscodingInfo.
+	if s.AudioDecision != models.TranscodeDecisionCopy {
+		t.Errorf("audio decision = %q, want copy", s.AudioDecision)
 	}
 	if !s.TranscodeHWDecode {
 		t.Error("expected HW decode true (vaapi)")
@@ -117,6 +119,25 @@ func TestGetSessions(t *testing.T) {
 	}
 	if s2.VideoDecision != models.TranscodeDecisionDirectPlay {
 		t.Errorf("s2 video decision = %q, want direct play", s2.VideoDecision)
+	}
+}
+
+func TestEmbyTranscodingDecision(t *testing.T) {
+	cases := []struct {
+		name     string
+		isDirect bool
+		want     models.TranscodeDecision
+	}{
+		{"direct (codec preserved, remuxed through transcoder)", true, models.TranscodeDecisionCopy},
+		{"not direct (codec touched)", false, models.TranscodeDecisionTranscode},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := embyTranscodingDecision(tc.isDirect)
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -1754,7 +1775,6 @@ func TestDeriveDynamicRange(t *testing.T) {
 		})
 	}
 }
-
 
 func TestDeleteItem(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

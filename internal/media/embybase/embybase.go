@@ -296,16 +296,8 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 			as.TranscodeContainer = ti.Container
 			as.TranscodeVideoCodec = ti.VideoCodec
 			as.TranscodeAudioCodec = ti.AudioCodec
-			if ti.IsVideoDirect {
-				as.VideoDecision = models.TranscodeDecisionDirectPlay
-			} else {
-				as.VideoDecision = models.TranscodeDecisionTranscode
-			}
-			if ti.IsAudioDirect {
-				as.AudioDecision = models.TranscodeDecisionDirectPlay
-			} else {
-				as.AudioDecision = models.TranscodeDecisionTranscode
-			}
+			as.VideoDecision = embyTranscodingDecision(ti.IsVideoDirect)
+			as.AudioDecision = embyTranscodingDecision(ti.IsAudioDirect)
 			if ti.Height > 0 {
 				as.TranscodeVideoResolution = fmt.Sprintf("%dp", ti.Height)
 			}
@@ -317,6 +309,27 @@ func parseSessions(data []byte, serverID int64, serverName string, serverType mo
 		streams = append(streams, as)
 	}
 	return streams, nil
+}
+
+// embyTranscodingDecision returns the per-stream decision for a session that
+// has a TranscodingInfo block (i.e., the session went through the transcoder
+// pipeline). Emby's IsXxxDirect flag captures whether the codec is being
+// touched:
+//
+//   - isDirect=true  → Copy   (codec preserved; the stream rode through the
+//                              transcoder unchanged — remux/passthrough)
+//   - isDirect=false → Transcode (codec is being changed, downscaled, or
+//                              transrated)
+//
+// This conflates Plex's distinct "directplay" and "copy" per-stream values
+// into Copy because IsVideoDirect/IsAudioDirect alone can't distinguish them.
+// True DirectPlay (no transcoder pipeline at all) is signalled by the absence
+// of TranscodingInfo, handled by the caller's `else` branch.
+func embyTranscodingDecision(isDirect bool) models.TranscodeDecision {
+	if isDirect {
+		return models.TranscodeDecisionCopy
+	}
+	return models.TranscodeDecisionTranscode
 }
 
 func playPos(ps *playState) int64 {
