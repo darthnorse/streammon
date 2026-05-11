@@ -885,6 +885,7 @@ export interface OverseerrRequestUser {
   email?: string
   username?: string
   plexUsername?: string
+  displayName?: string
   avatar?: string
 }
 

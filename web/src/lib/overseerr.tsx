@@ -48,3 +48,15 @@ export function mediaStatusBadge(status: number | undefined) {
 export function requestStatusBadge(status: number) {
   return statusBadge(OVERSEERR_REQUEST_STATUS, status)
 }
+
+// requesterDisplayName returns the best human-readable label for an Overseerr
+// requester, falling back through the available fields.
+export function requesterDisplayName(u: {
+  displayName?: string
+  plexUsername?: string
+  username?: string
+  email?: string
+  id: number
+}): string {
+  return u.displayName || u.plexUsername || u.username || u.email || `user #${u.id}`
+}

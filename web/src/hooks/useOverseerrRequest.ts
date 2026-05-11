@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from '../lib/api'
 import { MEDIA_STATUS } from '../lib/overseerr'
 import { dispatchRequestChanged } from './useRequestCount'
+import type { OverseerrRequest } from '../types'
 
 interface UseOverseerrRequestParams {
   overseerrConfigured: boolean
@@ -17,6 +18,7 @@ export function useOverseerrRequest({
   seasonNumbers,
 }: UseOverseerrRequestParams) {
   const [overseerrStatus, setOverseerrStatus] = useState<number | undefined>()
+  const [overseerrRequests, setOverseerrRequests] = useState<OverseerrRequest[]>([])
   const [overseerrChecked, setOverseerrChecked] = useState(false)
   const [requesting, setRequesting] = useState(false)
   const [requestSuccess, setRequestSuccess] = useState(false)
@@ -38,14 +40,17 @@ export function useOverseerrRequest({
   useEffect(() => {
     if (!overseerrConfigured || !effectiveTmdbId || !effectiveMediaType) return
     setOverseerrStatus(undefined)
+    setOverseerrRequests([])
     setOverseerrChecked(false)
     const controller = new AbortController()
     const endpoint = effectiveMediaType === 'movie'
       ? `/api/overseerr/movie/${effectiveTmdbId}`
       : `/api/overseerr/tv/${effectiveTmdbId}`
-    api.get<{ mediaInfo?: { status?: number } }>(endpoint, controller.signal)
+    api.get<{ mediaInfo?: { status?: number; requests?: OverseerrRequest[] } }>(endpoint, controller.signal)
       .then(data => {
-        if (!controller.signal.aborted) setOverseerrStatus(data.mediaInfo?.status)
+        if (controller.signal.aborted) return
+        setOverseerrStatus(data.mediaInfo?.status)
+        setOverseerrRequests(data.mediaInfo?.requests ?? [])
       })
       .catch(err => {
         if (err instanceof Error && err.name === 'AbortError') return
@@ -106,6 +111,7 @@ export function useOverseerrRequest({
 
   return {
     overseerrStatus,
+    overseerrRequests,
     requesting,
     requestSuccess,
     requestError,

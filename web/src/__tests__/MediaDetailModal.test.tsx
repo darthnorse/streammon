@@ -35,6 +35,12 @@ vi.mock('../hooks/useRequestCount', () => ({
   REQUEST_CHANGED_EVENT: 'overseerr-request-changed',
 }))
 
+vi.mock('../context/AuthContext', () => ({
+  useAuth: vi.fn(() => ({ user: { role: 'admin' }, loading: false })),
+}))
+
+import { useAuth } from '../context/AuthContext'
+
 const mockItem: ItemDetails = {
   id: '12345',
   title: 'Oppenheimer',
@@ -103,13 +109,20 @@ function mockTMDBApi(
   mediaType: 'movie' | 'tv',
   response: TMDBMovieEnvelope | TMDBTVEnvelope,
   overseerrStatus?: number,
+  overseerrRequests?: object[],
 ) {
   vi.mocked(api.get).mockImplementation((url: string) => {
     if (url.startsWith(`/api/tmdb/${mediaType}/`)) {
       return Promise.resolve(response)
     }
     if (url.startsWith(`/api/overseerr/${mediaType}/`)) {
-      return Promise.resolve({ mediaInfo: overseerrStatus != null ? { status: overseerrStatus } : undefined })
+      if (overseerrStatus == null) return Promise.resolve({})
+      return Promise.resolve({
+        mediaInfo: {
+          status: overseerrStatus,
+          ...(overseerrRequests ? { requests: overseerrRequests } : {}),
+        },
+      })
     }
     return Promise.reject(new Error('unexpected url'))
   })
@@ -303,6 +316,44 @@ describe('MediaDetailModal', () => {
         expect(screen.getByText('Available')).toBeInTheDocument()
       })
       expect(screen.queryByText('Already Requested')).not.toBeInTheDocument()
+    })
+
+    it('shows distinct requesters (with avatars) to admins on pending media', async () => {
+      vi.mocked(useAuth).mockReturnValue({ user: { role: 'admin' }, loading: false } as ReturnType<typeof useAuth>)
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.PENDING, [
+        { id: 10, requestedBy: { id: 1, plexUsername: 'alice', avatar: 'http://x/a.jpg' } },
+        { id: 11, requestedBy: { id: 2, displayName: 'Bob', avatar: '' } },
+        // Duplicate requester (e.g. another season) should be deduped.
+        { id: 12, requestedBy: { id: 1, plexUsername: 'alice', avatar: 'http://x/a.jpg' } },
+      ])
+      render(
+        <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Already Requested')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Requested by')).toBeInTheDocument()
+      expect(screen.getByText('alice')).toBeInTheDocument()
+      expect(screen.getByText('Bob')).toBeInTheDocument()
+      // Dedup check: only one "alice" entry.
+      expect(screen.getAllByText('alice')).toHaveLength(1)
+    })
+
+    it('hides requester info from non-admins', async () => {
+      vi.mocked(useAuth).mockReturnValue({ user: { role: 'viewer' }, loading: false } as ReturnType<typeof useAuth>)
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.PENDING, [
+        { id: 10, requestedBy: { id: 1, plexUsername: 'alice' } },
+      ])
+      render(
+        <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Already Requested')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Requested by')).not.toBeInTheDocument()
+      expect(screen.queryByText('alice')).not.toBeInTheDocument()
     })
 
     it('shows fetch error when API call fails', async () => {

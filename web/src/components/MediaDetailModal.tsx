@@ -10,8 +10,9 @@ import type {
 import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { TMDB_IMG } from '../lib/tmdb'
 import { api } from '../lib/api'
-import { MEDIA_STATUS, mediaStatusBadge } from '../lib/overseerr'
+import { MEDIA_STATUS, mediaStatusBadge, requesterDisplayName } from '../lib/overseerr'
 import { useOverseerrRequest } from '../hooks/useOverseerrRequest'
+import { useAuth } from '../context/AuthContext'
 import { CastChip } from './CastChip'
 import {
   TVStatusBadge,
@@ -82,6 +83,7 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
 
   const {
     overseerrStatus,
+    overseerrRequests,
     requesting,
     requestSuccess,
     requestError,
@@ -98,7 +100,21 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
     seasonNumbers,
   })
 
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const showRequestedPill = !requestSuccess && (overseerrStatus === MEDIA_STATUS.PENDING || overseerrStatus === MEDIA_STATUS.PROCESSING)
+  // Dedup requesters by user id; multiple requests on the same media (e.g. partial
+  // seasons across users) collapse to one entry per person. Ordered by first appearance.
+  const distinctRequesters = useMemo(() => {
+    const seen = new Set<number>()
+    const out = []
+    for (const r of overseerrRequests) {
+      if (!r.requestedBy || seen.has(r.requestedBy.id)) continue
+      seen.add(r.requestedBy.id)
+      out.push(r.requestedBy)
+    }
+    return out
+  }, [overseerrRequests])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key !== 'Escape') return
@@ -390,7 +406,7 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                   by this prominent pill). All other Overseerr states (UNKNOWN, AVAILABLE,
                   PARTIALLY_AVAILABLE, BLOCKLISTED, DELETED) keep the regular small badge. */}
               {showRequestedPill && (
-                <div className="border-t border-border dark:border-border-dark pt-4">
+                <div className="border-t border-border dark:border-border-dark pt-4 space-y-2">
                   <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-accent/10 text-accent border border-accent/30">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -401,6 +417,30 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                       {overseerrStatus === MEDIA_STATUS.PENDING ? 'Pending Approval' : 'Processing'}
                     </span>
                   </div>
+                  {isAdmin && distinctRequesters.length > 0 && (
+                    <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs text-muted dark:text-muted-dark">
+                      <span>Requested by</span>
+                      {distinctRequesters.map((u, i) => (
+                        <span key={u.id} className="inline-flex items-center gap-1.5">
+                          {u.avatar ? (
+                            <img
+                              src={u.avatar}
+                              alt=""
+                              className="w-5 h-5 rounded-full object-cover"
+                              loading="lazy"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <span aria-hidden="true" className="w-5 h-5 rounded-full bg-gray-300 dark:bg-gray-600 inline-flex items-center justify-center text-[10px] text-white">
+                              {requesterDisplayName(u).slice(0, 1).toUpperCase()}
+                            </span>
+                          )}
+                          <span className="text-gray-900 dark:text-gray-100 font-medium">{requesterDisplayName(u)}</span>
+                          {i < distinctRequesters.length - 1 && <span className="opacity-60">,</span>}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
