@@ -176,7 +176,7 @@ func (s *Server) handleOverseerrMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeRawJSON(w, http.StatusOK, data)
+	writeRawJSON(w, http.StatusOK, redactRequestsForNonAdmin(r, data))
 }
 
 func (s *Server) handleOverseerrTV(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +198,31 @@ func (s *Server) handleOverseerrTV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeRawJSON(w, http.StatusOK, data)
+	writeRawJSON(w, http.StatusOK, redactRequestsForNonAdmin(r, data))
+}
+
+// redactRequestsForNonAdmin strips `mediaInfo.requests` (which contains
+// requester PII — email, plexUsername, avatar) from an Overseerr response
+// when the caller is not an admin. Returns the input unchanged if either
+// the caller is an admin or the response shape isn't what we expect (e.g.
+// malformed upstream JSON — let the original bytes pass rather than fail).
+func redactRequestsForNonAdmin(r *http.Request, data []byte) []byte {
+	user := UserFromContext(r.Context())
+	if user != nil && user.Role == models.RoleAdmin {
+		return data
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return data
+	}
+	if mi, ok := parsed["mediaInfo"].(map[string]any); ok {
+		delete(mi, "requests")
+	}
+	out, err := json.Marshal(parsed)
+	if err != nil {
+		return data
+	}
+	return out
 }
 
 func (s *Server) handleOverseerrTVSeason(w http.ResponseWriter, r *http.Request) {

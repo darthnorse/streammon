@@ -895,7 +895,9 @@ export interface OverseerrRequest {
   media: OverseerrMediaInfo
   createdAt: string
   updatedAt: string
-  requestedBy: OverseerrRequestUser
+  // Optional in practice — Overseerr can return entries without a requester when
+  // the source user was deleted from the system. Callers must null-check.
+  requestedBy?: OverseerrRequestUser
   modifiedBy?: OverseerrRequestUser | null
   is4k: boolean
   serverId?: number

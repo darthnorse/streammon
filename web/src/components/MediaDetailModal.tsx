@@ -6,6 +6,7 @@ import type {
   TMDBTVEnvelope,
   TMDBCrew,
   LibraryMatch,
+  OverseerrRequestUser,
 } from '../types'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { TMDB_IMG } from '../lib/tmdb'
@@ -103,17 +104,15 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const showRequestedPill = !requestSuccess && (overseerrStatus === MEDIA_STATUS.PENDING || overseerrStatus === MEDIA_STATUS.PROCESSING)
-  // Dedup requesters by user id; multiple requests on the same media (e.g. partial
-  // seasons across users) collapse to one entry per person. Ordered by first appearance.
-  const distinctRequesters = useMemo(() => {
-    const seen = new Set<number>()
-    const out = []
+  // Same media can have multiple requests (e.g. partial seasons across users); collapse to one entry per requester.
+  const distinctRequesters = useMemo<OverseerrRequestUser[]>(() => {
+    const byId = new Map<number, OverseerrRequestUser>()
     for (const r of overseerrRequests) {
-      if (!r.requestedBy || seen.has(r.requestedBy.id)) continue
-      seen.add(r.requestedBy.id)
-      out.push(r.requestedBy)
+      if (r.requestedBy && !byId.has(r.requestedBy.id)) {
+        byId.set(r.requestedBy.id, r.requestedBy)
+      }
     }
-    return out
+    return [...byId.values()]
   }, [overseerrRequests])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -418,27 +417,29 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                     </span>
                   </div>
                   {isAdmin && distinctRequesters.length > 0 && (
-                    <div className="flex items-center flex-wrap gap-x-2 gap-y-1 text-xs text-muted dark:text-muted-dark">
+                    <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted dark:text-muted-dark">
                       <span>Requested by</span>
-                      {distinctRequesters.map((u, i) => (
-                        <span key={u.id} className="inline-flex items-center gap-1.5">
-                          {u.avatar ? (
-                            <img
-                              src={u.avatar}
-                              alt=""
-                              className="w-5 h-5 rounded-full object-cover"
-                              loading="lazy"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            <span aria-hidden="true" className="w-5 h-5 rounded-full bg-gray-300 dark:bg-gray-600 inline-flex items-center justify-center text-[10px] text-white">
-                              {requesterDisplayName(u).slice(0, 1).toUpperCase()}
-                            </span>
-                          )}
-                          <span className="text-gray-900 dark:text-gray-100 font-medium">{requesterDisplayName(u)}</span>
-                          {i < distinctRequesters.length - 1 && <span className="opacity-60">,</span>}
-                        </span>
-                      ))}
+                      {distinctRequesters.map(u => {
+                        const name = requesterDisplayName(u)
+                        return (
+                          <span key={u.id} className="inline-flex items-center gap-1.5">
+                            {u.avatar ? (
+                              <img
+                                src={u.avatar}
+                                alt=""
+                                className="w-5 h-5 rounded-full object-cover"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : (
+                              <span aria-hidden="true" className="w-5 h-5 rounded-full bg-border dark:bg-border-dark inline-flex items-center justify-center text-[10px] text-muted dark:text-muted-dark">
+                                {name.slice(0, 1).toUpperCase()}
+                              </span>
+                            )}
+                            <span className="text-gray-900 dark:text-gray-100 font-medium">{name}</span>
+                          </span>
+                        )
+                      })}
                     </div>
                   )}
                 </div>

@@ -66,7 +66,16 @@ func newMockOverseerr(t *testing.T, opts mockOverseerrOpts) *httptest.Server {
 				"results": []map[string]any{{"id": 2, "mediaType": "tv", "name": "Trending"}},
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/movie/27205":
-			json.NewEncoder(w).Encode(map[string]any{"id": 27205, "title": "Inception"})
+			json.NewEncoder(w).Encode(map[string]any{
+				"id":    27205,
+				"title": "Inception",
+				"mediaInfo": map[string]any{
+					"status": 2,
+					"requests": []map[string]any{
+						{"id": 100, "requestedBy": map[string]any{"id": 1, "plexUsername": "alice", "email": "alice@example.com"}},
+					},
+				},
+			})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/tv/1399":
 			json.NewEncoder(w).Encode(map[string]any{"id": 1399, "name": "Breaking Bad"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/tv/1399/season/1":
@@ -294,6 +303,54 @@ func TestOverseerrGetMovie(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&result)
 	if result.Title != "Inception" {
 		t.Fatalf("expected Inception, got %s", result.Title)
+	}
+}
+
+func TestOverseerrGetMovie_AdminSeesRequests(t *testing.T) {
+	ts, _ := newOverseerrTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/movie/27205", nil)
+	w := httptest.NewRecorder()
+	ts.ServeHTTP(w, req)
+
+	body := w.Body.String()
+	if !strings.Contains(body, "requests") {
+		t.Errorf("admin should see mediaInfo.requests, body=%s", body)
+	}
+	if !strings.Contains(body, "alice@example.com") {
+		t.Errorf("admin should see requester email, body=%s", body)
+	}
+}
+
+func TestOverseerrGetMovie_ViewerCannotSeeRequests(t *testing.T) {
+	mock := mockOverseerr(t)
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+
+	// Enable discover for viewers, so the route is accessible.
+	if err := st.SetGuestSettings(map[string]bool{"show_discover": true}); err != nil {
+		t.Fatalf("SetGuestSettings: %v", err)
+	}
+	viewerToken := createViewerSession(t, st, "viewer1")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/movie/27205", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "requests") {
+		t.Errorf("viewer must NOT see mediaInfo.requests, body=%s", body)
+	}
+	if strings.Contains(body, "alice@example.com") {
+		t.Errorf("viewer must NOT see requester email, body=%s", body)
+	}
+	// Sanity check: viewer still gets the public fields.
+	if !strings.Contains(body, "Inception") {
+		t.Errorf("viewer should still see basic fields, body=%s", body)
 	}
 }
 

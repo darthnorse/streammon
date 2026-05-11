@@ -1,3 +1,5 @@
+import type { OverseerrRequestUser } from '../types'
+
 export { TMDB_IMG } from './tmdb'
 
 export const MEDIA_STATUS = {
@@ -51,12 +53,6 @@ export function requestStatusBadge(status: number) {
 
 // requesterDisplayName returns the best human-readable label for an Overseerr
 // requester, falling back through the available fields.
-export function requesterDisplayName(u: {
-  displayName?: string
-  plexUsername?: string
-  username?: string
-  email?: string
-  id: number
-}): string {
+export function requesterDisplayName(u: OverseerrRequestUser): string {
   return u.displayName || u.plexUsername || u.username || u.email || `user #${u.id}`
 }
