@@ -6,15 +6,15 @@ import type {
   TMDBTVEnvelope,
   TMDBCrew,
   LibraryMatch,
-  OverseerrRequestUser,
 } from '../types'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { TMDB_IMG } from '../lib/tmdb'
 import { api } from '../lib/api'
-import { MEDIA_STATUS, mediaStatusBadge, requesterDisplayName } from '../lib/overseerr'
+import { MEDIA_STATUS, mediaStatusBadge } from '../lib/overseerr'
 import { useOverseerrRequest } from '../hooks/useOverseerrRequest'
 import { useAuth } from '../context/AuthContext'
 import { CastChip } from './CastChip'
+import { RequesterList, dedupRequesters } from './RequesterList'
 import {
   TVStatusBadge,
   NetworkLogos,
@@ -104,16 +104,7 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const showRequestedPill = !requestSuccess && (overseerrStatus === MEDIA_STATUS.PENDING || overseerrStatus === MEDIA_STATUS.PROCESSING)
-  // Same media can have multiple requests (e.g. partial seasons across users); collapse to one entry per requester.
-  const distinctRequesters = useMemo<OverseerrRequestUser[]>(() => {
-    const byId = new Map<number, OverseerrRequestUser>()
-    for (const r of overseerrRequests) {
-      if (r.requestedBy && !byId.has(r.requestedBy.id)) {
-        byId.set(r.requestedBy.id, r.requestedBy)
-      }
-    }
-    return [...byId.values()]
-  }, [overseerrRequests])
+  const distinctRequesters = useMemo(() => dedupRequesters(overseerrRequests), [overseerrRequests])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key !== 'Escape') return
@@ -416,32 +407,7 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
                       {overseerrStatus === MEDIA_STATUS.PENDING ? 'Pending Approval' : 'Processing'}
                     </span>
                   </div>
-                  {isAdmin && distinctRequesters.length > 0 && (
-                    <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted dark:text-muted-dark">
-                      <span>Requested by</span>
-                      {distinctRequesters.map(u => {
-                        const name = requesterDisplayName(u)
-                        return (
-                          <span key={u.id} className="inline-flex items-center gap-1.5">
-                            {u.avatar ? (
-                              <img
-                                src={u.avatar}
-                                alt=""
-                                className="w-5 h-5 rounded-full object-cover"
-                                loading="lazy"
-                                referrerPolicy="no-referrer"
-                              />
-                            ) : (
-                              <span aria-hidden="true" className="w-5 h-5 rounded-full bg-border dark:bg-border-dark inline-flex items-center justify-center text-[10px] text-muted dark:text-muted-dark">
-                                {name.slice(0, 1).toUpperCase()}
-                              </span>
-                            )}
-                            <span className="text-gray-900 dark:text-gray-100 font-medium">{name}</span>
-                          </span>
-                        )
-                      })}
-                    </div>
-                  )}
+                  {isAdmin && <RequesterList requesters={distinctRequesters} />}
                 </div>
               )}
             </div>

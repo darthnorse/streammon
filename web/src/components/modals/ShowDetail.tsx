@@ -3,6 +3,8 @@ import type { ItemDetails, ModalEntry, TMDBCrew } from '../../types'
 import { formatDuration, thumbUrl } from '../../lib/format'
 import { useTMDBEnrichment } from '../../hooks/useTMDBEnrichment'
 import { useOverseerrRequest } from '../../hooks/useOverseerrRequest'
+import { useAuth } from '../../context/AuthContext'
+import { RequesterList, dedupRequesters } from '../RequesterList'
 import { useModalStack } from '../../hooks/useModalStack'
 import { lockBodyScroll, unlockBodyScroll } from '../../lib/bodyScroll'
 import { TMDB_IMG } from '../../lib/tmdb'
@@ -62,6 +64,7 @@ export function ShowDetail({
 
   const {
     overseerrStatus,
+    overseerrRequests,
     requesting,
     requestSuccess,
     requestError,
@@ -77,6 +80,10 @@ export function ShowDetail({
     effectiveMediaType,
     seasonNumbers,
   })
+
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const distinctRequesters = useMemo(() => dedupRequesters(overseerrRequests), [overseerrRequests])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key !== 'Escape') return
@@ -245,6 +252,12 @@ export function ShowDetail({
 
                       {overseerrStatus && overseerrStatus > MEDIA_STATUS.UNKNOWN && (
                         <div className="mt-2">{mediaStatusBadge(overseerrStatus)}</div>
+                      )}
+
+                      {isAdmin && distinctRequesters.length > 0 && (
+                        <div className="mt-2">
+                          <RequesterList requesters={distinctRequesters} />
+                        </div>
                       )}
 
                       {networks && networks.length > 0 && (
