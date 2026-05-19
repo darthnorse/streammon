@@ -464,6 +464,77 @@ func (s *Store) HistoryForItem(serverID int64, itemID, level string, seasonNumbe
 	return items, rows.Err()
 }
 
+// HistoryForItemAcrossServers returns watch history for an item identified
+// by its TMDB-matched copies across one or more servers.
+//
+// matches is the set of (server_id, item_id) tuples that share a tmdb_id.
+// For movies these are movie copies. For shows/seasons/episodes these are
+// show copies and item_id is matched against watch_history.grandparent_item_id.
+//
+// level is "movie" | "show" | "season" | "episode".
+// seasonNumber is consulted when level is "season" or "episode".
+// episodeNumber is consulted when level is "episode".
+func (s *Store) HistoryForItemAcrossServers(
+	matches []LibraryMatch,
+	level string,
+	seasonNumber, episodeNumber int,
+	userName string,
+	limit int,
+) ([]models.WatchHistoryEntry, error) {
+	if len(matches) == 0 {
+		return []models.WatchHistoryEntry{}, nil
+	}
+
+	var keyColumn string
+	switch level {
+	case "movie":
+		keyColumn = "item_id"
+	case "show", "season", "episode":
+		keyColumn = "grandparent_item_id"
+	default:
+		return nil, fmt.Errorf("history across servers: unknown level %q", level)
+	}
+
+	placeholders := make([]string, 0, len(matches))
+	args := make([]any, 0, len(matches)*2+3)
+	for _, m := range matches {
+		placeholders = append(placeholders, "(?, ?)")
+		args = append(args, m.ServerID, m.ItemID)
+	}
+	where := fmt.Sprintf("(server_id, %s) IN (VALUES %s)", keyColumn, strings.Join(placeholders, ", "))
+
+	if level == "season" || level == "episode" {
+		where += " AND season_number = ?"
+		args = append(args, seasonNumber)
+	}
+	if level == "episode" {
+		where += " AND episode_number = ?"
+		args = append(args, episodeNumber)
+	}
+	if userName != "" {
+		where += " AND user_name = ?"
+		args = append(args, userName)
+	}
+	args = append(args, limit)
+
+	query := `SELECT ` + historyColumns + ` FROM watch_history WHERE ` + where + ` ORDER BY started_at DESC LIMIT ?`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("history across servers: %w", err)
+	}
+	defer rows.Close()
+
+	items := []models.WatchHistoryEntry{}
+	for rows.Next() {
+		e, err := scanHistoryEntry(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, e)
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) HistoryExists(serverID int64, userName, title string, startedAt time.Time) (bool, error) {
 	var exists int
 	err := s.db.QueryRow(historyDedupSQL,

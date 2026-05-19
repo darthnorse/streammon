@@ -2115,3 +2115,43 @@ func TestHistoryForItem(t *testing.T) {
 		}
 	})
 }
+
+func TestHistoryForItemAcrossServers_MovieMergesTwoServers(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	sid1 := seedServer(t, s)
+	srv2 := &models.Server{Name: "Second", Type: models.ServerTypePlex, URL: "http://test2", APIKey: "k2", Enabled: true}
+	if err := s.CreateServer(srv2); err != nil {
+		t.Fatalf("seed server 2: %v", err)
+	}
+	sid2 := srv2.ID
+
+	now := time.Now().UTC()
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: sid1, ItemID: "movie-a", UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Inception", StartedAt: now.Add(-2 * time.Hour), StoppedAt: now.Add(-1 * time.Hour),
+	}); err != nil {
+		t.Fatalf("InsertHistory sid1: %v", err)
+	}
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: sid2, ItemID: "movie-b", UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Inception", StartedAt: now.Add(-30 * time.Minute), StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("InsertHistory sid2: %v", err)
+	}
+
+	matches := []LibraryMatch{
+		{ServerID: sid1, ServerName: "Test", ItemID: "movie-a"},
+		{ServerID: sid2, ServerName: "Second", ItemID: "movie-b"},
+	}
+	history, err := s.HistoryForItemAcrossServers(matches, "movie", 0, 0, "", 10)
+	if err != nil {
+		t.Fatalf("HistoryForItemAcrossServers: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 merged history rows, got %d", len(history))
+	}
+	if history[0].UserName != "bob" || history[1].UserName != "alice" {
+		t.Fatalf("expected bob then alice (most-recent first), got %s then %s", history[0].UserName, history[1].UserName)
+	}
+}
