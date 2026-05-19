@@ -327,6 +327,136 @@ func TestItemDetailsShowFallbackIsServerScoped(t *testing.T) {
 	}
 }
 
+func TestItemDetailsConsolidatesAcrossServersByTMDBID(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	s1 := &models.Server{Name: "Plex 4K", Type: models.ServerTypePlex, URL: "http://plex1", APIKey: "k1", MachineID: "m1", Enabled: true}
+	if err := st.CreateServer(s1); err != nil {
+		t.Fatalf("CreateServer s1: %v", err)
+	}
+	s2 := &models.Server{Name: "Plex HD", Type: models.ServerTypePlex, URL: "http://plex2", APIKey: "k2", MachineID: "m2", Enabled: true}
+	if err := st.CreateServer(s2); err != nil {
+		t.Fatalf("CreateServer s2: %v", err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: s1.ID, LibraryID: "lib1", ItemID: "movie-4k", MediaType: models.MediaTypeMovie, Title: "Inception", TMDBID: "550", AddedAt: now, SyncedAt: now},
+		{ServerID: s2.ID, LibraryID: "lib2", ItemID: "movie-hd", MediaType: models.MediaTypeMovie, Title: "Inception", TMDBID: "550", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := st.UpsertLibraryItems(context.Background(), items); err != nil {
+		t.Fatalf("UpsertLibraryItems: %v", err)
+	}
+
+	if err := st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s1.ID, ItemID: "movie-4k", UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Inception", StartedAt: now.Add(-2 * time.Hour), StoppedAt: now.Add(-1 * time.Hour),
+	}); err != nil {
+		t.Fatalf("InsertHistory s1: %v", err)
+	}
+	if err := st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s2.ID, ItemID: "movie-hd", UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Inception", StartedAt: now.Add(-30 * time.Minute), StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("InsertHistory s2: %v", err)
+	}
+
+	p := setupTestPoller(t, srv.Unwrap(), st)
+	p.AddServer(s1.ID, &mockItemDetailsServer{
+		serverID: s1.ID,
+		details: &models.ItemDetails{
+			ID:         "movie-4k",
+			Title:      "Inception",
+			MediaType:  models.MediaTypeMovie,
+			Level:      "movie",
+			ServerID:   s1.ID,
+			ServerName: "Plex 4K",
+			ServerType: models.ServerTypePlex,
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/servers/%d/items/movie-4k", s1.ID), nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp itemDetailsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.WatchHistory) != 2 {
+		t.Fatalf("expected 2 merged history rows (alice on s1 + bob on s2), got %d", len(resp.WatchHistory))
+	}
+	users := map[string]bool{resp.WatchHistory[0].UserName: true, resp.WatchHistory[1].UserName: true}
+	if !users["alice"] || !users["bob"] {
+		t.Fatalf("expected alice+bob, got %v", users)
+	}
+}
+
+func TestItemDetailsNoTMDBIDStaysSingleServer(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	s1 := &models.Server{Name: "Plex 1", Type: models.ServerTypePlex, URL: "http://plex1", APIKey: "k1", MachineID: "m1", Enabled: true}
+	if err := st.CreateServer(s1); err != nil {
+		t.Fatalf("CreateServer s1: %v", err)
+	}
+	s2 := &models.Server{Name: "Plex 2", Type: models.ServerTypePlex, URL: "http://plex2", APIKey: "k2", MachineID: "m2", Enabled: true}
+	if err := st.CreateServer(s2); err != nil {
+		t.Fatalf("CreateServer s2: %v", err)
+	}
+
+	now := time.Now().UTC()
+	// Two history rows on different servers, but no library_items entries — no tmdb_id to resolve.
+	if err := st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s1.ID, ItemID: "home-movie", UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Holiday 2024", StartedAt: now, StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("InsertHistory s1: %v", err)
+	}
+	if err := st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s2.ID, ItemID: "home-movie-other", UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Holiday 2024", StartedAt: now, StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("InsertHistory s2: %v", err)
+	}
+
+	p := setupTestPoller(t, srv.Unwrap(), st)
+	p.AddServer(s1.ID, &mockItemDetailsServer{
+		serverID: s1.ID,
+		details: &models.ItemDetails{
+			ID:         "home-movie",
+			Title:      "Holiday 2024",
+			MediaType:  models.MediaTypeMovie,
+			Level:      "movie",
+			ServerID:   s1.ID,
+			ServerName: "Plex 1",
+			ServerType: models.ServerTypePlex,
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/api/servers/%d/items/home-movie", s1.ID), nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var resp itemDetailsResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(resp.WatchHistory) != 1 {
+		t.Fatalf("expected 1 history row (single-server, no tmdb), got %d", len(resp.WatchHistory))
+	}
+	if resp.WatchHistory[0].UserName != "alice" {
+		t.Fatalf("expected alice (s1), got %s", resp.WatchHistory[0].UserName)
+	}
+}
+
 func TestItemDetailsShowFiltersByGrandparent(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
