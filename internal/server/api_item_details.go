@@ -81,9 +81,8 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		log.Printf("WARN: GetLibraryItemTMDBID server=%d key=%s: %v", serverID, historyKey, err)
 	}
 
-	// Preserve the existing response field: only set details.TMDBID for movie/show
-	// levels (season/episode never had it populated in the existing API shape).
-	if tmdbID != "" && (level == "movie" || level == "show") {
+	// Surface the resolved TMDB ID so frontend can fetch TMDB enrichment.
+	if tmdbID != "" {
 		details.TMDBID = tmdbID
 	}
 
