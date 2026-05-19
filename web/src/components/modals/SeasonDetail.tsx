@@ -5,8 +5,9 @@ import { useTMDBEnrichment } from '../../hooks/useTMDBEnrichment'
 import { useTMDBSeasonEnrichment } from '../../hooks/useTMDBSeasonEnrichment'
 import { TMDB_IMG } from '../../lib/tmdb'
 import { EpisodesGrid } from './EpisodesGrid'
+import { useFetch } from '../../hooks/useFetch'
 import { WatchHistory, serverAccent, defaultAccent } from './MediaDetailParts'
-import type { ItemDetails, ModalEntry } from '../../types'
+import type { ItemDetails, ModalEntry, Server } from '../../types'
 
 interface SeasonDetailProps {
   item: ItemDetails | null
@@ -29,6 +30,9 @@ export function SeasonDetail({ item, loading, onClose, pushModal, active }: Seas
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [active, onClose])
+
+  const { data: servers } = useFetch<Server[]>('/api/servers')
+  const serverList = servers ?? []
 
   const { data: childrenData, loading: childrenLoading } = useEpisodesChildren(
     item?.server_id ?? 0,
@@ -138,7 +142,7 @@ export function SeasonDetail({ item, loading, onClose, pushModal, active }: Seas
                 />
               )}
 
-              <WatchHistory item={item} />
+              <WatchHistory item={item} modalServerId={item.server_id} servers={serverList} />
 
               <div className="pt-2 flex items-center justify-end text-xs text-muted dark:text-muted-dark border-t border-border dark:border-border-dark">
                 <span>{item.server_name}</span>

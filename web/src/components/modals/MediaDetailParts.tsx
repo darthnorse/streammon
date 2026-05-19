@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import type { ItemDetails } from '../../types'
+import type { ItemDetails, Server } from '../../types'
 import { formatBitrate, formatAudioCodec, formatVideoCodec, formatDate } from '../../lib/format'
 import { getAudioCodecIcon, getVideoCodecIcon, getResolutionIcon, getChannelsIcon } from '../../lib/mediaFlags'
 import { TMDB_IMG } from '../../lib/tmdb'
@@ -87,32 +87,53 @@ export function TechInfo({ item }: { item: ItemDetails }) {
   )
 }
 
-export function WatchHistory({ item }: { item: ItemDetails }) {
+export function WatchHistory({
+  item,
+  modalServerId,
+  servers,
+}: {
+  item: ItemDetails
+  modalServerId: number
+  servers: Server[]
+}) {
   if (!item.watch_history?.length) return null
+  const serverNameById = new Map(servers.map(s => [s.id, s.name]))
   return (
     <div className="bg-gray-50 dark:bg-white/5 rounded-lg p-3 space-y-2">
       <div className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide">
         Watch History
       </div>
       <div className="space-y-2 max-h-40 overflow-y-auto">
-        {item.watch_history.map(entry => (
-          <div key={entry.id} className="flex items-center justify-between text-sm">
-            <div className="flex items-center gap-2 min-w-0">
-              <Link
-                to={`/users/${encodeURIComponent(entry.user_name)}`}
-                className="font-medium hover:text-accent hover:underline truncate"
-              >
-                {entry.user_name}
-              </Link>
-              <span className="text-muted dark:text-muted-dark truncate">
-                {entry.grandparent_title ? entry.title : ''}
-              </span>
+        {item.watch_history.map(entry => {
+          const showPill = entry.server_id !== modalServerId
+          const pillName = serverNameById.get(entry.server_id) ?? `Server ${entry.server_id}`
+          return (
+            <div key={entry.id} className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-2 min-w-0">
+                <Link
+                  to={`/users/${encodeURIComponent(entry.user_name)}`}
+                  className="font-medium hover:text-accent hover:underline truncate"
+                >
+                  {entry.user_name}
+                </Link>
+                <span className="text-muted dark:text-muted-dark truncate">
+                  {entry.grandparent_title ? entry.title : ''}
+                </span>
+                {showPill && (
+                  <span
+                    data-testid={`server-pill-${entry.server_id}`}
+                    className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-200 text-gray-700 dark:bg-white/10 dark:text-gray-300 whitespace-nowrap"
+                  >
+                    {pillName}
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-muted dark:text-muted-dark whitespace-nowrap ml-2">
+                {formatDate(entry.started_at)}
+              </div>
             </div>
-            <div className="text-xs text-muted dark:text-muted-dark whitespace-nowrap ml-2">
-              {formatDate(entry.started_at)}
-            </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

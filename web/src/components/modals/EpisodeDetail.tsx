@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useCallback } from 'react'
-import type { ItemDetails, ModalEntry, TMDBCrew } from '../../types'
+import { useFetch } from '../../hooks/useFetch'
+import type { ItemDetails, ModalEntry, TMDBCrew, Server } from '../../types'
 import { formatDuration, thumbUrl } from '../../lib/format'
 import { useTMDBEnrichment } from '../../hooks/useTMDBEnrichment'
 import { useModalStack } from '../../hooks/useModalStack'
@@ -28,6 +29,9 @@ interface EpisodeDetailProps {
 
 export function EpisodeDetail({ item, loading, onClose, pushModal, active, libraryIds, mediaStatuses }: EpisodeDetailProps) {
   const { stack, push: pushInner, pop: popInner } = useModalStack()
+
+  const { data: servers } = useFetch<Server[]>('/api/servers')
+  const serverList = servers ?? []
 
   const enrichment = useTMDBEnrichment(item?.tmdb_id, item?.media_type)
   const tmdbTV = enrichment.tv
@@ -256,7 +260,7 @@ export function EpisodeDetail({ item, loading, onClose, pushModal, active, libra
                 )}
 
                 <TechInfo item={item} />
-                <WatchHistory item={item} />
+                <WatchHistory item={item} modalServerId={item.server_id} servers={serverList} />
 
                 <div className="pt-2 flex items-center justify-between text-xs text-muted dark:text-muted-dark border-t border-border dark:border-border-dark">
                   <span>{item.studio}</span>
