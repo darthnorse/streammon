@@ -2155,3 +2155,131 @@ func TestHistoryForItemAcrossServers_MovieMergesTwoServers(t *testing.T) {
 		t.Fatalf("expected bob then alice (most-recent first), got %s then %s", history[0].UserName, history[1].UserName)
 	}
 }
+
+func TestHistoryForItemAcrossServers_ShowMergesByGrandparent(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	sid1 := seedServer(t, s)
+	srv2 := &models.Server{Name: "Second", Type: models.ServerTypePlex, URL: "http://test2", APIKey: "k2", Enabled: true}
+	if err := s.CreateServer(srv2); err != nil {
+		t.Fatalf("seed server 2: %v", err)
+	}
+	sid2 := srv2.ID
+
+	now := time.Now().UTC()
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: sid1, ItemID: "ep-1a", GrandparentItemID: "show-a",
+		UserName: "alice", MediaType: models.MediaTypeTV,
+		Title: "Pilot", GrandparentTitle: "Show",
+		SeasonNumber: 1, EpisodeNumber: 1,
+		StartedAt: now.Add(-3 * time.Hour), StoppedAt: now.Add(-2 * time.Hour),
+	}); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: sid2, ItemID: "ep-1b", GrandparentItemID: "show-b",
+		UserName: "bob", MediaType: models.MediaTypeTV,
+		Title: "Pilot", GrandparentTitle: "Show",
+		SeasonNumber: 1, EpisodeNumber: 1,
+		StartedAt: now.Add(-1 * time.Hour), StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("InsertHistory: %v", err)
+	}
+
+	// Out-of-scope row: belongs to a show that's NOT in matches. Must not appear in result.
+	srv3 := &models.Server{Name: "Third", Type: models.ServerTypePlex, URL: "http://test3", APIKey: "k3", Enabled: true}
+	if err := s.CreateServer(srv3); err != nil {
+		t.Fatalf("seed server 3: %v", err)
+	}
+	if err := s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: srv3.ID, ItemID: "ep-other", GrandparentItemID: "show-other",
+		UserName: "charlie", MediaType: models.MediaTypeTV,
+		Title: "Other", GrandparentTitle: "Other Show",
+		SeasonNumber: 1, EpisodeNumber: 1,
+		StartedAt: now, StoppedAt: now,
+	}); err != nil {
+		t.Fatalf("InsertHistory noise: %v", err)
+	}
+
+	matches := []LibraryMatch{
+		{ServerID: sid1, ServerName: "Test", ItemID: "show-a"},
+		{ServerID: sid2, ServerName: "Second", ItemID: "show-b"},
+	}
+	history, err := s.HistoryForItemAcrossServers(matches, "show", 0, 0, "", 10)
+	if err != nil {
+		t.Fatalf("HistoryForItemAcrossServers: %v", err)
+	}
+	if len(history) != 2 {
+		t.Fatalf("expected 2 merged rows for show level, got %d", len(history))
+	}
+	if history[0].UserName != "bob" {
+		t.Fatalf("expected bob first (most recent), got %s", history[0].UserName)
+	}
+}
+
+func TestHistoryForItemAcrossServers_SeasonFiltersBySeasonNumber(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	sid := seedServer(t, s)
+	now := time.Now().UTC()
+
+	insert := func(seasonNumber int, title string) {
+		t.Helper()
+		if err := s.InsertHistory(&models.WatchHistoryEntry{
+			ServerID: sid, ItemID: fmt.Sprintf("ep-%d", seasonNumber), GrandparentItemID: "show-a",
+			UserName: "alice", MediaType: models.MediaTypeTV,
+			Title: title, GrandparentTitle: "Show",
+			SeasonNumber: seasonNumber, EpisodeNumber: 1,
+			StartedAt: now, StoppedAt: now,
+		}); err != nil {
+			t.Fatalf("InsertHistory s%d: %v", seasonNumber, err)
+		}
+	}
+	insert(1, "S1E1")
+	insert(2, "S2E1")
+	insert(3, "S3E1")
+
+	matches := []LibraryMatch{{ServerID: sid, ServerName: "Test", ItemID: "show-a"}}
+	history, err := s.HistoryForItemAcrossServers(matches, "season", 2, 0, "", 10)
+	if err != nil {
+		t.Fatalf("HistoryForItemAcrossServers: %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("expected 1 row for season 2, got %d", len(history))
+	}
+	if history[0].Title != "S2E1" {
+		t.Fatalf("expected S2E1, got %s", history[0].Title)
+	}
+}
+
+func TestHistoryForItemAcrossServers_EpisodeFiltersBySeasonAndEpisode(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	sid := seedServer(t, s)
+	now := time.Now().UTC()
+
+	insert := func(season, episode int, title string) {
+		t.Helper()
+		if err := s.InsertHistory(&models.WatchHistoryEntry{
+			ServerID: sid, ItemID: fmt.Sprintf("ep-%d-%d", season, episode), GrandparentItemID: "show-a",
+			UserName: "alice", MediaType: models.MediaTypeTV,
+			Title: title, GrandparentTitle: "Show",
+			SeasonNumber: season, EpisodeNumber: episode,
+			StartedAt: now, StoppedAt: now,
+		}); err != nil {
+			t.Fatalf("InsertHistory s%de%d: %v", season, episode, err)
+		}
+	}
+	insert(1, 1, "S1E1")
+	insert(1, 2, "S1E2")
+	insert(2, 1, "S2E1")
+
+	matches := []LibraryMatch{{ServerID: sid, ServerName: "Test", ItemID: "show-a"}}
+	history, err := s.HistoryForItemAcrossServers(matches, "episode", 1, 2, "", 10)
+	if err != nil {
+		t.Fatalf("HistoryForItemAcrossServers: %v", err)
+	}
+	if len(history) != 1 {
+		t.Fatalf("expected 1 row for S1E2, got %d", len(history))
+	}
+	if history[0].Title != "S1E2" {
+		t.Fatalf("expected S1E2, got %s", history[0].Title)
+	}
+}
