@@ -263,7 +263,7 @@ export function EpisodeDetail({ item, loading, onClose, pushModal, active, libra
 
                 <div className="pt-2 flex items-center justify-between text-xs text-muted dark:text-muted-dark border-t border-border dark:border-border-dark">
                   <span>{item.studio}</span>
-                  <span>{item.server_name}</span>
+                  {servers.length <= 1 && <span>{item.server_name}</span>}
                 </div>
               </div>
             </div>
