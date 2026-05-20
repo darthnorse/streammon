@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useCallback } from 'react'
-import { useFetch } from '../../hooks/useFetch'
-import type { ItemDetails, ModalEntry, TMDBCrew, Server } from '../../types'
+import { useServers } from '../../hooks/useServers'
+import type { ItemDetails, ModalEntry, TMDBCrew } from '../../types'
 import { formatDuration, thumbUrl } from '../../lib/format'
 import { useTMDBEnrichment } from '../../hooks/useTMDBEnrichment'
 import { useOverseerrRequest } from '../../hooks/useOverseerrRequest'
@@ -50,8 +50,7 @@ export function ShowDetail({
 }: ShowDetailProps) {
   const { stack, push: pushInner, pop: popInner } = useModalStack()
 
-  const { data: servers } = useFetch<Server[]>('/api/servers')
-  const serverList = servers ?? []
+  const servers = useServers()
 
   const enrichment = useTMDBEnrichment(item?.tmdb_id, item?.media_type)
   const tmdbMovie = enrichment.movie
@@ -369,7 +368,7 @@ export function ShowDetail({
                 )}
 
                 <TechInfo item={item} />
-                <WatchHistory item={item} modalServerId={item.server_id} servers={serverList} />
+                <WatchHistory item={item} modalServerId={item.server_id} servers={servers} />
 
                 {effectiveMediaType === 'tv' && tmdbTV?.seasons && tmdbTV.seasons.length > 0 && canRequest && (
                   <div className="space-y-2 border-t border-border dark:border-border-dark pt-4">
