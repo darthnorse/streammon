@@ -74,28 +74,23 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		fallbackKey = itemID
 	}
 
-	// Resolve tmdb_id via library_items using the parent show key for season/episode,
-	// or the item itself for movie/show.
+	// historyKey is the parent show id for season/episode, else the item itself —
+	// used both for resolving tmdb_id and (for non-episode levels) for the single-server fallback.
 	tmdbID, err := s.store.GetLibraryItemTMDBID(r.Context(), serverID, historyKey)
 	if err != nil {
 		log.Printf("WARN: GetLibraryItemTMDBID server=%d key=%s: %v", serverID, historyKey, err)
 	}
-
-	// Surface the resolved TMDB ID so frontend can fetch TMDB enrichment.
 	if tmdbID != "" {
 		details.TMDBID = tmdbID
 	}
 
-	// Title fallback for movie/show levels when tmdb_id couldn't be resolved by item_id
-	// (legacy data without a library_items match). Preserves existing behavior.
+	// Title-based fallback for legacy rows lacking a library_items match.
 	if details.TMDBID == "" && details.SeriesTitle != "" {
 		if fallbackID, err := s.store.GetLibraryItemTMDBIDByTitle(r.Context(), serverID, details.SeriesTitle, string(models.MediaTypeTV)); err != nil {
 			log.Printf("WARN: GetLibraryItemTMDBIDByTitle server=%d title=%q: %v", serverID, details.SeriesTitle, err)
 		} else if fallbackID != "" {
 			details.TMDBID = fallbackID
-			if tmdbID == "" {
-				tmdbID = fallbackID
-			}
+			tmdbID = fallbackID
 		}
 	}
 
@@ -105,7 +100,7 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		if mErr != nil {
 			log.Printf("WARN: FindLibraryItemsByTMDBID tmdb=%s: %v", tmdbID, mErr)
 		} else if len(matches) > 0 {
-			h, hErr := s.store.HistoryForItemAcrossServers(matches, level, details.SeasonNumber, details.EpisodeNumber, userFilter, maxWatchHistoryEntries)
+			h, hErr := s.store.HistoryForItemAcrossServers(r.Context(), matches, level, details.SeasonNumber, details.EpisodeNumber, userFilter, maxWatchHistoryEntries)
 			if hErr != nil {
 				log.Printf("WARN: HistoryForItemAcrossServers tmdb=%s: %v", tmdbID, hErr)
 			} else {
@@ -114,6 +109,9 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Single-server fallback. Intentionally also runs when cross-server returned zero —
+	// for episode level this can recover rows whose grandparent_item_id has changed after
+	// a library re-sync but whose item_id is still tracked in watch_history.
 	if len(history) == 0 {
 		fallback, fbErr := s.store.HistoryForItem(serverID, fallbackKey, level, details.SeasonNumber, userFilter, maxWatchHistoryEntries)
 		if fbErr != nil {

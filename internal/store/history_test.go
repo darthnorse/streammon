@@ -2144,7 +2144,7 @@ func TestHistoryForItemAcrossServers_MovieMergesTwoServers(t *testing.T) {
 		{ServerID: sid1, ServerName: "Test", ItemID: "movie-a"},
 		{ServerID: sid2, ServerName: "Second", ItemID: "movie-b"},
 	}
-	history, err := s.HistoryForItemAcrossServers(matches, "movie", 0, 0, "", 10)
+	history, err := s.HistoryForItemAcrossServers(context.Background(), matches, "movie", 0, 0, "", 10)
 	if err != nil {
 		t.Fatalf("HistoryForItemAcrossServers: %v", err)
 	}
@@ -2204,7 +2204,7 @@ func TestHistoryForItemAcrossServers_ShowMergesByGrandparent(t *testing.T) {
 		{ServerID: sid1, ServerName: "Test", ItemID: "show-a"},
 		{ServerID: sid2, ServerName: "Second", ItemID: "show-b"},
 	}
-	history, err := s.HistoryForItemAcrossServers(matches, "show", 0, 0, "", 10)
+	history, err := s.HistoryForItemAcrossServers(context.Background(), matches, "show", 0, 0, "", 10)
 	if err != nil {
 		t.Fatalf("HistoryForItemAcrossServers: %v", err)
 	}
@@ -2238,7 +2238,7 @@ func TestHistoryForItemAcrossServers_SeasonFiltersBySeasonNumber(t *testing.T) {
 	insert(3, "S3E1")
 
 	matches := []LibraryMatch{{ServerID: sid, ServerName: "Test", ItemID: "show-a"}}
-	history, err := s.HistoryForItemAcrossServers(matches, "season", 2, 0, "", 10)
+	history, err := s.HistoryForItemAcrossServers(context.Background(), matches, "season", 2, 0, "", 10)
 	if err != nil {
 		t.Fatalf("HistoryForItemAcrossServers: %v", err)
 	}
@@ -2272,7 +2272,7 @@ func TestHistoryForItemAcrossServers_EpisodeFiltersBySeasonAndEpisode(t *testing
 	insert(2, 1, "S2E1")
 
 	matches := []LibraryMatch{{ServerID: sid, ServerName: "Test", ItemID: "show-a"}}
-	history, err := s.HistoryForItemAcrossServers(matches, "episode", 1, 2, "", 10)
+	history, err := s.HistoryForItemAcrossServers(context.Background(), matches, "episode", 1, 2, "", 10)
 	if err != nil {
 		t.Fatalf("HistoryForItemAcrossServers: %v", err)
 	}
@@ -2286,7 +2286,7 @@ func TestHistoryForItemAcrossServers_EpisodeFiltersBySeasonAndEpisode(t *testing
 
 func TestHistoryForItemAcrossServers_EmptyMatchesReturnsEmpty(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
-	history, err := s.HistoryForItemAcrossServers(nil, "movie", 0, 0, "", 10)
+	history, err := s.HistoryForItemAcrossServers(context.Background(), nil, "movie", 0, 0, "", 10)
 	if err != nil {
 		t.Fatalf("HistoryForItemAcrossServers: %v", err)
 	}
@@ -2322,7 +2322,7 @@ func TestHistoryForItemAcrossServers_UserFilterAppliedAcrossServers(t *testing.T
 		{ServerID: sid1, ServerName: "Test", ItemID: "movie-a"},
 		{ServerID: sid2, ServerName: "Second", ItemID: "movie-b"},
 	}
-	history, err := s.HistoryForItemAcrossServers(matches, "movie", 0, 0, "alice", 10)
+	history, err := s.HistoryForItemAcrossServers(context.Background(), matches, "movie", 0, 0, "alice", 10)
 	if err != nil {
 		t.Fatalf("HistoryForItemAcrossServers: %v", err)
 	}
@@ -2345,7 +2345,8 @@ func TestHistoryForItemAcrossServers_LimitClampsMergedResult(t *testing.T) {
 
 	base := time.Now().UTC().Add(-24 * time.Hour)
 	// Create 6 watches on sid1 for movie-a and 6 on sid2 for movie-b = 12 total.
-	// Use different users to prevent consolidation, space >30min apart.
+	// Different users + >30min spacing so InsertHistory's dedup window doesn't
+	// collapse them before they reach the query.
 	for i := 0; i < 6; i++ {
 		if err := s.InsertHistory(&models.WatchHistoryEntry{
 			ServerID: sid1, ItemID: "movie-a", UserName: fmt.Sprintf("user%d", i), MediaType: models.MediaTypeMovie,
@@ -2369,7 +2370,7 @@ func TestHistoryForItemAcrossServers_LimitClampsMergedResult(t *testing.T) {
 		{ServerID: sid1, ServerName: "Test", ItemID: "movie-a"},
 		{ServerID: sid2, ServerName: "Second", ItemID: "movie-b"},
 	}
-	history, err := s.HistoryForItemAcrossServers(matches, "movie", 0, 0, "", 5)
+	history, err := s.HistoryForItemAcrossServers(context.Background(), matches, "movie", 0, 0, "", 5)
 	if err != nil {
 		t.Fatalf("HistoryForItemAcrossServers: %v", err)
 	}

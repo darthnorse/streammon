@@ -475,6 +475,7 @@ func (s *Store) HistoryForItem(serverID int64, itemID, level string, seasonNumbe
 // seasonNumber is consulted when level is "season" or "episode".
 // episodeNumber is consulted when level is "episode".
 func (s *Store) HistoryForItemAcrossServers(
+	ctx context.Context,
 	matches []LibraryMatch,
 	level string,
 	seasonNumber, episodeNumber int,
@@ -496,12 +497,20 @@ func (s *Store) HistoryForItemAcrossServers(
 	}
 
 	placeholders := make([]string, 0, len(matches))
-	args := make([]any, 0, len(matches)*2+3)
+	args := make([]any, 0, len(matches)*2+4)
 	for _, m := range matches {
 		placeholders = append(placeholders, "(?, ?)")
 		args = append(args, m.ServerID, m.ItemID)
 	}
 	where := fmt.Sprintf("(server_id, %s) IN (VALUES %s)", keyColumn, strings.Join(placeholders, ", "))
+
+	// SQLite's planner can't infer that bound parameters in the IN-tuple are non-empty,
+	// so it won't use idx_watch_history_server_grandparent (which is partial on
+	// `WHERE grandparent_item_id != ''`) without an explicit predicate. Add it for
+	// non-movie levels so the planner picks the composite index.
+	if keyColumn == "grandparent_item_id" {
+		where += " AND grandparent_item_id != ''"
+	}
 
 	if level == "season" || level == "episode" {
 		where += " AND season_number = ?"
@@ -518,7 +527,7 @@ func (s *Store) HistoryForItemAcrossServers(
 	args = append(args, limit)
 
 	query := `SELECT ` + historyColumns + ` FROM watch_history WHERE ` + where + ` ORDER BY started_at DESC LIMIT ?`
-	rows, err := s.db.Query(query, args...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("history across servers: %w", err)
 	}
