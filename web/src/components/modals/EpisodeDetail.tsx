@@ -259,7 +259,7 @@ export function EpisodeDetail({ item, loading, onClose, pushModal, active, libra
                 )}
 
                 <TechInfo item={item} />
-                <WatchHistory item={item} modalServerId={item.server_id} servers={servers} />
+                <WatchHistory item={item} servers={servers} />
 
                 <div className="pt-2 flex items-center justify-between text-xs text-muted dark:text-muted-dark border-t border-border dark:border-border-dark">
                   <span>{item.studio}</span>

@@ -89,15 +89,16 @@ export function TechInfo({ item }: { item: ItemDetails }) {
 
 export function WatchHistory({
   item,
-  modalServerId,
   servers,
 }: {
   item: ItemDetails
-  modalServerId: number
   servers: Server[]
 }) {
   if (!item.watch_history?.length) return null
   const serverNameById = new Map(servers.map(s => [s.id, s.name]))
+  // With >1 server configured, label every row so the source is unambiguous;
+  // with a single server, suppress the pill entirely to keep the UI clean.
+  const showPills = servers.length > 1
   return (
     <div className="bg-gray-50 dark:bg-white/5 rounded-lg p-3 space-y-2">
       <div className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wide">
@@ -105,7 +106,6 @@ export function WatchHistory({
       </div>
       <div className="space-y-2 max-h-40 overflow-y-auto">
         {item.watch_history.map(entry => {
-          const showPill = entry.server_id !== modalServerId
           const pillName = serverNameById.get(entry.server_id) ?? `Server ${entry.server_id}`
           return (
             <div key={entry.id} className="flex items-center justify-between text-sm">
@@ -119,7 +119,7 @@ export function WatchHistory({
                 <span className="text-muted dark:text-muted-dark truncate">
                   {entry.grandparent_title ? entry.title : ''}
                 </span>
-                {showPill && (
+                {showPills && (
                   <span
                     data-testid={`server-pill-${entry.server_id}`}
                     className="px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-200 text-gray-700 dark:bg-white/10 dark:text-gray-300 whitespace-nowrap"

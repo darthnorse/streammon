@@ -51,36 +51,31 @@ const baseItem = {
   ],
 } as ItemDetails
 
-const servers: Server[] = [
+const multiServer: Server[] = [
   { id: 1, name: 'Plex 4K', type: 'plex', url: '', enabled: true } as Server,
   { id: 2, name: 'Plex HD', type: 'plex', url: '', enabled: true } as Server,
 ]
 
-describe('WatchHistory cross-server pill', () => {
-  it('does not render a pill for rows from the modal server', () => {
+const singleServer: Server[] = [
+  { id: 1, name: 'Plex 4K', type: 'plex', url: '', enabled: true } as Server,
+]
+
+describe('WatchHistory server pill', () => {
+  it('multi-server: renders a pill on every row, including rows from the same server as the modal', () => {
     render(
       <MemoryRouter>
-        <WatchHistory item={baseItem} modalServerId={1} servers={servers} />
+        <WatchHistory item={baseItem} servers={multiServer} />
       </MemoryRouter>
     )
-    expect(screen.queryByTestId('server-pill-1')).toBeNull()
+    expect(screen.getByTestId('server-pill-1').textContent).toContain('Plex 4K')
+    expect(screen.getByTestId('server-pill-2').textContent).toContain('Plex HD')
   })
 
-  it('renders a pill with the server name for rows from a different server', () => {
-    render(
-      <MemoryRouter>
-        <WatchHistory item={baseItem} modalServerId={1} servers={servers} />
-      </MemoryRouter>
-    )
-    const pill = screen.getByTestId('server-pill-2')
-    expect(pill.textContent).toContain('Plex HD')
-  })
-
-  it('renders no pills when all rows are from the same server (single-server setup)', () => {
+  it('single-server: renders no pills', () => {
     const single = { ...baseItem, watch_history: baseItem.watch_history!.filter(e => e.server_id === 1) }
     render(
       <MemoryRouter>
-        <WatchHistory item={single} modalServerId={1} servers={servers} />
+        <WatchHistory item={single} servers={singleServer} />
       </MemoryRouter>
     )
     expect(screen.queryByTestId(/server-pill-/)).toBeNull()

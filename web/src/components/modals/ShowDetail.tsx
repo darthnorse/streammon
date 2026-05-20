@@ -368,7 +368,7 @@ export function ShowDetail({
                 )}
 
                 <TechInfo item={item} />
-                <WatchHistory item={item} modalServerId={item.server_id} servers={servers} />
+                <WatchHistory item={item} servers={servers} />
 
                 {effectiveMediaType === 'tv' && tmdbTV?.seasons && tmdbTV.seasons.length > 0 && canRequest && (
                   <div className="space-y-2 border-t border-border dark:border-border-dark pt-4">

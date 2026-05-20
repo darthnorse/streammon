@@ -141,7 +141,7 @@ export function SeasonDetail({ item, loading, onClose, pushModal, active }: Seas
                 />
               )}
 
-              <WatchHistory item={item} modalServerId={item.server_id} servers={servers} />
+              <WatchHistory item={item} servers={servers} />
 
               <div className="pt-2 flex items-center justify-end text-xs text-muted dark:text-muted-dark border-t border-border dark:border-border-dark">
                 <span>{item.server_name}</span>
