@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useCallback } from 'react'
+import { useServers } from '../../hooks/useServers'
 import type { ItemDetails, ModalEntry, TMDBCrew } from '../../types'
 import { formatDuration, thumbUrl } from '../../lib/format'
 import { useTMDBEnrichment } from '../../hooks/useTMDBEnrichment'
@@ -48,6 +49,8 @@ export function ShowDetail({
   mediaStatuses,
 }: ShowDetailProps) {
   const { stack, push: pushInner, pop: popInner } = useModalStack()
+
+  const servers = useServers()
 
   const enrichment = useTMDBEnrichment(item?.tmdb_id, item?.media_type)
   const tmdbMovie = enrichment.movie
@@ -365,7 +368,7 @@ export function ShowDetail({
                 )}
 
                 <TechInfo item={item} />
-                <WatchHistory item={item} />
+                <WatchHistory item={item} servers={servers} />
 
                 {effectiveMediaType === 'tv' && tmdbTV?.seasons && tmdbTV.seasons.length > 0 && canRequest && (
                   <div className="space-y-2 border-t border-border dark:border-border-dark pt-4">

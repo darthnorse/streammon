@@ -5,6 +5,7 @@ import { useTMDBEnrichment } from '../../hooks/useTMDBEnrichment'
 import { useTMDBSeasonEnrichment } from '../../hooks/useTMDBSeasonEnrichment'
 import { TMDB_IMG } from '../../lib/tmdb'
 import { EpisodesGrid } from './EpisodesGrid'
+import { useServers } from '../../hooks/useServers'
 import { WatchHistory, serverAccent, defaultAccent } from './MediaDetailParts'
 import type { ItemDetails, ModalEntry } from '../../types'
 
@@ -29,6 +30,8 @@ export function SeasonDetail({ item, loading, onClose, pushModal, active }: Seas
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [active, onClose])
+
+  const servers = useServers()
 
   const { data: childrenData, loading: childrenLoading } = useEpisodesChildren(
     item?.server_id ?? 0,
@@ -138,7 +141,7 @@ export function SeasonDetail({ item, loading, onClose, pushModal, active }: Seas
                 />
               )}
 
-              <WatchHistory item={item} />
+              <WatchHistory item={item} servers={servers} />
 
               <div className="pt-2 flex items-center justify-end text-xs text-muted dark:text-muted-dark border-t border-border dark:border-border-dark">
                 <span>{item.server_name}</span>

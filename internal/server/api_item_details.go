@@ -52,20 +52,6 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if tmdbID, err := s.store.GetLibraryItemTMDBID(r.Context(), serverID, itemID); err != nil {
-		log.Printf("WARN: GetLibraryItemTMDBID server=%d item=%s: %v", serverID, itemID, err)
-	} else if tmdbID != "" {
-		details.TMDBID = tmdbID
-	}
-
-	if details.TMDBID == "" && details.SeriesTitle != "" {
-		if tmdbID, err := s.store.GetLibraryItemTMDBIDByTitle(r.Context(), serverID, details.SeriesTitle, string(models.MediaTypeTV)); err != nil {
-			log.Printf("WARN: GetLibraryItemTMDBIDByTitle server=%d title=%q: %v", serverID, details.SeriesTitle, err)
-		} else if tmdbID != "" {
-			details.TMDBID = tmdbID
-		}
-	}
-
 	userFilter := ""
 	if user := UserFromContext(r.Context()); user != nil && user.Role == models.RoleViewer {
 		userFilter = user.Name
@@ -74,7 +60,7 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 	level := details.Level
 	historyKey := itemID
 	switch level {
-	case "season":
+	case "season", "episode":
 		historyKey = details.SeriesID
 		if historyKey == "" {
 			historyKey = details.ParentID
@@ -83,9 +69,56 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		level = "movie"
 	}
 
-	history, err := s.store.HistoryForItem(serverID, historyKey, level, details.SeasonNumber, userFilter, maxWatchHistoryEntries)
+	fallbackKey := historyKey
+	if level == "episode" {
+		fallbackKey = itemID
+	}
+
+	// historyKey is the parent show id for season/episode, else the item itself —
+	// used both for resolving tmdb_id and (for non-episode levels) for the single-server fallback.
+	tmdbID, err := s.store.GetLibraryItemTMDBID(r.Context(), serverID, historyKey)
 	if err != nil {
-		log.Printf("WARN: HistoryForItem server=%d item=%s level=%s: %v", serverID, historyKey, level, err)
+		log.Printf("WARN: GetLibraryItemTMDBID server=%d key=%s: %v", serverID, historyKey, err)
+	}
+	if tmdbID != "" {
+		details.TMDBID = tmdbID
+	}
+
+	// Title-based fallback for legacy rows lacking a library_items match.
+	if details.TMDBID == "" && details.SeriesTitle != "" {
+		if fallbackID, err := s.store.GetLibraryItemTMDBIDByTitle(r.Context(), serverID, details.SeriesTitle, string(models.MediaTypeTV)); err != nil {
+			log.Printf("WARN: GetLibraryItemTMDBIDByTitle server=%d title=%q: %v", serverID, details.SeriesTitle, err)
+		} else if fallbackID != "" {
+			details.TMDBID = fallbackID
+			tmdbID = fallbackID
+		}
+	}
+
+	var history []models.WatchHistoryEntry
+	if tmdbID != "" {
+		matches, mErr := s.store.FindLibraryItemsByTMDBID(r.Context(), tmdbID)
+		if mErr != nil {
+			log.Printf("WARN: FindLibraryItemsByTMDBID tmdb=%s: %v", tmdbID, mErr)
+		} else if len(matches) > 0 {
+			h, hErr := s.store.HistoryForItemAcrossServers(r.Context(), matches, level, details.SeasonNumber, details.EpisodeNumber, userFilter, maxWatchHistoryEntries)
+			if hErr != nil {
+				log.Printf("WARN: HistoryForItemAcrossServers tmdb=%s: %v", tmdbID, hErr)
+			} else {
+				history = h
+			}
+		}
+	}
+
+	// Single-server fallback. Intentionally also runs when cross-server returned zero —
+	// for episode level this can recover rows whose grandparent_item_id has changed after
+	// a library re-sync but whose item_id is still tracked in watch_history.
+	if len(history) == 0 {
+		fallback, fbErr := s.store.HistoryForItem(serverID, fallbackKey, level, details.SeasonNumber, userFilter, maxWatchHistoryEntries)
+		if fbErr != nil {
+			log.Printf("WARN: HistoryForItem server=%d item=%s level=%s: %v", serverID, fallbackKey, level, fbErr)
+		} else {
+			history = fallback
+		}
 	}
 
 	// Fallback to title match for old rows missing grandparent_item_id (show/season only — needs a reliable show title).
