@@ -14,7 +14,6 @@ import (
 )
 
 const maxPerPage = 100
-const maxSearchLen = 200
 
 var allowedSortColumns = map[string]string{
 	"started_at": "h.started_at",
@@ -66,8 +65,9 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	search := strings.TrimSpace(r.URL.Query().Get("search"))
-	if len(search) > maxSearchLen {
-		search = search[:maxSearchLen]
+	if len(search) > maxSearchLength {
+		writeError(w, http.StatusBadRequest, "search term too long")
+		return
 	}
 
 	result, err := s.store.SearchHistory(page, perPage, userFilter, search, sortColumn, sortOrder, serverIDs)

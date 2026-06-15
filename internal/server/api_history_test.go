@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -291,5 +292,18 @@ func TestListHistorySearchViewerScoped(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&result)
 	if result.Total != 0 {
 		t.Fatalf("viewer search must not surface other users, got %d", result.Total)
+	}
+}
+
+func TestListHistorySearchTooLongAPI(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	long := strings.Repeat("a", maxSearchLength+1)
+	req := httptest.NewRequest(http.MethodGet, "/api/history?search="+long, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for over-long search, got %d", w.Code)
 	}
 }

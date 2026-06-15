@@ -180,7 +180,7 @@ describe('History', () => {
     })
   })
 
-  it('shows a no-match message when search returns nothing', () => {
+  it('shows the no-match message only after the debounced search resolves', async () => {
     const data: PaginatedResult<WatchHistoryEntry> = {
       items: [],
       total: 0,
@@ -196,6 +196,12 @@ describe('History', () => {
     const input = screen.getByPlaceholderText(/search/i)
     fireEvent.change(input, { target: { value: 'nonexistent' } })
 
-    expect(screen.getByText(/no entries match/i)).toBeDefined()
+    // Pre-debounce: results still reflect the prior query, so no message yet.
+    expect(screen.queryByText(/no entries match/i)).toBeNull()
+
+    // After the debounce commits the term, the message appears with that term.
+    await waitFor(() => {
+      expect(screen.getByText(/no entries match/i).textContent).toContain('nonexistent')
+    })
   })
 })

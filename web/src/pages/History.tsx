@@ -51,6 +51,8 @@ export function History() {
     `/api/history?page=${page}&per_page=${perPage}${sortParams}${serverParam}${searchParam}`
   )
 
+  const noMatches = !!data && data.items.length === 0 && !!search && !loading
+
   const totalPages = data ? Math.ceil(data.total / data.per_page) : 0
 
   const handlePerPageChange = useCallback((value: PerPage) => {
@@ -114,18 +116,20 @@ export function History() {
         </div>
       )}
 
-      {data && data.items.length === 0 && searchInput ? (
+      {noMatches && (
         <div className="card p-12 text-center text-muted dark:text-muted-dark">
-          No entries match &ldquo;{searchInput}&rdquo;
+          No entries match &ldquo;{search}&rdquo;
         </div>
-      ) : data ? (
+      )}
+
+      {data && !noMatches && (
         <HistoryTable
           entries={data.items}
           sort={sort}
           onSort={handleSort}
           serverSideSorting
         />
-      ) : null}
+      )}
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
