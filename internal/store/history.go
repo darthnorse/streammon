@@ -246,6 +246,10 @@ var validHistorySortColumns = map[string]bool{
 }
 
 func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder string, serverIDs []int64) (*models.PaginatedResult[models.WatchHistoryEntry], error) {
+	return s.SearchHistory(page, perPage, userFilter, "", sortColumn, sortOrder, serverIDs)
+}
+
+func (s *Store) SearchHistory(page, perPage int, userFilter, search, sortColumn, sortOrder string, serverIDs []int64) (*models.PaginatedResult[models.WatchHistoryEntry], error) {
 	var countConds []string
 	var joinConds []string
 	var args []any
@@ -261,6 +265,12 @@ func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder
 		for _, id := range serverIDs {
 			args = append(args, id)
 		}
+	}
+	if search != "" {
+		pattern := "%" + escapeLikePattern(search) + "%"
+		countConds = append(countConds, `(title LIKE ? ESCAPE '\' OR grandparent_title LIKE ? ESCAPE '\' OR user_name LIKE ? ESCAPE '\')`)
+		joinConds = append(joinConds, `(h.title LIKE ? ESCAPE '\' OR h.grandparent_title LIKE ? ESCAPE '\' OR h.user_name LIKE ? ESCAPE '\')`)
+		args = append(args, pattern, pattern, pattern)
 	}
 
 	countWhere := ""

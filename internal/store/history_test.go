@@ -2378,3 +2378,153 @@ func TestHistoryForItemAcrossServers_LimitClampsMergedResult(t *testing.T) {
 		t.Fatalf("expected 5 merged rows (limit clamps total, not per-server), got %d", len(history))
 	}
 }
+
+func TestSearchHistoryByTitle(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+	s.InsertHistory(makeHistoryEntry(serverID, "alice", "Inception", now))
+	s.InsertHistory(makeHistoryEntry(serverID, "bob", "The Matrix", now.Add(-time.Hour)))
+
+	result, err := s.SearchHistory(1, 10, "", "incep", "", "", nil)
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected total 1, got %d", result.Total)
+	}
+	if result.Items[0].Title != "Inception" {
+		t.Fatalf("expected Inception, got %s", result.Items[0].Title)
+	}
+}
+
+func TestSearchHistoryByShowName(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeTV,
+		Title: "Good Morning", GrandparentTitle: "Severance",
+		StartedAt: now, StoppedAt: now.Add(time.Hour),
+	})
+
+	result, err := s.SearchHistory(1, 10, "", "sever", "", "", nil)
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected total 1 matching grandparent_title, got %d", result.Total)
+	}
+}
+
+func TestSearchHistoryByUserName(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+	s.InsertHistory(makeHistoryEntry(serverID, "alice", "A", now))
+	s.InsertHistory(makeHistoryEntry(serverID, "bob", "B", now.Add(-time.Hour)))
+
+	result, err := s.SearchHistory(1, 10, "", "ali", "", "", nil)
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected total 1 matching user_name, got %d", result.Total)
+	}
+}
+
+func TestSearchHistoryCaseInsensitive(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+	s.InsertHistory(makeHistoryEntry(serverID, "alice", "Inception", now))
+
+	result, err := s.SearchHistory(1, 10, "", "INCEPTION", "", "", nil)
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected case-insensitive match, got %d", result.Total)
+	}
+}
+
+func TestSearchHistoryRespectsUserFilter(t *testing.T) {
+	// A guest is force-locked to their own user_name; a search must not surface others' rows.
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+	s.InsertHistory(makeHistoryEntry(serverID, "alice", "Secret", now))
+	s.InsertHistory(makeHistoryEntry(serverID, "bob", "Secret", now.Add(-time.Hour)))
+
+	result, err := s.SearchHistory(1, 10, "bob", "alice", "", "", nil)
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("guest search must not widen access, got %d", result.Total)
+	}
+
+	result, err = s.SearchHistory(1, 10, "bob", "Secret", "", "", nil)
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 (bob's own row), got %d", result.Total)
+	}
+}
+
+func TestSearchHistoryComposesWithServerFilter(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	sid1 := seedServer(t, s)
+	sid2 := seedServer(t, s)
+	now := time.Now().UTC()
+	s.InsertHistory(makeHistoryEntry(sid1, "alice", "Inception", now))
+	s.InsertHistory(makeHistoryEntry(sid2, "bob", "Inception", now.Add(-time.Hour)))
+
+	result, err := s.SearchHistory(1, 10, "", "incep", "", "", []int64{sid1})
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 (server-scoped), got %d", result.Total)
+	}
+}
+
+func TestSearchHistoryLikeMetacharsLiteral(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+	s.InsertHistory(makeHistoryEntry(serverID, "alice", "100% Wolf", now))
+	// Negative control: contains "100" but NOT the literal "100%". If the search
+	// term's "%" were treated as a wildcard (escaping broken), the pattern "%100%%"
+	// would also match this row and Total would be 2.
+	s.InsertHistory(makeHistoryEntry(serverID, "bob", "100 Wolf", now.Add(-time.Hour)))
+	s.InsertHistory(makeHistoryEntry(serverID, "carol", "Plain Movie", now.Add(-2*time.Hour)))
+
+	result, err := s.SearchHistory(1, 10, "", "100%", "", "", nil)
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 literal-%% match, got %d", result.Total)
+	}
+	if result.Items[0].Title != "100% Wolf" {
+		t.Fatalf("expected '100%% Wolf', got %q", result.Items[0].Title)
+	}
+}
+
+func TestSearchHistoryEmptyReturnsAll(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+	s.InsertHistory(makeHistoryEntry(serverID, "alice", "A", now))
+	s.InsertHistory(makeHistoryEntry(serverID, "bob", "B", now.Add(-time.Hour)))
+
+	result, err := s.SearchHistory(1, 10, "", "", "", "", nil)
+	if err != nil {
+		t.Fatalf("SearchHistory: %v", err)
+	}
+	if result.Total != 2 {
+		t.Fatalf("empty search should return all, got %d", result.Total)
+	}
+}
