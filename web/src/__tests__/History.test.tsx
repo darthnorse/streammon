@@ -179,4 +179,23 @@ describe('History', () => {
       expect(searchUrl).toContain('page=1')
     })
   })
+
+  it('shows a no-match message when search returns nothing', () => {
+    const data: PaginatedResult<WatchHistoryEntry> = {
+      items: [],
+      total: 0,
+      page: 1,
+      per_page: 20,
+    }
+    mockUseFetch.mockImplementation((url: string | null) => {
+      if (url === '/api/servers') return { ...emptyFetch, data: [] }
+      return { data, loading: false, error: null, refetch: vi.fn() }
+    })
+    renderWithRouter(<History />)
+
+    const input = screen.getByPlaceholderText(/search/i)
+    fireEvent.change(input, { target: { value: 'nonexistent' } })
+
+    expect(screen.getByText(/no entries match/i)).toBeDefined()
+  })
 })

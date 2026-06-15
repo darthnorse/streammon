@@ -114,14 +114,18 @@ export function History() {
         </div>
       )}
 
-      {data && (
+      {data && data.items.length === 0 && searchInput ? (
+        <div className="card p-12 text-center text-muted dark:text-muted-dark">
+          No entries match &ldquo;{searchInput}&rdquo;
+        </div>
+      ) : data ? (
         <HistoryTable
           entries={data.items}
           sort={sort}
           onSort={handleSort}
           serverSideSorting
         />
-      )}
+      ) : null}
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
     </div>
