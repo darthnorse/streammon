@@ -231,3 +231,65 @@ func TestHandleListSessionsBadID(t *testing.T) {
 		t.Fatalf("expected 400, got %d", w.Code)
 	}
 }
+
+func TestListHistorySearchAPI(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
+	st.CreateServer(s)
+	now := time.Now().UTC()
+	st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Inception", StartedAt: now, StoppedAt: now,
+	})
+	st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s.ID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "The Matrix", StartedAt: now.Add(-time.Hour), StoppedAt: now.Add(-time.Hour),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/history?search=incep", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var result models.PaginatedResult[models.WatchHistoryEntry]
+	json.NewDecoder(w.Body).Decode(&result)
+	if result.Total != 1 {
+		t.Fatalf("expected 1 search result, got %d", result.Total)
+	}
+	if result.Items[0].Title != "Inception" {
+		t.Fatalf("expected Inception, got %s", result.Items[0].Title)
+	}
+}
+
+func TestListHistorySearchViewerScoped(t *testing.T) {
+	srv, st := newTestServer(t)
+	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
+	st.CreateServer(s)
+	now := time.Now().UTC()
+	st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s.ID, UserName: "admin", MediaType: models.MediaTypeMovie,
+		Title: "Secret", StartedAt: now, StoppedAt: now,
+	})
+	st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s.ID, UserName: "viewer", MediaType: models.MediaTypeMovie,
+		Title: "Secret", StartedAt: now.Add(-time.Hour), StoppedAt: now.Add(-time.Hour),
+	})
+
+	viewerToken := createViewerSession(t, st, "viewer")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/history?search=admin", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var result models.PaginatedResult[models.WatchHistoryEntry]
+	json.NewDecoder(w.Body).Decode(&result)
+	if result.Total != 0 {
+		t.Fatalf("viewer search must not surface other users, got %d", result.Total)
+	}
+}

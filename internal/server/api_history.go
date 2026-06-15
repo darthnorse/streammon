@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -13,6 +14,7 @@ import (
 )
 
 const maxPerPage = 100
+const maxSearchLen = 200
 
 var allowedSortColumns = map[string]string{
 	"started_at": "h.started_at",
@@ -63,7 +65,12 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.store.ListHistory(page, perPage, userFilter, sortColumn, sortOrder, serverIDs)
+	search := strings.TrimSpace(r.URL.Query().Get("search"))
+	if len(search) > maxSearchLen {
+		search = search[:maxSearchLen]
+	}
+
+	result, err := s.store.SearchHistory(page, perPage, userFilter, search, sortColumn, sortOrder, serverIDs)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
