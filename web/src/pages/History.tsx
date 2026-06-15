@@ -6,6 +6,8 @@ import { Dropdown } from '../components/Dropdown'
 import { HISTORY_COLUMNS } from '../lib/historyColumns'
 import { buildServerOptions } from '../lib/utils'
 import type { WatchHistoryEntry, PaginatedResult, Server } from '../types'
+import { SearchInput } from '../components/shared/SearchInput'
+import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 
 type PerPage = '10' | '20' | '50' | '100'
 
@@ -21,6 +23,7 @@ export function History() {
   const [perPage, setPerPage] = useState<PerPage>('20')
   const [sort, setSort] = useState<SortState | null>(null)
   const [serverIds, setServerIds] = useState<string[]>([])
+  const { searchInput, setSearchInput, search } = useDebouncedSearch(() => setPage(1))
 
   const { data: servers } = useFetch<Server[]>('/api/servers')
 
@@ -35,13 +38,17 @@ export function History() {
     serverIds.length > 0 ? `&server_ids=${serverIds.join(',')}` : ''
   , [serverIds])
 
+  const searchParam = useMemo(() =>
+    search ? `&search=${encodeURIComponent(search)}` : ''
+  , [search])
+
   const handleSort = useCallback((newSort: SortState | null) => {
     setSort(newSort)
     setPage(1)
   }, [])
 
   const { data, loading, error } = useFetch<PaginatedResult<WatchHistoryEntry>>(
-    `/api/history?page=${page}&per_page=${perPage}${sortParams}${serverParam}`
+    `/api/history?page=${page}&per_page=${perPage}${sortParams}${serverParam}${searchParam}`
   )
 
   const totalPages = data ? Math.ceil(data.total / data.per_page) : 0
@@ -60,7 +67,7 @@ export function History() {
 
   return (
     <div>
-      <div className="flex items-start justify-between mb-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold">History</h1>
           {data && (
@@ -69,7 +76,13 @@ export function History() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <SearchInput
+            value={searchInput}
+            onChange={setSearchInput}
+            placeholder="Search title or user"
+            className="w-48 sm:w-64"
+          />
           <span className="text-sm text-muted dark:text-muted-dark">Show</span>
           <Dropdown
             options={perPageOptions}

@@ -127,4 +127,56 @@ describe('History', () => {
     renderWithRouter(<History />)
     expect(screen.queryByText('All Servers')).toBeNull()
   })
+
+  it('passes search term to useFetch after debounce', async () => {
+    const data: PaginatedResult<WatchHistoryEntry> = {
+      items: [baseHistoryEntry],
+      total: 1,
+      page: 1,
+      per_page: 20,
+    }
+    const calledUrls: string[] = []
+    mockUseFetch.mockImplementation((url: string | null) => {
+      if (url) calledUrls.push(url)
+      if (url === '/api/servers') return { ...emptyFetch, data: [] }
+      return { data, loading: false, error: null, refetch: vi.fn() }
+    })
+    renderWithRouter(<History />)
+
+    const input = screen.getByPlaceholderText(/search/i)
+    fireEvent.change(input, { target: { value: 'inception' } })
+
+    await waitFor(() => {
+      const searchUrl = calledUrls.find(u => u.includes('search=inception'))
+      expect(searchUrl).toBeDefined()
+    })
+  })
+
+  it('resets to page 1 when search changes', async () => {
+    const data: PaginatedResult<WatchHistoryEntry> = {
+      items: [baseHistoryEntry],
+      total: 100,
+      page: 1,
+      per_page: 20,
+    }
+    const calledUrls: string[] = []
+    mockUseFetch.mockImplementation((url: string | null) => {
+      if (url) calledUrls.push(url)
+      if (url === '/api/servers') return { ...emptyFetch, data: [] }
+      return { data, loading: false, error: null, refetch: vi.fn() }
+    })
+    renderWithRouter(<History />)
+
+    fireEvent.click(screen.getByText(/next/i))
+    await waitFor(() => expect(calledUrls.some(u => u.includes('page=2'))).toBe(true))
+
+    const input = screen.getByPlaceholderText(/search/i)
+    fireEvent.change(input, { target: { value: 'matrix' } })
+
+    await waitFor(() => {
+      const searchUrl = calledUrls.find(u => u.includes('search=matrix'))
+      expect(searchUrl).toBeDefined()
+      expect(searchUrl).toContain('page=1')
+    })
+  })
 })
