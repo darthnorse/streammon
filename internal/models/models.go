@@ -437,6 +437,37 @@ type Library struct {
 	TotalSize       int64       `json:"total_size"`
 }
 
+type LibraryItemDetail struct {
+	ID                 int64      `json:"id"`
+	ItemID             string     `json:"item_id"`
+	ServerID           int64      `json:"server_id"`
+	Title              string     `json:"title"`
+	Year               int        `json:"year,omitempty"`
+	MediaType          MediaType  `json:"media_type"`
+	ThumbURL           string     `json:"thumb_url,omitempty"`
+	AddedAt            time.Time  `json:"added_at"`
+	LastPlayedAt       *time.Time `json:"last_played_at,omitempty"`
+	Plays              int        `json:"plays"`
+	TotalHours         float64    `json:"total_hours"`
+	UniqueViewers      int        `json:"unique_viewers"`
+	LastViewer         string     `json:"last_viewer,omitempty"`
+	EpisodeCount       int        `json:"episode_count,omitempty"`
+	EpisodesWatched    int        `json:"episodes_watched,omitempty"`
+	FileSize           int64      `json:"file_size"`
+	VideoResolution    string     `json:"video_resolution,omitempty"`
+	TMDBStatus         string     `json:"tmdb_status,omitempty"`
+	FlaggedForDeletion bool       `json:"flagged_for_deletion"`
+	Protected          bool       `json:"protected"`
+}
+
+type LibrarySummary struct {
+	TotalTitles     int   `json:"total_titles"`
+	TotalSize       int64 `json:"total_size"`
+	WatchedTitles   int   `json:"watched_titles"`
+	NeverPlayed     int   `json:"never_played"`
+	ReclaimableSize int64 `json:"reclaimable_size"`
+}
+
 type LocationStat struct {
 	City         string  `json:"city"`
 	Country      string  `json:"country"`
