@@ -978,13 +978,13 @@ func exportCandidatesCSV(candidates []models.MaintenanceCandidate) ([]byte, erro
 		sizeGB := float64(c.Item.FileSize) / (1024 * 1024 * 1024)
 		cw.Write([]string{
 			strconv.FormatInt(c.ID, 10),
-			c.Item.Title,
+			csvSafe(c.Item.Title),
 			string(c.Item.MediaType),
 			strconv.Itoa(c.Item.Year),
 			c.Item.AddedAt.Format(time.RFC3339),
-			c.Item.VideoResolution,
+			csvSafe(c.Item.VideoResolution),
 			fmt.Sprintf("%.2f", sizeGB),
-			c.Reason,
+			csvSafe(c.Reason),
 			c.ComputedAt.Format(time.RFC3339),
 		})
 	}

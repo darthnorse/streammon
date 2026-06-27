@@ -139,7 +139,7 @@ func csvSafe(s string) string {
 		return s
 	}
 	switch s[0] {
-	case '=', '+', '-', '@', '\t', '\r':
+	case '=', '+', '-', '@', '\t', '\r', '\n':
 		return "'" + s
 	}
 	return s

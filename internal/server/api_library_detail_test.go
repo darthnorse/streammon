@@ -126,3 +126,23 @@ func TestListLibraryItemsCSVFormulaInjection(t *testing.T) {
 		t.Errorf("formula-like title not neutralized (want leading quote); body=%q", body)
 	}
 }
+
+func TestCSVSafe(t *testing.T) {
+	cases := map[string]string{
+		"=SUM(1)": "'=SUM(1)",
+		"+1":      "'+1",
+		"-1":      "'-1",
+		"@x":      "'@x",
+		"\tx":     "'\tx",
+		"\rx":     "'\rx",
+		"\nx":     "'\nx", // LF trigger (finding d)
+		"safe":    "safe",
+		"a=b":     "a=b", // trigger only matters as the first char
+		"":        "",
+	}
+	for in, want := range cases {
+		if got := csvSafe(in); got != want {
+			t.Errorf("csvSafe(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

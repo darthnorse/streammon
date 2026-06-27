@@ -1322,3 +1322,25 @@ func TestDeleteLibraryItemBlocksKeepLatestSeasons(t *testing.T) {
 		t.Errorf("expected error message to mention keep_latest_seasons, got: %s", body)
 	}
 }
+
+func TestExportCandidatesCSVSanitizesFormulas(t *testing.T) {
+	now := time.Now().UTC()
+	out, err := exportCandidatesCSV([]models.MaintenanceCandidate{{
+		ID:         1,
+		Reason:     "=SUM(A1:A2)",
+		ComputedAt: now,
+		Item: &models.LibraryItemCache{
+			Title: "=cmd()", VideoResolution: "1080p", AddedAt: now,
+		},
+	}})
+	if err != nil {
+		t.Fatalf("exportCandidatesCSV: %v", err)
+	}
+	body := string(out)
+	if !strings.Contains(body, "'=cmd()") {
+		t.Errorf("title not neutralized; body=%q", body)
+	}
+	if !strings.Contains(body, "'=SUM(A1:A2)") {
+		t.Errorf("reason not neutralized; body=%q", body)
+	}
+}
