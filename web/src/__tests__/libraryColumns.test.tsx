@@ -1,6 +1,12 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { getLibraryColumns } from '../lib/libraryColumns'
+import { getLibraryColumns, libraryColumnStorageKey } from '../lib/libraryColumns'
 import type { LibraryItemDetail } from '../types'
+
+test('libraryColumnStorageKey is namespaced per library type', () => {
+  expect(libraryColumnStorageKey('show')).toBe('library-columns:show')
+  expect(libraryColumnStorageKey('movie')).toBe('library-columns:movie')
+  expect(libraryColumnStorageKey(undefined)).toBe('library-columns:all')
+})
 
 const row: LibraryItemDetail = {
   id: 1, item_id: 'm1', server_id: 1, title: 'Dune',

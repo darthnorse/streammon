@@ -3,7 +3,13 @@ import type { LibraryItemDetail, TitleClickHandler, LibraryType } from '../types
 import { CLICKABLE_TITLE_CLASS } from './constants'
 import { formatSize, formatHours } from './format'
 
-export const LIBRARY_COLUMN_STORAGE_KEY = 'library-columns'
+// Column layouts are persisted per library *type* so that, e.g., a Movies
+// library and a TV library can keep different visible columns (Status is
+// useful for shows but not movies). Falls back to 'all' when the type is
+// not yet known.
+export function libraryColumnStorageKey(type?: LibraryType): string {
+  return `library-columns:${type ?? 'all'}`
+}
 
 function StatusBadges({ row }: { row: LibraryItemDetail }) {
   return (
