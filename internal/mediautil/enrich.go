@@ -3,7 +3,10 @@ package mediautil
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"streammon/internal/models"
 )
@@ -11,25 +14,53 @@ import (
 // SizeFetcher fetches the total file size for a series by its item ID.
 type SizeFetcher func(ctx context.Context, itemID string) (int64, error)
 
+// seriesEnrichConcurrency bounds the parallel per-series size lookups. Plex
+// fetches episode sizes one HTTP round-trip per show (allLeaves), so a large TV
+// library would otherwise serialize hundreds of sequential requests.
+const seriesEnrichConcurrency = 12
+
 // EnrichSeriesData fills in missing file sizes for a slice of series items.
-// It sends progress events throughout and is used by both Plex and Emby/Jellyfin adapters.
+// Lookups run with bounded concurrency — each series writes its own element, so
+// it stays race-free. It sends progress events throughout and is used by both
+// Plex and Emby/Jellyfin adapters.
 func EnrichSeriesData(ctx context.Context, series []models.LibraryItemCache, libraryID, serverType string, fetchSize SizeFetcher) {
+	var todo []int
 	for i := range series {
 		if series[i].FileSize == 0 {
+			todo = append(todo, i)
+		}
+	}
+	if len(todo) == 0 {
+		return
+	}
+
+	var g errgroup.Group
+	g.SetLimit(seriesEnrichConcurrency)
+	var done int64
+	total := len(todo)
+
+	for _, n := range todo {
+		if ctx.Err() != nil {
+			break
+		}
+		i := n // each goroutine writes a distinct series[i], so no shared-element race
+		g.Go(func() error {
 			size, err := fetchSize(ctx, series[i].ItemID)
 			if err != nil {
 				slog.Warn("failed to get episode sizes", "server_type", serverType, "title", series[i].Title, "error", err)
 			} else {
 				series[i].FileSize = size
 			}
-		}
-		SendProgress(ctx, SyncProgress{
-			Phase:   PhaseItems,
-			Current: i + 1,
-			Total:   len(series),
-			Library: libraryID,
+			SendProgress(ctx, SyncProgress{
+				Phase:   PhaseItems,
+				Current: int(atomic.AddInt64(&done, 1)),
+				Total:   total,
+				Library: libraryID,
+			})
+			return nil
 		})
 	}
+	_ = g.Wait()
 }
 
 // EnrichLastWatched updates each item's LastWatchedAt from the history map
