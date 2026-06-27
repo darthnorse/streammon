@@ -425,6 +425,37 @@ func TestMovieHistoryNeverDowngradesAdminData(t *testing.T) {
 	}
 }
 
+// TestEnrichMissedWatchHistoryConcurrent drives many items through the
+// parallel per-item enrichment path; run with -race it guards against a
+// data race on the shared items slice.
+func TestEnrichMissedWatchHistoryConcurrent(t *testing.T) {
+	const n = 60
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("metadataItemID") == "" {
+			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+			return
+		}
+		// Every item reports one watch at a fixed time.
+		w.Write([]byte(`<MediaContainer totalSize="1"><Video viewedAt="1700000000" accountID="1"/></MediaContainer>`))
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+	items := make([]models.LibraryItemCache, n)
+	for i := range items {
+		items[i] = models.LibraryItemCache{ItemID: strconv.Itoa(i), Title: fmt.Sprintf("Item %d", i)}
+	}
+
+	srv.enrichMissedWatchHistory(context.Background(), items, "lib1")
+
+	want := time.Unix(1700000000, 0).UTC()
+	for i := range items {
+		if items[i].LastWatchedAt == nil || !items[i].LastWatchedAt.Equal(want) {
+			t.Fatalf("item %d not enriched: %v", i, items[i].LastWatchedAt)
+		}
+	}
+}
+
 func TestHistoryPagination(t *testing.T) {
 	showsXML := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer totalSize="1">
