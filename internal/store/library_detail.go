@@ -20,40 +20,60 @@ type LibraryItemQuery struct {
 	SortOrder  string
 }
 
-const libraryDetailSelect = `
+// watchAggCTE pre-aggregates a server's watch_history once by each row's owning
+// library-item key (grandparent_item_id for episodes, else item_id), then the
+// queries below join to library_items by that indexed key. This replaced an
+// OR-join evaluated per item, which scanned all of a server's history for every
+// library item (~13s on a 2.5k-item / 33k-history Plex library). It also fixes
+// the old title fallback's over-attribution, which double-counted plays across
+// same-titled items.
+const watchAggCTE = `
+WITH wh_agg AS (
+	SELECT COALESCE(NULLIF(grandparent_item_id, ''), item_id) AS k,
+	       COUNT(*)                     AS plays,
+	       MAX(stopped_at)              AS last_played_at,
+	       COALESCE(SUM(watched_ms), 0) AS watched_ms,
+	       COUNT(DISTINCT user_name)    AS unique_viewers,
+	       COUNT(DISTINCT item_id)      AS episodes_watched,
+	       -- last_viewer is a BARE column: with exactly one MAX() in this aggregate,
+	       -- SQLite resolves it from the most-recent-play row. Keep it the only
+	       -- min/max here or last_viewer becomes arbitrary.
+	       user_name                    AS last_viewer
+	FROM watch_history
+	WHERE server_id = ? AND COALESCE(NULLIF(grandparent_item_id, ''), item_id) != ''
+	GROUP BY k
+)`
+
+const libraryDetailSelect = watchAggCTE + `
 	SELECT li.id, li.server_id, li.item_id, li.title, li.year, li.media_type, li.thumb_url,
 	       li.added_at, li.file_size, li.video_resolution, li.episode_count, li.tmdb_status,
-	       COUNT(wh.id)                    AS plays,
-	       MAX(wh.stopped_at)              AS last_played_at, -- the query's ONLY min/max aggregate; last_viewer depends on it
-	       COALESCE(SUM(wh.watched_ms), 0) AS watched_ms,
-	       COUNT(DISTINCT wh.user_name)    AS unique_viewers,
-	       COUNT(DISTINCT wh.item_id)      AS episodes_watched,
-	       -- last_viewer is a BARE column: SQLite fills it from the row holding the
-	       -- query's single min/max aggregate (MAX(wh.stopped_at) above) — i.e. the
-	       -- most recent play's user; NULL for never-played (LEFT JOIN) rows.
-	       -- WARNING: this is only correct while there is exactly ONE min()/max() in
-	       -- this SELECT. Adding a second (e.g. MIN(started_at) for "first played")
-	       -- would silently make last_viewer an arbitrary row's user — switch to a
-	       -- correlated subquery (ORDER BY stopped_at DESC LIMIT 1) if that happens.
-	       wh.user_name                    AS last_viewer,
+	       COALESCE(a.plays, 0)            AS plays,
+	       a.last_played_at                AS last_played_at,
+	       COALESCE(a.watched_ms, 0)       AS watched_ms,
+	       COALESCE(a.unique_viewers, 0)   AS unique_viewers,
+	       COALESCE(a.episodes_watched, 0) AS episodes_watched,
+	       a.last_viewer                   AS last_viewer,
 	       EXISTS(SELECT 1 FROM maintenance_candidates mc WHERE mc.library_item_id = li.id) AS flagged,
 	       EXISTS(SELECT 1 FROM maintenance_exclusions me WHERE me.library_item_id = li.id) AS protected
-	FROM library_items li` + libraryWatchJoin
+	FROM library_items li
+	LEFT JOIN wh_agg a ON a.k = li.item_id`
 
 func (s *Store) ListLibraryItemDetails(ctx context.Context, q LibraryItemQuery) (*models.PaginatedResult[models.LibraryItemDetail], error) {
 	where, args := q.buildWhere()
-	having := q.buildHaving()
+	filter := q.playFilter()
+	// The wh_agg CTE consumes server_id first; buildWhere's args follow. The
+	// wh_agg <-> library_items join is 1:1 (both keys unique), so no GROUP BY.
+	args = append([]any{q.ServerID}, args...)
 
-	// total = number of grouped rows after WHERE/HAVING
-	countQuery := `SELECT COUNT(*) FROM (SELECT li.id FROM library_items li` +
-		libraryWatchJoin + where + ` GROUP BY li.id` + having + `)`
+	countQuery := watchAggCTE + `
+		SELECT COUNT(*) FROM library_items li
+		LEFT JOIN wh_agg a ON a.k = li.item_id` + where + filter
 	var total int
 	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, fmt.Errorf("count library item details: %w", err)
 	}
 
-	order := q.orderClause()
-	listQuery := libraryDetailSelect + where + ` GROUP BY li.id` + having + order
+	listQuery := libraryDetailSelect + where + filter + q.orderClause()
 	listArgs := args
 	if q.PerPage > 0 {
 		listQuery += ` LIMIT ? OFFSET ?`
@@ -119,12 +139,12 @@ func (q LibraryItemQuery) buildWhere() (string, []any) {
 	return " WHERE " + strings.Join(clauses, " AND "), args
 }
 
-func (q LibraryItemQuery) buildHaving() string {
+func (q LibraryItemQuery) playFilter() string {
 	switch q.Filter {
 	case "played":
-		return " HAVING COUNT(wh.id) > 0"
+		return " AND COALESCE(a.plays, 0) > 0"
 	case "unplayed":
-		return " HAVING COUNT(wh.id) = 0"
+		return " AND COALESCE(a.plays, 0) = 0"
 	default:
 		return ""
 	}
@@ -144,8 +164,9 @@ func (q LibraryItemQuery) orderClause() string {
 
 // libraryWatchMatch is the ON predicate matching watch_history rows to a library
 // item — by item_id, by series grandparent_item_id, or by a same-server/same-type
-// title fallback for legacy rows. Single-sourced here and reused by libraryWatchJoin
-// and GetStreamMonWatchTimes so the match logic can't silently diverge.
+// title fallback for legacy rows. Used by GetStreamMonWatchTimes (batched by item
+// id, where the OR is cheap); the library detail/summary queries use watchAggCTE
+// instead, which is far faster over a whole library.
 const libraryWatchMatch = `wh.server_id = li.server_id
 		AND (
 			wh.item_id = li.item_id
@@ -154,29 +175,22 @@ const libraryWatchMatch = `wh.server_id = li.server_id
 				AND (wh.title = li.title OR wh.grandparent_title = li.title))
 		)`
 
-// libraryWatchJoin LEFT JOINs watch_history to a library item, reused by the
-// summary and detail-list aggregates.
-const libraryWatchJoin = `
-	LEFT JOIN watch_history wh ON ` + libraryWatchMatch
-
 func (s *Store) GetLibrarySummary(ctx context.Context, serverID int64, libraryID string) (*models.LibrarySummary, error) {
-	query := `
-		SELECT COUNT(*)                                                       AS total_titles,
-		       COALESCE(SUM(file_size), 0)                                    AS total_size,
-		       COALESCE(SUM(CASE WHEN plays > 0 THEN 1 ELSE 0 END), 0)        AS watched_titles,
-		       COALESCE(SUM(CASE WHEN plays = 0 THEN 1 ELSE 0 END), 0)        AS never_played,
+	query := watchAggCTE + `
+		SELECT COUNT(*)                                                        AS total_titles,
+		       COALESCE(SUM(li.file_size), 0)                                  AS total_size,
+		       COALESCE(SUM(CASE WHEN COALESCE(a.plays, 0) > 0 THEN 1 ELSE 0 END), 0) AS watched_titles,
+		       COALESCE(SUM(CASE WHEN COALESCE(a.plays, 0) = 0 THEN 1 ELSE 0 END), 0) AS never_played,
 		       -- reclaimable = space held by never-played titles that aren't protected
 		       -- (protected items live in maintenance_exclusions and won't be deleted).
-		       COALESCE(SUM(CASE WHEN plays = 0 AND protected = 0 THEN file_size ELSE 0 END), 0) AS reclaimable_size
-		FROM (
-			SELECT li.id, li.file_size, COUNT(wh.id) AS plays,
-			       EXISTS(SELECT 1 FROM maintenance_exclusions me WHERE me.library_item_id = li.id) AS protected
-			FROM library_items li` + libraryWatchJoin + `
-			WHERE li.server_id = ? AND li.library_id = ?
-			GROUP BY li.id
-		)`
+		       COALESCE(SUM(CASE WHEN COALESCE(a.plays, 0) = 0
+		            AND NOT EXISTS(SELECT 1 FROM maintenance_exclusions me WHERE me.library_item_id = li.id)
+		            THEN li.file_size ELSE 0 END), 0)                          AS reclaimable_size
+		FROM library_items li
+		LEFT JOIN wh_agg a ON a.k = li.item_id
+		WHERE li.server_id = ? AND li.library_id = ?`
 	var sum models.LibrarySummary
-	err := s.db.QueryRowContext(ctx, query, serverID, libraryID).Scan(
+	err := s.db.QueryRowContext(ctx, query, serverID, serverID, libraryID).Scan(
 		&sum.TotalTitles, &sum.TotalSize, &sum.WatchedTitles, &sum.NeverPlayed, &sum.ReclaimableSize)
 	if err != nil {
 		return nil, fmt.Errorf("get library summary: %w", err)

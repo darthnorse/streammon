@@ -105,6 +105,47 @@ func seedThree(t *testing.T, s *Store) {
 	}
 }
 
+func TestListLibraryItemDetails_NoTitleOverAttribution(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+
+	// Two movies share a title but have different item_ids; only itemB was watched.
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "itemA",
+		MediaType: models.MediaTypeMovie, Title: "Dup", AddedAt: now})
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "itemB",
+		MediaType: models.MediaTypeMovie, Title: "Dup", AddedAt: now})
+	for i := 0; i < 2; i++ {
+		if err := s.InsertHistory(&models.WatchHistoryEntry{ServerID: 1, ItemID: "itemB",
+			UserName: "u", MediaType: models.MediaTypeMovie, Title: "Dup",
+			StartedAt: now.Add(time.Duration(i) * time.Hour),
+			StoppedAt: now.Add(time.Duration(i)*time.Hour + time.Minute)}); err != nil {
+			t.Fatalf("insert: %v", err)
+		}
+	}
+
+	res, err := s.ListLibraryItemDetails(ctx, LibraryItemQuery{ServerID: 1, LibraryID: "1", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListLibraryItemDetails: %v", err)
+	}
+	plays := map[string]int{}
+	for _, it := range res.Items {
+		plays[it.ItemID] = it.Plays
+	}
+	if plays["itemB"] != 2 {
+		t.Errorf("itemB plays=%d, want 2", plays["itemB"])
+	}
+	if plays["itemA"] != 0 {
+		t.Errorf("itemA (same title, never watched) plays=%d, want 0 — title must not over-attribute", plays["itemA"])
+	}
+}
+
 func TestListLibraryItemDetails_Search(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	if err := s.CreateServer(&models.Server{
