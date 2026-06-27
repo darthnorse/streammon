@@ -89,7 +89,7 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	}
 	mediautil.EnrichSeriesData(ctx, series, libraryID, "plex", s.getSeriesEpisodeSize)
 
-	movieHistory, seriesHistory, err := s.fetchAllWatchHistory(ctx, libraryID, len(movies)+len(series))
+	movieHistory, seriesHistory, err := s.fetchAllWatchHistory(ctx, libraryID)
 	if err != nil {
 		slog.Warn("failed to fetch watch history, using per-item data only",
 			"server_type", "plex", "error", err)
@@ -98,11 +98,18 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 		mediautil.EnrichLastWatched(series, seriesHistory)
 	}
 
-	// Per-item fallback: for items the bulk history missed (e.g. due to Plex
-	// version differences in XML attributes), query Plex directly per item.
-	// This mirrors Maintainerr's approach of using metadataItemID.
-	s.enrichMissedWatchHistory(ctx, movies, libraryID)
-	s.enrichMissedWatchHistory(ctx, series, libraryID)
+	// Per-item fallback: only when the bulk history mapped NOTHING of that kind.
+	// That signals Plex returned history we couldn't parse (version XML
+	// differences) — the case this fallback exists for. When the bulk fetch
+	// mapped any items, parsing works and the unmatched items are genuinely
+	// unwatched, so probing them per-item is pure waste (it recovered 0 across
+	// every real library measured). Uses metadataItemID like Maintainerr.
+	if len(movieHistory) == 0 {
+		s.enrichMissedWatchHistory(ctx, movies, libraryID)
+	}
+	if len(seriesHistory) == 0 {
+		s.enrichMissedWatchHistory(ctx, series, libraryID)
+	}
 
 	result := slices.Concat(movies, series)
 	if result == nil {
@@ -328,68 +335,57 @@ func (s *Server) fetchEpisodeSizeBatch(ctx context.Context, showRatingKey string
 // fetchAllWatchHistory includes ALL users (admin, managed, and shared).
 // totalItems is used for early termination: once every library item has
 // been seen in history, further pages are skipped.
-func (s *Server) fetchAllWatchHistory(ctx context.Context, libraryID string, totalItems int) (movieHistory, seriesHistory map[string]time.Time, err error) {
+// historyConcurrency bounds parallel history-page fetches. A library with a
+// large watch history (tens of thousands of entries) would otherwise serialize
+// dozens of page requests.
+const historyConcurrency = 8
+
+func (s *Server) fetchAllWatchHistory(ctx context.Context, libraryID string) (movieHistory, seriesHistory map[string]time.Time, err error) {
 	movieHistory = make(map[string]time.Time)
 	seriesHistory = make(map[string]time.Time)
-	offset := 0
 	accountIDs := make(map[string]bool)
 
-	for offset < historyMaxEntries {
-		if ctx.Err() != nil {
-			return nil, nil, ctx.Err()
+	// Fetch page 0 first to learn the total, then fan out the remaining pages.
+	first, err := s.fetchHistoryBatch(ctx, libraryID, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	mergeHistoryPage(first.Videos, movieHistory, seriesHistory, accountIDs)
+
+	total := first.Size
+	if total > historyMaxEntries {
+		total = historyMaxEntries
+	}
+
+	if len(first.Videos) >= historyBatchSize && len(first.Videos) < total {
+		var offsets []int
+		for off := historyBatchSize; off < total; off += historyBatchSize {
+			offsets = append(offsets, off)
 		}
-
-		container, err := s.fetchHistoryBatch(ctx, libraryID, offset)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		if len(container.Videos) == 0 {
-			break
-		}
-
-		for _, v := range container.Videos {
-			ts := atoi64(v.ViewedAt)
-			if ts <= 0 {
-				continue
-			}
-			t := time.Unix(ts, 0).UTC()
-			if v.AccountID != "" {
-				accountIDs[v.AccountID] = true
-			}
-
-			gpRatingKey := ratingKeyFromPath(v.GrandparentKey)
-			if gpRatingKey == "" {
-				gpRatingKey = v.GrandparentRatingKey
-			}
-			if gpRatingKey != "" {
-				if existing, exists := seriesHistory[gpRatingKey]; !exists || t.After(existing) {
-					seriesHistory[gpRatingKey] = t
+		pages := make([][]historyItemXML, len(offsets))
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(historyConcurrency)
+		for idx := range offsets {
+			idx := idx
+			off := offsets[idx]
+			g.Go(func() error {
+				c, ferr := s.fetchHistoryBatch(gctx, libraryID, off)
+				if ferr != nil {
+					return ferr
 				}
-			} else if v.RatingKey != "" {
-				if existing, exists := movieHistory[v.RatingKey]; !exists || t.After(existing) {
-					movieHistory[v.RatingKey] = t
-				}
-			}
+				pages[idx] = c.Videos
+				mediautil.SendProgress(gctx, mediautil.SyncProgress{
+					Phase: mediautil.PhaseHistory, Current: off, Total: total, Library: libraryID,
+				})
+				return nil
+			})
 		}
-
-		offset += len(container.Videos)
-		mediautil.SendProgress(ctx, mediautil.SyncProgress{
-			Phase:   mediautil.PhaseHistory,
-			Current: offset,
-			Total:   container.Size,
-			Library: libraryID,
-		})
-
-		// Early exit: every library item has at least one watch entry,
-		// so older pages can't contribute new data (sorted viewedAt:desc).
-		matched := len(movieHistory) + len(seriesHistory)
-		if totalItems > 0 && matched >= totalItems {
-			break
+		if werr := g.Wait(); werr != nil {
+			return nil, nil, werr
 		}
-
-		if offset >= container.Size {
-			break
+		// Merge sequentially (single goroutine) so the shared maps stay race-free.
+		for _, vids := range pages {
+			mergeHistoryPage(vids, movieHistory, seriesHistory, accountIDs)
 		}
 	}
 
@@ -398,8 +394,37 @@ func (s *Server) fetchAllWatchHistory(ctx context.Context, libraryID string, tot
 		"accounts", len(accountIDs),
 		"movies", len(movieHistory),
 		"series", len(seriesHistory),
-		"total_entries", offset)
+		"total_entries", total)
 	return movieHistory, seriesHistory, nil
+}
+
+// mergeHistoryPage folds one page of history Videos into the running maps,
+// keeping the most recent ViewedAt per movie ratingKey / series grandparent.
+func mergeHistoryPage(videos []historyItemXML, movieHistory, seriesHistory map[string]time.Time, accountIDs map[string]bool) {
+	for _, v := range videos {
+		ts := atoi64(v.ViewedAt)
+		if ts <= 0 {
+			continue
+		}
+		t := time.Unix(ts, 0).UTC()
+		if v.AccountID != "" {
+			accountIDs[v.AccountID] = true
+		}
+
+		gpRatingKey := ratingKeyFromPath(v.GrandparentKey)
+		if gpRatingKey == "" {
+			gpRatingKey = v.GrandparentRatingKey
+		}
+		if gpRatingKey != "" {
+			if existing, exists := seriesHistory[gpRatingKey]; !exists || t.After(existing) {
+				seriesHistory[gpRatingKey] = t
+			}
+		} else if v.RatingKey != "" {
+			if existing, exists := movieHistory[v.RatingKey]; !exists || t.After(existing) {
+				movieHistory[v.RatingKey] = t
+			}
+		}
+	}
 }
 
 // ratingKeyFromPath extracts the numeric ID from a Plex metadata path.

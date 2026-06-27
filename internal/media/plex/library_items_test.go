@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -453,6 +454,58 @@ func TestEnrichMissedWatchHistoryConcurrent(t *testing.T) {
 		if items[i].LastWatchedAt == nil || !items[i].LastWatchedAt.Equal(want) {
 			t.Fatalf("item %d not enriched: %v", i, items[i].LastWatchedAt)
 		}
+	}
+}
+
+// TestPerItemFallbackSkippedWhenBulkHistoryHealthy verifies the gate: when the
+// bulk history fetch maps items (parsing works), genuinely-unwatched items are
+// NOT probed per-item (no metadataItemID round-trips).
+func TestPerItemFallbackSkippedWhenBulkHistoryHealthy(t *testing.T) {
+	moviesXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer totalSize="2">
+  <Video ratingKey="800" type="movie" title="Watched" year="2023" addedAt="1700000000"><Media videoResolution="1080"><Part size="1000"/></Media></Video>
+  <Video ratingKey="801" type="movie" title="Unwatched" year="2023" addedAt="1700000000"><Media videoResolution="1080"><Part size="2000"/></Media></Video>
+</MediaContainer>`
+	bulkHistory := `<MediaContainer totalSize="1"><Video ratingKey="800" viewedAt="1700500000" accountID="1"/></MediaContainer>`
+
+	var perItemCalls int64
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeMovie:
+			w.Write([]byte(moviesXML))
+		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeShow:
+			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+		case r.URL.Path == "/status/sessions/history/all":
+			if r.URL.Query().Get("metadataItemID") != "" {
+				atomic.AddInt64(&perItemCalls, 1)
+				w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+			} else {
+				w.Write([]byte(bulkHistory))
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+	items, err := srv.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perItemCalls != 0 {
+		t.Errorf("per-item fallback should be skipped when bulk history is healthy; got %d metadataItemID calls", perItemCalls)
+	}
+
+	byKey := map[string]*models.LibraryItemCache{}
+	for i := range items {
+		byKey[items[i].ItemID] = &items[i]
+	}
+	if byKey["800"] == nil || byKey["800"].LastWatchedAt == nil {
+		t.Error("movie 800 should have LastWatchedAt from bulk history")
+	}
+	if byKey["801"] == nil || byKey["801"].LastWatchedAt != nil {
+		t.Errorf("unwatched movie 801 should have nil LastWatchedAt, got %v", byKey["801"].LastWatchedAt)
 	}
 }
 
