@@ -1,6 +1,6 @@
 import type { ColumnDef } from './historyColumns'
 import type { LibraryItemDetail, TitleClickHandler, LibraryType } from '../types'
-import { CLICKABLE_TITLE_CLASS, getMediaLabel } from './constants'
+import { CLICKABLE_TITLE_CLASS } from './constants'
 import { formatSize, formatHours } from './format'
 
 export const LIBRARY_COLUMN_STORAGE_KEY = 'library-columns'
@@ -31,15 +31,12 @@ export function getLibraryColumns(
       render: (r) => {
         const clickable = onTitleClick && r.server_id && r.item_id
         return (
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="badge badge-muted shrink-0">{getMediaLabel(r.media_type)}</span>
-            <span
-              className={`font-medium text-gray-900 dark:text-gray-50 truncate ${clickable ? CLICKABLE_TITLE_CLASS : ''}`}
-              onClick={clickable ? () => onTitleClick!(r.server_id, r.item_id) : undefined}
-            >
-              {r.title}
-            </span>
-          </div>
+          <span
+            className={`block font-medium text-gray-900 dark:text-gray-50 truncate ${clickable ? CLICKABLE_TITLE_CLASS : ''}`}
+            onClick={clickable ? () => onTitleClick!(r.server_id, r.item_id) : undefined}
+          >
+            {r.title}
+          </span>
         )
       },
     },
