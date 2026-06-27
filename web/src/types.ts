@@ -1130,6 +1130,37 @@ export type SelectedMedia = { mediaType: 'movie' | 'tv'; mediaId: number }
 
 export type TitleClickHandler = (serverId: number, itemId: string) => void
 
+export interface LibraryItemDetail {
+  id: number
+  item_id: string
+  server_id: number
+  title: string
+  year?: number
+  media_type: MediaType
+  thumb_url?: string
+  added_at: string
+  last_played_at?: string
+  plays: number
+  total_hours: number
+  unique_viewers: number
+  last_viewer?: string
+  episode_count?: number
+  episodes_watched?: number
+  file_size: number
+  video_resolution?: string
+  tmdb_status?: string
+  flagged_for_deletion: boolean
+  protected: boolean
+}
+
+export interface LibrarySummary {
+  total_titles: number
+  total_size: number
+  watched_titles: number
+  never_played: number
+  reclaimable_size: number
+}
+
 export type ModalEntry =
   | { type: 'person'; personId: number }
   | ({ type: 'tmdb' } & SelectedMedia)
