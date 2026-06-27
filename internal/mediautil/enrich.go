@@ -15,9 +15,10 @@ import (
 type SizeFetcher func(ctx context.Context, itemID string) (int64, error)
 
 // seriesEnrichConcurrency bounds the parallel per-series size lookups. Plex
-// fetches episode sizes one HTTP round-trip per show (allLeaves), so a large TV
-// library would otherwise serialize hundreds of sequential requests.
-const seriesEnrichConcurrency = 12
+// fetches episode sizes one HTTP round-trip per show (allLeaves) and this is the
+// dominant cost of a large TV-library sync, so we allow a wider fan-out than the
+// other phases.
+const seriesEnrichConcurrency = 24
 
 // EnrichSeriesData fills in missing file sizes for a slice of series items.
 // Lookups run with bounded concurrency — each series writes its own element, so
