@@ -333,14 +333,16 @@ func (s *Server) fetchEpisodeSizeBatch(ctx context.Context, showRatingKey string
 	return totalSize, len(container.Videos), nil
 }
 
-// fetchAllWatchHistory includes ALL users (admin, managed, and shared).
-// totalItems is used for early termination: once every library item has
-// been seen in history, further pages are skipped.
 // historyConcurrency bounds parallel history-page fetches. A library with a
 // large watch history (tens of thousands of entries) would otherwise serialize
 // dozens of page requests.
 const historyConcurrency = 8
 
+// fetchAllWatchHistory returns the most-recent watch time per movie (keyed by
+// item_id) and per series (keyed by grandparent_item_id) across ALL users
+// (admin, managed, and shared). It fetches page 0 to learn the total, fans out
+// the remaining pages with bounded concurrency, and merges them keeping the
+// latest timestamp per key.
 func (s *Server) fetchAllWatchHistory(ctx context.Context, libraryID string) (movieHistory, seriesHistory map[string]time.Time, err error) {
 	movieHistory = make(map[string]time.Time)
 	seriesHistory = make(map[string]time.Time)
