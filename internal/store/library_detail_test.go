@@ -88,6 +88,81 @@ func TestListLibraryItemDetails_NeverPlayed(t *testing.T) {
 	}
 }
 
+func seedThree(t *testing.T, s *Store) {
+	t.Helper()
+	now := time.Now().UTC()
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "a",
+		MediaType: models.MediaTypeMovie, Title: "Alpha", AddedAt: now.Add(-3 * time.Hour), FileSize: 10})
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "b",
+		MediaType: models.MediaTypeMovie, Title: "Beta", AddedAt: now.Add(-2 * time.Hour), FileSize: 20})
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "c",
+		MediaType: models.MediaTypeMovie, Title: "Gamma", AddedAt: now.Add(-1 * time.Hour), FileSize: 30})
+	// Only "Beta" gets a play.
+	if err := s.InsertHistory(&models.WatchHistoryEntry{ServerID: 1, ItemID: "b", UserName: "x",
+		MediaType: models.MediaTypeMovie, Title: "Beta", StartedAt: now, StoppedAt: now}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+}
+
+func TestListLibraryItemDetails_Search(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+	seedThree(t, s)
+	res, err := s.ListLibraryItemDetails(context.Background(), LibraryItemQuery{
+		ServerID: 1, LibraryID: "1", Page: 1, PerPage: 20, Search: "amma"})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if res.Total != 1 || res.Items[0].Title != "Gamma" {
+		t.Errorf("search amma => %+v, want only Gamma", res.Items)
+	}
+}
+
+func TestListLibraryItemDetails_FilterUnplayed(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+	seedThree(t, s)
+	res, err := s.ListLibraryItemDetails(context.Background(), LibraryItemQuery{
+		ServerID: 1, LibraryID: "1", Page: 1, PerPage: 20, Filter: "unplayed"})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if res.Total != 2 {
+		t.Errorf("unplayed total=%d, want 2", res.Total)
+	}
+	for _, it := range res.Items {
+		if it.Plays != 0 {
+			t.Errorf("unplayed returned a played item: %+v", it)
+		}
+	}
+}
+
+func TestListLibraryItemDetails_SortTitleAsc(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+	seedThree(t, s)
+	res, err := s.ListLibraryItemDetails(context.Background(), LibraryItemQuery{
+		ServerID: 1, LibraryID: "1", Page: 1, PerPage: 20, SortColumn: "li.title", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if res.Items[0].Title != "Alpha" || res.Items[2].Title != "Gamma" {
+		t.Errorf("sort title asc wrong order: %v", []string{res.Items[0].Title, res.Items[2].Title})
+	}
+}
+
 func TestGetLibrarySummary(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

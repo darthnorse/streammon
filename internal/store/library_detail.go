@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"streammon/internal/models"
 )
@@ -134,10 +135,37 @@ func (s *Store) enrichLastViewers(ctx context.Context, items []models.LibraryIte
 }
 
 func (q LibraryItemQuery) buildWhere() (string, []any) {
-	return ` WHERE li.server_id = ? AND li.library_id = ?`, []any{q.ServerID, q.LibraryID}
+	clauses := []string{"li.server_id = ?", "li.library_id = ?"}
+	args := []any{q.ServerID, q.LibraryID}
+	if q.Search != "" {
+		clauses = append(clauses, `li.title LIKE ? ESCAPE '\'`)
+		args = append(args, "%"+escapeLikePattern(q.Search)+"%")
+	}
+	return " WHERE " + strings.Join(clauses, " AND "), args
 }
-func (q LibraryItemQuery) buildHaving() string { return "" }
-func (q LibraryItemQuery) orderClause() string  { return ` ORDER BY li.added_at DESC` }
+
+func (q LibraryItemQuery) buildHaving() string {
+	switch q.Filter {
+	case "played":
+		return " HAVING COUNT(wh.id) > 0"
+	case "unplayed":
+		return " HAVING COUNT(wh.id) = 0"
+	default:
+		return ""
+	}
+}
+
+func (q LibraryItemQuery) orderClause() string {
+	if q.SortColumn == "" {
+		return " ORDER BY li.added_at DESC"
+	}
+	order := "ASC"
+	if strings.ToLower(q.SortOrder) == "desc" {
+		order = "DESC"
+	}
+	// SortColumn is a pre-validated safe expression from the handler allow-list.
+	return fmt.Sprintf(" ORDER BY %s %s, li.added_at DESC", q.SortColumn, order)
+}
 
 // libraryWatchJoin is the LEFT JOIN match between watch_history and a library item,
 // reused by both the summary and the detail list. Mirrors GetStreamMonWatchTimes.
