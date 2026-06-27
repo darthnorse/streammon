@@ -24,13 +24,17 @@ const libraryDetailSelect = `
 	SELECT li.id, li.server_id, li.item_id, li.title, li.year, li.media_type, li.thumb_url,
 	       li.added_at, li.file_size, li.video_resolution, li.episode_count, li.tmdb_status,
 	       COUNT(wh.id)                    AS plays,
-	       MAX(wh.stopped_at)              AS last_played_at,
+	       MAX(wh.stopped_at)              AS last_played_at, -- the query's ONLY min/max aggregate; last_viewer depends on it
 	       COALESCE(SUM(wh.watched_ms), 0) AS watched_ms,
 	       COUNT(DISTINCT wh.user_name)    AS unique_viewers,
 	       COUNT(DISTINCT wh.item_id)      AS episodes_watched,
-	       -- last_viewer is a bare column: with exactly one max() aggregate in the
-	       -- query, SQLite resolves bare columns from the MAX(wh.stopped_at) row —
-	       -- i.e. the most recent play's user. NULL for never-played (LEFT JOIN) rows.
+	       -- last_viewer is a BARE column: SQLite fills it from the row holding the
+	       -- query's single min/max aggregate (MAX(wh.stopped_at) above) — i.e. the
+	       -- most recent play's user; NULL for never-played (LEFT JOIN) rows.
+	       -- WARNING: this is only correct while there is exactly ONE min()/max() in
+	       -- this SELECT. Adding a second (e.g. MIN(started_at) for "first played")
+	       -- would silently make last_viewer an arbitrary row's user — switch to a
+	       -- correlated subquery (ORDER BY stopped_at DESC LIMIT 1) if that happens.
 	       wh.user_name                    AS last_viewer,
 	       EXISTS(SELECT 1 FROM maintenance_candidates mc WHERE mc.library_item_id = li.id) AS flagged,
 	       EXISTS(SELECT 1 FROM maintenance_exclusions me WHERE me.library_item_id = li.id) AS protected

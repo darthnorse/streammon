@@ -470,15 +470,15 @@ func (s *Server) fetchHistoryBatch(ctx context.Context, libraryID string, offset
 	})
 }
 
-// enrichMissedWatchHistory queries Plex per-item for any items that still have
-// nil LastWatchedAt after the bulk history fetch. Uses metadataItemID to let
-// Plex match episodes to shows server-side, avoiding grandparentKey parsing.
 // enrichConcurrency bounds the parallel per-item history lookups. A large
 // library can have thousands of never-watched items, each needing its own
 // round-trip; running them sequentially dominated sync time, so we fan out
 // with a small worker pool.
 const enrichConcurrency = 12
 
+// enrichMissedWatchHistory queries Plex per-item for any items that still have
+// nil LastWatchedAt after the bulk history fetch. Uses metadataItemID to let
+// Plex match episodes to shows server-side, avoiding grandparentKey parsing.
 func (s *Server) enrichMissedWatchHistory(ctx context.Context, items []models.LibraryItemCache, libraryID string) {
 	var todo []int
 	for i := range items {
