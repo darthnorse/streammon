@@ -58,7 +58,7 @@ export function LibraryDetail() {
 
   const handleSort = useCallback((s: SortState | null) => { setSort(s); setPage(1) }, [])
   const handleFilter = useCallback((f: Filter) => { setFilter(f); setPage(1) }, [])
-  const totalPages = data ? Math.ceil(data.total / data.per_page) : 0
+  const totalPages = data && data.per_page > 0 ? Math.ceil(data.total / data.per_page) : 0
   const watchedPct = summary && summary.total_titles > 0
     ? Math.round((summary.watched_titles / summary.total_titles) * 100) : 0
 
