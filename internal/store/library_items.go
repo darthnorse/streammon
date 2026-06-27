@@ -412,12 +412,7 @@ func (s *Store) GetStreamMonWatchTimes(ctx context.Context, itemIDs []int64) (ma
 	err := s.batchQueryTimes(ctx, itemIDs, func(ph string) string {
 		return `SELECT li.id, MAX(wh.stopped_at) as last_activity
 			FROM library_items li
-			JOIN watch_history wh ON wh.server_id = li.server_id
-				AND (
-					wh.item_id = li.item_id
-					OR wh.grandparent_item_id = li.item_id
-					OR (li.title != '' AND wh.media_type = li.media_type AND (wh.title = li.title OR wh.grandparent_title = li.title))
-				)
+			JOIN watch_history wh ON ` + libraryWatchMatch + `
 			WHERE li.id IN (` + ph + `)
 			GROUP BY li.id`
 	}, "streammon watch times", result)

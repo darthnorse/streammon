@@ -61,8 +61,9 @@ func TestListLibraryItemDetails_MovieAggregates(t *testing.T) {
 	if got.LastPlayedAt == nil {
 		t.Error("LastPlayedAt should be set")
 	}
-	if got.LastViewer == "" {
-		t.Error("LastViewer should be populated")
+	// bob has the most recent stopped_at (i=2), so he is the last viewer.
+	if got.LastViewer != "bob" {
+		t.Errorf("LastViewer=%q, want bob (most recent play's user)", got.LastViewer)
 	}
 }
 
@@ -196,5 +197,38 @@ func TestGetLibrarySummary(t *testing.T) {
 	}
 	if got.TotalSize != 3000 || got.ReclaimableSize != 2000 {
 		t.Errorf("sizes = total %d reclaimable %d, want 3000 / 2000", got.TotalSize, got.ReclaimableSize)
+	}
+}
+
+func TestGetLibrarySummary_ExcludesProtectedFromReclaimable(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+
+	// Two never-played titles; one is protected (kept) via maintenance_exclusions.
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "free",
+		MediaType: models.MediaTypeMovie, Title: "Free", AddedAt: now, FileSize: 100})
+	protectedID := seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "keep",
+		MediaType: models.MediaTypeMovie, Title: "Keep", AddedAt: now, FileSize: 500})
+	if _, err := s.CreateExclusions(ctx, []int64{protectedID}, "tester"); err != nil {
+		t.Fatalf("protect item: %v", err)
+	}
+
+	got, err := s.GetLibrarySummary(ctx, 1, "1")
+	if err != nil {
+		t.Fatalf("GetLibrarySummary: %v", err)
+	}
+	if got.NeverPlayed != 2 || got.TotalSize != 600 {
+		t.Errorf("never=%d total_size=%d, want 2 / 600", got.NeverPlayed, got.TotalSize)
+	}
+	// Reclaimable counts only the unprotected never-played title (100), not the protected one (500).
+	if got.ReclaimableSize != 100 {
+		t.Errorf("reclaimable=%d, want 100 (protected 500 excluded)", got.ReclaimableSize)
 	}
 }

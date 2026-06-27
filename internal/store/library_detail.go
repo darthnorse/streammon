@@ -28,6 +28,10 @@ const libraryDetailSelect = `
 	       COALESCE(SUM(wh.watched_ms), 0) AS watched_ms,
 	       COUNT(DISTINCT wh.user_name)    AS unique_viewers,
 	       COUNT(DISTINCT wh.item_id)      AS episodes_watched,
+	       -- last_viewer is a bare column: with exactly one max() aggregate in the
+	       -- query, SQLite resolves bare columns from the MAX(wh.stopped_at) row —
+	       -- i.e. the most recent play's user. NULL for never-played (LEFT JOIN) rows.
+	       wh.user_name                    AS last_viewer,
 	       EXISTS(SELECT 1 FROM maintenance_candidates mc WHERE mc.library_item_id = li.id) AS flagged,
 	       EXISTS(SELECT 1 FROM maintenance_exclusions me WHERE me.library_item_id = li.id) AS protected
 	FROM library_items li` + libraryWatchJoin
@@ -74,10 +78,6 @@ func (s *Store) ListLibraryItemDetails(ctx context.Context, q LibraryItemQuery) 
 		return nil, err
 	}
 
-	if err := s.enrichLastViewers(ctx, items); err != nil {
-		return nil, err
-	}
-
 	return &models.PaginatedResult[models.LibraryItemDetail]{
 		Items: items, Total: total, Page: q.Page, PerPage: q.PerPage,
 	}, nil
@@ -87,13 +87,15 @@ func scanLibraryItemDetail(rows *sql.Rows) (models.LibraryItemDetail, error) {
 	var it models.LibraryItemDetail
 	var watchedMs int64
 	var lastPlayed sql.NullString
+	var lastViewer sql.NullString
 	err := rows.Scan(&it.ID, &it.ServerID, &it.ItemID, &it.Title, &it.Year, &it.MediaType, &it.ThumbURL,
 		&it.AddedAt, &it.FileSize, &it.VideoResolution, &it.EpisodeCount, &it.TMDBStatus,
 		&it.Plays, &lastPlayed, &watchedMs, &it.UniqueViewers, &it.EpisodesWatched,
-		&it.FlaggedForDeletion, &it.Protected)
+		&lastViewer, &it.FlaggedForDeletion, &it.Protected)
 	if err != nil {
 		return it, fmt.Errorf("scan library item detail: %w", err)
 	}
+	it.LastViewer = lastViewer.String
 	it.TotalHours = float64(watchedMs) / 3600000.0
 	if lastPlayed.Valid && lastPlayed.String != "" {
 		if t, perr := parseSQLiteTime(lastPlayed.String); perr == nil {
@@ -101,37 +103,6 @@ func scanLibraryItemDetail(rows *sql.Rows) (models.LibraryItemDetail, error) {
 		}
 	}
 	return it, nil
-}
-
-// enrichLastViewers fills LastViewer for the given page rows with the user of
-// each item's most recent play. Done as a per-row lookup over the visible page
-// only (not the whole library) to keep the list query lean.
-func (s *Store) enrichLastViewers(ctx context.Context, items []models.LibraryItemDetail) error {
-	const q = `
-		SELECT wh.user_name FROM watch_history wh
-		JOIN library_items li ON li.id = ?
-		WHERE wh.server_id = li.server_id AND (
-			wh.item_id = li.item_id
-			OR wh.grandparent_item_id = li.item_id
-			OR (li.title != '' AND wh.media_type = li.media_type
-				AND (wh.title = li.title OR wh.grandparent_title = li.title))
-		)
-		ORDER BY wh.stopped_at DESC LIMIT 1`
-	for i := range items {
-		if items[i].Plays == 0 {
-			continue
-		}
-		var name sql.NullString
-		err := s.db.QueryRowContext(ctx, q, items[i].ID).Scan(&name)
-		if err == sql.ErrNoRows {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("enrich last viewer: %w", err)
-		}
-		items[i].LastViewer = name.String
-	}
-	return nil
 }
 
 func (q LibraryItemQuery) buildWhere() (string, []any) {
@@ -167,10 +138,11 @@ func (q LibraryItemQuery) orderClause() string {
 	return fmt.Sprintf(" ORDER BY %s %s, li.added_at DESC", q.SortColumn, order)
 }
 
-// libraryWatchJoin is the LEFT JOIN match between watch_history and a library item,
-// reused by both the summary and the detail list. Mirrors GetStreamMonWatchTimes.
-const libraryWatchJoin = `
-	LEFT JOIN watch_history wh ON wh.server_id = li.server_id
+// libraryWatchMatch is the ON predicate matching watch_history rows to a library
+// item — by item_id, by series grandparent_item_id, or by a same-server/same-type
+// title fallback for legacy rows. Single-sourced here and reused by libraryWatchJoin
+// and GetStreamMonWatchTimes so the match logic can't silently diverge.
+const libraryWatchMatch = `wh.server_id = li.server_id
 		AND (
 			wh.item_id = li.item_id
 			OR wh.grandparent_item_id = li.item_id
@@ -178,15 +150,23 @@ const libraryWatchJoin = `
 				AND (wh.title = li.title OR wh.grandparent_title = li.title))
 		)`
 
+// libraryWatchJoin LEFT JOINs watch_history to a library item, reused by the
+// summary and detail-list aggregates.
+const libraryWatchJoin = `
+	LEFT JOIN watch_history wh ON ` + libraryWatchMatch
+
 func (s *Store) GetLibrarySummary(ctx context.Context, serverID int64, libraryID string) (*models.LibrarySummary, error) {
 	query := `
 		SELECT COUNT(*)                                                       AS total_titles,
 		       COALESCE(SUM(file_size), 0)                                    AS total_size,
 		       COALESCE(SUM(CASE WHEN plays > 0 THEN 1 ELSE 0 END), 0)        AS watched_titles,
 		       COALESCE(SUM(CASE WHEN plays = 0 THEN 1 ELSE 0 END), 0)        AS never_played,
-		       COALESCE(SUM(CASE WHEN plays = 0 THEN file_size ELSE 0 END), 0) AS reclaimable_size
+		       -- reclaimable = space held by never-played titles that aren't protected
+		       -- (protected items live in maintenance_exclusions and won't be deleted).
+		       COALESCE(SUM(CASE WHEN plays = 0 AND protected = 0 THEN file_size ELSE 0 END), 0) AS reclaimable_size
 		FROM (
-			SELECT li.id, li.file_size, COUNT(wh.id) AS plays
+			SELECT li.id, li.file_size, COUNT(wh.id) AS plays,
+			       EXISTS(SELECT 1 FROM maintenance_exclusions me WHERE me.library_item_id = li.id) AS protected
 			FROM library_items li` + libraryWatchJoin + `
 			WHERE li.server_id = ? AND li.library_id = ?
 			GROUP BY li.id
