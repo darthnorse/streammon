@@ -77,7 +77,19 @@ type historyItemXML struct {
 	AccountID            string `xml:"accountID,attr"`
 }
 
+// GetLibraryItems fetches all items for a library, computing series sizes fresh.
 func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]models.LibraryItemCache, error) {
+	return s.getLibraryItems(ctx, libraryID, nil)
+}
+
+// GetLibraryItemsWithHints is GetLibraryItems but reuses previously-synced series
+// sizes (keyed by item_id) to skip the per-show episode-size fetch for shows whose
+// episode count is unchanged. Hints are passed per call — no shared adapter state.
+func (s *Server) GetLibraryItemsWithHints(ctx context.Context, libraryID string, sizeHints map[string]models.SeriesSizeHint) ([]models.LibraryItemCache, error) {
+	return s.getLibraryItems(ctx, libraryID, sizeHints)
+}
+
+func (s *Server) getLibraryItems(ctx context.Context, libraryID string, sizeHints map[string]models.SeriesSizeHint) ([]models.LibraryItemCache, error) {
 	movies, err := s.fetchLibraryItemsPage(ctx, libraryID, plexTypeMovie)
 	if err != nil {
 		return nil, fmt.Errorf("fetch movies: %w", err)
@@ -87,7 +99,7 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	if err != nil {
 		return nil, fmt.Errorf("fetch series: %w", err)
 	}
-	s.applyCachedSeriesSizes(series)
+	applyCachedSeriesSizes(series, sizeHints)
 	mediautil.EnrichSeriesData(ctx, series, libraryID, "plex", s.getSeriesEpisodeSize)
 
 	movieHistory, seriesHistory, err := s.fetchAllWatchHistory(ctx, libraryID)
@@ -119,6 +131,20 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 
 	mediautil.LogSyncSummary("plex", libraryID, len(movies), len(series), result)
 	return result, nil
+}
+
+// applyCachedSeriesSizes pre-fills FileSize from the given hints for shows whose
+// episode count is unchanged, so EnrichSeriesData (which skips items that already
+// have a size) won't re-fetch them. A nil hints map is a no-op.
+func applyCachedSeriesSizes(series []models.LibraryItemCache, hints map[string]models.SeriesSizeHint) {
+	if hints == nil {
+		return
+	}
+	for i := range series {
+		if h, ok := hints[series[i].ItemID]; ok && h.FileSize > 0 && h.EpisodeCount == series[i].EpisodeCount {
+			series[i].FileSize = h.FileSize
+		}
+	}
 }
 
 func (s *Server) fetchLibraryItemsPage(ctx context.Context, libraryID, typeFilter string) ([]models.LibraryItemCache, error) {
@@ -366,10 +392,10 @@ func (s *Server) fetchAllWatchHistory(ctx context.Context, libraryID string) (mo
 			offsets = append(offsets, off)
 		}
 		pages := make([][]historyItemXML, len(offsets))
+		fetched := int64(len(first.Videos)) // page 0 already merged
 		g, gctx := errgroup.WithContext(ctx)
 		g.SetLimit(historyConcurrency)
 		for idx := range offsets {
-			idx := idx
 			off := offsets[idx]
 			g.Go(func() error {
 				c, ferr := s.fetchHistoryBatch(gctx, libraryID, off)
@@ -377,8 +403,13 @@ func (s *Server) fetchAllWatchHistory(ctx context.Context, libraryID string) (mo
 					return ferr
 				}
 				pages[idx] = c.Videos
+				// Cumulative count so progress stays monotonic despite out-of-order
+				// page completion.
 				mediautil.SendProgress(gctx, mediautil.SyncProgress{
-					Phase: mediautil.PhaseHistory, Current: off, Total: total, Library: libraryID,
+					Phase:   mediautil.PhaseHistory,
+					Current: int(atomic.AddInt64(&fetched, int64(len(c.Videos)))),
+					Total:   total,
+					Library: libraryID,
 				})
 				return nil
 			})
@@ -508,48 +539,24 @@ const enrichConcurrency = 12
 // nil LastWatchedAt after the bulk history fetch. Uses metadataItemID to let
 // Plex match episodes to shows server-side, avoiding grandparentKey parsing.
 func (s *Server) enrichMissedWatchHistory(ctx context.Context, items []models.LibraryItemCache, libraryID string) {
-	var todo []int
-	for i := range items {
-		if items[i].LastWatchedAt == nil {
-			todo = append(todo, i)
-		}
-	}
-	if len(todo) == 0 {
-		return
-	}
-
-	var g errgroup.Group
-	g.SetLimit(enrichConcurrency)
-	var recovered, done int64
-	total := len(todo)
-
-	for _, n := range todo {
-		if ctx.Err() != nil {
-			break
-		}
-		i := n // each goroutine writes a distinct items[i], so no shared-element race
-		g.Go(func() error {
-			t, err := s.fetchItemLastWatched(ctx, items[i].ItemID)
+	var recovered int64
+	lookups := mediautil.ParallelEnrich(ctx, items, enrichConcurrency, mediautil.PhaseEnriching, libraryID,
+		func(it *models.LibraryItemCache) bool { return it.LastWatchedAt == nil },
+		func(ctx context.Context, it *models.LibraryItemCache) {
+			t, err := s.fetchItemLastWatched(ctx, it.ItemID)
 			if err != nil {
-				slog.Warn("per-item history check failed", "item", items[i].Title, "error", err)
-			} else if t != nil {
-				items[i].LastWatchedAt = t
+				slog.Warn("per-item history check failed", "item", it.Title, "error", err)
+				return
+			}
+			if t != nil {
+				it.LastWatchedAt = t
 				atomic.AddInt64(&recovered, 1)
 			}
-			mediautil.SendProgress(ctx, mediautil.SyncProgress{
-				Phase:   mediautil.PhaseEnriching,
-				Current: int(atomic.AddInt64(&done, 1)),
-				Total:   total,
-				Library: libraryID,
-			})
-			return nil
 		})
-	}
-	_ = g.Wait()
 
 	if recovered > 0 {
 		slog.Info("per-item history recovered watches",
-			"library", libraryID, "recovered", recovered, "lookups", total)
+			"library", libraryID, "recovered", recovered, "lookups", lookups)
 	}
 }
 

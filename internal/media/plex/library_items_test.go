@@ -545,11 +545,11 @@ func TestSeriesSizeCacheSkipsUnchangedShows(t *testing.T) {
 	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
 	// 900: cached, episode count unchanged (5) -> skip. 901: cached but count
 	// changed (7 -> current 8) -> re-fetch.
-	srv.SetSeriesSizeCache(map[string]models.SeriesSizeHint{
+	hints := map[string]models.SeriesSizeHint{
 		"900": {FileSize: 9999, EpisodeCount: 5},
 		"901": {FileSize: 8888, EpisodeCount: 7},
-	})
-	items, err := srv.GetLibraryItems(context.Background(), "lib1")
+	}
+	items, err := srv.GetLibraryItemsWithHints(context.Background(), "lib1", hints)
 	if err != nil {
 		t.Fatal(err)
 	}

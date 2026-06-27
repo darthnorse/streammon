@@ -20,40 +20,35 @@ type SizeFetcher func(ctx context.Context, itemID string) (int64, error)
 // other phases.
 const seriesEnrichConcurrency = 24
 
-// EnrichSeriesData fills in missing file sizes for a slice of series items.
-// Lookups run with bounded concurrency — each series writes its own element, so
-// it stays race-free. It sends progress events throughout and is used by both
-// Plex and Emby/Jellyfin adapters.
-func EnrichSeriesData(ctx context.Context, series []models.LibraryItemCache, libraryID, serverType string, fetchSize SizeFetcher) {
+// ParallelEnrich runs `do` concurrently (bounded by limit) over each item for
+// which `needs` reports true, handing each goroutine its own *items[i] — distinct
+// per goroutine, so writing through the pointer is race-free. It emits one
+// progress event per completed item under `phase` and returns how many items it
+// processed (so callers can log a count).
+func ParallelEnrich[T any](ctx context.Context, items []T, limit int, phase, libraryID string, needs func(*T) bool, do func(context.Context, *T)) int {
 	var todo []int
-	for i := range series {
-		if series[i].FileSize == 0 {
+	for i := range items {
+		if needs(&items[i]) {
 			todo = append(todo, i)
 		}
 	}
 	if len(todo) == 0 {
-		return
+		return 0
 	}
 
 	var g errgroup.Group
-	g.SetLimit(seriesEnrichConcurrency)
+	g.SetLimit(limit)
 	var done int64
 	total := len(todo)
 
-	for _, n := range todo {
+	for _, i := range todo {
 		if ctx.Err() != nil {
 			break
 		}
-		i := n // each goroutine writes a distinct series[i], so no shared-element race
 		g.Go(func() error {
-			size, err := fetchSize(ctx, series[i].ItemID)
-			if err != nil {
-				slog.Warn("failed to get episode sizes", "server_type", serverType, "title", series[i].Title, "error", err)
-			} else {
-				series[i].FileSize = size
-			}
+			do(ctx, &items[i])
 			SendProgress(ctx, SyncProgress{
-				Phase:   PhaseItems,
+				Phase:   phase,
 				Current: int(atomic.AddInt64(&done, 1)),
 				Total:   total,
 				Library: libraryID,
@@ -62,6 +57,22 @@ func EnrichSeriesData(ctx context.Context, series []models.LibraryItemCache, lib
 		})
 	}
 	_ = g.Wait()
+	return total
+}
+
+// EnrichSeriesData fills in missing file sizes for a slice of series items, with
+// bounded concurrency. Sends progress throughout; used by Plex and Emby/Jellyfin.
+func EnrichSeriesData(ctx context.Context, series []models.LibraryItemCache, libraryID, serverType string, fetchSize SizeFetcher) {
+	ParallelEnrich(ctx, series, seriesEnrichConcurrency, PhaseItems, libraryID,
+		func(it *models.LibraryItemCache) bool { return it.FileSize == 0 },
+		func(ctx context.Context, it *models.LibraryItemCache) {
+			size, err := fetchSize(ctx, it.ItemID)
+			if err != nil {
+				slog.Warn("failed to get episode sizes", "server_type", serverType, "title", it.Title, "error", err)
+				return
+			}
+			it.FileSize = size
+		})
 }
 
 // EnrichLastWatched updates each item's LastWatchedAt from the history map

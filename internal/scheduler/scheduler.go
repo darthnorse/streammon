@@ -275,27 +275,31 @@ type serverIdentity struct {
 	MachineID string
 }
 
-// seriesSizeCacher is implemented by adapters (Plex) that can skip the expensive
-// per-show episode-size fetch when primed with previously-synced sizes.
-type seriesSizeCacher interface {
-	SetSeriesSizeCache(cache map[string]models.SeriesSizeHint)
+// cachedItemFetcher is implemented by adapters (Plex) that can reuse
+// previously-synced series sizes to skip the expensive per-show episode-size
+// fetch. Hints are passed per call, so there's no shared adapter state.
+type cachedItemFetcher interface {
+	GetLibraryItemsWithHints(ctx context.Context, libraryID string, hints map[string]models.SeriesSizeHint) ([]models.LibraryItemCache, error)
 }
 
 func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverName, libraryID, libraryName string, ms media.MediaServer, originalIdentity serverIdentity) (int, error) {
 	syncCtx, cancel := context.WithTimeout(ctx, sch.syncTimeout)
 	defer cancel()
 
-	// Prime the size cache so unchanged shows skip the per-show episode-size
-	// fetch (the dominant cost of a large Plex TV-library sync).
-	if sc, ok := ms.(seriesSizeCacher); ok {
-		if hints, herr := sch.store.SeriesSizeHints(syncCtx, serverID, libraryID); herr != nil {
+	// Reuse previously-synced sizes so unchanged shows skip the per-show
+	// episode-size fetch (the dominant cost of a large Plex TV-library sync).
+	var items []models.LibraryItemCache
+	var err error
+	if cf, ok := ms.(cachedItemFetcher); ok {
+		hints, herr := sch.store.SeriesSizeHints(syncCtx, serverID, libraryID)
+		if herr != nil {
 			log.Printf("scheduler: series size hints for %s/%s: %v", serverName, libraryName, herr)
-		} else {
-			sc.SetSeriesSizeCache(hints)
+			hints = nil
 		}
+		items, err = cf.GetLibraryItemsWithHints(syncCtx, libraryID, hints)
+	} else {
+		items, err = ms.GetLibraryItems(syncCtx, libraryID)
 	}
-
-	items, err := ms.GetLibraryItems(syncCtx, libraryID)
 	if err != nil {
 		return 0, err
 	}
