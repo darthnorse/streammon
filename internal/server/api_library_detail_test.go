@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -101,5 +102,27 @@ func TestListLibraryItemsCSV(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "text/csv" {
 		t.Errorf("content-type=%q want text/csv", ct)
+	}
+}
+
+func TestListLibraryItemsCSVFormulaInjection(t *testing.T) {
+	ts, st := newTestServerWrapped(t)
+	// A title beginning with '=' is a spreadsheet formula trigger.
+	seedLibraryItemViaStore(t, st, models.LibraryItemCache{
+		ServerID: 1, LibraryID: "1",
+		ItemID: "m1", MediaType: models.MediaTypeMovie, Title: "=SUM(A1:A2)",
+		AddedAt: time.Now().UTC(),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/libraries/1/1/items?format=csv", nil)
+	rec := httptest.NewRecorder()
+	ts.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "'=SUM(A1:A2)") {
+		t.Errorf("formula-like title not neutralized (want leading quote); body=%q", body)
 	}
 }

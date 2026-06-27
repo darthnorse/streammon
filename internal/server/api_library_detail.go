@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/csv"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -76,6 +77,7 @@ func (s *Server) handleListLibraryItems(w http.ResponseWriter, r *http.Request) 
 
 	result, err := s.store.ListLibraryItemDetails(r.Context(), q)
 	if err != nil {
+		log.Printf("list library items (server %d, library %q): %v", q.ServerID, q.LibraryID, err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
@@ -86,6 +88,7 @@ func (s *Server) writeLibraryItemsCSV(w http.ResponseWriter, r *http.Request, q 
 	q.PerPage = 0 // all rows
 	result, err := s.store.ListLibraryItemDetails(r.Context(), q)
 	if err != nil {
+		log.Printf("library items CSV (server %d, library %q): %v", q.ServerID, q.LibraryID, err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
@@ -102,11 +105,11 @@ func (s *Server) writeLibraryItemsCSV(w http.ResponseWriter, r *http.Request, q 
 			lastPlayed = it.LastPlayedAt.Format("2006-01-02 15:04:05")
 		}
 		_ = cw.Write([]string{
-			it.Title, strconv.Itoa(it.Year), string(it.MediaType),
+			csvSafe(it.Title), strconv.Itoa(it.Year), string(it.MediaType),
 			it.AddedAt.Format("2006-01-02 15:04:05"), lastPlayed, strconv.Itoa(it.Plays),
 			strconv.FormatFloat(it.TotalHours, 'f', 2, 64), strconv.Itoa(it.UniqueViewers),
-			it.LastViewer, strconv.Itoa(it.EpisodesWatched), strconv.Itoa(it.EpisodeCount),
-			strconv.FormatInt(it.FileSize, 10), it.VideoResolution, it.TMDBStatus,
+			csvSafe(it.LastViewer), strconv.Itoa(it.EpisodesWatched), strconv.Itoa(it.EpisodeCount),
+			strconv.FormatInt(it.FileSize, 10), csvSafe(it.VideoResolution), csvSafe(it.TMDBStatus),
 			strconv.FormatBool(it.FlaggedForDeletion), strconv.FormatBool(it.Protected),
 		})
 	}
@@ -121,8 +124,23 @@ func (s *Server) handleLibraryItemSummary(w http.ResponseWriter, r *http.Request
 	}
 	summary, err := s.store.GetLibrarySummary(r.Context(), serverID, chi.URLParam(r, "libraryID"))
 	if err != nil {
+		log.Printf("library summary (server %d, library %q): %v", serverID, chi.URLParam(r, "libraryID"), err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
+}
+
+// csvSafe neutralizes spreadsheet formula injection: a cell beginning with a
+// formula trigger (= + - @) or a leading control char is prefixed with a single
+// quote so Excel/Sheets/LibreOffice treat the value as text.
+func csvSafe(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + s
+	}
+	return s
 }
