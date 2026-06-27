@@ -23,6 +23,71 @@ func seedLibraryItem(t *testing.T, s *Store, it models.LibraryItemCache) int64 {
 	return id
 }
 
+func TestListLibraryItemDetails_MovieAggregates(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+
+	id := seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "m1",
+		MediaType: models.MediaTypeMovie, Title: "Dune", AddedAt: now, FileSize: 5000})
+
+	for i, u := range []string{"alice", "alice", "bob"} {
+		if err := s.InsertHistory(&models.WatchHistoryEntry{ServerID: 1, ItemID: "m1",
+			UserName: u, MediaType: models.MediaTypeMovie, Title: "Dune",
+			StartedAt: now.Add(time.Duration(i) * time.Hour),
+			StoppedAt: now.Add(time.Duration(i)*time.Hour + time.Minute),
+			WatchedMs: 1800000}); err != nil {
+			t.Fatalf("insert history: %v", err)
+		}
+	}
+
+	res, err := s.ListLibraryItemDetails(ctx, LibraryItemQuery{ServerID: 1, LibraryID: "1", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListLibraryItemDetails: %v", err)
+	}
+	if res.Total != 1 || len(res.Items) != 1 {
+		t.Fatalf("total=%d items=%d, want 1/1", res.Total, len(res.Items))
+	}
+	got := res.Items[0]
+	if got.ID != id || got.Plays != 3 || got.UniqueViewers != 2 {
+		t.Errorf("got ID=%d plays=%d viewers=%d, want %d/3/2", got.ID, got.Plays, got.UniqueViewers, id)
+	}
+	if got.LastPlayedAt == nil {
+		t.Error("LastPlayedAt should be set")
+	}
+	if got.LastViewer == "" {
+		t.Error("LastViewer should be populated")
+	}
+}
+
+func TestListLibraryItemDetails_NeverPlayed(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "m9",
+		MediaType: models.MediaTypeMovie, Title: "Unwatched", AddedAt: time.Now().UTC(), FileSize: 1})
+
+	res, err := s.ListLibraryItemDetails(ctx, LibraryItemQuery{ServerID: 1, LibraryID: "1", Page: 1, PerPage: 20})
+	if err != nil {
+		t.Fatalf("ListLibraryItemDetails: %v", err)
+	}
+	if len(res.Items) != 1 || res.Items[0].Plays != 0 || res.Items[0].LastPlayedAt != nil {
+		t.Errorf("never-played row wrong: %+v", res.Items)
+	}
+}
+
 func TestGetLibrarySummary(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
