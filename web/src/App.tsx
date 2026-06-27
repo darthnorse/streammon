@@ -10,6 +10,7 @@ import { UserDetail } from './pages/UserDetail'
 import { Settings } from './pages/Settings'
 import { Statistics } from './pages/Statistics'
 import { Libraries } from './pages/Libraries'
+import { LibraryDetail } from './pages/LibraryDetail'
 import { Rules } from './pages/Rules'
 import { Discover } from './pages/Discover'
 import { Calendar } from './pages/Calendar'
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="/history" element={<AdminRoute><History /></AdminRoute>} />
             <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
             <Route path="/library" element={<AdminRoute><Libraries /></AdminRoute>} />
+            <Route path="/library/:serverId/:libraryId" element={<AdminRoute><LibraryDetail /></AdminRoute>} />
             <Route path="/rules" element={<AdminRoute><Rules /></AdminRoute>} />
             <Route path="/settings" element={<AdminRoute><Settings /></AdminRoute>} />
             <Route path="*" element={<NotFound />} />

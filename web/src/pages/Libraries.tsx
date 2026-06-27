@@ -39,11 +39,12 @@ function getUniqueServers(libraries: Library[]): { id: number; name: string }[] 
 interface LibraryRowProps {
   library: Library
   maintenance: LibraryMaintenance | null
+  onOpen: () => void
   onRules: () => void
   onViolations: () => void
 }
 
-function LibraryRow({ library, maintenance, onRules, onViolations }: LibraryRowProps) {
+function LibraryRow({ library, maintenance, onOpen, onRules, onViolations }: LibraryRowProps) {
   const accent = SERVER_ACCENT[library.server_type] || 'bg-gray-100 text-gray-600'
   const icon = libraryTypeIcon[library.type]
   const rules = maintenance?.rules || []
@@ -56,7 +57,12 @@ function LibraryRow({ library, maintenance, onRules, onViolations }: LibraryRowP
       <td className="px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="text-xl">{icon}</span>
-          <span className="font-medium text-gray-900 dark:text-gray-100">{library.name}</span>
+          <span
+            className="font-medium text-gray-900 dark:text-gray-100 cursor-pointer hover:text-accent hover:underline"
+            onClick={onOpen}
+          >
+            {library.name}
+          </span>
         </div>
       </td>
       <td className="px-4 py-3">
@@ -240,6 +246,7 @@ export function Libraries() {
                     key={`${library.server_id}-${library.id}`}
                     library={library}
                     maintenance={getMaintenanceForLibrary(library)}
+                    onOpen={() => navigate(`/library/${library.server_id}/${encodeURIComponent(library.id)}`)}
                     onRules={() => navigateToRules(library)}
                     onViolations={() => navigateToRules(library)}
                   />
