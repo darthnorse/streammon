@@ -26,6 +26,10 @@ type Server struct {
 	token         string
 	client        *http.Client
 	metadataCache sync.Map
+	// sizeCache holds previously-synced series sizes (item_id -> hint), primed by
+	// the scheduler before GetLibraryItems so unchanged shows skip the per-show
+	// episode-size fetch. Accessed only from the sequential sync path.
+	sizeCache map[string]models.SeriesSizeHint
 }
 
 func New(srv models.Server) *Server {
@@ -35,6 +39,26 @@ func New(srv models.Server) *Server {
 		url:        strings.TrimRight(srv.URL, "/"),
 		token:      srv.APIKey,
 		client:     httputil.NewClient(),
+	}
+}
+
+// SetSeriesSizeCache primes the per-show size cache used by the next
+// GetLibraryItems call to skip episode-size fetches for unchanged shows.
+func (s *Server) SetSeriesSizeCache(cache map[string]models.SeriesSizeHint) {
+	s.sizeCache = cache
+}
+
+// applyCachedSeriesSizes fills FileSize from the cache for shows whose episode
+// count is unchanged, so EnrichSeriesData (which skips items that already have a
+// size) won't re-fetch them.
+func (s *Server) applyCachedSeriesSizes(series []models.LibraryItemCache) {
+	if s.sizeCache == nil {
+		return
+	}
+	for i := range series {
+		if h, ok := s.sizeCache[series[i].ItemID]; ok && h.FileSize > 0 && h.EpisodeCount == series[i].EpisodeCount {
+			series[i].FileSize = h.FileSize
+		}
 	}
 }
 

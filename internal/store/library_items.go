@@ -263,6 +263,31 @@ func (s *Store) ListTVTMDBIDs(ctx context.Context) ([]string, error) {
 	return ids, rows.Err()
 }
 
+// SeriesSizeHints returns previously-synced series file sizes for a library,
+// keyed by item_id, for shows that already have a size. Used to skip the
+// expensive per-show episode-size fetch on re-sync when a show is unchanged.
+func (s *Store) SeriesSizeHints(ctx context.Context, serverID int64, libraryID string) (map[string]models.SeriesSizeHint, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT item_id, file_size, episode_count FROM library_items
+		 WHERE server_id = ? AND library_id = ? AND episode_count > 0 AND file_size > 0`,
+		serverID, libraryID)
+	if err != nil {
+		return nil, fmt.Errorf("series size hints: %w", err)
+	}
+	defer rows.Close()
+
+	hints := make(map[string]models.SeriesSizeHint)
+	for rows.Next() {
+		var itemID string
+		var h models.SeriesSizeHint
+		if err := rows.Scan(&itemID, &h.FileSize, &h.EpisodeCount); err != nil {
+			return nil, fmt.Errorf("scan series size hint: %w", err)
+		}
+		hints[itemID] = h
+	}
+	return hints, rows.Err()
+}
+
 func (s *Store) CountLibraryItems(ctx context.Context, serverID int64, libraryID string) (int, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx,

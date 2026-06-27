@@ -509,6 +509,70 @@ func TestPerItemFallbackSkippedWhenBulkHistoryHealthy(t *testing.T) {
 	}
 }
 
+// TestSeriesSizeCacheSkipsUnchangedShows verifies the per-show episode-size
+// fetch is skipped when a cached hint matches the show's current episode count,
+// and is performed when the count differs or no hint exists.
+func TestSeriesSizeCacheSkipsUnchangedShows(t *testing.T) {
+	showsXML := `<?xml version="1.0" encoding="UTF-8"?>
+<MediaContainer totalSize="2">
+  <Directory ratingKey="900" type="show" title="Unchanged" year="2023" addedAt="1700000000" leafCount="5"/>
+  <Directory ratingKey="901" type="show" title="GrewEpisodes" year="2023" addedAt="1700000000" leafCount="8"/>
+</MediaContainer>`
+	bulkHistory := `<MediaContainer totalSize="1"><Video grandparentKey="/library/metadata/900" viewedAt="1700500000" accountID="1"/></MediaContainer>`
+	episodesXML := `<MediaContainer totalSize="1"><Video><Media><Part size="4242"/></Media></Video></MediaContainer>`
+
+	allLeaves := map[string]*int64{"900": new(int64), "901": new(int64)}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeMovie:
+			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+		case r.URL.Path == "/library/sections/lib1/all" && r.URL.Query().Get("type") == plexTypeShow:
+			w.Write([]byte(showsXML))
+		case strings.HasSuffix(r.URL.Path, "/allLeaves"):
+			key := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/library/metadata/"), "/allLeaves")
+			if c, ok := allLeaves[key]; ok {
+				atomic.AddInt64(c, 1)
+			}
+			w.Write([]byte(episodesXML))
+		case r.URL.Path == "/status/sessions/history/all":
+			w.Write([]byte(bulkHistory))
+		default:
+			w.Write([]byte(`<MediaContainer totalSize="0"/>`))
+		}
+	}))
+	defer ts.Close()
+
+	srv := New(models.Server{ID: 1, URL: ts.URL, APIKey: "tok"})
+	// 900: cached, episode count unchanged (5) -> skip. 901: cached but count
+	// changed (7 -> current 8) -> re-fetch.
+	srv.SetSeriesSizeCache(map[string]models.SeriesSizeHint{
+		"900": {FileSize: 9999, EpisodeCount: 5},
+		"901": {FileSize: 8888, EpisodeCount: 7},
+	})
+	items, err := srv.GetLibraryItems(context.Background(), "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := atomic.LoadInt64(allLeaves["900"]); got != 0 {
+		t.Errorf("unchanged show 900 should skip allLeaves; got %d calls", got)
+	}
+	if got := atomic.LoadInt64(allLeaves["901"]); got == 0 {
+		t.Error("show 901 with changed episode count should re-fetch allLeaves")
+	}
+
+	byKey := map[string]*models.LibraryItemCache{}
+	for i := range items {
+		byKey[items[i].ItemID] = &items[i]
+	}
+	if byKey["900"].FileSize != 9999 {
+		t.Errorf("show 900 FileSize = %d, want cached 9999", byKey["900"].FileSize)
+	}
+	if byKey["901"].FileSize != 4242 {
+		t.Errorf("show 901 FileSize = %d, want fetched 4242", byKey["901"].FileSize)
+	}
+}
+
 func TestHistoryPagination(t *testing.T) {
 	showsXML := `<?xml version="1.0" encoding="UTF-8"?>
 <MediaContainer totalSize="1">

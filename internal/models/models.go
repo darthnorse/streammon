@@ -468,6 +468,14 @@ type LibrarySummary struct {
 	ReclaimableSize int64 `json:"reclaimable_size"`
 }
 
+// SeriesSizeHint is a previously-synced series file size keyed by its episode
+// count. A re-sync can reuse it (skipping the expensive per-show episode-size
+// fetch) when the show's episode count is unchanged.
+type SeriesSizeHint struct {
+	FileSize     int64
+	EpisodeCount int
+}
+
 type LocationStat struct {
 	City         string  `json:"city"`
 	Country      string  `json:"country"`

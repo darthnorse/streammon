@@ -87,6 +87,7 @@ func (s *Server) GetLibraryItems(ctx context.Context, libraryID string) ([]model
 	if err != nil {
 		return nil, fmt.Errorf("fetch series: %w", err)
 	}
+	s.applyCachedSeriesSizes(series)
 	mediautil.EnrichSeriesData(ctx, series, libraryID, "plex", s.getSeriesEpisodeSize)
 
 	movieHistory, seriesHistory, err := s.fetchAllWatchHistory(ctx, libraryID)

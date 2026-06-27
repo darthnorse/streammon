@@ -275,9 +275,25 @@ type serverIdentity struct {
 	MachineID string
 }
 
+// seriesSizeCacher is implemented by adapters (Plex) that can skip the expensive
+// per-show episode-size fetch when primed with previously-synced sizes.
+type seriesSizeCacher interface {
+	SetSeriesSizeCache(cache map[string]models.SeriesSizeHint)
+}
+
 func (sch *Scheduler) syncLibrary(ctx context.Context, serverID int64, serverName, libraryID, libraryName string, ms media.MediaServer, originalIdentity serverIdentity) (int, error) {
 	syncCtx, cancel := context.WithTimeout(ctx, sch.syncTimeout)
 	defer cancel()
+
+	// Prime the size cache so unchanged shows skip the per-show episode-size
+	// fetch (the dominant cost of a large Plex TV-library sync).
+	if sc, ok := ms.(seriesSizeCacher); ok {
+		if hints, herr := sch.store.SeriesSizeHints(syncCtx, serverID, libraryID); herr != nil {
+			log.Printf("scheduler: series size hints for %s/%s: %v", serverName, libraryName, herr)
+		} else {
+			sc.SetSeriesSizeCache(hints)
+		}
+	}
 
 	items, err := ms.GetLibraryItems(syncCtx, libraryID)
 	if err != nil {

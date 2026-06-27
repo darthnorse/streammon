@@ -200,6 +200,37 @@ func TestGetLibrarySummary(t *testing.T) {
 	}
 }
 
+func TestSeriesSizeHints(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+
+	// A show with episodes + size (a valid hint), a show with no size yet, and a movie.
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "show1",
+		MediaType: models.MediaTypeTV, Title: "Show1", AddedAt: now, EpisodeCount: 10, FileSize: 5000})
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "show2",
+		MediaType: models.MediaTypeTV, Title: "Show2", AddedAt: now, EpisodeCount: 3, FileSize: 0})
+	seedLibraryItem(t, s, models.LibraryItemCache{ServerID: 1, LibraryID: "1", ItemID: "movie1",
+		MediaType: models.MediaTypeMovie, Title: "Movie1", AddedAt: now, EpisodeCount: 0, FileSize: 7000})
+
+	hints, err := s.SeriesSizeHints(ctx, 1, "1")
+	if err != nil {
+		t.Fatalf("SeriesSizeHints: %v", err)
+	}
+	if len(hints) != 1 {
+		t.Fatalf("got %d hints, want 1 (only show1 has episodes + size)", len(hints))
+	}
+	if h := hints["show1"]; h.FileSize != 5000 || h.EpisodeCount != 10 {
+		t.Errorf("show1 hint = %+v, want {FileSize:5000 EpisodeCount:10}", h)
+	}
+}
+
 func TestGetLibrarySummary_ExcludesProtectedFromReclaimable(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()
