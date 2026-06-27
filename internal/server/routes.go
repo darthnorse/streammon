@@ -86,6 +86,8 @@ func (s *Server) routes() {
 
 		r.Get("/stats", s.handleGetStats)
 		r.With(RequireRole(models.RoleAdmin)).Get("/libraries", s.handleGetLibraries)
+		r.With(RequireRole(models.RoleAdmin)).Get("/libraries/{serverID}/{libraryID}/items", s.handleListLibraryItems)
+		r.With(RequireRole(models.RoleAdmin)).Get("/libraries/{serverID}/{libraryID}/summary", s.handleLibraryItemSummary)
 
 		r.Route("/settings/oidc", func(sr chi.Router) {
 			sr.Use(RequireRole(models.RoleAdmin))
