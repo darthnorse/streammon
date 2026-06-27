@@ -2,8 +2,8 @@ import { useState, useRef, useCallback } from 'react'
 import { useClickOutside } from '../hooks/useClickOutside'
 import type { ColumnDef } from '../lib/historyColumns'
 
-interface ColumnSettingsProps {
-  columns: ColumnDef[]
+interface ColumnSettingsProps<T> {
+  columns: ColumnDef<T>[]
   visibleColumns: string[]
   excludeColumns?: string[]
   onToggle: (id: string) => void
@@ -11,14 +11,14 @@ interface ColumnSettingsProps {
   onReset: () => void
 }
 
-export function ColumnSettings({
+export function ColumnSettings<T>({
   columns,
   visibleColumns,
   excludeColumns = [],
   onToggle,
   onMove,
   onReset,
-}: ColumnSettingsProps) {
+}: ColumnSettingsProps<T>) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(false), [])

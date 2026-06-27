@@ -2,8 +2,6 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ColumnDef } from '../lib/historyColumns'
 import { getDefaultVisibleColumns } from '../lib/historyColumns'
 
-const STORAGE_KEY = 'history-columns'
-
 export interface ColumnConfig {
   visibleColumns: string[]
   toggleColumn: (id: string) => void
@@ -25,8 +23,8 @@ function safeSetItem(key: string, value: string): void {
   } catch {}
 }
 
-function loadStoredColumns(): string[] | null {
-  const stored = safeGetItem(STORAGE_KEY)
+function loadStoredColumns(storageKey: string): string[] | null {
+  const stored = safeGetItem(storageKey)
   if (stored) {
     try {
       return JSON.parse(stored) as string[]
@@ -35,10 +33,10 @@ function loadStoredColumns(): string[] | null {
   return null
 }
 
-function loadInitialColumns(allColumns: ColumnDef[], excludeColumns: string[]): string[] {
+function loadInitialColumns<T>(allColumns: ColumnDef<T>[], excludeColumns: string[], storageKey: string): string[] {
   const columnIds = new Set(allColumns.map(c => c.id))
   const excludeSet = new Set(excludeColumns)
-  const stored = loadStoredColumns()
+  const stored = loadStoredColumns(storageKey)
   if (stored) {
     const valid = stored.filter(id => columnIds.has(id) && !excludeSet.has(id))
     if (valid.length > 0) return valid
@@ -46,9 +44,10 @@ function loadInitialColumns(allColumns: ColumnDef[], excludeColumns: string[]): 
   return getDefaultVisibleColumns(allColumns, excludeColumns)
 }
 
-export function useColumnConfig(
-  allColumns: ColumnDef[],
-  excludeColumns: string[] = []
+export function useColumnConfig<T>(
+  allColumns: ColumnDef<T>[],
+  excludeColumns: string[] = [],
+  storageKey: string = 'history-columns',
 ): ColumnConfig {
   const excludeSet = useMemo(() => new Set(excludeColumns), [excludeColumns])
   const columnIndexMap = useMemo(
@@ -64,7 +63,7 @@ export function useColumnConfig(
   )
 
   const [visibleColumns, setVisibleColumnsState] = useState<string[]>(
-    () => loadInitialColumns(allColumns, excludeColumns)
+    () => loadInitialColumns(allColumns, excludeColumns, storageKey)
   )
 
   // Re-filter when excludeColumns changes (but not on initial mount)
@@ -83,7 +82,7 @@ export function useColumnConfig(
   // When saving, preserve excluded columns at their original positions
   // This prevents losing column preferences when viewing contexts that exclude certain columns
   useEffect(() => {
-    const stored = loadStoredColumns() ?? allColumns.filter(c => c.defaultVisible).map(c => c.id)
+    const stored = loadStoredColumns(storageKey) ?? allColumns.filter(c => c.defaultVisible).map(c => c.id)
 
     // Build result by keeping excluded columns at their stored positions
     // and filling non-excluded slots with visibleColumns in order
@@ -105,8 +104,8 @@ export function useColumnConfig(
       result.push(visibleColumns[visibleIndex++])
     }
 
-    safeSetItem(STORAGE_KEY, JSON.stringify(result))
-  }, [visibleColumns, excludeSet, allColumns])
+    safeSetItem(storageKey, JSON.stringify(result))
+  }, [visibleColumns, excludeSet, allColumns, storageKey])
 
   const toggleColumn = useCallback((id: string) => {
     if (excludeSet.has(id)) return

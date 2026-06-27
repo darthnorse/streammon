@@ -5,13 +5,13 @@ import { getMediaLabel, CLICKABLE_TITLE_CLASS } from './constants'
 import { getLiveTVTitleParts } from './mediaTitle'
 import { GeoIPPopover } from '../components/GeoIPPopover'
 
-export interface ColumnDef {
+export interface ColumnDef<T> {
   id: string
   label: string
   defaultVisible: boolean
-  render: (entry: WatchHistoryEntry) => React.ReactNode
-  sortValue?: (entry: WatchHistoryEntry) => string | number
-  sortKey?: string // Backend API sort_by key for server-side sorting
+  render: (row: T) => React.ReactNode
+  sortValue?: (row: T) => string | number
+  sortKey?: string
   className?: string
   responsiveClassName?: string
 }
@@ -96,7 +96,7 @@ function UserLink({ name }: { name: string }) {
   )
 }
 
-export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[] {
+export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef<WatchHistoryEntry>[] {
   return [
     {
       id: 'user',
@@ -203,7 +203,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef[]
 // Default columns for backwards compatibility
 export const HISTORY_COLUMNS = getHistoryColumns()
 
-export function getDefaultVisibleColumns(columns: ColumnDef[], excludeColumns: string[] = []): string[] {
+export function getDefaultVisibleColumns<T>(columns: ColumnDef<T>[], excludeColumns: string[] = []): string[] {
   return columns
     .filter(c => c.defaultVisible && !excludeColumns.includes(c.id))
     .map(c => c.id)

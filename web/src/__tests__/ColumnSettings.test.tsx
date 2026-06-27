@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ColumnSettings } from '../components/ColumnSettings'
 import type { ColumnDef } from '../lib/historyColumns'
 
-const mockColumns: ColumnDef[] = [
+const mockColumns: ColumnDef<unknown>[] = [
   { id: 'a', label: 'Column A', defaultVisible: true, render: () => null },
   { id: 'b', label: 'Column B', defaultVisible: true, render: () => null },
   { id: 'c', label: 'Column C', defaultVisible: false, render: () => null },

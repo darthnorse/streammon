@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, test } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
 import { useColumnConfig } from '../hooks/useColumnConfig'
 import type { ColumnDef } from '../lib/historyColumns'
 
-const mockColumns: ColumnDef[] = [
+const mockColumns: ColumnDef<unknown>[] = [
   { id: 'a', label: 'A', defaultVisible: true, render: () => null },
   { id: 'b', label: 'B', defaultVisible: true, render: () => null },
   { id: 'c', label: 'C', defaultVisible: false, render: () => null },
@@ -216,4 +216,17 @@ describe('useColumnConfig', () => {
 
     expect(result.current.visibleColumns).toEqual(['b', 'd'])
   })
+})
+
+const cols: ColumnDef<{ name: string }>[] = [
+  { id: 'a', label: 'A', defaultVisible: true, render: (r) => r.name },
+  { id: 'b', label: 'B', defaultVisible: true, render: (r) => r.name },
+]
+
+test('storageKey isolates persistence between tables', () => {
+  localStorage.clear()
+  const { result } = renderHook(() => useColumnConfig(cols, [], 'library-columns'))
+  act(() => result.current.toggleColumn('b'))
+  expect(localStorage.getItem('library-columns')).toContain('a')
+  expect(localStorage.getItem('history-columns')).toBeNull()
 })
