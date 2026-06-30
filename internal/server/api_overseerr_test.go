@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -480,6 +481,116 @@ func TestOverseerrCreateRequest_TV(t *testing.T) {
 
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestOverseerrCreateRequest_InvalidatesMediaStatusCache(t *testing.T) {
+	mediaCalls := 0
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users: defaultOverseerrUsers,
+		onGetMedia: func(w http.ResponseWriter, r *http.Request) {
+			mediaCalls++
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 1},
+				"results":  []map[string]any{{"tmdbId": 550, "mediaType": "movie", "status": 5}},
+			})
+		},
+	})
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+
+	getStatuses := func() {
+		req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("media-statuses: expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+	}
+
+	// Prime the cache, then confirm a second read is served from it.
+	getStatuses()
+	getStatuses()
+	if mediaCalls != 1 {
+		t.Fatalf("expected media-statuses to be cached after priming (1 upstream call), got %d", mediaCalls)
+	}
+
+	// Creating a request must invalidate the cache so newly-requested items
+	// surface immediately on the next status fetch.
+	body := `{"mediaType":"movie","mediaId":27205}`
+	req := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create request: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	getStatuses()
+	if mediaCalls != 2 {
+		t.Fatalf("expected create request to invalidate the cache (2 upstream calls), got %d", mediaCalls)
+	}
+}
+
+func TestOverseerrMediaStatuses_InvalidationDuringRefreshNotMasked(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	mediaCalls := 0
+	mock := newMockOverseerr(t, mockOverseerrOpts{
+		users: defaultOverseerrUsers,
+		onGetMedia: func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			mediaCalls++
+			first := mediaCalls == 1
+			mu.Unlock()
+			if first {
+				// Block the first refresh inside ListMedia so a mutation can
+				// invalidate the cache while this fetch is in flight.
+				close(entered)
+				<-release
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 1},
+				"results":  []map[string]any{{"tmdbId": 550, "mediaType": "movie", "status": 5}},
+			})
+		},
+	})
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+
+	done := make(chan struct{})
+	go func() {
+		req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+		srv.ServeHTTP(httptest.NewRecorder(), req)
+		close(done)
+	}()
+
+	<-entered // refresh has claimed the cache and is inside ListMedia
+
+	body := `{"mediaType":"movie","mediaId":27205}`
+	creq := httptest.NewRequest(http.MethodPost, "/api/overseerr/requests", strings.NewReader(body))
+	cw := httptest.NewRecorder()
+	srv.ServeHTTP(cw, creq)
+	if cw.Code != http.StatusCreated {
+		t.Fatalf("create request: expected 201, got %d: %s", cw.Code, cw.Body.String())
+	}
+
+	close(release) // let the stale in-flight refresh finish and attempt its write
+	<-done
+
+	// The stale write must have been discarded, so the next fetch re-queries
+	// upstream rather than serving the pre-mutation snapshot for the full TTL.
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/media-statuses", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("media-statuses: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	mu.Lock()
+	got := mediaCalls
+	mu.Unlock()
+	if got != 2 {
+		t.Fatalf("expected stale in-flight refresh to be discarded and cache re-fetched (2 upstream calls), got %d", got)
 	}
 }
 

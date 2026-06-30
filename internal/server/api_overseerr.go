@@ -58,6 +58,7 @@ type overseerrMediaCache struct {
 	mu        sync.RWMutex
 	statuses  map[string]int // "mediaType:tmdbId" → status
 	expiresAt time.Time
+	gen       uint64 // bumped on every invalidation; discards stale in-flight refresh writes
 }
 
 const overseerrMediaCacheTTL = 5 * time.Minute
@@ -403,16 +404,21 @@ func (s *Server) isOverseerrURLSafeForTokens() bool {
 	return !strings.Contains(host, ".")
 }
 
+func (s *Server) invalidateOverseerrMediaCache() {
+	s.overseerrMedia.mu.Lock()
+	s.overseerrMedia.statuses = nil
+	s.overseerrMedia.expiresAt = time.Time{}
+	s.overseerrMedia.gen++
+	s.overseerrMedia.mu.Unlock()
+}
+
 func (s *Server) invalidateOverseerrCaches() {
 	s.overseerrUsers.mu.Lock()
 	s.overseerrUsers.emailToID = nil
 	s.overseerrUsers.expiresAt = time.Time{}
 	s.overseerrUsers.mu.Unlock()
 
-	s.overseerrMedia.mu.Lock()
-	s.overseerrMedia.statuses = nil
-	s.overseerrMedia.expiresAt = time.Time{}
-	s.overseerrMedia.mu.Unlock()
+	s.invalidateOverseerrMediaCache()
 }
 
 func (s *Server) handleOverseerrMediaStatuses(w http.ResponseWriter, r *http.Request) {
@@ -433,6 +439,7 @@ func (s *Server) handleOverseerrMediaStatuses(w http.ResponseWriter, r *http.Req
 		return
 	}
 	s.overseerrMedia.expiresAt = time.Now().UTC().Add(30 * time.Second)
+	gen := s.overseerrMedia.gen
 	s.overseerrMedia.mu.Unlock()
 
 	client, err := s.newOverseerrClient()
@@ -451,9 +458,14 @@ func (s *Server) handleOverseerrMediaStatuses(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// Only publish if no invalidation (create/approve/decline/delete) raced this
+	// fetch; otherwise the result predates the mutation and would mask it for the
+	// full TTL.
 	s.overseerrMedia.mu.Lock()
-	s.overseerrMedia.statuses = statuses
-	s.overseerrMedia.expiresAt = time.Now().UTC().Add(overseerrMediaCacheTTL)
+	if s.overseerrMedia.gen == gen {
+		s.overseerrMedia.statuses = statuses
+		s.overseerrMedia.expiresAt = time.Now().UTC().Add(overseerrMediaCacheTTL)
+	}
 	s.overseerrMedia.mu.Unlock()
 
 	writeJSON(w, http.StatusOK, map[string]any{"statuses": statuses})
@@ -503,6 +515,7 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 					writeError(w, http.StatusBadGateway, "upstream service error")
 					return
 				}
+				s.invalidateOverseerrMediaCache()
 				writeRawJSON(w, http.StatusCreated, data)
 				return
 			}
@@ -545,6 +558,7 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	s.invalidateOverseerrMediaCache()
 	writeRawJSON(w, http.StatusCreated, data)
 }
 
@@ -573,6 +587,7 @@ func (s *Server) handleOverseerrRequestAction(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	s.invalidateOverseerrMediaCache()
 	writeRawJSON(w, http.StatusOK, data)
 }
 
@@ -634,5 +649,6 @@ func (s *Server) handleOverseerrDeleteRequest(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	s.invalidateOverseerrMediaCache()
 	w.WriteHeader(http.StatusNoContent)
 }

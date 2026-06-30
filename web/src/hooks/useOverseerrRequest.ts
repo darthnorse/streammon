@@ -21,14 +21,12 @@ export function useOverseerrRequest({
   const [overseerrRequests, setOverseerrRequests] = useState<OverseerrRequest[]>([])
   const [overseerrChecked, setOverseerrChecked] = useState(false)
   const [requesting, setRequesting] = useState(false)
-  const [requestSuccess, setRequestSuccess] = useState(false)
   const [requestError, setRequestError] = useState('')
   const [selectedSeasons, setSelectedSeasons] = useState<number[]>([])
   const [allSeasons, setAllSeasons] = useState(true)
 
   useEffect(() => {
     setRequesting(false)
-    setRequestSuccess(false)
     setRequestError('')
   }, [effectiveTmdbId, effectiveMediaType])
 
@@ -66,7 +64,7 @@ export function useOverseerrRequest({
     && overseerrStatus >= MEDIA_STATUS.PENDING
     && overseerrStatus <= MEDIA_STATUS.BLOCKLISTED
     && !(overseerrStatus === MEDIA_STATUS.PARTIALLY_AVAILABLE && effectiveMediaType === 'tv')
-  const canRequest = overseerrConfigured && overseerrChecked && !alreadyRequested && !requestSuccess && !!effectiveTmdbId && !!effectiveMediaType
+  const canRequest = overseerrConfigured && overseerrChecked && !alreadyRequested && !!effectiveTmdbId && !!effectiveMediaType
 
   const handleRequest = useCallback(async () => {
     if (!effectiveTmdbId || !effectiveMediaType) return
@@ -78,8 +76,17 @@ export function useOverseerrRequest({
         mediaId: Number(effectiveTmdbId),
       }
       if (effectiveMediaType === 'tv') body.seasons = selectedSeasons
-      await api.post('/api/overseerr/requests', body)
-      setRequestSuccess(true)
+      const created = await api.post<OverseerrRequest>('/api/overseerr/requests', body)
+      // Optimistically reflect the new request so the modal shows the
+      // "already requested" state (status pill + requester) without a reopen.
+      const newStatus = created?.media?.status
+      setOverseerrStatus(newStatus && newStatus > MEDIA_STATUS.UNKNOWN ? newStatus : MEDIA_STATUS.PENDING)
+      if (created?.requestedBy) setOverseerrRequests(prev => [...prev, created])
+      // Clear the season selection. For a partially-available show the status
+      // stays PARTIALLY_AVAILABLE (still requestable), so this disables the
+      // button until the user picks new seasons — preventing a duplicate submit.
+      setAllSeasons(false)
+      setSelectedSeasons([])
       dispatchRequestChanged()
     } catch (err) {
       setRequestError(err instanceof Error ? err.message : String(err))
@@ -113,7 +120,6 @@ export function useOverseerrRequest({
     overseerrStatus,
     overseerrRequests,
     requesting,
-    requestSuccess,
     requestError,
     selectedSeasons,
     allSeasons,

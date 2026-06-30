@@ -210,6 +210,40 @@ describe('MediaDetailModal', () => {
       renderShowDetail(null, false)
       expect(screen.getByText('Failed to load item details')).toBeInTheDocument()
     })
+
+    it('reflects the requested state immediately after clicking Request (no reopen)', async () => {
+      vi.mocked(useAuth).mockReturnValue({ user: { role: 'admin' }, loading: false } as ReturnType<typeof useAuth>)
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.UNKNOWN)
+      vi.mocked(api.post).mockResolvedValue({
+        id: 99,
+        media: { status: MEDIA_STATUS.PROCESSING },
+        requestedBy: { id: 5, plexUsername: 'me', avatar: '' },
+      })
+      render(
+        <MemoryRouter>
+          <ShowDetail
+            item={{ ...mockItem, tmdb_id: 27205 }}
+            loading={false}
+            onClose={() => {}}
+            pushModal={() => {}}
+            active={true}
+            overseerrConfigured={true}
+          />
+        </MemoryRouter>,
+      )
+
+      const button = await screen.findByText('Request Movie')
+      fireEvent.click(button)
+
+      // The small status badge flips to Processing and the request button is
+      // gone, without closing/reopening the modal.
+      await waitFor(() => {
+        expect(screen.getByText('Processing')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Request Movie')).not.toBeInTheDocument()
+      expect(screen.getByText('Originally Requested')).toBeInTheDocument()
+      expect(screen.getByText('me')).toBeInTheDocument()
+    })
   })
 
   describe('TMDB movie entry', () => {
@@ -356,6 +390,50 @@ describe('MediaDetailModal', () => {
       expect(screen.queryByText('alice')).not.toBeInTheDocument()
     })
 
+    it('reflects the requested state immediately after clicking Request (no reopen)', async () => {
+      vi.mocked(useAuth).mockReturnValue({ user: { role: 'admin' }, loading: false } as ReturnType<typeof useAuth>)
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.UNKNOWN)
+      vi.mocked(api.post).mockResolvedValue({
+        id: 99,
+        media: { status: MEDIA_STATUS.PROCESSING },
+        requestedBy: { id: 5, plexUsername: 'me', avatar: '' },
+      })
+      render(
+        <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      const button = await screen.findByText('Request Movie')
+      fireEvent.click(button)
+
+      // Without closing/reopening, the modal flips to the "already requested"
+      // state: processing pill + requester line, request button gone.
+      await waitFor(() => {
+        expect(screen.getByText('Already Requested')).toBeInTheDocument()
+      })
+      expect(screen.getAllByText('Processing')).toHaveLength(1)
+      expect(screen.getByText('Requested by')).toBeInTheDocument()
+      expect(screen.getByText('me')).toBeInTheDocument()
+      expect(screen.queryByText('Request Movie')).not.toBeInTheDocument()
+    })
+
+    it('falls back to a pending pill when the request response omits a media status', async () => {
+      vi.mocked(useAuth).mockReturnValue({ user: { role: 'admin' }, loading: false } as ReturnType<typeof useAuth>)
+      mockTMDBApi('movie', mockTMDBMovieResponse, MEDIA_STATUS.UNKNOWN)
+      vi.mocked(api.post).mockResolvedValue({ id: 100 })
+      render(
+        <MediaDetailModal mediaType="movie" mediaId={27205} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      const button = await screen.findByText('Request Movie')
+      fireEvent.click(button)
+
+      await waitFor(() => {
+        expect(screen.getByText('Already Requested')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Pending Approval')).toBeInTheDocument()
+      expect(screen.queryByText('Request Movie')).not.toBeInTheDocument()
+    })
+
     it('shows fetch error when API call fails', async () => {
       vi.mocked(api.get).mockRejectedValue(new Error('Network error'))
       render(
@@ -428,6 +506,24 @@ describe('MediaDetailModal', () => {
       expect(screen.getByLabelText('Season 1')).toBeInTheDocument()
       expect(screen.getByLabelText('Season 2')).toBeInTheDocument()
       expect(screen.getByLabelText('Season 3')).toBeInTheDocument()
+    })
+
+    it('disables re-submission of a partially-available TV show after a successful request', async () => {
+      mockTMDBApi('tv', mockTMDBTVResponse, MEDIA_STATUS.PARTIALLY_AVAILABLE)
+      // Overseerr keeps reporting PARTIALLY_AVAILABLE after a new-season request,
+      // so the show stays requestable — the cleared selection must guard re-submit.
+      vi.mocked(api.post).mockResolvedValue({ id: 77, media: { status: MEDIA_STATUS.PARTIALLY_AVAILABLE } })
+      render(
+        <MediaDetailModal mediaType="tv" mediaId={1396} overseerrConfigured={true} onClose={() => {}} />,
+      )
+
+      const button = await screen.findByRole('button', { name: 'Request More' })
+      expect(button).not.toBeDisabled()
+      fireEvent.click(button)
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Request More' })).toBeDisabled()
+      })
     })
 
     it('hides request button for already-requested TV show', async () => {

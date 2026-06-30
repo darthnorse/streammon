@@ -86,7 +86,6 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
     overseerrStatus,
     overseerrRequests,
     requesting,
-    requestSuccess,
     requestError,
     selectedSeasons,
     allSeasons,
@@ -103,7 +102,7 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
 
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
-  const showRequestedPill = !requestSuccess && (overseerrStatus === MEDIA_STATUS.PENDING || overseerrStatus === MEDIA_STATUS.PROCESSING)
+  const showRequestedPill = overseerrStatus === MEDIA_STATUS.PENDING || overseerrStatus === MEDIA_STATUS.PROCESSING
   const distinctRequesters = useMemo(() => dedupRequesters(overseerrRequests), [overseerrRequests])
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -372,20 +371,14 @@ export function MediaDetailModal(props: MediaDetailModalProps) {
 
               {canRequest && (
                 <div className="border-t border-border dark:border-border-dark pt-4">
-                  {requestSuccess ? (
-                    <div className="text-sm text-green-600 dark:text-green-400 font-medium">
-                      Request submitted successfully!
-                    </div>
-                  ) : (
-                    <button
-                      onClick={handleRequest}
-                      disabled={requesting || (effectiveMediaType === 'tv' && !allSeasons && selectedSeasons.length === 0)}
-                      className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-accent text-gray-900
-                                 hover:bg-accent/90 disabled:opacity-50 transition-colors"
-                    >
-                      {requestButtonLabel(requesting, overseerrStatus, effectiveMediaType)}
-                    </button>
-                  )}
+                  <button
+                    onClick={handleRequest}
+                    disabled={requesting || (effectiveMediaType === 'tv' && !allSeasons && selectedSeasons.length === 0)}
+                    className="px-5 py-2.5 text-sm font-semibold rounded-lg bg-accent text-gray-900
+                               hover:bg-accent/90 disabled:opacity-50 transition-colors"
+                  >
+                    {requestButtonLabel(requesting, overseerrStatus, effectiveMediaType)}
+                  </button>
                   {requestError && (
                     <div className="text-sm text-red-500 dark:text-red-400 mt-2">{requestError}</div>
                   )}
