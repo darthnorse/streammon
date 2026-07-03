@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -1218,6 +1219,89 @@ func TestConcurrentStreamsOverTimeHourlyBucketing(t *testing.T) {
 	// we should have far fewer than 20 data points due to hourly bucketing
 	if len(points) > 5 {
 		t.Errorf("expected hourly bucketing to reduce points, got %d", len(points))
+	}
+}
+
+// TestConcurrentStreamsHalfOpenIntervals verifies that a session which ends
+// exactly when the next one begins is never counted as 2 concurrent streams
+// (half-open interval semantics: stop events sort before start events at the
+// same instant). This is the trickiest part of loadConcurrentEvents'
+// sweep-line ordering to preserve when changing its implementation.
+func TestConcurrentStreamsHalfOpenIntervals(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	ctx := context.Background()
+
+	base := time.Now().UTC().Add(-24 * time.Hour)
+
+	// Session A: 0:00 - 1:00
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: base, StoppedAt: base.Add(time.Hour),
+	})
+	// Session B: starts exactly when A stops, 1:00 - 2:00
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "M2", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: base.Add(time.Hour), StoppedAt: base.Add(2 * time.Hour),
+	})
+
+	_, peaks, err := s.ConcurrentStats(ctx, StatsFilter{})
+	if err != nil {
+		t.Fatalf("ConcurrentStats: %v", err)
+	}
+
+	if peaks.Total != 1 {
+		t.Errorf("total peak = %d, want 1 (back-to-back sessions must not overlap)", peaks.Total)
+	}
+}
+
+// TestConcurrentStreamsDefaultIsBounded verifies that ConcurrentStats with no
+// explicit range (StatsFilter{}, the same request shape as the frontend's
+// "All Time" selection) no longer scans the full watch_history table: a
+// session older than concurrentStatsDefaultDays must be excluded from the
+// default peak, while an explicit range still reaches it unbounded-within-range.
+func TestConcurrentStreamsDefaultIsBounded(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	ctx := context.Background()
+
+	// Old phase, well outside the default window: 3 overlapping sessions.
+	old := time.Now().UTC().AddDate(0, 0, -(concurrentStatsDefaultDays + 30))
+	for i, user := range []string{"alice", "bob", "carol"} {
+		s.InsertHistory(&models.WatchHistoryEntry{
+			ServerID: serverID, UserName: user, MediaType: models.MediaTypeMovie,
+			Title: fmt.Sprintf("Old%d", i), TranscodeDecision: models.TranscodeDecisionDirectPlay,
+			StartedAt: old, StoppedAt: old.Add(time.Hour),
+		})
+	}
+
+	// Recent, single session inside the default window.
+	recent := time.Now().UTC().Add(-24 * time.Hour)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "dave", MediaType: models.MediaTypeMovie,
+		Title: "Recent", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: recent, StoppedAt: recent.Add(time.Hour),
+	})
+
+	// Default (no explicit range): old phase must be excluded.
+	_, peaks, err := s.ConcurrentStats(ctx, StatsFilter{})
+	if err != nil {
+		t.Fatalf("ConcurrentStats: %v", err)
+	}
+	if peaks.Total != 1 {
+		t.Errorf("default (no range) total peak = %d, want 1 (the >%d-day-old phase must be excluded)",
+			peaks.Total, concurrentStatsDefaultDays)
+	}
+
+	// Explicit range wide enough to include the old phase: must be honored exactly.
+	_, peaks, err = s.ConcurrentStats(ctx, StatsFilter{Days: concurrentStatsDefaultDays + 60})
+	if err != nil {
+		t.Fatalf("ConcurrentStats (explicit range): %v", err)
+	}
+	if peaks.Total != 3 {
+		t.Errorf("explicit wide-range total peak = %d, want 3 (explicit range must not be capped)", peaks.Total)
 	}
 }
 

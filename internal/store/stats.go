@@ -311,6 +311,28 @@ func (s *Store) LibraryStats(ctx context.Context, filter StatsFilter) (*models.L
 	return &stats, nil
 }
 
+// concurrentStatsDefaultDays bounds the peak-concurrent-streams computation
+// to the most recent year whenever the caller supplies no explicit range at
+// all (no `days`, no start/end date - the same request shape produced by the
+// frontend's "All Time" selection, since there is no separate wire signal
+// for "explicitly unbounded" vs. "no range given"). Without this, that
+// request forces a full watch_history scan whose cost grows without bound as
+// history accumulates.
+//
+// Any explicit range - including a caller-supplied `days` larger than this
+// constant, or an explicit start/end date - is always honored exactly; only
+// the true default (StatsFilter{}) is capped.
+const concurrentStatsDefaultDays = 365
+
+// boundedForConcurrentStats returns f with a default lookback window applied
+// when no explicit range was requested. See concurrentStatsDefaultDays.
+func (f StatsFilter) boundedForConcurrentStats() StatsFilter {
+	if f.Days == 0 && f.StartDate.IsZero() && f.EndDate.IsZero() {
+		f.Days = concurrentStatsDefaultDays
+	}
+	return f
+}
+
 type concurrentEvent struct {
 	t        time.Time
 	delta    int
@@ -327,7 +349,7 @@ func (s *Store) loadConcurrentEvents(ctx context.Context, filter StatsFilter) ([
 	}
 	defer rows.Close()
 
-	var events []concurrentEvent
+	events := make([]concurrentEvent, 0, 512)
 	for rows.Next() {
 		var start, stop time.Time
 		var decision string
@@ -354,8 +376,16 @@ func (s *Store) loadConcurrentEvents(ctx context.Context, filter StatsFilter) ([
 	return events, nil
 }
 
+// ConcurrentStats returns the hourly concurrent-stream time series and peak
+// concurrency counts for the given filter. A true default (no explicit
+// range) is capped to concurrentStatsDefaultDays before hitting the store -
+// see boundedForConcurrentStats - so the unbounded watch_history scan this
+// query used to run on every "All Time" request no longer grows without
+// bound as history accumulates. Events come back time-sorted from a single
+// query, so peaks and hourly points are reduced in one forward pass with no
+// second sort and no map.
 func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]models.ConcurrentTimePoint, models.ConcurrentPeaks, error) {
-	events, err := s.loadConcurrentEvents(ctx, filter)
+	events, err := s.loadConcurrentEvents(ctx, filter.boundedForConcurrentStats())
 	if err != nil {
 		return nil, models.ConcurrentPeaks{}, err
 	}
@@ -365,7 +395,7 @@ func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]mode
 
 	var peaks models.ConcurrentPeaks
 	var peakTime time.Time
-	hourlyMax := make(map[time.Time]models.ConcurrentTimePoint)
+	points := make([]models.ConcurrentTimePoint, 0, 64)
 	var directPlay, directStream, transcode int
 
 	for _, ev := range events {
@@ -393,29 +423,27 @@ func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]mode
 			peaks.Transcode = transcode
 		}
 
+		// Events arrive time-sorted, so the hour bucket only ever advances -
+		// no map, no second sort needed to reduce to one point per hour.
 		hourBucket := ev.t.Truncate(time.Hour)
-		if existing, ok := hourlyMax[hourBucket]; !ok || total > existing.Total {
-			hourlyMax[hourBucket] = models.ConcurrentTimePoint{
-				Time:         hourBucket,
-				DirectPlay:   directPlay,
-				DirectStream: directStream,
-				Transcode:    transcode,
-				Total:        total,
+		if n := len(points); n > 0 && points[n-1].Time.Equal(hourBucket) {
+			if total > points[n-1].Total {
+				points[n-1] = models.ConcurrentTimePoint{
+					Time: hourBucket, DirectPlay: directPlay, DirectStream: directStream,
+					Transcode: transcode, Total: total,
+				}
 			}
+		} else {
+			points = append(points, models.ConcurrentTimePoint{
+				Time: hourBucket, DirectPlay: directPlay, DirectStream: directStream,
+				Transcode: transcode, Total: total,
+			})
 		}
 	}
 
 	if !peakTime.IsZero() {
 		peaks.PeakAt = peakTime.Format(time.RFC3339)
 	}
-
-	points := make([]models.ConcurrentTimePoint, 0, len(hourlyMax))
-	for _, p := range hourlyMax {
-		points = append(points, p)
-	}
-	sort.Slice(points, func(i, j int) bool {
-		return points[i].Time.Before(points[j].Time)
-	})
 
 	return points, peaks, nil
 }
