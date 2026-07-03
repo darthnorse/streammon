@@ -208,12 +208,43 @@ func TestDailyWatchCounts(t *testing.T) {
 	start := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 6, 3, 0, 0, 0, 0, time.UTC)
 
-	stats, err := s.DailyWatchCountsForUser(start, end, "", nil)
+	stats, err := s.DailyWatchCountsForUser(start, end, "", nil, 0)
 	if err != nil {
 		t.Fatalf("DailyWatchCountsForUser: %v", err)
 	}
 	if len(stats) != 2 {
 		t.Fatalf("expected 2 days, got %d", len(stats))
+	}
+}
+
+func TestDailyWatchCountsWithTZOffset(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	serverID := seedServer(t, s)
+	// 2024-01-09 04:30 UTC falls on 2024-01-08 for a -05:00 zone.
+	utcTime := time.Date(2024, 1, 9, 4, 30, 0, 0, time.UTC)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "u", MediaType: models.MediaTypeMovie,
+		Title: "M1", StartedAt: utcTime, StoppedAt: utcTime.Add(time.Hour),
+	})
+
+	start := time.Date(2024, 1, 8, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2024, 1, 10, 0, 0, 0, 0, time.UTC)
+
+	utcStats, err := s.DailyWatchCountsForUser(start, end, "", nil, 0)
+	if err != nil {
+		t.Fatalf("DailyWatchCountsForUser(UTC): %v", err)
+	}
+	if len(utcStats) != 1 || utcStats[0].Date != "2024-01-09" {
+		t.Fatalf("UTC: got %+v, want single day 2024-01-09", utcStats)
+	}
+
+	localStats, err := s.DailyWatchCountsForUser(start, end, "", nil, -300)
+	if err != nil {
+		t.Fatalf("DailyWatchCountsForUser(-300): %v", err)
+	}
+	if len(localStats) != 1 || localStats[0].Date != "2024-01-08" {
+		t.Fatalf("offset -300: got %+v, want single day 2024-01-08", localStats)
 	}
 }
 
@@ -223,7 +254,7 @@ func TestDailyWatchCountsEmpty(t *testing.T) {
 	start := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
 	end := time.Date(2024, 6, 3, 0, 0, 0, 0, time.UTC)
 
-	stats, err := s.DailyWatchCountsForUser(start, end, "", nil)
+	stats, err := s.DailyWatchCountsForUser(start, end, "", nil, 0)
 	if err != nil {
 		t.Fatalf("DailyWatchCountsForUser: %v", err)
 	}
@@ -2350,7 +2381,7 @@ func TestHistoryForItemAcrossServers_LimitClampsMergedResult(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		if err := s.InsertHistory(&models.WatchHistoryEntry{
 			ServerID: sid1, ItemID: "movie-a", UserName: fmt.Sprintf("user%d", i), MediaType: models.MediaTypeMovie,
-			Title: "Inception",
+			Title:     "Inception",
 			StartedAt: base.Add(time.Duration(i) * 40 * time.Minute),
 			StoppedAt: base.Add(time.Duration(i)*40*time.Minute + time.Hour),
 		}); err != nil {
@@ -2358,7 +2389,7 @@ func TestHistoryForItemAcrossServers_LimitClampsMergedResult(t *testing.T) {
 		}
 		if err := s.InsertHistory(&models.WatchHistoryEntry{
 			ServerID: sid2, ItemID: "movie-b", UserName: fmt.Sprintf("other%d", i), MediaType: models.MediaTypeMovie,
-			Title: "Inception",
+			Title:     "Inception",
 			StartedAt: base.Add(time.Duration(i)*40*time.Minute + 20*time.Minute),
 			StoppedAt: base.Add(time.Duration(i)*40*time.Minute + 20*time.Minute + time.Hour),
 		}); err != nil {

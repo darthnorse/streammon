@@ -47,6 +47,33 @@ func parseServerIDs(raw string) ([]int64, error) {
 	return ids, nil
 }
 
+// tz offset bounds in minutes east of UTC. ±14:00 covers every real-world
+// timezone (e.g. +14:00 Kiribati, -12:00 Baker Island).
+const (
+	tzOffsetMinMinutes = -840
+	tzOffsetMaxMinutes = 840
+)
+
+// parseTZOffset reads the optional "tz_offset" query param (minutes east of
+// UTC). Absent means 0 (UTC). Out-of-range values are clamped; a non-numeric
+// value is an error.
+func parseTZOffset(r *http.Request) (int, error) {
+	raw := r.URL.Query().Get("tz_offset")
+	if raw == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid tz_offset: %s", raw)
+	}
+	if n < tzOffsetMinMinutes {
+		n = tzOffsetMinMinutes
+	} else if n > tzOffsetMaxMinutes {
+		n = tzOffsetMaxMinutes
+	}
+	return n, nil
+}
+
 func viewerName(r *http.Request) string {
 	user := UserFromContext(r.Context())
 	if user != nil && user.Role == models.RoleViewer {

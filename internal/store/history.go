@@ -330,9 +330,18 @@ func (s *Store) SearchHistory(page, perPage int, userFilter, search, sortColumn,
 	}, nil
 }
 
-func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string, serverIDs []int64) ([]models.DayStat, error) {
+func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string, serverIDs []int64, tzOffsetMinutes int) ([]models.DayStat, error) {
 	conditions := []string{"started_at >= ?", "started_at < ?", minPlayCond("")}
-	args := []any{start, end}
+
+	// The tz modifier '?' is the first placeholder in the SELECT, so its arg
+	// must precede the WHERE-clause args.
+	dayExpr := "date(started_at)"
+	var args []any
+	if mod, ok := tzModifier(tzOffsetMinutes); ok {
+		dayExpr = "date(started_at, ?)"
+		args = append(args, mod)
+	}
+	args = append(args, start, end)
 
 	if userFilter != "" {
 		conditions = append(conditions, "user_name = ?")
@@ -346,7 +355,7 @@ func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string,
 		}
 	}
 
-	query := `SELECT date(started_at) AS day, media_type, COUNT(*) AS cnt
+	query := `SELECT ` + dayExpr + ` AS day, media_type, COUNT(*) AS cnt
 		FROM watch_history
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		GROUP BY day, media_type

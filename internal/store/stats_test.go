@@ -340,7 +340,7 @@ func TestConcurrentStreamsPeakByTypeEmptyDecision(t *testing.T) {
 	// Session with empty transcode_decision (e.g. music, old imported data)
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMusic,
-		Title: "Song1",
+		Title:     "Song1",
 		StartedAt: base, StoppedAt: base.Add(5 * time.Minute),
 	})
 	// Session with explicit direct play
@@ -903,6 +903,100 @@ func TestActivityByHourEmpty(t *testing.T) {
 	}
 }
 
+func TestTZModifier(t *testing.T) {
+	cases := []struct {
+		offset int
+		want   string
+		apply  bool
+	}{
+		{0, "", false},
+		{-300, "-05:00", true}, // US Eastern (EST)
+		{60, "+01:00", true},   // CET
+		{330, "+05:30", true},  // India (half hour)
+		{765, "+12:45", true},  // Chatham Islands (45 min)
+		{-840, "-14:00", true}, // clamp lower bound
+		{840, "+14:00", true},  // clamp upper bound
+		{-45, "-00:45", true},  // sub-hour negative
+	}
+	for _, c := range cases {
+		got, apply := tzModifier(c.offset)
+		if apply != c.apply || got != c.want {
+			t.Errorf("tzModifier(%d) = (%q, %v), want (%q, %v)", c.offset, got, apply, c.want, c.apply)
+		}
+	}
+}
+
+func TestActivityByHourWithTZOffset(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	// Stored UTC timestamp 04:30 corresponds to 23:30 the previous local day
+	// for a -05:00 zone.
+	utcTime := time.Date(2024, 1, 9, 4, 30, 0, 0, time.UTC)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", StartedAt: utcTime, StoppedAt: utcTime.Add(time.Hour),
+	})
+
+	ctx := context.Background()
+
+	cases := []struct {
+		offset   int
+		wantHour int
+	}{
+		{0, 4},     // UTC path (regression)
+		{-300, 23}, // -05:00 -> 04:30 - 5h = 23:30 prev day
+		{330, 10},  // +05:30 -> 04:30 + 5:30 = 10:00
+		{765, 17},  // +12:45 -> 04:30 + 12:45 = 17:15
+	}
+	for _, c := range cases {
+		stats, err := s.ActivityByHour(ctx, StatsFilter{TZOffsetMinutes: c.offset})
+		if err != nil {
+			t.Fatalf("ActivityByHour(offset=%d): %v", c.offset, err)
+		}
+		for h, st := range stats {
+			want := 0
+			if h == c.wantHour {
+				want = 1
+			}
+			if st.PlayCount != want {
+				t.Errorf("offset=%d hour %d play_count = %d, want %d", c.offset, h, st.PlayCount, want)
+			}
+		}
+	}
+}
+
+func TestActivityByDayOfWeekWithTZOffset(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	// 2024-01-09 04:30 UTC is a Tuesday (%w=2). With a -05:00 offset the local
+	// time is 2024-01-08 23:30, a Monday (%w=1).
+	utcTime := time.Date(2024, 1, 9, 4, 30, 0, 0, time.UTC)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", StartedAt: utcTime, StoppedAt: utcTime.Add(time.Hour),
+	})
+
+	ctx := context.Background()
+
+	utcStats, err := s.ActivityByDayOfWeek(ctx, StatsFilter{})
+	if err != nil {
+		t.Fatalf("ActivityByDayOfWeek(UTC): %v", err)
+	}
+	if utcStats[2].PlayCount != 1 || utcStats[1].PlayCount != 0 {
+		t.Errorf("UTC: Tue=%d Mon=%d, want Tue=1 Mon=0", utcStats[2].PlayCount, utcStats[1].PlayCount)
+	}
+
+	localStats, err := s.ActivityByDayOfWeek(ctx, StatsFilter{TZOffsetMinutes: -300})
+	if err != nil {
+		t.Fatalf("ActivityByDayOfWeek(-300): %v", err)
+	}
+	if localStats[1].PlayCount != 1 || localStats[2].PlayCount != 0 {
+		t.Errorf("offset -300: Mon=%d Tue=%d, want Mon=1 Tue=0", localStats[1].PlayCount, localStats[2].PlayCount)
+	}
+}
+
 func TestPlatformDistribution(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)
@@ -1379,7 +1473,7 @@ func TestMinPlayDurationFilter(t *testing.T) {
 	t.Run("DailyWatchCounts", func(t *testing.T) {
 		start := now.Truncate(24 * time.Hour)
 		end := start.Add(48 * time.Hour)
-		days, err := s.DailyWatchCountsForUser(start, end, "", nil)
+		days, err := s.DailyWatchCountsForUser(start, end, "", nil, 0)
 		if err != nil {
 			t.Fatalf("DailyWatchCounts: %v", err)
 		}
@@ -1475,4 +1569,3 @@ func TestMinPlayDurationBoundary(t *testing.T) {
 		t.Errorf("TotalPlays = %d, want 1 (boundary included, just-under excluded)", lib.TotalPlays)
 	}
 }
-

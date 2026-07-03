@@ -163,7 +163,13 @@ func (s *Server) handleDailyHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.store.DailyWatchCountsForUser(start, end, userFilter, serverIDs)
+	tzOffset, err := parseTZOffset(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tz_offset")
+		return
+	}
+
+	stats, err := s.store.DailyWatchCountsForUser(start, end, userFilter, serverIDs, tzOffset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return

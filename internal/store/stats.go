@@ -56,6 +56,25 @@ type StatsFilter struct {
 	StartDate time.Time
 	EndDate   time.Time
 	ServerIDs []int64
+	// TZOffsetMinutes is the caller's timezone offset in minutes east of UTC,
+	// used only for day/hour bucketing. Zero (the default) buckets in UTC.
+	TZOffsetMinutes int
+}
+
+// tzModifier builds a SQLite '±HH:MM' datetime modifier from an offset in
+// minutes east of UTC. The bool is false when the offset is zero (UTC) so
+// callers can omit the modifier entirely and keep the plain-UTC query.
+func tzModifier(offsetMinutes int) (string, bool) {
+	if offsetMinutes == 0 {
+		return "", false
+	}
+	sign := "+"
+	m := offsetMinutes
+	if m < 0 {
+		sign = "-"
+		m = -m
+	}
+	return fmt.Sprintf("%s%02d:%02d", sign, m/60, m%60), true
 }
 
 func (f StatsFilter) timeConditionWith(alias string) (string, []any) {
@@ -107,9 +126,11 @@ func (f StatsFilter) conditionsWithPrefix(prefix, alias string) (string, []any) 
 	return prefix + strings.Join(conds, " AND "), args
 }
 
-func (f StatsFilter) conditions() (string, []any)                  { return f.conditionsWithPrefix(" WHERE ", "") }
-func (f StatsFilter) andConditions() (string, []any)               { return f.conditionsWithPrefix(" AND ", "") }
-func (f StatsFilter) andConditionsWith(alias string) (string, []any) { return f.conditionsWithPrefix(" AND ", alias) }
+func (f StatsFilter) conditions() (string, []any)    { return f.conditionsWithPrefix(" WHERE ", "") }
+func (f StatsFilter) andConditions() (string, []any) { return f.conditionsWithPrefix(" AND ", "") }
+func (f StatsFilter) andConditionsWith(alias string) (string, []any) {
+	return f.conditionsWithPrefix(" AND ", alias)
+}
 
 type topMediaConfig struct {
 	selectCol  string
@@ -332,7 +353,6 @@ func (s *Store) loadConcurrentEvents(ctx context.Context, filter StatsFilter) ([
 
 	return events, nil
 }
-
 
 func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]models.ConcurrentTimePoint, models.ConcurrentPeaks, error) {
 	events, err := s.loadConcurrentEvents(ctx, filter)
@@ -573,12 +593,20 @@ func (s *Store) activityCounts(ctx context.Context, filter StatsFilter, strftime
 
 	whereClause, filterArgs := filter.conditions()
 
-	query := fmt.Sprintf(`SELECT CAST(strftime('%s', started_at) AS INTEGER) as bucket, COUNT(*) as play_count
-		FROM watch_history`, strftimeFmt)
+	bucketExpr := fmt.Sprintf("strftime('%s', started_at)", strftimeFmt)
+	var args []any
+	if mod, ok := tzModifier(filter.TZOffsetMinutes); ok {
+		bucketExpr = fmt.Sprintf("strftime('%s', started_at, ?)", strftimeFmt)
+		args = append(args, mod)
+	}
+	args = append(args, filterArgs...)
+
+	query := fmt.Sprintf(`SELECT CAST(%s AS INTEGER) as bucket, COUNT(*) as play_count
+		FROM watch_history`, bucketExpr)
 	query += whereClause
 	query += ` GROUP BY bucket ORDER BY bucket`
 
-	rows, err := s.db.QueryContext(ctx, query, filterArgs...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", errContext, err)
 	}
@@ -599,7 +627,8 @@ func (s *Store) activityCounts(ctx context.Context, filter StatsFilter, strftime
 	return counts, nil
 }
 
-// Day/hour calculations are based on UTC timestamps, not user local time.
+// Day/hour bucketing uses filter.TZOffsetMinutes to shift UTC timestamps to
+// the caller's local time; an absent/zero offset buckets in UTC.
 func (s *Store) ActivityByDayOfWeek(ctx context.Context, filter StatsFilter) ([]models.DayOfWeekStat, error) {
 	counts, err := s.activityCounts(ctx, filter, "%w", "activity by day of week")
 	if err != nil {
@@ -683,5 +712,3 @@ func (s *Store) distribution(ctx context.Context, filter StatsFilter, column, er
 
 	return stats, nil
 }
-
-

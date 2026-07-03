@@ -118,6 +118,57 @@ func TestGetStatsAPI_WithData(t *testing.T) {
 	}
 }
 
+func TestGetStatsAPI_TZOffset(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+
+	s := &models.Server{Name: "S", Type: models.ServerTypePlex, URL: "http://s", APIKey: "k", Enabled: true}
+	st.CreateServer(s)
+
+	// 2024-01-09 04:30 UTC (Tuesday). With tz_offset=-300 local is
+	// 2024-01-08 23:30 (Monday) -> hour 23.
+	utcTime := time.Date(2024, 1, 9, 4, 30, 0, 0, time.UTC)
+	st.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: s.ID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", StartedAt: utcTime, StoppedAt: utcTime.Add(time.Hour),
+	})
+
+	fetch := func(url string) StatsResponse {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, url, nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d: %s", url, w.Code, w.Body.String())
+		}
+		var resp StatsResponse
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return resp
+	}
+
+	utc := fetch("/api/stats")
+	if utc.ActivityByHour[4].PlayCount != 1 || utc.ActivityByDayOfWeek[2].PlayCount != 1 {
+		t.Fatalf("UTC: hour4=%d tue=%d, want 1/1", utc.ActivityByHour[4].PlayCount, utc.ActivityByDayOfWeek[2].PlayCount)
+	}
+
+	local := fetch("/api/stats?tz_offset=-300")
+	if local.ActivityByHour[23].PlayCount != 1 || local.ActivityByHour[4].PlayCount != 0 {
+		t.Fatalf("offset -300: hour23=%d hour4=%d, want 1/0", local.ActivityByHour[23].PlayCount, local.ActivityByHour[4].PlayCount)
+	}
+	if local.ActivityByDayOfWeek[1].PlayCount != 1 || local.ActivityByDayOfWeek[2].PlayCount != 0 {
+		t.Fatalf("offset -300: mon=%d tue=%d, want 1/0", local.ActivityByDayOfWeek[1].PlayCount, local.ActivityByDayOfWeek[2].PlayCount)
+	}
+
+	// Non-numeric offset is rejected.
+	req := httptest.NewRequest(http.MethodGet, "/api/stats?tz_offset=abc", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("non-numeric tz_offset: expected 400, got %d", w.Code)
+	}
+}
+
 func TestGetStatsAPI_WithLocations(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
