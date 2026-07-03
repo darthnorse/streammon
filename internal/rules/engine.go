@@ -16,13 +16,6 @@ import (
 
 const defaultAutoTerminateMessage = "Your stream has been terminated due to a policy violation."
 
-// Detail keys used to pass termination target info from evaluators to the engine.
-const (
-	DetailKeyTerminateServerID  = "terminate_server_id"
-	DetailKeyTerminateSessionID = "terminate_session_id"
-	DetailKeyTerminatePlexUUID  = "terminate_plex_session_uuid"
-)
-
 type terminateConfig struct {
 	Enabled bool
 	Message string
@@ -237,17 +230,12 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *models.Rule, evaluator 
 
 		switch rule.Type {
 		case models.RuleTypeConcurrentStreams:
-			// Target: newest stream (identifiers in violation details)
-			if d := result.Violation.Details; d != nil {
-				if v, ok := d[DetailKeyTerminateServerID].(int64); ok {
-					serverID = v
-				}
-				if v, ok := d[DetailKeyTerminateSessionID].(string); ok {
-					sessionID = v
-				}
-				if v, ok := d[DetailKeyTerminatePlexUUID].(string); ok {
-					plexUUID = v
-				}
+			// Target: newest stream, supplied out-of-band by the evaluator
+			// (not persisted on the violation).
+			if t := result.TerminateTarget; t != nil {
+				serverID = t.ServerID
+				sessionID = t.SessionID
+				plexUUID = t.PlexSessionUUID
 			}
 		default:
 			// Target: the stream being evaluated

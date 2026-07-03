@@ -92,13 +92,10 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 		Severity: determineSeverity(streamCount, config.MaxStreams),
 		Message:  fmt.Sprintf("%d concurrent streams detected (max: %d)", streamCount, config.MaxStreams),
 		Details: map[string]interface{}{
-			"stream_count":                streamCount,
-			"max_allowed":                 config.MaxStreams,
-			"locations":                   locations,
-			"devices":                     devices,
-			DetailKeyTerminateServerID:  newest.ServerID,
-			DetailKeyTerminateSessionID: newest.SessionID,
-			DetailKeyTerminatePlexUUID:  newest.PlexSessionUUID,
+			"stream_count": streamCount,
+			"max_allowed":  config.MaxStreams,
+			"locations":    locations,
+			"devices":      devices,
 		},
 		ConfidenceScore: confidence,
 		OccurredAt:      time.Now().UTC(),
@@ -107,6 +104,11 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 	return &EvaluationResult{
 		Violation: violation,
 		Signals:   signals,
+		TerminateTarget: &TerminateTarget{
+			ServerID:        newest.ServerID,
+			SessionID:       newest.SessionID,
+			PlexSessionUUID: newest.PlexSessionUUID,
+		},
 	}, nil
 }
 

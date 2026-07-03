@@ -267,6 +267,22 @@ func TestConcurrentStreamsEvaluator_ViolationDetails(t *testing.T) {
 	if len(result.Signals) == 0 {
 		t.Error("expected signals to be populated")
 	}
+
+	// Termination routing must never be persisted on the violation (it's
+	// serialized to JSON and returned by GET /api/violations) — it belongs
+	// solely on the non-persisted EvaluationResult.TerminateTarget.
+	for _, key := range []string{"terminate_server_id", "terminate_session_id", "terminate_plex_session_uuid"} {
+		if _, present := v.Details[key]; present {
+			t.Errorf("Violation.Details unexpectedly contains %q; termination routing must not be persisted", key)
+		}
+	}
+
+	if result.TerminateTarget == nil {
+		t.Fatal("expected TerminateTarget to be set")
+	}
+	if result.TerminateTarget.SessionID != "b" {
+		t.Errorf("TerminateTarget.SessionID = %q, want %q (newest stream)", result.TerminateTarget.SessionID, "b")
+	}
 }
 
 func TestConcurrentStreamsEvaluator_CountPausedAsOne(t *testing.T) {
@@ -373,7 +389,10 @@ func TestConcurrentStreamsEvaluator_CountPausedAsOne(t *testing.T) {
 		// paused streams collapsed to a single representative, that
 		// representative must never be preferred over a genuinely active
 		// stream, even if it is nominally "newer" by StartedAt.
-		sessionID, _ := result.Violation.Details[DetailKeyTerminateSessionID].(string)
+		if result.TerminateTarget == nil {
+			t.Fatal("expected TerminateTarget to be set")
+		}
+		sessionID := result.TerminateTarget.SessionID
 		if sessionID != "playing1" && sessionID != "playing2" {
 			t.Errorf("terminate target = %q, want an active session (playing1 or playing2), not a paused one", sessionID)
 		}

@@ -26,6 +26,23 @@ type EvaluationInput struct {
 type EvaluationResult struct {
 	Violation *models.RuleViolation
 	Signals   []models.ViolationSignal
+
+	// TerminateTarget optionally overrides the auto-terminate target the
+	// engine would otherwise derive from the evaluated stream (input.Stream).
+	// Only needed by evaluators — e.g. concurrent streams — whose violation
+	// isn't about the stream being evaluated but about a different stream
+	// (the newest one) that should be terminated instead. Never persisted:
+	// it does not live on models.RuleViolation / Violation.Details, so it
+	// can't leak through GET /api/violations.
+	TerminateTarget *TerminateTarget
+}
+
+// TerminateTarget identifies the session an evaluator wants auto-terminated,
+// when that target differs from the stream under evaluation.
+type TerminateTarget struct {
+	ServerID        int64
+	SessionID       string
+	PlexSessionUUID string
 }
 
 type GeoResolver interface {
