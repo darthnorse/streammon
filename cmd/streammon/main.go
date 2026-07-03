@@ -96,10 +96,10 @@ func main() {
 
 	geoUpdater := geoip.NewUpdater(s, geoResolver, geoDBPath)
 
-	tmdbAPIKey, err := readSecretEnv("TMDB_API_KEY")
-	if err != nil {
-		log.Fatal(err)
-	}
+	// TMDB is an optional integration: an unset/empty key just disables
+	// metadata lookups, so a _FILE read error here must not take down the
+	// whole monitoring app the way TOKEN_ENCRYPTION_KEY's does.
+	tmdbAPIKey := optionalSecret("TMDB_API_KEY")
 	tmdbClient := tmdb.New(tmdbAPIKey, s)
 
 	authMgr := auth.NewManager(s)
@@ -295,21 +295,45 @@ func envOr(key, fallback string) string {
 // as a Docker-secrets-friendly fallback, a file whose path is given by
 // "<name>_FILE" (trailing newline trimmed). The plain env var takes
 // precedence when both are set, so a deployment can override a mounted
-// secret file with an explicit env var without editing the mount.
+// secret file with an explicit env var without editing the mount. If both
+// are set, that shadowing is logged as a warning rather than left silent,
+// since it usually means a leftover env var is masking an intentionally
+// mounted secret file.
 func readSecretEnv(name string) (string, error) {
+	fileVar := name + "_FILE"
+	filePath := os.Getenv(fileVar)
+
 	if v := os.Getenv(name); v != "" {
+		if filePath != "" {
+			log.Printf("WARNING: both %s and %s are set; using %s and ignoring the file", name, fileVar, name)
+		}
 		return v, nil
 	}
-	fileVar := name + "_FILE"
-	path := os.Getenv(fileVar)
-	if path == "" {
+	if filePath == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return "", fmt.Errorf("reading %s: %w", fileVar, err)
 	}
 	return strings.TrimRight(string(data), "\r\n"), nil
+}
+
+// optionalSecret reads a secret via readSecretEnv but treats a read error
+// (e.g. a mis-typed "<name>_FILE" path or a secrets-mount race) as
+// non-fatal: it logs a warning and returns an empty string instead of
+// propagating the error. Use this for secrets that guard optional
+// integrations, where "unset" is already a valid, handled state — as
+// opposed to readSecretEnv's error return, which callers should treat as
+// fatal for secrets startup genuinely can't proceed without (e.g.
+// TOKEN_ENCRYPTION_KEY).
+func optionalSecret(name string) string {
+	v, err := readSecretEnv(name)
+	if err != nil {
+		log.Printf("WARNING: %v; continuing with %s unset", err, name)
+		return ""
+	}
+	return v
 }
 
 // geoAdapter adapts geoip.Resolver to the rules.GeoResolver interface.
