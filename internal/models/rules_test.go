@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -382,6 +383,28 @@ func TestConfigValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("DiscordConfig rejects SSRF-prone URLs", func(t *testing.T) {
+		cases := []struct {
+			url    string
+			errMsg string
+		}{
+			{"http://169.254.169.254/latest/meta-data", "link-local"},
+			{"ftp://discord.com/webhooks/123", "http or https"},
+			{"not-a-url", "http or https"},
+		}
+		for _, tc := range cases {
+			c := &DiscordConfig{WebhookURL: tc.url}
+			err := c.Validate()
+			if err == nil {
+				t.Errorf("expected %q to be rejected", tc.url)
+				continue
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), tc.errMsg) {
+				t.Errorf("expected error for %q to contain %q, got: %v", tc.url, tc.errMsg, err)
+			}
+		}
+	})
+
 	t.Run("PushoverConfig validation", func(t *testing.T) {
 		c := &PushoverConfig{}
 		if err := c.Validate(); err == nil {
@@ -407,6 +430,35 @@ func TestConfigValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("NtfyConfig rejects SSRF-prone server URLs", func(t *testing.T) {
+		cases := []struct {
+			url    string
+			errMsg string
+		}{
+			{"http://169.254.169.254/latest/meta-data", "link-local"},
+			{"ftp://ntfy.example.com", "http or https"},
+			{"not-a-url", "http or https"},
+		}
+		for _, tc := range cases {
+			c := &NtfyConfig{ServerURL: tc.url, Topic: "test"}
+			err := c.Validate()
+			if err == nil {
+				t.Errorf("expected %q to be rejected", tc.url)
+				continue
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), tc.errMsg) {
+				t.Errorf("expected error for %q to contain %q, got: %v", tc.url, tc.errMsg, err)
+			}
+		}
+	})
+
+	t.Run("NtfyConfig accepts a custom https server URL", func(t *testing.T) {
+		c := &NtfyConfig{ServerURL: "https://ntfy.example.com", Topic: "test"}
+		if err := c.Validate(); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
 	t.Run("WebhookConfig validation", func(t *testing.T) {
 		c := &WebhookConfig{}
 		if err := c.Validate(); err == nil {
@@ -426,6 +478,17 @@ func TestConfigValidation(t *testing.T) {
 		}
 		if c.Method != "POST" {
 			t.Errorf("Method = %v, want POST", c.Method)
+		}
+	})
+
+	t.Run("WebhookConfig rejects link-local URLs", func(t *testing.T) {
+		c := &WebhookConfig{URL: "http://169.254.169.254/latest/meta-data"}
+		err := c.Validate()
+		if err == nil {
+			t.Error("expected error for link-local url")
+		}
+		if !strings.Contains(strings.ToLower(err.Error()), "link-local") {
+			t.Errorf("expected link-local error, got: %v", err)
 		}
 	})
 

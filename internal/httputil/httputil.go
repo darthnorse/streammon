@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 )
 
@@ -66,6 +67,61 @@ func ValidateIntegrationURL(rawURL string) error {
 		}
 	}
 	return nil
+}
+
+// isBlockedResolvedIP reports whether ip must not be used as an outbound
+// connection target. Unlike ValidateIP (which only inspects IP literals
+// typed into a config field), this is applied at dial time, after DNS
+// resolution — defense-in-depth against SSRF via DNS rebinding, redirects,
+// or hostnames that only resolve to an internal address at connection time.
+func isBlockedResolvedIP(ip net.IP) bool {
+	return ip.IsUnspecified() ||
+		ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsPrivate()
+}
+
+// safeDialControl is a net.Dialer.Control hook that runs after DNS
+// resolution but before the socket connects, rejecting resolved addresses
+// that are loopback, link-local, private/unique-local, or unspecified.
+func safeDialControl(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("invalid dial address %q: %w", address, err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("resolved address %q is not an IP", host)
+	}
+	if isBlockedResolvedIP(ip) {
+		return fmt.Errorf("connection to %s is not allowed", ip)
+	}
+	return nil
+}
+
+// NewSafeClient returns an *http.Client for outbound integration and
+// notification requests (e.g. webhook/Discord/ntfy sends). It rejects
+// connections whose resolved remote IP is loopback, link-local,
+// private/unique-local, or unspecified — even if the URL's hostname looked
+// public at config-validation time — and refuses to auto-follow redirects
+// so a redirect to an internal host is never dialed (mirrors the pattern in
+// overseerr.CreateRequestAsUser).
+func NewSafeClient(timeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   safeDialControl,
+	}).DialContext
+
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 }
 
 // Truncate converts a byte slice to string and truncates to maxRunes runes,
