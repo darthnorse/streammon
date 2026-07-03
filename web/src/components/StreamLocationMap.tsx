@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo, memo } from 'react'
 import { LeafletMap } from './shared/LeafletMap'
 import { api } from '../lib/api'
 import type { ActiveStream, GeoResult, ServerType } from '../types'
@@ -18,17 +18,28 @@ const SERVER_COLORS: Record<ServerType, string> = {
   jellyfin: '#aa5cc3',
 }
 
-export function StreamLocationMap({ sessions }: StreamLocationMapProps) {
+function StreamLocationMapComponent({ sessions }: StreamLocationMapProps) {
   const [locations, setLocations] = useState<StreamGeoResult[]>([])
   const cacheRef = useRef<Map<string, GeoResult>>(new Map())
 
+  // The 1Hz progress interpolation gives `sessions` a new array reference
+  // every tick even when the set of IPs hasn't changed. Derive a stable key
+  // from just the distinct IPs so the geo lookup below only re-fires when
+  // there's actually something new to resolve.
+  const ipKey = useMemo(
+    () => [...new Set(sessions.map(s => s.ip_address).filter(Boolean))].sort().join('|'),
+    [sessions]
+  )
+
   useEffect(() => {
-    if (sessions.length === 0) {
+    const uniqueIPs = ipKey === '' ? [] : ipKey.split('|')
+
+    if (uniqueIPs.length === 0) {
       setLocations([])
       return
     }
 
-    const uniqueIPs = [...new Set(sessions.map(s => s.ip_address).filter(Boolean))]
+    let ignore = false
 
     async function fetchLocations() {
       const results: StreamGeoResult[] = []
@@ -73,11 +84,22 @@ export function StreamLocationMap({ sessions }: StreamLocationMapProps) {
         }
       }
 
-      setLocations(results)
+      // Skip applying results from a run that's been superseded by a newer
+      // IP set (or the component unmounting) to avoid an out-of-order write.
+      if (!ignore) {
+        setLocations(results)
+      }
     }
 
     fetchLocations()
-  }, [sessions])
+
+    return () => {
+      ignore = true
+    }
+    // `sessions` is intentionally omitted: `ipKey` is the stable proxy for
+    // "which IPs need geo data," so we only want to re-fetch when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ipKey])
 
   if (sessions.length === 0) {
     return null
@@ -113,3 +135,5 @@ export function StreamLocationMap({ sessions }: StreamLocationMapProps) {
     </div>
   )
 }
+
+export const StreamLocationMap = memo(StreamLocationMapComponent)
