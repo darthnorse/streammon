@@ -22,16 +22,24 @@ function load(): Promise<Server[]> {
   return inflight
 }
 
+/** Clears the shared server cache and refetches, notifying every mounted useServers() consumer. */
+export function invalidateServers(): Promise<Server[]> {
+  cache = null
+  return load()
+}
+
 export function useServers(): Server[] {
   const [servers, setServers] = useState<Server[]>(cache ?? [])
   useEffect(() => {
-    if (cache) {
-      setServers(cache)
-      return
-    }
+    // Always subscribe, even with a warm cache, so a later invalidateServers() call
+    // (e.g. after server CRUD) still reaches already-mounted consumers.
     const listener = (data: Server[]) => setServers(data)
     listeners.add(listener)
-    load().catch(() => { /* consumers see [] on failure */ })
+    if (cache) {
+      setServers(cache)
+    } else {
+      load().catch(() => { /* consumers see [] on failure */ })
+    }
     return () => { listeners.delete(listener) }
   }, [])
   return servers

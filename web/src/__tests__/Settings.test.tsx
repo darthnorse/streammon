@@ -17,6 +17,14 @@ import { api } from '../lib/api'
 
 const mockApi = vi.mocked(api)
 
+vi.mock('../hooks/useServers', () => ({
+  invalidateServers: vi.fn(),
+}))
+
+import { invalidateServers } from '../hooks/useServers'
+
+const mockInvalidateServers = vi.mocked(invalidateServers)
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -118,6 +126,7 @@ describe('Settings', () => {
     await waitFor(() => {
       expect(mockApi.del).toHaveBeenCalledWith('/api/servers/1?keep_history=true')
     })
+    expect(mockInvalidateServers).toHaveBeenCalled()
   })
 
   it('hard deletes when delete everything is selected', async () => {
@@ -134,6 +143,7 @@ describe('Settings', () => {
     await waitFor(() => {
       expect(mockApi.del).toHaveBeenCalledWith('/api/servers/1')
     })
+    expect(mockInvalidateServers).toHaveBeenCalled()
   })
 
   it('cancels delete when modal is dismissed', async () => {
@@ -195,5 +205,6 @@ describe('Settings', () => {
     await waitFor(() => {
       expect(mockApi.post).toHaveBeenCalledWith('/api/servers/2/restore', {})
     })
+    expect(mockInvalidateServers).toHaveBeenCalled()
   })
 })
