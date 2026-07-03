@@ -180,8 +180,9 @@ func (p *Poller) RemoveServer(id int64) {
 		}
 	}
 	p.mu.Unlock()
+	ctx := p.context()
 	for _, s := range ended {
-		p.persistHistory(s)
+		p.persistHistory(ctx, s)
 	}
 }
 
@@ -190,6 +191,22 @@ func (p *Poller) GetServer(id int64) (media.MediaServer, bool) {
 	defer p.mu.RUnlock()
 	ms, ok := p.servers[id]
 	return ms, ok
+}
+
+// context returns the poller's running context (set by Start), or
+// context.Background() if the poller hasn't been started yet. Callers that
+// don't already have a more specific context (e.g. RemoveServer, invoked
+// directly from HTTP handlers) use this so their writes are still
+// cancelled once the poller stops, instead of always using an
+// uncancellable background context.
+func (p *Poller) context() context.Context {
+	p.mu.RLock()
+	ctx := p.ctx
+	p.mu.RUnlock()
+	if ctx == nil {
+		return context.Background()
+	}
+	return ctx
 }
 
 func (p *Poller) Start(ctx context.Context) {
@@ -290,11 +307,11 @@ func (p *Poller) consumeUpdates(ctx context.Context, serverID int64, rt media.Re
 		return
 	}
 	for update := range ch {
-		p.applyUpdate(serverID, update)
+		p.applyUpdate(ctx, serverID, update)
 	}
 }
 
-func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
+func (p *Poller) applyUpdate(ctx context.Context, serverID int64, u models.SessionUpdate) {
 	p.mu.Lock()
 	var ended *models.ActiveStream
 	matched := false
@@ -308,7 +325,7 @@ func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
 				old := session
 				delete(p.sessions, key)
 				p.mu.Unlock()
-				p.persistHistory(old)
+				p.persistHistory(ctx, old)
 				snapshot := p.CurrentSessions()
 				p.publish(snapshot)
 				return
@@ -335,7 +352,7 @@ func (p *Poller) applyUpdate(serverID int64, u models.SessionUpdate) {
 	}
 
 	if ended != nil {
-		p.persistHistory(*ended)
+		p.persistHistory(ctx, *ended)
 	}
 
 	snapshot := p.CurrentSessions()
@@ -378,7 +395,11 @@ func (p *Poller) run(ctx context.Context) {
 
 // PersistActiveSessions persists all currently tracked sessions to history
 // and clears the session map. Call during graceful shutdown before Stop().
-func (p *Poller) PersistActiveSessions() {
+// ctx should carry a deadline (e.g. a bounded shutdown context): each
+// session write checks it up front and bails out promptly once it expires,
+// instead of blocking on the SQLite busy_timeout, so a slow/contended write
+// can't consume the whole shutdown budget and starve the remaining sessions.
+func (p *Poller) PersistActiveSessions(ctx context.Context) {
 	p.mu.Lock()
 	sessions := make([]models.ActiveStream, 0, len(p.sessions))
 	for _, s := range p.sessions {
@@ -386,8 +407,12 @@ func (p *Poller) PersistActiveSessions() {
 	}
 	p.sessions = make(map[string]models.ActiveStream)
 	p.mu.Unlock()
-	for _, s := range sessions {
-		p.persistHistory(s)
+	for i, s := range sessions {
+		if ctx.Err() != nil {
+			log.Printf("persist active sessions: shutdown deadline reached, %d of %d session(s) not persisted", len(sessions)-i, len(sessions))
+			return
+		}
+		p.persistHistory(ctx, s)
 	}
 }
 
@@ -452,7 +477,7 @@ func (p *Poller) poll(ctx context.Context) {
 					}
 					p.mu.Unlock()
 					if stillActive {
-						p.persistHistory(currentSession)
+						p.persistHistory(ctx, currentSession)
 					}
 					delete(oldSessions, oldKey)
 					break
@@ -461,7 +486,7 @@ func (p *Poller) poll(ctx context.Context) {
 
 			prev, ok := oldSessions[key]
 			if ok && isLiveTVProgramChange(prev, s) {
-				p.persistHistory(prev)
+				p.persistHistory(ctx, prev)
 				delete(oldSessions, key)
 				log.Printf("live TV program change: user=%q channel=%q old=%q new=%q",
 					s.UserName, s.GrandparentTitle, prev.Title, s.Title)
@@ -526,15 +551,15 @@ func (p *Poller) poll(ctx context.Context) {
 
 	for key, prev := range oldSessions {
 		if _, still := newSessions[key]; !still {
-			p.persistHistory(prev)
+			p.persistHistory(ctx, prev)
 		}
 	}
 
 	for _, s := range idleStopped {
-		p.persistHistory(s)
+		p.persistHistory(ctx, s)
 	}
 
-	p.processRetries()
+	p.processRetries(ctx)
 
 	snapshot := p.CurrentSessions()
 	p.publish(snapshot)
@@ -551,7 +576,7 @@ func (p *Poller) poll(ctx context.Context) {
 	}
 }
 
-func (p *Poller) persistHistory(s models.ActiveStream) {
+func (p *Poller) persistHistory(ctx context.Context, s models.ActiveStream) {
 	progressMs := s.ProgressMs
 
 	// Near-end: if within 10s of end, count as complete
@@ -567,20 +592,24 @@ func (p *Poller) persistHistory(s models.ActiveStream) {
 		}
 	}
 
+	// Read the watched threshold once and reuse it for both this entry's own
+	// Watched flag and the store's consolidation logic, instead of each
+	// re-reading it from the database independently.
+	threshold := 85
+	if p.store != nil {
+		if t, err := p.store.GetWatchedThreshold(); err == nil {
+			threshold = t
+		}
+	}
+
 	var watched bool
 	if s.DurationMs > 0 {
-		threshold := 85
-		if p.store != nil {
-			if t, err := p.store.GetWatchedThreshold(); err == nil {
-				threshold = t
-			}
-		}
 		watched = progressMs*100 >= s.DurationMs*int64(threshold)
 	}
 
 	log.Printf("session end: user=%q title=%q server=%q watched=%v", s.UserName, s.Title, s.ServerName, watched)
 	entry := p.buildHistoryEntry(s, progressMs, watched)
-	if err := p.store.InsertHistory(entry); err != nil {
+	if err := p.store.InsertHistoryContext(ctx, entry, threshold); err != nil {
 		log.Printf("persisting history for %s: %v (will retry)", s.Title, err)
 		p.enqueueRetry(entry, s.Title)
 		return
@@ -664,7 +693,7 @@ func (p *Poller) enqueueRetry(entry *models.WatchHistoryEntry, title string) {
 	})
 }
 
-func (p *Poller) processRetries() {
+func (p *Poller) processRetries(ctx context.Context) {
 	p.retryMu.Lock()
 	queue := p.retryQueue
 	p.retryQueue = nil
@@ -674,6 +703,13 @@ func (p *Poller) processRetries() {
 		return
 	}
 
+	threshold := 85
+	if p.store != nil {
+		if t, err := p.store.GetWatchedThreshold(); err == nil {
+			threshold = t
+		}
+	}
+
 	now := time.Now().UTC()
 	var remaining []retryEntry
 	for _, r := range queue {
@@ -681,7 +717,7 @@ func (p *Poller) processRetries() {
 			remaining = append(remaining, r)
 			continue
 		}
-		if err := p.store.InsertHistory(r.entry); err != nil {
+		if err := p.store.InsertHistoryContext(ctx, r.entry, threshold); err != nil {
 			log.Printf("retry %d for %s failed: %v", r.attempts, r.title, err)
 			r.attempts++
 			if r.attempts > maxRetryAttempts {

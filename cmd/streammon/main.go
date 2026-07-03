@@ -215,20 +215,61 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("Shutting down...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+
+	// httpShutdownTimeout bounds draining in-flight HTTP/SSE connections.
+	// cleanupTimeout bounds everything after that (session persistence,
+	// stopping the poller and background workers, draining notifications).
+	// Both run sequentially, so size them to stay comfortably under
+	// docker-compose's stop_grace_period (see docker-compose.example.yml)
+	// -- we'd rather log and exit on our own terms than be SIGKILLed
+	// mid-write.
+	const (
+		httpShutdownTimeout = 10 * time.Second
+		cleanupTimeout      = 15 * time.Second
+	)
+
+	httpShutdownCtx, cancelHTTP := context.WithTimeout(context.Background(), httpShutdownTimeout)
+	defer cancelHTTP()
+	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
 		log.Printf("shutdown error: %v", err)
 	}
-	p.PersistActiveSessions()
-	p.Stop()
-	srv.WaitEnrichment()
-	srv.WaitAutoSync()
-	srv.WaitLibrarySync()
-	rulesEngine.WaitForNotifications()
-	server.StopRateLimiter()
-	server.StopAuthRateLimiter()
-	log.Println("Shutdown complete")
+
+	cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), cleanupTimeout)
+	defer cancelCleanup()
+	runBoundedCleanup(cleanupCtx, func() {
+		// PersistActiveSessions runs first so it gets first claim on the
+		// cleanup budget: losing in-progress watch sessions is the failure
+		// this whole sequence exists to prevent.
+		p.PersistActiveSessions(cleanupCtx)
+		p.Stop()
+		srv.WaitEnrichment()
+		srv.WaitAutoSync()
+		srv.WaitLibrarySync()
+		rulesEngine.WaitForNotifications()
+		server.StopRateLimiter()
+		server.StopAuthRateLimiter()
+	})
+}
+
+// runBoundedCleanup runs fn and waits for it to finish, but gives up and
+// returns as soon as ctx is done instead of blocking indefinitely, logging
+// when that happens. fn's own steps that accept a context (e.g.
+// PersistActiveSessions, and the store writes underneath it) observe the
+// same ctx and exit early on their own once it expires; this wrapper is the
+// backstop that keeps main() itself from hanging past the shutdown budget
+// on a step that doesn't.
+func runBoundedCleanup(ctx context.Context, fn func()) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+		log.Println("Shutdown complete")
+	case <-ctx.Done():
+		log.Printf("shutdown cleanup did not finish within the budget (%v); exiting anyway", ctx.Err())
+	}
 }
 
 func envOr(key, fallback string) string {

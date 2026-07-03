@@ -1357,3 +1357,72 @@ func TestIdleTimeoutSetsAccurateStoppedAt(t *testing.T) {
 			progressTime, entry.StoppedAt, diff)
 	}
 }
+
+func addRawSession(p *Poller, key string, s models.ActiveStream) {
+	p.mu.Lock()
+	p.sessions[key] = s
+	p.mu.Unlock()
+}
+
+func TestPersistActiveSessionsPersistsAndClears(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	addRawSession(p, "1:s1:100", models.ActiveStream{
+		SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Shutdown Movie",
+		MediaType: models.MediaTypeMovie, DurationMs: 100000, ProgressMs: 50000,
+		UserName: "alice", StartedAt: time.Now().UTC(),
+	})
+
+	p.PersistActiveSessions(context.Background())
+
+	if len(p.CurrentSessions()) != 0 {
+		t.Fatalf("expected sessions cleared after persist, got %d", len(p.CurrentSessions()))
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 history entry, got %d", result.Total)
+	}
+	if result.Items[0].Title != "Shutdown Movie" {
+		t.Errorf("expected Shutdown Movie, got %s", result.Items[0].Title)
+	}
+}
+
+// TestPersistActiveSessionsRespectsCancelledContext exercises the graceful-
+// shutdown-deadline-exceeded path: PersistActiveSessions must notice a
+// context that's already past its deadline and bail out immediately rather
+// than attempt (and block on) each session's write, so a bounded shutdown
+// context actually bounds this call.
+func TestPersistActiveSessionsRespectsCancelledContext(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	addRawSession(p, "1:s1:100", models.ActiveStream{
+		SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Too Late Movie",
+		MediaType: models.MediaTypeMovie, DurationMs: 100000, ProgressMs: 50000,
+		UserName: "alice", StartedAt: time.Now().UTC(),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	p.PersistActiveSessions(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("PersistActiveSessions took %v with an already-cancelled context; expected a prompt return", elapsed)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected no history written once the shutdown deadline had passed, got %d", result.Total)
+	}
+}

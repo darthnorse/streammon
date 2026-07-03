@@ -20,3 +20,7 @@ services:
       # - PUID=1000
       # - PGID=1000
     restart: unless-stopped
+    # Graceful shutdown persists in-progress watch sessions before exiting
+    # (HTTP drain + cleanup budget totals ~25s internally) -- raised above
+    # Docker's 10s default so that fits with room to spare before SIGKILL.
+    stop_grace_period: 30s
