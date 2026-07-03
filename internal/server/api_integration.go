@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -172,6 +173,7 @@ func (s *Server) handleTestIntegrationConnection(d integrationDeps) http.Handler
 
 		client, err := d.newClient(req.URL, apiKey)
 		if err != nil {
+			log.Printf("test connection for %s failed: %v", r.URL.Path, err)
 			writeJSON(w, http.StatusOK, integrationTestResponse{
 				Success: false,
 				Error:   sanitizeConnError(err),
@@ -180,6 +182,7 @@ func (s *Server) handleTestIntegrationConnection(d integrationDeps) http.Handler
 		}
 
 		if err := client.TestConnection(ctx); err != nil {
+			log.Printf("test connection for %s failed: %v", r.URL.Path, err)
 			writeJSON(w, http.StatusOK, integrationTestResponse{
 				Success: false,
 				Error:   sanitizeConnError(err),

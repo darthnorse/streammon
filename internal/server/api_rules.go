@@ -290,6 +290,7 @@ func (s *Server) handleTestNotificationChannel(w http.ResponseWriter, r *http.Re
 
 	n := notifier.New()
 	if err := n.TestChannel(r.Context(), channel); err != nil {
+		log.Printf("test notification channel %s failed: %v", channel.Name, err)
 		writeError(w, http.StatusBadRequest, sanitizeConnError(err))
 		return
 	}
