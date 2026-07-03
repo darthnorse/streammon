@@ -531,6 +531,49 @@ func TestEngine_AutoTerminate_ConcurrentStreams(t *testing.T) {
 	}
 }
 
+func TestEngine_AutoTerminate_ConcurrentStreams_CountPausedAsOne(t *testing.T) {
+	e, s := setupTestEngine(t)
+	ctx := context.Background()
+
+	ms := &mockMediaServer{id: 1, serverType: models.ServerTypeEmby}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{1: ms}}
+	e.SetServerResolver(resolver)
+
+	config := models.ConcurrentStreamsConfig{
+		MaxStreams:       2,
+		CountPausedAsOne: true,
+		AutoTerminate:    true,
+	}
+	configJSON, _ := json.Marshal(config)
+	rule := &models.Rule{
+		Name:    "Auto-Kill Streams",
+		Type:    models.RuleTypeConcurrentStreams,
+		Enabled: true,
+		Config:  configJSON,
+	}
+	s.CreateRule(rule)
+	e.RefreshRules()
+
+	now := time.Now().UTC()
+	streams := []models.ActiveStream{
+		{SessionID: "active", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now, State: models.SessionStatePlaying},
+		{SessionID: "paused1", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second), State: models.SessionStatePaused},
+		{SessionID: "paused2", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.3", StartedAt: now.Add(2 * time.Second), State: models.SessionStatePaused},
+	}
+
+	e.EvaluateSession(ctx, &streams[0], streams)
+
+	terminated := ms.getTerminatedIDs()
+	if len(terminated) != 0 {
+		t.Fatalf("Expected no terminated sessions (1 active + 2 paused collapsed = 2, at max), got %v", terminated)
+	}
+
+	result, _ := s.ListViolations(1, 10, store.ViolationFilters{UserName: "testuser"})
+	if result.Total != 0 {
+		t.Fatalf("Expected 0 violations, got %d", result.Total)
+	}
+}
+
 func TestEngine_AutoTerminate_Failed(t *testing.T) {
 	e, s := setupTestEngine(t)
 	ctx := context.Background()

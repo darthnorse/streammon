@@ -35,6 +35,9 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 
 	userName := input.Stream.UserName
 	userStreams := filterStreamsByUser(input.AllStreams, userName)
+	if config.CountPausedAsOne {
+		userStreams = collapsePausedStreams(userStreams)
+	}
 	streamCount := len(userStreams)
 
 	if streamCount <= config.MaxStreams {
@@ -93,6 +96,32 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 		Violation: violation,
 		Signals:   signals,
 	}, nil
+}
+
+// collapsePausedStreams collapses all paused streams down to a single
+// representative (the most recently started one), so that multiple paused
+// streams from one user count as one toward the concurrent-streams limit.
+// Non-paused streams are unaffected.
+func collapsePausedStreams(streams []models.ActiveStream) []models.ActiveStream {
+	var result []models.ActiveStream
+	var representative *models.ActiveStream
+
+	for i := range streams {
+		s := streams[i]
+		if s.State != models.SessionStatePaused {
+			result = append(result, s)
+			continue
+		}
+		if representative == nil || s.StartedAt.After(representative.StartedAt) {
+			representative = &s
+		}
+	}
+
+	if representative != nil {
+		result = append(result, *representative)
+	}
+
+	return result
 }
 
 func allFromHousehold(streams []models.ActiveStream, households []models.HouseholdLocation) bool {
