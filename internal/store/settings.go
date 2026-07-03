@@ -258,7 +258,31 @@ func (s *Store) DeleteRadarrConfig() error               { return s.deleteIntegr
 // plaintextSecretKeys lists all settings keys that should be encrypted at rest.
 var plaintextSecretKeys = []string{
 	"overseerr.api_key", "sonarr.api_key", "radarr.api_key", "tautulli.api_key",
-	"jellystat.api_key", "oidc.client_secret",
+	"jellystat.api_key", "oidc.client_secret", "maxmind.license_key",
+}
+
+// GetMaxMindLicenseKey returns the decrypted MaxMind license key, or
+// EncryptedPlaceholder if it's encrypted but no encryption key is configured.
+func (s *Store) GetMaxMindLicenseKey() (string, error) {
+	raw, err := s.GetSetting("maxmind.license_key")
+	if err != nil {
+		return "", err
+	}
+	key, err := s.decryptOrPlaceholder(raw)
+	if err != nil {
+		return "", fmt.Errorf("decrypting maxmind license key: %w", err)
+	}
+	return key, nil
+}
+
+// SetMaxMindLicenseKey encrypts and stores the MaxMind license key. Passing
+// an empty string clears the key.
+func (s *Store) SetMaxMindLicenseKey(key string) error {
+	val, err := s.encryptValue(key)
+	if err != nil {
+		return fmt.Errorf("encrypting maxmind license key: %w", err)
+	}
+	return s.SetSetting("maxmind.license_key", val)
 }
 
 // EncryptPlaintextKeys finds secrets stored without the "enc:" prefix

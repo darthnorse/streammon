@@ -484,6 +484,129 @@ func TestPlaintextSecretWarnings_WarnsOnPlaintext(t *testing.T) {
 	}
 }
 
+func TestMaxMindLicenseKeyEncryptedRoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t, WithEncryptor(testEncryptor(t)))
+
+	if err := s.SetMaxMindLicenseKey("maxmind-secret-key"); err != nil {
+		t.Fatalf("SetMaxMindLicenseKey: %v", err)
+	}
+
+	raw, err := s.GetSetting("maxmind.license_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw == "maxmind-secret-key" {
+		t.Fatal("license key stored in plaintext despite encryptor being configured")
+	}
+	if raw[:4] != "enc:" {
+		t.Fatalf("expected enc: prefix, got %q", raw[:10])
+	}
+
+	got, err := s.GetMaxMindLicenseKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "maxmind-secret-key" {
+		t.Fatalf("expected decrypted key, got %q", got)
+	}
+}
+
+func TestMaxMindLicenseKeyPlaintextUpgrade(t *testing.T) {
+	s := newTestStoreWithMigrations(t, WithEncryptor(testEncryptor(t)))
+
+	// Simulate a legacy plaintext key written before this setting was encrypted.
+	if err := s.SetSetting("maxmind.license_key", "legacy-plain-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetMaxMindLicenseKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "legacy-plain-key" {
+		t.Fatalf("expected legacy-plain-key, got %q", got)
+	}
+}
+
+func TestEncryptPlaintextKeys_MaxMind(t *testing.T) {
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	if err := s.SetSetting("maxmind.license_key", "plain-maxmind-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.EncryptPlaintextKeys()
+	if err != nil {
+		t.Fatalf("EncryptPlaintextKeys: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("expected 1 key encrypted, got %d", n)
+	}
+
+	raw, err := s.GetSetting("maxmind.license_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw[:4] != "enc:" {
+		t.Fatalf("maxmind.license_key missing enc: prefix: %q", raw)
+	}
+
+	got, err := s.GetMaxMindLicenseKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "plain-maxmind-key" {
+		t.Fatalf("expected plain-maxmind-key, got %q", got)
+	}
+}
+
+func TestPlaintextSecretWarnings_WarnsOnMaxMindPlaintext(t *testing.T) {
+	s := newTestStoreWithMigrations(t) // no encryptor
+
+	if err := s.SetSetting("maxmind.license_key", "plain-key"); err != nil {
+		t.Fatal(err)
+	}
+
+	warnings := s.PlaintextSecretWarnings()
+	found := false
+	for _, w := range warnings {
+		if w == "maxmind.license_key is stored in plaintext" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected maxmind.license_key warning, got %v", warnings)
+	}
+}
+
+func TestMaxMindLicenseKeyEncryptedWithoutEncryptor(t *testing.T) {
+	enc := testEncryptor(t)
+	s := newTestStoreWithMigrations(t, WithEncryptor(enc))
+
+	if err := s.SetMaxMindLicenseKey("super-secret"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := s.GetSetting("maxmind.license_key")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Read from a store without an encryptor configured.
+	s2 := newTestStoreWithMigrations(t)
+	if err := s2.SetSetting("maxmind.license_key", raw); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s2.GetMaxMindLicenseKey()
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if got != EncryptedPlaceholder {
+		t.Fatalf("expected EncryptedPlaceholder, got %q", got)
+	}
+}
+
 func TestUnitSystemRoundTrip(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 

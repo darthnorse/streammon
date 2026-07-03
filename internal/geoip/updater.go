@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"streammon/internal/httputil"
+	"streammon/internal/store"
 )
 
 // maxmindDownloadURL is the base URL used to fetch GeoLite2 databases.
@@ -25,6 +26,9 @@ const maxmindDownloadURL = "https://download.maxmind.com/app/geoip_download"
 type SettingsStore interface {
 	GetSetting(key string) (string, error)
 	SetSetting(key, value string) error
+	// GetMaxMindLicenseKey returns the decrypted license key (the setting is
+	// encrypted at rest), or store.EncryptedPlaceholder if it can't be decrypted.
+	GetMaxMindLicenseKey() (string, error)
 }
 
 type Updater struct {
@@ -70,12 +74,12 @@ func (u *Updater) download(force bool) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	key, err := u.store.GetSetting("maxmind.license_key")
+	key, err := u.store.GetMaxMindLicenseKey()
 	if err != nil {
 		return fmt.Errorf("getting license key: %w", err)
 	}
-	if key == "" {
-		log.Println("geoip: no license key configured, skipping download")
+	if key == "" || key == store.EncryptedPlaceholder {
+		log.Println("geoip: no usable license key configured, skipping download")
 		return nil
 	}
 	log.Println("geoip: license key found, checking databases")
