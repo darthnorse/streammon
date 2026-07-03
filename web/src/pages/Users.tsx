@@ -2,8 +2,8 @@ import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useFetch } from '../hooks/useFetch'
 import { useMediaDetailModal } from '../hooks/useMediaDetailModal'
-import type { UserSummary } from '../types'
-import { MS_PER_HOUR, MS_PER_DAY } from '../lib/constants'
+import type { UserSummary, TitleClickHandler } from '../types'
+import { MS_PER_HOUR, MS_PER_DAY, CLICKABLE_TITLE_CLASS } from '../lib/constants'
 
 type SortField = 'name' | 'last_streamed_at' | 'last_played' | 'last_ip' | 'total_plays' | 'total_watched_ms' | 'trust_score'
 type SortDir = 'asc' | 'desc'
@@ -65,6 +65,42 @@ function getTrustColor(score: number): string {
   if (score >= 80) return 'text-green-400'
   if (score >= 50) return 'text-amber-400'
   return 'text-red-400'
+}
+
+function LastPlayedCell({ user, onTitleClick }: { user: UserSummary; onTitleClick: TitleClickHandler }) {
+  if (!user.last_played_title) {
+    return <span className="text-muted dark:text-muted-dark">-</span>
+  }
+
+  const itemId = user.last_played_media_type === 'episode' && user.last_played_grandparent_item_id
+    ? user.last_played_grandparent_item_id
+    : user.last_played_item_id
+  const open = () => onTitleClick(user.last_played_server_id, itemId)
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      open()
+    }
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={handleKeyDown}
+      className={CLICKABLE_TITLE_CLASS}
+    >
+      <div className="font-medium truncate">
+        {user.last_played_grandparent_title || user.last_played_title}
+      </div>
+      {user.last_played_grandparent_title && (
+        <div className="text-xs text-muted dark:text-muted-dark truncate">
+          {user.last_played_title}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function Users() {
@@ -210,28 +246,7 @@ export function Users() {
                     {formatDate(user.last_streamed_at)}
                   </td>
                   <td className="py-3 pr-4 max-w-[200px]">
-                    {user.last_played_title ? (
-                      <div
-                        className="cursor-pointer hover:text-accent transition-colors"
-                        onClick={() => handleTitleClick(
-                          user.last_played_server_id,
-                          user.last_played_media_type === 'episode' && user.last_played_grandparent_item_id
-                            ? user.last_played_grandparent_item_id
-                            : user.last_played_item_id
-                        )}
-                      >
-                        <div className="font-medium truncate">
-                          {user.last_played_grandparent_title || user.last_played_title}
-                        </div>
-                        {user.last_played_grandparent_title && (
-                          <div className="text-xs text-muted dark:text-muted-dark truncate">
-                            {user.last_played_title}
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-muted dark:text-muted-dark">-</span>
-                    )}
+                    <LastPlayedCell user={user} onTitleClick={handleTitleClick} />
                   </td>
                   <td className="py-3 pr-4 font-mono text-xs text-muted dark:text-muted-dark">
                     {user.last_ip || '-'}

@@ -275,11 +275,21 @@ export function HistoryTable({ entries: rawEntries, hideUser, sort: controlledSo
                 {orderedColumns.map(col => {
                   const isSortable = !!col.sortValue
                   const isActive = sort?.columnId === col.id
+                  const handleHeaderKeyDown = (e: React.KeyboardEvent) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      handleSort(col.id)
+                    }
+                  }
                   return (
                     <th
                       key={col.id}
-                      className={`px-4 py-3 font-medium ${col.responsiveClassName || ''} ${isSortable ? 'cursor-pointer select-none group' : ''}`}
+                      className={`px-4 py-3 font-medium ${col.responsiveClassName || ''} ${isSortable ? 'cursor-pointer select-none group hover:text-accent transition-colors focus:outline-none focus:text-accent' : ''}`}
                       onClick={isSortable ? () => handleSort(col.id) : undefined}
+                      onKeyDown={isSortable ? handleHeaderKeyDown : undefined}
+                      tabIndex={isSortable ? 0 : undefined}
+                      role={isSortable ? 'button' : undefined}
+                      aria-sort={isActive ? (sort!.direction === 'asc' ? 'ascending' : 'descending') : undefined}
                     >
                       <span className="inline-flex items-center">
                         {col.label}
