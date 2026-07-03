@@ -214,6 +214,7 @@ func (s *Server) handleTMDBTV(w http.ResponseWriter, r *http.Request) {
 func (s *Server) writeTMDBEnvelope(w http.ResponseWriter, r *http.Request, tmdbData json.RawMessage, tmdbID string) {
 	matches, err := s.store.FindLibraryItemsByTMDBID(r.Context(), tmdbID)
 	if err != nil {
+		log.Printf("WARN: FindLibraryItemsByTMDBID tmdb=%s: %v", tmdbID, err)
 		matches = nil
 	}
 	if matches == nil {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,6 +32,39 @@ func TestSecurityHeaders_CSPPresent(t *testing.T) {
 	// script-src must never regress to allowing inline scripts.
 	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
 		t.Error("script-src should not allow unsafe-inline")
+	}
+}
+
+// TestRateLimit_ExceededReturnsJSONError verifies the search rate limiter's
+// 429 body is JSON (via writeError), not http.Error's default text/plain.
+// The bucket for a test-only IP is pre-filled directly rather than firing 30
+// real requests, and rate-limited via a dedicated fake IP so it can't be
+// polluted by (or pollute) other tests sharing the global searchRateLimiter.
+func TestRateLimit_ExceededReturnsJSONError(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	const ip = "203.0.113.99" // TEST-NET-3 (RFC 5737): reserved for docs/testing
+	for i := 0; i < 30; i++ {
+		searchRateLimiter.allow(ip)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/maintenance/exclusions?search=x", nil)
+	req.RemoteAddr = ip + ":12345"
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", w.Code, w.Body.String())
+	}
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("body is not valid JSON: %v (body=%s)", err, w.Body.String())
+	}
+	if body["error"] == "" {
+		t.Errorf("expected non-empty error field, got %v", body)
 	}
 }
 

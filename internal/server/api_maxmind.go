@@ -22,8 +22,18 @@ type maxmindSettingsRequest struct {
 }
 
 func (s *Server) handleGetMaxMindSettings(w http.ResponseWriter, r *http.Request) {
-	key, _ := s.store.GetMaxMindLicenseKey()
-	lastUpdated, _ := s.store.GetSetting("maxmind.last_updated")
+	key, err := s.store.GetMaxMindLicenseKey()
+	if err != nil {
+		log.Printf("get maxmind license key: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	lastUpdated, err := s.store.GetSetting("maxmind.last_updated")
+	if err != nil {
+		log.Printf("get maxmind.last_updated setting: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
 
 	maskedKey := ""
 	switch {

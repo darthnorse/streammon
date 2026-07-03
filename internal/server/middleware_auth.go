@@ -47,14 +47,14 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 				// Rate-limit before doing any work on attacker-controlled input.
 				if !globalAuthRateLimiter.check(ip) {
 					w.Header().Set("Retry-After", "900")
-					http.Error(w, `{"error":"too many auth attempts, try again later"}`, http.StatusTooManyRequests)
+					writeError(w, http.StatusTooManyRequests, "too many auth attempts, try again later")
 					return
 				}
 
 				// Defense-in-depth: API-key acceptance only after setup is complete.
 				if required, err := mgr.IsSetupRequired(); err != nil || required {
 					globalAuthRateLimiter.record(ip)
-					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					writeError(w, http.StatusUnauthorized, "unauthorized")
 					return
 				}
 
@@ -62,7 +62,7 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 				// on attacker input and disambiguates intent.
 				if len(vals) > 1 || !validAPIKeyShape(vals[0]) {
 					globalAuthRateLimiter.record(ip)
-					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					writeError(w, http.StatusUnauthorized, "unauthorized")
 					return
 				}
 
@@ -70,7 +70,7 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 				stored, err := mgr.Store().GetAPIKey()
 				if err != nil || !auth.CompareAPIKey(stored, apiKey) {
 					globalAuthRateLimiter.record(ip)
-					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					writeError(w, http.StatusUnauthorized, "unauthorized")
 					return
 				}
 				ctx := context.WithValue(r.Context(), userContextKey, syntheticAPIKeyUser())
@@ -80,13 +80,13 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 
 			cookie, err := r.Cookie(auth.CookieName)
 			if err != nil {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				writeError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
 			user, err := mgr.Store().GetSessionUser(cookie.Value)
 			if err != nil {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				writeError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
@@ -127,7 +127,7 @@ func RequireInteractiveSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := UserFromContext(r.Context())
 		if user == nil || user.APIKeyAuth {
-			http.Error(w, `{"error":"interactive session required"}`, http.StatusForbidden)
+			writeError(w, http.StatusForbidden, "interactive session required")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -142,15 +142,15 @@ func setupCheck(mgr *auth.Manager, requireSetup bool) func(http.Handler) http.Ha
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			required, err := mgr.IsSetupRequired()
 			if err != nil {
-				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+				writeError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 			if requireSetup && !required {
-				http.Error(w, `{"error":"setup already complete"}`, http.StatusForbidden)
+				writeError(w, http.StatusForbidden, "setup already complete")
 				return
 			}
 			if !requireSetup && required {
-				http.Error(w, `{"error":"setup required"}`, http.StatusForbidden)
+				writeError(w, http.StatusForbidden, "setup required")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -174,7 +174,7 @@ func RequireRole(role models.Role) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := UserFromContext(r.Context())
 			if user == nil || user.Role != role {
-				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				writeError(w, http.StatusForbidden, "forbidden")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -298,7 +298,7 @@ func rateLimitAuthWith(keyFn func(*http.Request) string, next http.Handler) http
 			// username portion of the key, to avoid log injection.
 			log.Printf("auth rate limit: ip=%s path=%s", rawClientIP(r), r.URL.Path)
 			w.Header().Set("Retry-After", "900") // 15 minutes
-			http.Error(w, `{"error":"too many login attempts, try again later"}`, http.StatusTooManyRequests)
+			writeError(w, http.StatusTooManyRequests, "too many login attempts, try again later")
 			return
 		}
 

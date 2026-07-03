@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -43,6 +44,18 @@ func TestRequireAuthManager_NoCookie_Returns401(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", w.Code)
+	}
+	// The error body is JSON (via writeError), not http.Error's default
+	// text/plain, so callers can reliably decode it as {"error": "..."}.
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("body is not valid JSON: %v (body=%s)", err, w.Body.String())
+	}
+	if body["error"] == "" {
+		t.Errorf("expected non-empty error field, got %v", body)
 	}
 }
 

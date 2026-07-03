@@ -131,7 +131,7 @@ func rateLimit(next http.Handler) http.Handler {
 			if !searchRateLimiter.allow(ip) {
 				log.Printf("search rate limit: ip=%s path=%s", ip, r.URL.Path)
 				w.Header().Set("Retry-After", "60")
-				http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return
 			}
 		}

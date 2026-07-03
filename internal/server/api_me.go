@@ -21,6 +21,8 @@ func (s *Server) writeMeJSON(w http.ResponseWriter, user *models.User) {
 	hash, err := s.store.GetPasswordHashByUserID(user.ID)
 	if err != nil {
 		log.Printf("getting password hash for user %d: %v", user.ID, err)
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
 	}
 	writeJSON(w, http.StatusOK, meResponse{User: user, HasPassword: hash != ""})
 }

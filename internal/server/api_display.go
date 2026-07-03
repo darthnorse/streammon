@@ -67,8 +67,16 @@ func (s *Server) handleUpdateDisplaySettings(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	system, _ := s.store.GetUnitSystem()
-	region, _ := s.store.GetDiscoverRegion()
+	system, err := s.store.GetUnitSystem()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	region, err := s.store.GetDiscoverRegion()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, displaySettingsResponse{
 		UnitSystem:     system,

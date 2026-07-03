@@ -174,7 +174,7 @@ func (s *Server) handleTestIntegrationConnection(d integrationDeps) http.Handler
 		if err != nil {
 			writeJSON(w, http.StatusOK, integrationTestResponse{
 				Success: false,
-				Error:   err.Error(),
+				Error:   sanitizeConnError(err),
 			})
 			return
 		}
@@ -182,7 +182,7 @@ func (s *Server) handleTestIntegrationConnection(d integrationDeps) http.Handler
 		if err := client.TestConnection(ctx); err != nil {
 			writeJSON(w, http.StatusOK, integrationTestResponse{
 				Success: false,
-				Error:   err.Error(),
+				Error:   sanitizeConnError(err),
 			})
 			return
 		}
