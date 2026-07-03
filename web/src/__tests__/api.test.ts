@@ -75,4 +75,28 @@ describe('api', () => {
     }))
     await expect(api.del('/api/servers/1')).resolves.toBeUndefined()
   })
+
+  it('post handles 204 No Content without parsing JSON, defaulting to void', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      headers: new Headers(),
+      json: () => { throw new Error('should not call json()') },
+    }))
+    // No explicit type arg: T defaults to void, matching the empty-body contract.
+    const result = await api.post('/api/servers/1/restore', {})
+    expect(result).toBeUndefined()
+  })
+
+  it('put still returns JSON when an explicit type arg is given', async () => {
+    const response = { id: 1, name: 'renamed' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-length': '25' }),
+      json: () => Promise.resolve(response),
+    }))
+    const result = await api.put<{ id: number; name: string }>('/api/servers/1', { name: 'renamed' })
+    expect(result).toEqual(response)
+  })
 })
