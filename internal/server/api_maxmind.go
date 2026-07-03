@@ -118,10 +118,19 @@ func (s *Server) handleGeoBackfill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
 	resolved := 0
 	skipped := 0
 
 	for _, ipStr := range ips {
+		// Client may have disconnected (e.g. closed the settings page) partway
+		// through a large backfill; stop rather than continuing to hammer the
+		// resolver and DB for a response nobody will read.
+		if ctx.Err() != nil {
+			log.Printf("geo backfill: stopping early, client disconnected after %d of %d IPs: %v", resolved+skipped, len(ips), ctx.Err())
+			return
+		}
+
 		ip := net.ParseIP(ipStr)
 		if ip == nil {
 			skipped++
