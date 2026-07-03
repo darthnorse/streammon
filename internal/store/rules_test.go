@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -79,6 +80,23 @@ func TestRuleCRUD(t *testing.T) {
 	_, err = s.GetRule(rule.ID)
 	if err == nil {
 		t.Error("expected error after delete")
+	}
+}
+
+func TestUpdateRuleNotFound(t *testing.T) {
+	s := setupTestStore(t)
+
+	rule := &models.Rule{
+		ID:      999,
+		Name:    "Ghost Rule",
+		Type:    models.RuleTypeConcurrentStreams,
+		Enabled: true,
+		Config:  json.RawMessage(`{}`),
+	}
+
+	err := s.UpdateRule(rule)
+	if !errors.Is(err, models.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 
@@ -381,6 +399,23 @@ func TestNotificationChannelCRUD(t *testing.T) {
 	_, err = s.GetNotificationChannel(channel.ID)
 	if err == nil {
 		t.Error("expected error after delete")
+	}
+}
+
+func TestUpdateNotificationChannelNotFound(t *testing.T) {
+	s := setupTestStore(t)
+
+	channel := &models.NotificationChannel{
+		ID:          999,
+		Name:        "Ghost Channel",
+		ChannelType: models.ChannelTypeDiscord,
+		Config:      json.RawMessage(`{"webhook_url":"https://discord.com/api/webhooks/1/a"}`),
+		Enabled:     true,
+	}
+
+	err := s.UpdateNotificationChannel(channel)
+	if !errors.Is(err, models.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }
 

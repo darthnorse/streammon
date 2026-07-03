@@ -90,10 +90,17 @@ func (s *Store) UpdateRule(rule *models.Rule) error {
 	if len(rule.Config) > 0 {
 		configJSON = string(rule.Config)
 	}
-	_, err := s.db.Exec(`UPDATE rules SET name = ?, type = ?, enabled = ?, config = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+	result, err := s.db.Exec(`UPDATE rules SET name = ?, type = ?, enabled = ?, config = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		rule.Name, rule.Type, boolToInt(rule.Enabled), configJSON, rule.ID)
 	if err != nil {
 		return fmt.Errorf("updating rule: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("rule %d: %w", rule.ID, models.ErrNotFound)
 	}
 	return nil
 }
@@ -661,10 +668,17 @@ func (s *Store) UpdateNotificationChannel(c *models.NotificationChannel) error {
 	if err := c.Validate(); err != nil {
 		return fmt.Errorf("invalid channel: %w", err)
 	}
-	_, err := s.db.Exec(`UPDATE notification_channels SET name = ?, channel_type = ?, config = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+	result, err := s.db.Exec(`UPDATE notification_channels SET name = ?, channel_type = ?, config = ?, enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		c.Name, c.ChannelType, string(c.Config), boolToInt(c.Enabled), c.ID)
 	if err != nil {
 		return fmt.Errorf("updating channel: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("channel %d: %w", c.ID, models.ErrNotFound)
 	}
 	return nil
 }

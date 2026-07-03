@@ -88,7 +88,7 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.store.UpdateRule(&rule); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update rule")
+		writeStoreError(w, err)
 		return
 	}
 
@@ -248,7 +248,7 @@ func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.
 	}
 
 	if err := s.store.UpdateNotificationChannel(&channel); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to update channel")
+		writeStoreError(w, err)
 		return
 	}
 

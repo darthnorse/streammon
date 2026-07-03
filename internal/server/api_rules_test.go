@@ -302,6 +302,19 @@ func TestUpdateNotificationChannel_NewSecretOverwritesStored(t *testing.T) {
 	}
 }
 
+func TestUpdateNotificationChannel_NotFound(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	body := `{"name":"Ghost","channel_type":"discord","enabled":true,"config":{"webhook_url":"https://discord.com/api/webhooks/1/a"}}`
+	req := httptest.NewRequest(http.MethodPut, "/api/notifications/999", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestSetRuleExemptions_InvalidJSON(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 
