@@ -61,6 +61,49 @@ func TestInsertAndListHistory(t *testing.T) {
 	}
 }
 
+// TestInsertHistoryContextRespectsCancelledContext ensures a caller with an
+// already-cancelled context (e.g. a shutdown deadline that has passed) gets
+// a prompt error instead of blocking for the SQLite busy_timeout (5s in
+// production; the test asserts well under that).
+func TestInsertHistoryContextRespectsCancelledContext(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	entry := &models.WatchHistoryEntry{
+		ServerID:  serverID,
+		UserName:  "alice",
+		MediaType: models.MediaTypeMovie,
+		Title:     "The Matrix",
+		StartedAt: time.Now().UTC().Add(-2 * time.Hour),
+		StoppedAt: time.Now().UTC().Add(-1 * time.Hour),
+	}
+
+	start := time.Now()
+	err := s.InsertHistoryContext(ctx, entry, 85)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected error from cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("InsertHistoryContext took %v with a pre-cancelled context; expected a prompt return well under the busy_timeout", elapsed)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected no history written for a cancelled-context insert, got %d", result.Total)
+	}
+}
+
 func TestListHistoryWithUserFilter(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 

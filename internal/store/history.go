@@ -187,9 +187,16 @@ func historyInsertArgs(entry *models.WatchHistoryEntry) []any {
 	}
 }
 
-func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
-	ctx := context.Background()
-	thresholdPct, _ := s.GetWatchedThreshold()
+// insertHistoryTx runs the dedup/consolidate/insert logic for a single entry
+// as one transaction, honoring ctx for cancellation (checked up front so a
+// caller with an already-expired context -- e.g. a shutdown deadline -- gets
+// a prompt error instead of waiting out the SQLite busy_timeout). thresholdPct
+// is the watched-threshold percentage to apply, passed in by the caller
+// rather than re-read here (see InsertHistoryContext).
+func (s *Store) insertHistoryTx(ctx context.Context, entry *models.WatchHistoryEntry, thresholdPct int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -230,6 +237,23 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// InsertHistoryContext is the context- and threshold-aware variant of
+// InsertHistory. Production callers (the poller) already hold a live
+// context and a freshly-read watched threshold, so it lets shutdown/request
+// cancellation propagate into the write, and avoids re-reading the
+// watched-threshold setting that the caller already fetched once.
+func (s *Store) InsertHistoryContext(ctx context.Context, entry *models.WatchHistoryEntry, thresholdPct int) error {
+	return s.insertHistoryTx(ctx, entry, thresholdPct)
+}
+
+// InsertHistory inserts a single watch-history entry. It's a convenience
+// wrapper over InsertHistoryContext for callers (mainly tests) that don't
+// have a context or a pre-fetched watched threshold on hand.
+func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
+	thresholdPct, _ := s.GetWatchedThreshold()
+	return s.insertHistoryTx(context.Background(), entry, thresholdPct)
 }
 
 var validHistorySortColumns = map[string]bool{
