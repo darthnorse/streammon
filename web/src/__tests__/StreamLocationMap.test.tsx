@@ -8,11 +8,18 @@ vi.mock('../lib/api', () => ({
   api: { get: vi.fn() },
 }))
 
+interface RenderedLocation extends GeoResult {
+  users?: string[]
+}
+
 vi.mock('../components/shared/LeafletMap', () => ({
-  LeafletMap: ({ locations }: { locations: GeoResult[] }) => (
+  LeafletMap: ({ locations }: { locations: RenderedLocation[] }) => (
     <div data-testid="map">
       {locations.map(loc => (
-        <div key={loc.ip} data-testid="location">{loc.ip}</div>
+        <div key={loc.ip} data-testid="location">
+          <span data-testid="location-ip">{loc.ip}</span>
+          <span data-testid="location-users">{(loc.users ?? []).join(', ')}</span>
+        </div>
       ))}
     </div>
   ),
@@ -55,6 +62,51 @@ describe('StreamLocationMap', () => {
     rerender(<StreamLocationMap sessions={[ticked]} />)
 
     await waitFor(() => expect(screen.getByTestId('location')).toBeInTheDocument())
+    expect(mockGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('refreshes popup metadata immediately when session data changes at a known IP, without refetching geo', async () => {
+    mockGet.mockResolvedValue(geo('10.0.0.1'))
+    const { rerender } = render(<StreamLocationMap sessions={[baseStream]} />)
+    await waitFor(() =>
+      expect(screen.getByTestId('location-users')).toHaveTextContent('alice: Inception')
+    )
+    expect(mockGet).toHaveBeenCalledTimes(1)
+
+    // Same IP set (10.0.0.1), but a different user/title now streaming from it —
+    // e.g. a new viewer took over the session, or the title changed.
+    const updated = { ...baseStream, user_name: 'bob', title: 'The Matrix', grandparent_title: '' }
+    rerender(<StreamLocationMap sessions={[updated]} />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location-users')).toHaveTextContent('bob: The Matrix')
+    )
+    expect(screen.queryByText(/alice: Inception/)).not.toBeInTheDocument()
+    // Geo lookup is still cached per IP — no new network call for the same IP.
+    expect(mockGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('reflects a second viewer joining an already-known IP without refetching geo', async () => {
+    mockGet.mockResolvedValue(geo('10.0.0.1'))
+    const { rerender } = render(<StreamLocationMap sessions={[baseStream]} />)
+    await waitFor(() =>
+      expect(screen.getByTestId('location-users')).toHaveTextContent('alice: Inception')
+    )
+    expect(mockGet).toHaveBeenCalledTimes(1)
+
+    const second = {
+      ...baseStream,
+      session_id: 's2',
+      user_name: 'carol',
+      title: 'The Matrix',
+      grandparent_title: '',
+    }
+    rerender(<StreamLocationMap sessions={[baseStream, second]} />)
+
+    await waitFor(() =>
+      expect(screen.getByTestId('location-users')).toHaveTextContent('alice: Inception, carol: The Matrix')
+    )
+    expect(screen.getAllByTestId('location')).toHaveLength(1)
     expect(mockGet).toHaveBeenCalledTimes(1)
   })
 
