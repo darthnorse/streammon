@@ -167,6 +167,28 @@ func (s *Store) DeleteStaleLibraryItems(ctx context.Context, serverID int64, lib
 
 // SyncLibraryItems atomically upserts items and deletes stale ones in a single transaction.
 // This prevents race conditions between concurrent syncs for the same library.
+//
+// Deliberately NOT chunked into multiple commits (unlike BatchUpsertCandidates
+// and InsertHistoryBatch): nothing coordinates syncs of the same
+// (server_id, library_id) across callers -- the manual "sync now" API
+// (api_maintenance.go's librarySyncManager) and the daily scheduler
+// (scheduler.go's syncLibrary) run in different packages with no shared
+// lock. SQLite's single-writer serialization is the ONLY thing preventing
+// two concurrent syncs from interleaving their upsert/delete-stale steps.
+// If this were chunked, a second sync's full upsert+delete could commit in
+// the gap between this sync's chunk commits: the second sync's fresher
+// delete-stale step could remove an item this sync already re-upserted with
+// its older (pre-chunking) syncTime, then this sync's LATER chunk would
+// resurrect that item (already-deleted-from-the-source) with a synced_at
+// value older than the second sync's cutoff, so this sync's own delete step
+// (which already ran) never catches it either -- it lingers until the next
+// full sync. A single transaction closes that window entirely: SQLite
+// can't interleave another writer's commit inside it. Measured lock-hold
+// duration for this function is small in practice (~26ms for the largest
+// observed library, 2536 items -- see task-16-report.md), so the tradeoff
+// favors correctness here. If sync volume grows enough to matter, add a
+// cross-package advisory lock keyed by (server_id, library_id) shared by
+// both callers, THEN chunk safely.
 func (s *Store) SyncLibraryItems(ctx context.Context, serverID int64, libraryID string, items []models.LibraryItemCache) (upserted int, deleted int64, err error) {
 	if len(items) == 0 {
 		deleted, err = s.DeleteStaleLibraryItems(ctx, serverID, libraryID, time.Now().UTC())

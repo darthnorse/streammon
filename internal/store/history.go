@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -704,6 +705,23 @@ func (s *Store) GetRecentISPs(userName string, beforeTime time.Time, withinHours
 	return isps, rows.Err()
 }
 
+// testInsertHistoryChunkHook, if non-nil, is called with each chunk's
+// zero-based index right before that chunk's transaction begins. Test-only:
+// lets tests deterministically trigger mid-batch cancellation to exercise
+// per-chunk failure semantics without relying on timing.
+var testInsertHistoryChunkHook func(chunkIndex int)
+
+// InsertHistoryBatch inserts/dedups/consolidates entries in chunks of
+// writeChunkSize, each its own transaction, so the write lock is released
+// periodically instead of held for the whole batch -- see writeChunkSize.
+// The only current caller (history import, api_import.go) already streams
+// entries in pages and treats each page as an independently-reportable unit
+// of progress, tolerating partial import results on failure -- so a failed
+// chunk here no longer rolls back chunks that already committed within the
+// same call; it logs the failure and continues with the remaining chunks.
+// The returned counts always reflect what's actually durable: a chunk that
+// errors contributes 0 to all three (its transaction rolled back), while
+// prior successful chunks' counts are kept.
 func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped, consolidated int, err error) {
 	if len(entries) == 0 {
 		return 0, 0, 0, nil
@@ -711,6 +729,37 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 
 	thresholdPct, _ := s.GetWatchedThreshold()
 
+	var firstErr error
+	for i, chunk := range chunkSlice(entries, writeChunkSize) {
+		if ctx.Err() != nil {
+			if firstErr == nil {
+				firstErr = ctx.Err()
+			}
+			break
+		}
+		if testInsertHistoryChunkHook != nil {
+			testInsertHistoryChunkHook(i)
+		}
+
+		ins, skip, cons, chunkErr := s.insertHistoryChunk(ctx, chunk, thresholdPct)
+		inserted += ins
+		skipped += skip
+		consolidated += cons
+		if chunkErr != nil {
+			log.Printf("insert history batch: chunk of %d entries failed, kept %d already-committed chunk(s) so far: %v", len(chunk), inserted, chunkErr)
+			if firstErr == nil {
+				firstErr = chunkErr
+			}
+		}
+	}
+
+	return inserted, skipped, consolidated, firstErr
+}
+
+// insertHistoryChunk runs one chunk of InsertHistoryBatch as a single
+// transaction. On error it returns zero counts: the deferred Rollback
+// discards everything this chunk did, so nothing from it is durable.
+func (s *Store) insertHistoryChunk(ctx context.Context, entries []*models.WatchHistoryEntry, thresholdPct int) (inserted, skipped, consolidated int, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("begin tx: %w", err)
@@ -735,6 +784,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 	}
 	defer sessionStmt.Close()
 
+	var ins, skip, cons int
 	for _, entry := range entries {
 		select {
 		case <-ctx.Done():
@@ -745,7 +795,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 		var exists int
 		err := existsStmt.QueryRowContext(ctx, historyDedupArgs(entry)...).Scan(&exists)
 		if err == nil {
-			skipped++
+			skip++
 			continue
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -760,7 +810,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			if _, err := sessionStmt.ExecContext(ctx, sessionInsertArgs(consolidatedID, entry)...); err != nil {
 				return 0, 0, 0, fmt.Errorf("inserting session: %w", err)
 			}
-			consolidated++
+			cons++
 			continue
 		}
 
@@ -775,14 +825,14 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 		if _, err := sessionStmt.ExecContext(ctx, sessionInsertArgs(newID, entry)...); err != nil {
 			return 0, 0, 0, fmt.Errorf("inserting session: %w", err)
 		}
-		inserted++
+		ins++
 	}
 
 	if err := tx.Commit(); err != nil {
 		return 0, 0, 0, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return inserted, skipped, consolidated, nil
+	return ins, skip, cons, nil
 }
 
 type UnenrichedRef struct {

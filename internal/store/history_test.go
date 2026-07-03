@@ -621,6 +621,141 @@ func TestInsertHistoryBatchContextCancellation(t *testing.T) {
 	}
 }
 
+// withWriteChunkSize temporarily shrinks the package's write-chunk size so
+// tests can exercise multi-chunk behavior without seeding hundreds of rows.
+func withWriteChunkSize(t *testing.T, n int) {
+	t.Helper()
+	orig := writeChunkSize
+	writeChunkSize = n
+	t.Cleanup(func() { writeChunkSize = orig })
+}
+
+// TestInsertHistoryBatchChunkedMatchesSingleTx verifies that when a batch is
+// split across multiple chunk transactions (writeChunkSize shrunk to force
+// several chunks), every entry still lands in watch_history with a session
+// row, deduplication still works across chunk boundaries, and the returned
+// counts match what a single-transaction insert of the same data would
+// report.
+func TestInsertHistoryBatchChunkedMatchesSingleTx(t *testing.T) {
+	withWriteChunkSize(t, 3)
+
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	startedAt := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	// 10 entries -> 4 chunks of size 3,3,3,1 with the chunk size above.
+	entries := make([]*models.WatchHistoryEntry, 10)
+	for i := range entries {
+		entries[i] = &models.WatchHistoryEntry{
+			ServerID:  serverID,
+			UserName:  "alice",
+			MediaType: models.MediaTypeMovie,
+			Title:     fmt.Sprintf("Movie %d", i),
+			StartedAt: startedAt.Add(time.Duration(i) * 3 * time.Hour),
+			StoppedAt: startedAt.Add(time.Duration(i)*3*time.Hour + 2*time.Hour),
+		}
+	}
+	// A duplicate of entries[0] placed in a LATER chunk (index 5, chunk 2)
+	// must still be recognized as a dup of a row committed by an earlier,
+	// already-committed chunk.
+	dup := *entries[0]
+	entries = append(entries[:5], append([]*models.WatchHistoryEntry{&dup}, entries[5:]...)...)
+
+	inserted, skipped, consolidated, err := s.InsertHistoryBatch(context.Background(), entries)
+	if err != nil {
+		t.Fatalf("InsertHistoryBatch: %v", err)
+	}
+	if inserted != 10 {
+		t.Errorf("inserted = %d, want 10", inserted)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1 (cross-chunk duplicate)", skipped)
+	}
+	if consolidated != 0 {
+		t.Errorf("consolidated = %d, want 0", consolidated)
+	}
+
+	result, err := s.ListHistory(1, 20, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 10 {
+		t.Fatalf("history rows = %d, want 10 (the cross-chunk duplicate must not double-insert)", result.Total)
+	}
+
+	// Every persisted row must have a matching watch_sessions row.
+	var sessionCount int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM watch_sessions`).Scan(&sessionCount); err != nil {
+		t.Fatal(err)
+	}
+	if sessionCount != 10 {
+		t.Errorf("watch_sessions rows = %d, want 10", sessionCount)
+	}
+}
+
+// TestInsertHistoryBatchChunkFailureKeepsPriorChunks simulates a mid-batch
+// failure (context canceled partway through, once at least one chunk has
+// committed) and verifies the already-committed chunk's rows persist while
+// the failed chunk contributes nothing -- documenting the new per-chunk
+// failure semantics (see InsertHistoryBatch's doc comment).
+func TestInsertHistoryBatchChunkFailureKeepsPriorChunks(t *testing.T) {
+	withWriteChunkSize(t, 2)
+
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	startedAt := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	entries := make([]*models.WatchHistoryEntry, 6)
+	for i := range entries {
+		entries[i] = &models.WatchHistoryEntry{
+			ServerID:  serverID,
+			UserName:  "alice",
+			MediaType: models.MediaTypeMovie,
+			Title:     fmt.Sprintf("Movie %d", i),
+			StartedAt: startedAt.Add(time.Duration(i) * 3 * time.Hour),
+			StoppedAt: startedAt.Add(time.Duration(i)*3*time.Hour + 2*time.Hour),
+		}
+	}
+
+	// cancelAfterFirstChunk cancels ctx once InsertHistoryBatch has moved on
+	// to the second chunk, by watching row growth in watch_history from a
+	// separate connection. Simpler: use a context that's canceled by a
+	// deadline so short the first chunk (fast, in-process) commits but later
+	// chunks observe cancellation at their loop-top ctx.Err() check.
+	ctx, cancel := context.WithCancel(context.Background())
+	var cancelled bool
+	origHook := testInsertHistoryChunkHook
+	testInsertHistoryChunkHook = func(chunkIndex int) {
+		if chunkIndex == 1 && !cancelled {
+			cancelled = true
+			cancel()
+		}
+	}
+	t.Cleanup(func() { testInsertHistoryChunkHook = origHook })
+
+	inserted, _, _, err := s.InsertHistoryBatch(ctx, entries)
+	if err == nil {
+		t.Fatal("expected error from mid-batch cancellation")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	// Chunk 0 (entries 0,1) committed before cancellation was observed at
+	// chunk 1's loop-top check.
+	if inserted != 2 {
+		t.Errorf("inserted = %d, want 2 (only the first chunk should have committed)", inserted)
+	}
+
+	result, err := s.ListHistory(1, 20, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 2 {
+		t.Errorf("history rows = %d, want 2 (first chunk's rows kept, no partial row from the cancelled chunk)", result.Total)
+	}
+}
+
 func TestGetLastStreamBeforeTime(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)
