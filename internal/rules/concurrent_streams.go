@@ -49,7 +49,19 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 	}
 
 	// Tiebreak by SessionID for deterministic ordering with identical timestamps.
+	// When paused streams are collapsed to a single representative, that
+	// representative must never be preferred over a genuinely active stream
+	// as the auto-terminate target — otherwise a paused session could be
+	// terminated ahead of an active one. Scoped to CountPausedAsOne so the
+	// default (disabled) path's ordering is unchanged.
 	sort.Slice(userStreams, func(i, j int) bool {
+		if config.CountPausedAsOne {
+			iPaused := userStreams[i].State == models.SessionStatePaused
+			jPaused := userStreams[j].State == models.SessionStatePaused
+			if iPaused != jPaused {
+				return !iPaused
+			}
+		}
 		if userStreams[i].StartedAt.Equal(userStreams[j].StartedAt) {
 			return userStreams[i].SessionID > userStreams[j].SessionID
 		}

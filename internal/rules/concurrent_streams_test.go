@@ -369,11 +369,13 @@ func TestConcurrentStreamsEvaluator_CountPausedAsOne(t *testing.T) {
 			t.Errorf("stream_count = %d, want 3 (2 active + 1 collapsed paused)", streamCount)
 		}
 
-		// The termination target must be the newest non-collapsed stream
-		// (paused2's collapse representative), never a dropped paused session.
+		// The termination target must be an active (non-paused) stream: with
+		// paused streams collapsed to a single representative, that
+		// representative must never be preferred over a genuinely active
+		// stream, even if it is nominally "newer" by StartedAt.
 		sessionID, _ := result.Violation.Details[DetailKeyTerminateSessionID].(string)
-		if sessionID == "paused1" {
-			t.Errorf("terminate target = %q, should not be a collapsed-away paused session", sessionID)
+		if sessionID != "playing1" && sessionID != "playing2" {
+			t.Errorf("terminate target = %q, want an active session (playing1 or playing2), not a paused one", sessionID)
 		}
 	})
 }
