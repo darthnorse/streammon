@@ -11,13 +11,18 @@ import (
 
 	"streammon/internal/media"
 	"streammon/internal/models"
-	"streammon/internal/rules"
 	"streammon/internal/store"
 )
 
 // GeoResolver resolves IP addresses to geographic locations.
 type GeoResolver interface {
 	Lookup(ip net.IP) *models.GeoResult
+}
+
+// RuleEvaluator evaluates the active sessions of a single poll tick. It runs on
+// a dedicated worker goroutine so its (heavy) rule I/O can't block polling.
+type RuleEvaluator interface {
+	EvaluateSessions(ctx context.Context, streams []models.ActiveStream)
 }
 
 type Poller struct {
@@ -40,7 +45,11 @@ type Poller struct {
 	triggerPoll chan struct{} // nil unless externally triggered; nil channel blocks forever in select
 	pollNotify  chan struct{} // nil unless set by tests; guarded by nil check before send
 
-	rulesEngine *rules.Engine
+	rulesEngine RuleEvaluator
+	// evalCh hands the latest session snapshot to the async rule-evaluation
+	// worker (buffered size 1, coalesced). evalDone closes when the worker exits.
+	evalCh   chan []models.ActiveStream
+	evalDone chan struct{}
 
 	retryMu    sync.Mutex
 	retryQueue []retryEntry
@@ -72,7 +81,7 @@ const DefaultAutoLearnMinSessions = 10
 
 type PollerOption func(*Poller)
 
-func WithRulesEngine(e *rules.Engine) PollerOption {
+func WithRulesEngine(e RuleEvaluator) PollerOption {
 	return func(p *Poller) {
 		p.rulesEngine = e
 	}
@@ -190,6 +199,9 @@ func (p *Poller) Start(ctx context.Context) {
 		p.ctx = ctx
 		p.mu.Unlock()
 		p.done = make(chan struct{})
+		p.evalCh = make(chan []models.ActiveStream, 1)
+		p.evalDone = make(chan struct{})
+		go p.runEval(ctx)
 		go p.run(ctx)
 	})
 }
@@ -198,6 +210,48 @@ func (p *Poller) Stop() {
 	if p.cancel != nil && p.done != nil {
 		p.cancel()
 		<-p.done
+		if p.evalDone != nil {
+			<-p.evalDone
+		}
+	}
+}
+
+// runEval drains session snapshots handed over by the poll loop and evaluates
+// rules for them off the poll tick, so heavy rule I/O can't back-pressure
+// session polling or the SSE broadcast. It exits when ctx is cancelled.
+func (p *Poller) runEval(ctx context.Context) {
+	defer close(p.evalDone)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case snapshot := <-p.evalCh:
+			if p.rulesEngine != nil {
+				p.rulesEngine.EvaluateSessions(ctx, snapshot)
+			}
+		}
+	}
+}
+
+// enqueueEval hands the latest snapshot to the evaluation worker without
+// blocking. If the worker is still busy the queued snapshot is replaced with
+// this newer one (coalesce), so evaluation always works on the freshest state.
+// Safe only from the single poll goroutine (the sole producer).
+func (p *Poller) enqueueEval(snapshot []models.ActiveStream) {
+	if p.evalCh == nil {
+		return
+	}
+	for {
+		select {
+		case p.evalCh <- snapshot:
+			return
+		default:
+		}
+		// Buffer full: drop the stale queued snapshot and retry with the latest.
+		select {
+		case <-p.evalCh:
+		default:
+		}
 	}
 }
 
@@ -486,9 +540,7 @@ func (p *Poller) poll(ctx context.Context) {
 	p.publish(snapshot)
 
 	if p.rulesEngine != nil {
-		for i := range snapshot {
-			p.rulesEngine.EvaluateSession(ctx, &snapshot[i], snapshot)
-		}
+		p.enqueueEval(snapshot)
 	}
 
 	if p.pollNotify != nil {

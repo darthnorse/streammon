@@ -4,12 +4,75 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"streammon/internal/models"
 	"streammon/internal/store"
 )
+
+// blockingEvaluator stands in for the rules engine and blocks inside
+// EvaluateSessions until released, so tests can prove rule evaluation runs
+// asynchronously and never back-pressures the poll loop.
+type blockingEvaluator struct {
+	calls   atomic.Int32
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingEvaluator) EvaluateSessions(ctx context.Context, streams []models.ActiveStream) {
+	b.calls.Add(1)
+	select {
+	case b.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+	}
+}
+
+func TestRuleEvaluationDoesNotBlockPoll(t *testing.T) {
+	s := newTestStore(t)
+	be := &blockingEvaluator{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	p := New(s, time.Hour, WithRulesEngine(be))
+	p.triggerPoll = make(chan struct{}, 1)
+	p.pollNotify = make(chan struct{}, 1)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: 1, UserName: "u", Title: "Movie", MediaType: models.MediaTypeMovie, StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(1, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+
+	// The poll must complete even though rule evaluation is blocked.
+	waitPoll(t, p)
+
+	// Evaluation was handed off to the async worker and is now running.
+	select {
+	case <-be.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("rule evaluation was not dispatched to the async worker")
+	}
+
+	// It is still blocked (we never released it), proving poll did not wait.
+	close(be.release)
+	p.Stop()
+
+	if be.calls.Load() == 0 {
+		t.Fatal("expected at least one evaluation call")
+	}
+}
 
 type mockServer struct {
 	mu       sync.Mutex
