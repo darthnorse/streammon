@@ -78,6 +78,21 @@ func TestTautulliImport_MissingServerID(t *testing.T) {
 	}
 }
 
+// TestTautulliImport_NegativeServerID guards against a negative server_id
+// slipping past the "server_id is required" check (which used to compare
+// against == 0 only) and reaching the store as a bogus lookup.
+func TestTautulliImport_NegativeServerID(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/import", strings.NewReader(`{"server_id":-1}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestTautulliImport_ServerNotFound(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
 
@@ -132,6 +147,21 @@ func TestStartEnrich_MissingServerID(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/enrich", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestStartEnrich_NegativeServerID guards against a negative server_id
+// slipping past the "server_id is required" check (which used to compare
+// against == 0 only) and reaching the store as a bogus lookup.
+func TestStartEnrich_NegativeServerID(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/enrich", strings.NewReader(`{"server_id":-1}`))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 

@@ -150,7 +150,7 @@ func (s *Server) handleHistoryImport(
 			return
 		}
 
-		if req.ServerID == 0 {
+		if req.ServerID <= 0 {
 			writeError(w, http.StatusBadRequest, "server_id is required")
 			return
 		}

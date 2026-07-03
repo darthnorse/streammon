@@ -182,6 +182,28 @@ func TestListHistoryPerPageCapAPI(t *testing.T) {
 	}
 }
 
+// TestListHistoryPageCapAPI guards against an absurd ?page= value forcing an
+// unbounded OFFSET scan: page must be capped rather than passed through as-is.
+func TestListHistoryPageCapAPI(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/history?page=99999999", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var result models.PaginatedResult[models.WatchHistoryEntry]
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.Page != maxHistoryPage {
+		t.Fatalf("expected page capped to %d, got %d", maxHistoryPage, result.Page)
+	}
+}
+
 func TestHandleListSessions(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 

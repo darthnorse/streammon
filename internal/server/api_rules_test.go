@@ -11,6 +11,71 @@ import (
 	"streammon/internal/models"
 )
 
+// TestRuleAndChannelIDEndpointsRejectNonPositiveIDs locks in parseIDParam's
+// id<=0 rejection across the handlers converted from inline strconv.ParseInt.
+// Zero/negative path IDs must 400, not fall through to a store lookup for a
+// nonexistent-but-technically-parseable ID.
+func TestRuleAndChannelIDEndpointsRejectNonPositiveIDs(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"get rule zero", http.MethodGet, "/api/rules/0"},
+		{"get rule negative", http.MethodGet, "/api/rules/-1"},
+		{"update rule zero", http.MethodPut, "/api/rules/0"},
+		{"delete rule zero", http.MethodDelete, "/api/rules/0"},
+		{"get channel zero", http.MethodGet, "/api/notifications/0"},
+		{"delete channel negative", http.MethodDelete, "/api/notifications/-5"},
+		{"test channel zero", http.MethodPost, "/api/notifications/0/test"},
+		{"rule exemptions zero", http.MethodGet, "/api/rules/0/exemptions"},
+		{"link channel zero", http.MethodPost, "/api/rules/0/channels"},
+		{"unlink channel zero", http.MethodDelete, "/api/rules/1/channels/0"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var body strings.Reader
+			req := httptest.NewRequest(tc.method, tc.path, &body)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+// TestListViolations_InvalidRuleID guards against a malformed ?rule_id=
+// value being silently swallowed (previously via a bare _-discarded
+// ParseInt) and returning all violations instead of a 400.
+func TestListViolations_InvalidRuleID(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/violations?rule_id=abc", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestListViolations_ValidRuleID(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/violations?rule_id=5", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestListRuleExemptions_Empty(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 

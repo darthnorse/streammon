@@ -159,11 +159,12 @@ func (s *Server) handleOverseerrDiscover(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleOverseerrMovie(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	id64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid movie ID")
 		return
 	}
+	id := int(id64)
 
 	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
 	if !ok {
@@ -181,11 +182,12 @@ func (s *Server) handleOverseerrMovie(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOverseerrTV(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	id64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid TV ID")
 		return
 	}
+	id := int(id64)
 
 	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
 	if !ok {
@@ -249,13 +251,16 @@ func stripMediaInfoRequests(v any) {
 }
 
 func (s *Server) handleOverseerrTVSeason(w http.ResponseWriter, r *http.Request) {
-	tvID, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	tvID64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid TV ID")
 		return
 	}
+	tvID := int(tvID64)
+	// Season 0 is a valid, real-world value (specials/extras), so this is
+	// deliberately not routed through parseIDParam (which rejects <=0).
 	seasonNum, err := strconv.Atoi(chi.URLParam(r, "seasonNumber"))
-	if err != nil {
+	if err != nil || seasonNum < 0 {
 		writeError(w, http.StatusBadRequest, "invalid season number")
 		return
 	}
@@ -530,7 +535,10 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 	// rather than auto-approving everything as admin.
 	user := UserFromContext(r.Context())
 	if user != nil {
-		enabled, _ := s.store.GetStorePlexTokens()
+		enabled, err := s.store.GetStorePlexTokens()
+		if err != nil {
+			log.Printf("overseerr: get store_plex_tokens setting: %v", err)
+		}
 		if enabled && s.isOverseerrURLSafeForTokens() {
 			plexToken, tokenErr := s.store.GetProviderToken(user.ID, store.ProviderPlex)
 			if tokenErr == nil && plexToken != "" {
@@ -588,11 +596,12 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleOverseerrRequestAction(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	id64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid request ID")
 		return
 	}
+	id := int(id64)
 
 	action := chi.URLParam(r, "action")
 	if action != "approve" && action != "decline" {
@@ -617,11 +626,12 @@ func (s *Server) handleOverseerrRequestAction(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleOverseerrDeleteRequest(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	id64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid request ID")
 		return
 	}
+	id := int(id64)
 
 	user := UserFromContext(r.Context())
 	if user == nil {

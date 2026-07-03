@@ -28,8 +28,8 @@ func (s *Server) handleListRules(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetRule(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid rule id")
 		return
 	}
@@ -64,8 +64,8 @@ func (s *Server) handleCreateRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid rule id")
 		return
 	}
@@ -97,8 +97,8 @@ func (s *Server) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid rule id")
 		return
 	}
@@ -133,7 +133,12 @@ func (s *Server) handleListViolations(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if ruleID := r.URL.Query().Get("rule_id"); ruleID != "" {
-		filters.RuleID, _ = strconv.ParseInt(ruleID, 10, 64)
+		id, err := strconv.ParseInt(ruleID, 10, 64)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid rule_id value")
+			return
+		}
+		filters.RuleID = id
 	}
 
 	if ruleType := r.URL.Query().Get("rule_type"); ruleType != "" {
@@ -187,8 +192,8 @@ func (s *Server) handleListNotificationChannels(w http.ResponseWriter, r *http.R
 }
 
 func (s *Server) handleGetNotificationChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid channel id")
 		return
 	}
@@ -222,8 +227,8 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid channel id")
 		return
 	}
@@ -256,8 +261,8 @@ func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid channel id")
 		return
 	}
@@ -271,8 +276,8 @@ func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.
 }
 
 func (s *Server) handleTestNotificationChannel(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid channel id")
 		return
 	}
@@ -285,7 +290,7 @@ func (s *Server) handleTestNotificationChannel(w http.ResponseWriter, r *http.Re
 
 	n := notifier.New()
 	if err := n.TestChannel(r.Context(), channel); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeError(w, http.StatusBadRequest, sanitizeConnError(err))
 		return
 	}
 
@@ -419,8 +424,8 @@ func (s *Server) handleCreateHouseholdLocation(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleUpdateHouseholdTrusted(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid location id")
 		return
 	}
@@ -442,8 +447,8 @@ func (s *Server) handleUpdateHouseholdTrusted(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleDeleteHouseholdLocation(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid location id")
 		return
 	}
@@ -481,8 +486,8 @@ func (s *Server) handleCalculateHouseholdLocations(w http.ResponseWriter, r *htt
 }
 
 func (s *Server) handleLinkRuleToChannel(w http.ResponseWriter, r *http.Request) {
-	ruleID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	ruleID, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid rule id")
 		return
 	}
@@ -504,14 +509,14 @@ func (s *Server) handleLinkRuleToChannel(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) handleUnlinkRuleFromChannel(w http.ResponseWriter, r *http.Request) {
-	ruleID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	ruleID, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid rule id")
 		return
 	}
 
-	channelID, err := strconv.ParseInt(chi.URLParam(r, "channelId"), 10, 64)
-	if err != nil {
+	channelID, ok := parseIDParam(r, "channelId")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid channel id")
 		return
 	}
@@ -525,8 +530,8 @@ func (s *Server) handleUnlinkRuleFromChannel(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleGetRuleChannels(w http.ResponseWriter, r *http.Request) {
-	ruleID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	ruleID, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid rule id")
 		return
 	}
@@ -543,8 +548,8 @@ func (s *Server) handleGetRuleChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListRuleExemptions(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid rule id")
 		return
 	}
@@ -566,8 +571,8 @@ func (s *Server) handleListRuleExemptions(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) handleSetRuleExemptions(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if err != nil {
+	id, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid rule id")
 		return
 	}

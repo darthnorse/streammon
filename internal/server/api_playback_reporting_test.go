@@ -283,6 +283,30 @@ func TestParsePlaybackReportingTSV_NegativeDuration(t *testing.T) {
 	}
 }
 
+// TestPlaybackReportingImport_NegativeServerID guards against a negative
+// server_id slipping past the "server_id is required" check (which used to
+// only guard against a parse error or exactly 0) and reaching the store as
+// a bogus lookup.
+func TestPlaybackReportingImport_NegativeServerID(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	mw.WriteField("server_id", "-1")
+	fw, _ := mw.CreateFormFile("file", "small.tsv")
+	fw.Write([]byte("header\n"))
+	mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/playback-reporting/import", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestPlaybackReportingImport_RejectsOversizedUpload(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
 

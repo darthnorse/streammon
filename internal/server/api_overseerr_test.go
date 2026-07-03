@@ -448,6 +448,38 @@ func TestOverseerrGetMovie_InvalidID(t *testing.T) {
 	}
 }
 
+// TestOverseerrIDEndpointsRejectNonPositiveIDs locks in parseIDParam's
+// id<=0 rejection for the TMDB/Overseerr resource IDs converted from inline
+// strconv.Atoi (movie/TV/request IDs are never legitimately <= 0).
+func TestOverseerrIDEndpointsRejectNonPositiveIDs(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	cases := []struct {
+		name   string
+		method string
+		path   string
+	}{
+		{"movie zero", http.MethodGet, "/api/overseerr/movie/0"},
+		{"movie negative", http.MethodGet, "/api/overseerr/movie/-1"},
+		{"tv zero", http.MethodGet, "/api/overseerr/tv/0"},
+		{"tv season, tv id zero", http.MethodGet, "/api/overseerr/tv/0/season/1"},
+		{"request action zero", http.MethodPost, "/api/overseerr/requests/0/approve"},
+		{"delete request negative", http.MethodDelete, "/api/overseerr/requests/-2"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			w := httptest.NewRecorder()
+			srv.ServeHTTP(w, req)
+
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestOverseerrGetTV(t *testing.T) {
 	srv, _ := newOverseerrTestServer(t)
 

@@ -188,7 +188,7 @@ func (s *Server) handlePlaybackReportingImport() http.HandlerFunc {
 
 		serverIDStr := r.FormValue("server_id")
 		serverID, err := strconv.ParseInt(serverIDStr, 10, 64)
-		if err != nil || serverID == 0 {
+		if err != nil || serverID <= 0 {
 			writeError(w, http.StatusBadRequest, "server_id is required")
 			return
 		}
