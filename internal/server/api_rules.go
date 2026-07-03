@@ -183,7 +183,7 @@ func (s *Server) handleListNotificationChannels(w http.ResponseWriter, r *http.R
 	if channels == nil {
 		channels = []models.NotificationChannel{}
 	}
-	writeJSON(w, http.StatusOK, channels)
+	writeJSON(w, http.StatusOK, maskChannels(channels))
 }
 
 func (s *Server) handleGetNotificationChannel(w http.ResponseWriter, r *http.Request) {
@@ -198,7 +198,7 @@ func (s *Server) handleGetNotificationChannel(w http.ResponseWriter, r *http.Req
 		writeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, channel)
+	writeJSON(w, http.StatusOK, maskChannel(*channel))
 }
 
 func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +218,7 @@ func (s *Server) handleCreateNotificationChannel(w http.ResponseWriter, r *http.
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, channel)
+	writeJSON(w, http.StatusCreated, maskChannel(channel))
 }
 
 func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.Request) {
@@ -240,12 +240,19 @@ func (s *Server) handleUpdateNotificationChannel(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// A masked secret in the request (echoed back from a prior GET/list)
+	// means "unchanged" — restore it from the stored config rather than
+	// persisting the literal "********" placeholder.
+	if existing, err := s.store.GetNotificationChannel(id); err == nil {
+		channel.Config = restoreChannelSecrets(channel.ChannelType, channel.Config, existing.Config)
+	}
+
 	if err := s.store.UpdateNotificationChannel(&channel); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to update channel")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, channel)
+	writeJSON(w, http.StatusOK, maskChannel(channel))
 }
 
 func (s *Server) handleDeleteNotificationChannel(w http.ResponseWriter, r *http.Request) {
