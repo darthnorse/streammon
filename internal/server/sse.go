@@ -26,6 +26,15 @@ func (s *Server) handleDashboardSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user := UserFromContext(r.Context())
+	principal := ssePrincipalKey(user, r)
+	if !s.sseConns.tryAcquire(principal) {
+		w.Header().Set("Retry-After", "5")
+		writeError(w, http.StatusTooManyRequests, "too many concurrent dashboard connections")
+		return
+	}
+	defer s.sseConns.release(principal)
+
 	flusher, ok := sseFlusher(w)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming not supported")
@@ -33,7 +42,6 @@ func (s *Server) handleDashboardSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if viewer needs filtering
-	user := UserFromContext(r.Context())
 	isViewer := user != nil && user.Role == models.RoleViewer
 	viewerName := ""
 	if isViewer {

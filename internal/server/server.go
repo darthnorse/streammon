@@ -57,6 +57,7 @@ type Server struct {
 	version        *version.Checker
 	enrichment     *enrichmentState
 	autoSync       autoSyncState
+	sseConns       sseConnLimiter
 	librarySync    *librarySyncManager
 	appCtx         context.Context
 	cascadeDeleter   *maintenance.CascadeDeleter
