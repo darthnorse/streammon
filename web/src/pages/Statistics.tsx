@@ -12,7 +12,7 @@ import { DistributionDonut } from '../components/stats/DistributionDonut'
 import { ConcurrentStreamsChart } from '../components/stats/ConcurrentStreamsChart'
 import { DatePicker } from '../components/DatePicker'
 import { useLocalToday } from '../hooks/useLocalToday'
-import { localDaysAgo } from '../lib/format'
+import { localDaysAgo, localTZOffsetMinutes } from '../lib/format'
 import { buildServerOptions } from '../lib/utils'
 import type { StatsResponse, Server } from '../types'
 
@@ -51,6 +51,10 @@ function buildStatsUrl(days: DaysFilter, startDate: string, endDate: string, ser
   }
   if (serverIds.length > 0) {
     params.set('server_ids', serverIds.join(','))
+  }
+  const tzOffset = localTZOffsetMinutes()
+  if (tzOffset !== 0) {
+    params.set('tz_offset', String(tzOffset))
   }
   const qs = params.toString()
   return qs ? `/api/stats?${qs}` : '/api/stats'
