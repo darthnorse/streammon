@@ -15,10 +15,19 @@ usermod -o -u "$PUID" streammon || true
 
 # chown -R is slow on large or network-mounted volumes and unnecessary once
 # ownership already matches -- true on every start after the first, since
-# the chown below is what set it that way. Skip it in that case.
-current_owner=$(stat -c '%u:%g' /app/data)
-if [ "$current_owner" != "${PUID}:${PGID}" ]; then
-    chown -R streammon:streammon /app/data /app/geoip
-fi
+# the chown below is what set it that way. Skip it in that case. /app/data
+# and /app/geoip are checked (and chowned) independently, since a fresh
+# mount on one (e.g. a new geoip volume added to an already-correct data
+# volume) can leave their ownership out of sync with each other. Each dir
+# is guarded with -d since a missing dir would make `stat` fail under
+# set -e.
+for dir in /app/data /app/geoip; do
+    if [ -d "$dir" ]; then
+        current_owner=$(stat -c '%u:%g' "$dir")
+        if [ "$current_owner" != "${PUID}:${PGID}" ]; then
+            chown -R streammon:streammon "$dir"
+        fi
+    fi
+done
 
 exec su -s /bin/sh streammon -c "./streammon"
