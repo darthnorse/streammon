@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,12 +42,18 @@ func main() {
 		log.Printf("CORS origin: %s", corsOrigin)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+	// 0700: this directory holds the SQLite DB, which contains encrypted
+	// (and, until TOKEN_ENCRYPTION_KEY is set, plaintext) API tokens.
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
 		log.Fatal(err)
 	}
 
+	encKey, err := readSecretEnv("TOKEN_ENCRYPTION_KEY")
+	if err != nil {
+		log.Fatal(err)
+	}
 	var storeOpts []store.Option
-	if encKey := os.Getenv("TOKEN_ENCRYPTION_KEY"); encKey != "" {
+	if encKey != "" {
 		enc, err := crypto.NewEncryptor(encKey)
 		if err != nil {
 			log.Fatalf("invalid TOKEN_ENCRYPTION_KEY: %v", err)
@@ -88,7 +96,11 @@ func main() {
 
 	geoUpdater := geoip.NewUpdater(s, geoResolver, geoDBPath)
 
-	tmdbClient := tmdb.New(os.Getenv("TMDB_API_KEY"), s)
+	tmdbAPIKey, err := readSecretEnv("TMDB_API_KEY")
+	if err != nil {
+		log.Fatal(err)
+	}
+	tmdbClient := tmdb.New(tmdbAPIKey, s)
 
 	authMgr := auth.NewManager(s)
 	authMgr.RegisterProvider(auth.NewLocalProvider(s, authMgr))
@@ -277,6 +289,27 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// readSecretEnv reads a secret from either the plain "<name>" env var or,
+// as a Docker-secrets-friendly fallback, a file whose path is given by
+// "<name>_FILE" (trailing newline trimmed). The plain env var takes
+// precedence when both are set, so a deployment can override a mounted
+// secret file with an explicit env var without editing the mount.
+func readSecretEnv(name string) (string, error) {
+	if v := os.Getenv(name); v != "" {
+		return v, nil
+	}
+	fileVar := name + "_FILE"
+	path := os.Getenv(fileVar)
+	if path == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", fileVar, err)
+	}
+	return strings.TrimRight(string(data), "\r\n"), nil
 }
 
 // geoAdapter adapts geoip.Resolver to the rules.GeoResolver interface.
