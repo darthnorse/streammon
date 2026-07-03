@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { useMediaDetailModal } from '../hooks/useMediaDetailModal'
 import { thumbUrl } from '../lib/format'
@@ -22,7 +23,7 @@ export function metaLine(item: LibraryItem): string {
   return item.year && item.year > 0 ? String(item.year) : ''
 }
 
-export function RecentMedia() {
+function RecentMediaComponent() {
   const { data, loading, error } = useFetch<LibraryItem[]>('/api/dashboard/recent-media')
   const { handleTitleClick, modal } = useMediaDetailModal()
 
@@ -96,3 +97,5 @@ export function RecentMedia() {
     </div>
   )
 }
+
+export const RecentMedia = memo(RecentMediaComponent)

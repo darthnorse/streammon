@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import { useFetch } from '../hooks/useFetch'
 import { Dropdown } from './Dropdown'
 import { ConcurrentStreamsCard } from './stats/ConcurrentStreamsCard'
@@ -50,7 +50,7 @@ function StatsContent({ data }: { data: StatsResponse }) {
   )
 }
 
-export function WatchStats() {
+function WatchStatsComponent() {
   const [days, setDays] = useState<TimePeriod>('30')
   const { data, loading, error } = useFetch<StatsResponse>(`/api/stats?days=${days}`)
 
@@ -87,3 +87,5 @@ export function WatchStats() {
     </div>
   )
 }
+
+export const WatchStats = memo(WatchStatsComponent)
