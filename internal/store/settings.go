@@ -399,13 +399,17 @@ func (s *Store) GetDiscoverRegion() (string, error) {
 }
 
 func (s *Store) SetDiscoverRegion(region string) error {
-	if region != "" && !isValidRegionCode(region) {
+	if region != "" && !IsValidRegionCode(region) {
 		return fmt.Errorf("invalid region code: %s", region)
 	}
 	return s.SetSetting(discoverRegionKey, region)
 }
 
-func isValidRegionCode(code string) bool {
+// IsValidRegionCode reports whether code is a well-formed two-letter,
+// uppercase ISO-3166 region code. Exported so callers (e.g. HTTP handlers)
+// can validate input before calling SetDiscoverRegion, letting them
+// distinguish a bad request (400) from a genuine storage failure (500).
+func IsValidRegionCode(code string) bool {
 	if len(code) != 2 {
 		return false
 	}
