@@ -435,6 +435,14 @@ func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (
 // fallback because it over-attributes plays across same-titled items (see the
 // watchAggCTE doc comment). Dropping it here too keeps this path's notion of "watched"
 // consistent with the library-detail/summary paths, which already made that call.
+//
+// SAFETY: this feeds the "unwatched" maintenance rule, so an item whose only watch
+// signal was the dropped title fallback now surfaces as a deletion candidate. That is
+// acceptable only because candidates never delete themselves — deletion requires an
+// explicit authenticated admin action (POST /api/maintenance/candidates/bulk-delete,
+// handleBulkDeleteCandidates in internal/server/api_maintenance.go; the scheduler only
+// upserts candidates via BatchUpsertCandidates, it never deletes). If deletion is ever
+// made automatic, re-evaluate whether a title-based fail-safe belongs back in this query.
 func (s *Store) GetStreamMonWatchTimes(ctx context.Context, itemIDs []int64) (map[int64]*time.Time, error) {
 	result := make(map[int64]*time.Time)
 	if len(itemIDs) == 0 {
