@@ -22,10 +22,14 @@ function load(): Promise<Server[]> {
   return inflight
 }
 
-/** Clears the shared server cache and refetches, notifying every mounted useServers() consumer. */
-export function invalidateServers(): Promise<Server[]> {
+/**
+ * Clears the shared server cache and refetches, notifying every mounted useServers() consumer.
+ * Callers may fire-and-forget this; load() already routes fetch failures into listener state,
+ * so the returned promise never rejects.
+ */
+export function invalidateServers(): Promise<Server[] | undefined> {
   cache = null
-  return load()
+  return load().catch(() => undefined)
 }
 
 export function useServers(): Server[] {
