@@ -39,6 +39,20 @@ func clampMs(v, max int64) int64 {
 	return v
 }
 
+// clampStoppedAt ensures an imported stoppedAt never precedes startedAt.
+// Negative/missing source durations (e.g. Atoi accepting "-100", or a
+// Tautulli record with Stopped==0 && PlayDuration==0) would otherwise
+// produce an inverted span, which corrupts concurrent-stream overlap math
+// and history consolidation. We normalize to a zero-length span at
+// startedAt rather than dropping the record, since the row is still a
+// legitimate (if imprecise) watch event.
+func clampStoppedAt(startedAt, stoppedAt time.Time) time.Time {
+	if stoppedAt.Before(startedAt) {
+		return startedAt
+	}
+	return stoppedAt
+}
+
 type importTracker struct {
 	label        string
 	serverID     int64

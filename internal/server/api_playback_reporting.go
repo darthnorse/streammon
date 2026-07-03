@@ -52,7 +52,7 @@ func parsePlaybackReportingTSV(data []byte, userMap map[string]string, serverID 
 		}
 
 		watchedMs := clampMs(int64(durationSec)*1000, maxDurationMs)
-		stoppedAt := startedAt.Add(time.Duration(durationSec) * time.Second)
+		stoppedAt := clampStoppedAt(startedAt, startedAt.Add(time.Duration(durationSec)*time.Second))
 
 		entry := &models.WatchHistoryEntry{
 			ServerID:          serverID,

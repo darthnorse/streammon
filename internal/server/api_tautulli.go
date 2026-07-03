@@ -58,6 +58,9 @@ func convertTautulliRecord(rec tautulli.HistoryRecord, serverID int64) *models.W
 		// stream calculations reflect real overlap rather than full runtime.
 		stoppedAt = startedAt.Add(time.Duration(rec.PlayDuration) * time.Second)
 	}
+	// Guards against an epoch fallback (Stopped==0 && PlayDuration==0) or a
+	// corrupted Stopped < Started record producing an inverted span.
+	stoppedAt = clampStoppedAt(startedAt, stoppedAt)
 
 	durationMs := clampMs(rec.Duration*1000, maxDurationMs)
 	watchedMs := clampMs(rec.PlayDuration*1000, maxDurationMs)

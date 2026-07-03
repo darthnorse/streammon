@@ -260,6 +260,29 @@ func TestParsePlaybackReportingTSV_BadDuration(t *testing.T) {
 	}
 }
 
+func TestParsePlaybackReportingTSV_NegativeDuration(t *testing.T) {
+	userMap := map[string]string{"u1": "Alice"}
+	input := []byte(
+		"2024-01-01 00:00:00\tu1\titem1\tMovie\tTitle\tDirectPlay\tVLC\tPC\t-100\n",
+	)
+
+	entries := parsePlaybackReportingTSV(input, userMap, 1)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	e := entries[0]
+	if e.StoppedAt.Before(e.StartedAt) {
+		t.Errorf("StoppedAt (%v) must never be before StartedAt (%v)", e.StoppedAt, e.StartedAt)
+	}
+	if !e.StoppedAt.Equal(e.StartedAt) {
+		t.Errorf("expected zero-length span (StoppedAt == StartedAt) for negative duration, got StoppedAt=%v StartedAt=%v", e.StoppedAt, e.StartedAt)
+	}
+	if e.WatchedMs != 0 {
+		t.Errorf("expected WatchedMs=0 for negative duration, got %d", e.WatchedMs)
+	}
+}
+
 func TestPlaybackReportingImport_RejectsOversizedUpload(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
 
