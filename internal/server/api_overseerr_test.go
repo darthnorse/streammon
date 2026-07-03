@@ -22,6 +22,7 @@ type mockOverseerrOpts struct {
 	onGetMedia      func(w http.ResponseWriter, r *http.Request)
 	onGetRequests   func(w http.ResponseWriter, r *http.Request)
 	onCreateRequest func(w http.ResponseWriter, r *http.Request)
+	onSearch        func(w http.ResponseWriter, r *http.Request)
 }
 
 func newMockOverseerr(t *testing.T, opts mockOverseerrOpts) *httptest.Server {
@@ -57,10 +58,14 @@ func newMockOverseerr(t *testing.T, opts mockOverseerrOpts) *httptest.Server {
 				"results":  users,
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/search":
-			json.NewEncoder(w).Encode(map[string]any{
-				"page": 1, "totalPages": 1, "totalResults": 1,
-				"results": []map[string]any{{"id": 1, "mediaType": "movie", "title": "Test"}},
-			})
+			if opts.onSearch != nil {
+				opts.onSearch(w, r)
+			} else {
+				json.NewEncoder(w).Encode(map[string]any{
+					"page": 1, "totalPages": 1, "totalResults": 1,
+					"results": []map[string]any{{"id": 1, "mediaType": "movie", "title": "Test"}},
+				})
+			}
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/discover/"):
 			json.NewEncoder(w).Encode(map[string]any{
 				"page": 1, "totalPages": 1, "totalResults": 1,
@@ -244,6 +249,82 @@ func TestOverseerrSearch_Success(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&result)
 	if result.TotalResults != 1 {
 		t.Fatalf("expected 1 result, got %d", result.TotalResults)
+	}
+}
+
+// searchResultsWithRequesterPII is a canned /api/v1/search response shaped
+// like Overseerr's real MovieResult/TvResult schema: each entry under
+// "results" carries its own "mediaInfo.requests[].requestedBy", which
+// includes requester PII (email, plexUsername, avatar) — the same shape the
+// movie/TV detail endpoints expose at the top level. See Overseerr's
+// MovieResult/TvResult/MediaInfo/MediaRequest/User OpenAPI schemas.
+func searchResultsWithRequesterPII(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(map[string]any{
+		"page": 1, "totalPages": 1, "totalResults": 1,
+		"results": []map[string]any{
+			{
+				"id": 27205, "mediaType": "movie", "title": "Inception",
+				"mediaInfo": map[string]any{
+					"status": 2,
+					"requests": []map[string]any{
+						{"id": 100, "requestedBy": map[string]any{"id": 1, "plexUsername": "alice", "email": "alice@example.com"}},
+					},
+				},
+			},
+		},
+	})
+}
+
+func TestOverseerrSearch_AdminSeesPerResultRequests(t *testing.T) {
+	mock := newMockOverseerr(t, mockOverseerrOpts{users: defaultOverseerrUsers, onSearch: searchResultsWithRequesterPII})
+	srv, st := newTestServerWrapped(t)
+	configureOverseerr(t, st, mock.URL)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/search?query=test", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "alice@example.com") {
+		t.Errorf("admin should see per-result requester email, body=%s", body)
+	}
+}
+
+// TestOverseerrSearch_ViewerCannotSeePerResultRequests covers finding I.5:
+// redactRequestsForNonAdmin only stripped a top-level "mediaInfo.requests",
+// but search/discover responses carry "results[].mediaInfo.requests" instead
+// — so a non-admin's search results leaked requester email/plexUsername.
+func TestOverseerrSearch_ViewerCannotSeePerResultRequests(t *testing.T) {
+	mock := newMockOverseerr(t, mockOverseerrOpts{users: defaultOverseerrUsers, onSearch: searchResultsWithRequesterPII})
+	srv, st := newTestServer(t)
+	configureOverseerr(t, st, mock.URL)
+
+	if err := st.SetGuestSettings(map[string]bool{"show_discover": true}); err != nil {
+		t.Fatalf("SetGuestSettings: %v", err)
+	}
+	viewerToken := createViewerSession(t, st, "viewer1")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/overseerr/search?query=test", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "requests") {
+		t.Errorf("viewer must NOT see per-result mediaInfo.requests, body=%s", body)
+	}
+	if strings.Contains(body, "alice@example.com") {
+		t.Errorf("viewer must NOT see requester email, body=%s", body)
+	}
+	// Sanity check: viewer still gets the public search fields.
+	if !strings.Contains(body, "Inception") {
+		t.Errorf("viewer should still see basic search fields, body=%s", body)
 	}
 }
 
