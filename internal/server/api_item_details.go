@@ -36,6 +36,11 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.poller == nil {
+		writeError(w, http.StatusServiceUnavailable, "poller not configured")
+		return
+	}
+
 	ms, ok := s.poller.GetServer(serverID)
 	if !ok {
 		writeError(w, http.StatusNotFound, "server not found")

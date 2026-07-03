@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"streammon/internal/models"
 	"streammon/internal/store"
 )
 
@@ -84,36 +85,77 @@ func (s *Server) handleListLibraryItems(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, result)
 }
 
+// csvExportPageSize bounds how many library items are held in memory at
+// once while streaming a CSV export, instead of loading the whole library.
+// Not a const so tests can shrink it to exercise the multi-page path cheaply.
+var csvExportPageSize = 1000
+
+var libraryItemsCSVHeader = []string{"Title", "Year", "Type", "Added At", "Last Played", "Plays",
+	"Total Hours", "Unique Viewers", "Last Viewer", "Episodes Watched", "Episode Count",
+	"File Size", "Resolution", "TMDB Status", "Flagged", "Protected"}
+
+func libraryItemCSVRow(it models.LibraryItemDetail) []string {
+	lastPlayed := ""
+	if it.LastPlayedAt != nil {
+		lastPlayed = it.LastPlayedAt.Format("2006-01-02 15:04:05")
+	}
+	return []string{
+		csvSafe(it.Title), strconv.Itoa(it.Year), string(it.MediaType),
+		it.AddedAt.Format("2006-01-02 15:04:05"), lastPlayed, strconv.Itoa(it.Plays),
+		strconv.FormatFloat(it.TotalHours, 'f', 2, 64), strconv.Itoa(it.UniqueViewers),
+		csvSafe(it.LastViewer), strconv.Itoa(it.EpisodesWatched), strconv.Itoa(it.EpisodeCount),
+		strconv.FormatInt(it.FileSize, 10), csvSafe(it.VideoResolution), csvSafe(it.TMDBStatus),
+		strconv.FormatBool(it.FlaggedForDeletion), strconv.FormatBool(it.Protected),
+	}
+}
+
 func (s *Server) writeLibraryItemsCSV(w http.ResponseWriter, r *http.Request, q store.LibraryItemQuery) {
-	q.PerPage = 0 // all rows
+	q.Page = 1
+	q.PerPage = csvExportPageSize
+
+	// Fetch the first page before writing any headers so a store error still
+	// produces a proper error response instead of a truncated 200 stream.
 	result, err := s.store.ListLibraryItemDetails(r.Context(), q)
 	if err != nil {
 		log.Printf("library items CSV (server %d, library %q): %v", q.ServerID, q.LibraryID, err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
+
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", `attachment; filename="library-items.csv"`)
 
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"Title", "Year", "Type", "Added At", "Last Played", "Plays",
-		"Total Hours", "Unique Viewers", "Last Viewer", "Episodes Watched", "Episode Count",
-		"File Size", "Resolution", "TMDB Status", "Flagged", "Protected"})
-	for _, it := range result.Items {
-		lastPlayed := ""
-		if it.LastPlayedAt != nil {
-			lastPlayed = it.LastPlayedAt.Format("2006-01-02 15:04:05")
-		}
-		_ = cw.Write([]string{
-			csvSafe(it.Title), strconv.Itoa(it.Year), string(it.MediaType),
-			it.AddedAt.Format("2006-01-02 15:04:05"), lastPlayed, strconv.Itoa(it.Plays),
-			strconv.FormatFloat(it.TotalHours, 'f', 2, 64), strconv.Itoa(it.UniqueViewers),
-			csvSafe(it.LastViewer), strconv.Itoa(it.EpisodesWatched), strconv.Itoa(it.EpisodeCount),
-			strconv.FormatInt(it.FileSize, 10), csvSafe(it.VideoResolution), csvSafe(it.TMDBStatus),
-			strconv.FormatBool(it.FlaggedForDeletion), strconv.FormatBool(it.Protected),
-		})
+	if err := cw.Write(libraryItemsCSVHeader); err != nil {
+		log.Printf("library items CSV header write (server %d, library %q): %v", q.ServerID, q.LibraryID, err)
+		return
 	}
+
+	for {
+		for _, it := range result.Items {
+			if err := cw.Write(libraryItemCSVRow(it)); err != nil {
+				log.Printf("library items CSV row write (server %d, library %q): %v", q.ServerID, q.LibraryID, err)
+				return
+			}
+		}
+		if len(result.Items) < csvExportPageSize {
+			break
+		}
+		if r.Context().Err() != nil {
+			return
+		}
+		q.Page++
+		result, err = s.store.ListLibraryItemDetails(r.Context(), q)
+		if err != nil {
+			log.Printf("library items CSV page %d (server %d, library %q): %v", q.Page, q.ServerID, q.LibraryID, err)
+			return
+		}
+	}
+
 	cw.Flush()
+	if err := cw.Error(); err != nil {
+		log.Printf("library items CSV flush (server %d, library %q): %v", q.ServerID, q.LibraryID, err)
+	}
 }
 
 func (s *Server) handleLibraryItemSummary(w http.ResponseWriter, r *http.Request) {

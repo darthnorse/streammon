@@ -107,6 +107,20 @@ func (m *mockItemDetailsServer) GetItemDetails(ctx context.Context, itemID strin
 	return m.details, nil
 }
 
+// TestItemDetailsNilPoller guards against a nil-pointer panic when the
+// server has no poller configured (e.g. no media servers set up yet).
+func TestItemDetailsNilPoller(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/servers/1/items/item-1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestItemDetailsIncludesTMDBID(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 

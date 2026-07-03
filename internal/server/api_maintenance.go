@@ -952,7 +952,9 @@ func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) 
 		}
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			log.Printf("csv export write (rule %d): %v", ruleID, err)
+		}
 	} else {
 		data, err := exportCandidatesJSON(candidates, ruleID)
 		if err != nil {
@@ -962,7 +964,9 @@ func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) 
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			log.Printf("json export write (rule %d): %v", ruleID, err)
+		}
 	}
 }
 
