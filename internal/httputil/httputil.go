@@ -74,17 +74,23 @@ func ValidateIntegrationURL(rawURL string) error {
 // typed into a config field), this is applied at dial time, after DNS
 // resolution — defense-in-depth against SSRF via DNS rebinding, redirects,
 // or hostnames that only resolve to an internal address at connection time.
+//
+// Private (RFC1918) and unique-local (RFC4193/ULA) addresses are
+// deliberately NOT blocked: StreamMon is a self-hosted homelab app, and
+// users legitimately point notification channels (ntfy, generic webhooks,
+// Home Assistant, etc.) at LAN hosts. The real SSRF targets — cloud
+// metadata (169.254.169.254, link-local), loopback-to-self, and the
+// unspecified address — are covered without breaking LAN setups.
 func isBlockedResolvedIP(ip net.IP) bool {
 	return ip.IsUnspecified() ||
 		ip.IsLoopback() ||
 		ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() ||
-		ip.IsPrivate()
+		ip.IsLinkLocalMulticast()
 }
 
 // safeDialControl is a net.Dialer.Control hook that runs after DNS
 // resolution but before the socket connects, rejecting resolved addresses
-// that are loopback, link-local, private/unique-local, or unspecified.
+// that are loopback, link-local, or unspecified.
 func safeDialControl(_, address string, _ syscall.RawConn) error {
 	host, _, err := net.SplitHostPort(address)
 	if err != nil {
@@ -102,11 +108,13 @@ func safeDialControl(_, address string, _ syscall.RawConn) error {
 
 // NewSafeClient returns an *http.Client for outbound integration and
 // notification requests (e.g. webhook/Discord/ntfy sends). It rejects
-// connections whose resolved remote IP is loopback, link-local,
-// private/unique-local, or unspecified — even if the URL's hostname looked
-// public at config-validation time — and refuses to auto-follow redirects
-// so a redirect to an internal host is never dialed (mirrors the pattern in
-// overseerr.CreateRequestAsUser).
+// connections whose resolved remote IP is loopback, link-local, or
+// unspecified — even if the URL's hostname looked public at
+// config-validation time — and refuses to auto-follow redirects so a
+// redirect to an internal host is never dialed (mirrors the pattern in
+// overseerr.CreateRequestAsUser). Private (RFC1918) and unique-local (ULA)
+// addresses are allowed, since this is a self-hosted app where LAN-hosted
+// notification receivers are a legitimate, common setup.
 func NewSafeClient(timeout time.Duration) *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DialContext = (&net.Dialer{

@@ -52,16 +52,13 @@ func TestValidateIntegrationURL(t *testing.T) {
 
 func TestIsBlockedResolvedIP(t *testing.T) {
 	blocked := []string{
-		"127.0.0.1",   // loopback
-		"::1",         // loopback (v6)
-		"169.254.1.1", // link-local
-		"fe80::1",     // link-local (v6)
-		"10.0.0.1",    // private
-		"172.16.0.1",  // private
-		"192.168.1.1", // private
-		"fc00::1",     // unique-local (v6)
-		"0.0.0.0",     // unspecified
-		"::",          // unspecified (v6)
+		"127.0.0.1",       // loopback
+		"::1",             // loopback (v6)
+		"169.254.1.1",     // link-local
+		"169.254.169.254", // link-local (cloud metadata)
+		"fe80::1",         // link-local (v6)
+		"0.0.0.0",         // unspecified
+		"::",              // unspecified (v6)
 	}
 	for _, s := range blocked {
 		ip := net.ParseIP(s)
@@ -77,6 +74,10 @@ func TestIsBlockedResolvedIP(t *testing.T) {
 		"8.8.8.8",              // public
 		"1.1.1.1",              // public
 		"2606:4700:4700::1111", // public v6 (cloudflare)
+		"10.0.0.1",             // private (LAN) — allowed
+		"172.16.0.1",           // private (LAN) — allowed
+		"192.168.1.1",          // private (LAN) — allowed
+		"fc00::1",              // unique-local (ULA) — allowed
 	}
 	for _, s := range allowed {
 		ip := net.ParseIP(s)
@@ -100,6 +101,9 @@ func TestNewSafeClient_BlocksLoopbackConnections(t *testing.T) {
 	if err == nil {
 		resp.Body.Close()
 		t.Fatal("expected connection to loopback address to be refused")
+	}
+	if !strings.Contains(err.Error(), "not allowed") {
+		t.Errorf("expected error to indicate the dial guard refused the connection, got: %v", err)
 	}
 }
 
