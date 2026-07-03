@@ -392,6 +392,31 @@ func (s *Store) AutoLearnHouseholdLocation(userName, ipAddress string, minSessio
 		return false, nil
 	}
 
+	// Geo data may not have been cached yet when this IP was first learned, leaving
+	// an earlier row with empty city/country that the exact-match update above can't
+	// find now that geo has resolved. Migrate that row instead of inserting a
+	// duplicate for the same user/IP. Only a row that was itself learned blank is
+	// touched, so a genuinely different city for this IP (e.g. VPN) still gets its
+	// own row via the insert path below.
+	if city != "" || country != "" {
+		// OR IGNORE: if a resolved-city row for this user/IP already exists (e.g. from
+		// a duplicate created before this fix), the plain migration would collide with
+		// the (user_name, ip_address, city, country) unique index. Ignoring that case
+		// leaves the pre-existing duplicate for BackfillHouseholdGeo to merge later.
+		result, err = s.db.Exec(`UPDATE OR IGNORE household_locations SET
+				session_count = session_count + 1, last_seen = CURRENT_TIMESTAMP,
+				city = ?, country = ?, latitude = ?, longitude = ?
+			WHERE user_name = ? AND ip_address = ? AND city = '' AND country = ''`,
+			city, country, lat.Float64, lng.Float64, userName, ipAddress)
+		if err != nil {
+			return false, fmt.Errorf("migrating household location: %w", err)
+		}
+		rowsAffected, _ = result.RowsAffected()
+		if rowsAffected > 0 {
+			return false, nil
+		}
+	}
+
 	var sessionCount int
 	err = s.db.QueryRow(`SELECT COUNT(*) FROM watch_history WHERE user_name = ? AND ip_address = ?`,
 		userName, ipAddress).Scan(&sessionCount)

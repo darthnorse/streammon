@@ -818,6 +818,82 @@ func TestAutoLearnHouseholdLocationDifferentCities(t *testing.T) {
 	}
 }
 
+// TestAutoLearnHouseholdLocationLateGeo covers the case where the geo cache is
+// still empty on the first learn (so the row is created with city='',
+// country='') and only resolves afterwards. The next auto-learn call must
+// migrate the existing blank-city row rather than insert a second row for the
+// same user/IP, since the dedup UPDATE used to key on (user_name, ip_address,
+// city, country) and would miss the now-blank-mismatched row.
+func TestAutoLearnHouseholdLocationLateGeo(t *testing.T) {
+	s := setupTestStore(t)
+
+	now := time.Now().UTC()
+	serverID := seedTestServer(t, s)
+
+	// Seed 12 sessions for the IP with NO geo cache entry yet.
+	for i := 0; i < 12; i++ {
+		entry := &models.WatchHistoryEntry{
+			ServerID:  serverID,
+			UserName:  "carol",
+			Title:     "Movie",
+			StartedAt: now.Add(-time.Duration(i) * time.Hour),
+			IPAddress: "3.3.3.3",
+			Player:    "Plex Web",
+			Platform:  "Chrome",
+			MediaType: models.MediaTypeMovie,
+		}
+		if err := s.InsertHistory(entry); err != nil {
+			t.Fatalf("InsertHistory: %v", err)
+		}
+	}
+
+	// First learn happens before geo is cached: creates a blank-city row.
+	created, err := s.AutoLearnHouseholdLocation("carol", "3.3.3.3", 10)
+	if err != nil {
+		t.Fatalf("AutoLearnHouseholdLocation (first learn): %v", err)
+	}
+	if !created {
+		t.Fatal("expected created=true on first learn")
+	}
+
+	locations, err := s.ListHouseholdLocations("carol")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations: %v", err)
+	}
+	if len(locations) != 1 {
+		t.Fatalf("expected 1 household location after first learn, got %d", len(locations))
+	}
+	if locations[0].City != "" {
+		t.Fatalf("expected blank city on first learn, got %q", locations[0].City)
+	}
+
+	// Geo cache now resolves for this IP.
+	insertTestGeoCache(t, s, "3.3.3.3", "New York", "US")
+
+	// Second learn should migrate the blank row in place, not insert a duplicate.
+	created, err = s.AutoLearnHouseholdLocation("carol", "3.3.3.3", 10)
+	if err != nil {
+		t.Fatalf("AutoLearnHouseholdLocation (geo now resolved): %v", err)
+	}
+	if created {
+		t.Error("expected created=false when migrating the existing blank-city row")
+	}
+
+	locations, err = s.ListHouseholdLocations("carol")
+	if err != nil {
+		t.Fatalf("ListHouseholdLocations after geo resolves: %v", err)
+	}
+	if len(locations) != 1 {
+		t.Fatalf("expected still 1 household location (no duplicate), got %d", len(locations))
+	}
+	if locations[0].City != "New York" {
+		t.Errorf("City = %q, want %q (backfilled)", locations[0].City, "New York")
+	}
+	if locations[0].SessionCount != 13 {
+		t.Errorf("SessionCount = %d, want 13 (incremented, not reset)", locations[0].SessionCount)
+	}
+}
+
 func insertTestHousehold(t *testing.T, s *Store, user, ip, city, country string, sessions int, firstSeen, lastSeen string) {
 	t.Helper()
 	_, err := s.db.Exec(`INSERT INTO household_locations
