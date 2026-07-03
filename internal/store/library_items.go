@@ -424,22 +424,31 @@ func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (
 	return result, nil
 }
 
-// GetStreamMonWatchTimes returns the most recent watch_history activity for a batch of library items.
-// For movies it matches on item_id; for TV shows it also matches on grandparent_item_id (series ID).
-// Title-based fallback covers legacy data where grandparent_item_id is empty; constrained to same
-// server and media_type to avoid false positives from title collisions.
+// GetStreamMonWatchTimes returns the most recent watch_history activity for a batch of
+// library items, via the watchAggCTE pre-aggregation defined in library_detail.go. For
+// movies it matches on item_id; for TV shows it matches on grandparent_item_id (series
+// ID). This reflects StreamMon's own poller history, which captures ALL users' sessions
+// — not just the API user whose watch data the media server reports.
+//
+// Unlike the OR-join this replaced, it does NOT fall back to matching by title for
+// legacy rows with an empty item_id/grandparent_item_id: watchAggCTE dropped that
+// fallback because it over-attributes plays across same-titled items (see the
+// watchAggCTE doc comment). Dropping it here too keeps this path's notion of "watched"
+// consistent with the library-detail/summary paths, which already made that call.
 func (s *Store) GetStreamMonWatchTimes(ctx context.Context, itemIDs []int64) (map[int64]*time.Time, error) {
 	result := make(map[int64]*time.Time)
 	if len(itemIDs) == 0 {
 		return result, nil
 	}
 
+	// wh_agg <-> library_items is a 1:1 join (both (server_id, k) and
+	// (server_id, item_id) are unique), so no outer GROUP BY is needed.
 	err := s.batchQueryTimes(ctx, itemIDs, func(ph string) string {
-		return `SELECT li.id, MAX(wh.stopped_at) as last_activity
+		return watchAggCTE + `
+			SELECT li.id, a.last_played_at
 			FROM library_items li
-			JOIN watch_history wh ON ` + libraryWatchMatch + `
-			WHERE li.id IN (` + ph + `)
-			GROUP BY li.id`
+			JOIN wh_agg a ON a.server_id = li.server_id AND a.k = li.item_id
+			WHERE li.id IN (` + ph + `)`
 	}, "streammon watch times", result)
 	if err != nil {
 		return nil, err

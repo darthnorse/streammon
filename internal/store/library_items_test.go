@@ -967,8 +967,11 @@ func TestGetStreamMonWatchTimes(t *testing.T) {
 		}
 	})
 
-	t.Run("TV show matched by title when grandparent_item_id empty", func(t *testing.T) {
-		// Create a TV show that has a different item_id than what's in watch_history
+	t.Run("TV show NOT matched by title alone when grandparent_item_id empty", func(t *testing.T) {
+		// GetStreamMonWatchTimes now shares watchAggCTE with the library-detail
+		// path, which intentionally dropped title-based matching because it
+		// over-attributes plays across same-titled items. A history row with an
+		// empty grandparent_item_id must NOT be attributed to a show via title.
 		tvItems := []models.LibraryItemCache{
 			{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-show-99", MediaType: models.MediaTypeTV, Title: "Succession", Year: 2018, AddedAt: now.AddDate(0, 0, -730), SyncedAt: now},
 		}
@@ -993,7 +996,7 @@ func TestGetStreamMonWatchTimes(t *testing.T) {
 		s.InsertHistory(&models.WatchHistoryEntry{
 			ServerID:          srvPlex.ID,
 			ItemID:            "plex-ep-500",
-			GrandparentItemID: "", // empty — ID match won't work
+			GrandparentItemID: "", // empty — ID match won't work, and title must not fall back
 			UserName:          "Rerun717",
 			MediaType:         models.MediaTypeTV,
 			Title:             "Austerlitz",
@@ -1006,16 +1009,12 @@ func TestGetStreamMonWatchTimes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		watchTime := result[showItem.ID]
-		if watchTime == nil {
-			t.Fatal("expected non-nil watch time from title-based fallback")
-		}
-		if watchTime.Sub(titleWatch).Abs() > time.Second {
-			t.Errorf("watch time = %v, want ~%v", *watchTime, titleWatch)
+		if watchTime := result[showItem.ID]; watchTime != nil {
+			t.Errorf("expected nil (no title fallback), got %v", *watchTime)
 		}
 	})
 
-	t.Run("movie matched by title when item_id empty", func(t *testing.T) {
+	t.Run("movie NOT matched by title alone when item_id empty", func(t *testing.T) {
 		movieItems := []models.LibraryItemCache{
 			{ServerID: srvPlex.ID, LibraryID: "lib1", ItemID: "plex-movie-99", MediaType: models.MediaTypeMovie, Title: "Orphan Movie", Year: 2020, AddedAt: now.AddDate(0, 0, -500), SyncedAt: now},
 		}
@@ -1036,10 +1035,10 @@ func TestGetStreamMonWatchTimes(t *testing.T) {
 		}
 
 		movieWatch := now.Add(-5 * time.Hour).Truncate(time.Second)
-		// Insert watch_history with empty item_id (old data)
+		// Insert watch_history with empty item_id (old data) — must not fall back to title.
 		s.InsertHistory(&models.WatchHistoryEntry{
 			ServerID:  srvPlex.ID,
-			ItemID:    "", // empty — ID match won't work
+			ItemID:    "", // empty — ID match won't work, and title must not fall back
 			UserName:  "viewer1",
 			MediaType: models.MediaTypeMovie,
 			Title:     "Orphan Movie",
@@ -1051,12 +1050,37 @@ func TestGetStreamMonWatchTimes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		watchTime := result[movieItem.ID]
-		if watchTime == nil {
-			t.Fatal("expected non-nil watch time from title-based fallback for movie")
+		if watchTime := result[movieItem.ID]; watchTime != nil {
+			t.Errorf("expected nil (no title fallback), got %v", *watchTime)
 		}
-		if watchTime.Sub(movieWatch).Abs() > time.Second {
-			t.Errorf("watch time = %v, want ~%v", *watchTime, movieWatch)
+	})
+
+	t.Run("cross-server item_id collision does not false-match", func(t *testing.T) {
+		// watchAggCTE aggregates watch_history across all servers keyed by
+		// (server_id, k); confirm the join still scopes to the matching server
+		// and doesn't attribute another server's play of the same item_id.
+		srvJelly := &models.Server{Name: "Jelly2", Type: models.ServerTypeJellyfin, URL: "http://jelly2", APIKey: "keyX", Enabled: true}
+		if err := s.CreateServer(srvJelly); err != nil {
+			t.Fatal(err)
+		}
+		collideItems := []models.LibraryItemCache{
+			{ServerID: srvJelly.ID, LibraryID: "lib1", ItemID: "plex-2", MediaType: models.MediaTypeMovie, Title: "Different Movie, Same ID", AddedAt: now, SyncedAt: now},
+		}
+		if _, err := s.UpsertLibraryItems(ctx, collideItems); err != nil {
+			t.Fatal(err)
+		}
+		jellyItems, _ := s.ListLibraryItems(ctx, srvJelly.ID, "lib1")
+		jellyCollide := findByItemID(t, jellyItems, "plex-2")
+
+		// plex-2 (The Matrix) already has watch_history on srvPlex from the setup
+		// above (item_id="plex-2"); the Jellyfin item sharing that item_id string
+		// must NOT pick it up.
+		result, err := s.GetStreamMonWatchTimes(ctx, []int64{jellyCollide.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if watchTime := result[jellyCollide.ID]; watchTime != nil {
+			t.Errorf("expected nil (different server, same item_id string must not collide), got %v", *watchTime)
 		}
 	})
 }
