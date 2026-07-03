@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -1048,6 +1049,17 @@ func TestEvaluateLowResolutionMultiLibrary(t *testing.T) {
 
 type mockMediaServer struct {
 	seasons map[string][]models.Season
+
+	// seasonsDelay, if set, is slept at the start of GetSeasons -- used to
+	// prove evaluateKeepLatestSeasons actually parallelizes calls instead of
+	// running them serially.
+	seasonsDelay time.Duration
+
+	mu             sync.Mutex
+	seasonsCalls   int
+	inFlight       int
+	maxInFlight    int
+	seasonsCallLog []string
 }
 
 func (m *mockMediaServer) Name() string            { return "mock" }
@@ -1074,6 +1086,23 @@ func (m *mockMediaServer) GetLibraryItems(ctx context.Context, libraryID string)
 }
 func (m *mockMediaServer) DeleteItem(ctx context.Context, itemID string) error { return nil }
 func (m *mockMediaServer) GetSeasons(ctx context.Context, showID string) ([]models.Season, error) {
+	m.mu.Lock()
+	m.seasonsCalls++
+	m.inFlight++
+	if m.inFlight > m.maxInFlight {
+		m.maxInFlight = m.inFlight
+	}
+	m.seasonsCallLog = append(m.seasonsCallLog, showID)
+	m.mu.Unlock()
+
+	if m.seasonsDelay > 0 {
+		time.Sleep(m.seasonsDelay)
+	}
+
+	m.mu.Lock()
+	m.inFlight--
+	m.mu.Unlock()
+
 	return m.seasons[showID], nil
 }
 func (m *mockMediaServer) GetEpisodes(ctx context.Context, seasonID string) ([]models.Episode, error) {
@@ -1081,6 +1110,12 @@ func (m *mockMediaServer) GetEpisodes(ctx context.Context, seasonID string) ([]m
 }
 func (m *mockMediaServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
 	return nil
+}
+
+func (m *mockMediaServer) callCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.seasonsCalls
 }
 
 type mockServerResolver struct {
@@ -1241,6 +1276,214 @@ func TestEvaluateKeepLatestSeasonsIgnoresSpecials(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Errorf("got %d results, want 0 (3 regular seasons + specials, threshold 3)", len(results))
+	}
+}
+
+// TestEvaluateKeepLatestSeasonsSkipsCallWhenEpisodeCountBounds verifies the
+// remote GetSeasons call is skipped entirely when the show's already-synced
+// episode_count can never exceed KeepSeasons regular seasons (each season
+// has at least one episode, so episode_count is an upper bound on season
+// count).
+func TestEvaluateKeepLatestSeasonsSkipsCallWhenEpisodeCountBounds(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{{
+		ServerID:     srv.ID,
+		LibraryID:    "lib1",
+		ItemID:       "show1",
+		MediaType:    models.MediaTypeTV,
+		Title:        "New Show",
+		EpisodeCount: 2, // <= keep_seasons: can never have more regular seasons than this
+		AddedAt:      now,
+		SyncedAt:     now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{seasons: map[string][]models.Season{}}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{srv.ID: ms}}
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 3}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0", len(results))
+	}
+	if ms.callCount() != 0 {
+		t.Errorf("GetSeasons calls = %d, want 0 (episode_count bound should skip the remote call)", ms.callCount())
+	}
+}
+
+// TestEvaluateKeepLatestSeasonsCallsWhenEpisodeCountExceedsBound is the
+// complement: when episode_count exceeds KeepSeasons, the bound is
+// inconclusive and the remote call must still happen.
+func TestEvaluateKeepLatestSeasonsCallsWhenEpisodeCountExceedsBound(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{{
+		ServerID:     srv.ID,
+		LibraryID:    "lib1",
+		ItemID:       "show1",
+		MediaType:    models.MediaTypeTV,
+		Title:        "Long Running Show",
+		EpisodeCount: 40,
+		AddedAt:      now,
+		SyncedAt:     now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{
+		seasons: map[string][]models.Season{
+			"show1": {
+				{ID: "s1", Number: 1}, {ID: "s2", Number: 2},
+				{ID: "s3", Number: 3}, {ID: "s4", Number: 4},
+			},
+		},
+	}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{srv.ID: ms}}
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 2}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+	results, err := e.EvaluateRule(ctx, rule)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	if ms.callCount() != 1 {
+		t.Errorf("GetSeasons calls = %d, want 1", ms.callCount())
+	}
+}
+
+// TestEvaluateKeepLatestSeasonsUnknownEpisodeCountStillCalls verifies a
+// zero/unknown episode_count (e.g. not yet synced) does not skip the remote
+// call -- the bound is only safe to apply when episode_count is known.
+func TestEvaluateKeepLatestSeasonsUnknownEpisodeCountStillCalls(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{{
+		ServerID:  srv.ID,
+		LibraryID: "lib1",
+		ItemID:    "show1",
+		MediaType: models.MediaTypeTV,
+		Title:     "Unknown Episode Count Show",
+		// EpisodeCount left at zero value (unknown/not synced).
+		AddedAt:  now,
+		SyncedAt: now,
+	}}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{
+		seasons: map[string][]models.Season{
+			"show1": {{ID: "s1", Number: 1}},
+		},
+	}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{srv.ID: ms}}
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 3}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+	if _, err := e.EvaluateRule(ctx, rule); err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	if ms.callCount() != 1 {
+		t.Errorf("GetSeasons calls = %d, want 1 (zero episode_count is unknown, must not skip)", ms.callCount())
+	}
+}
+
+// TestEvaluateKeepLatestSeasonsConcurrency proves shows are evaluated in
+// parallel (bounded worker pool), not serially: N shows each taking `delay`
+// to answer GetSeasons must complete well under N*delay, and the observed
+// max-in-flight call count must exceed 1.
+func TestEvaluateKeepLatestSeasonsConcurrency(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	const numShows = 12
+	const delay = 40 * time.Millisecond
+
+	now := time.Now().UTC()
+	var items []models.LibraryItemCache
+	seasons := map[string][]models.Season{}
+	for i := 0; i < numShows; i++ {
+		id := fmt.Sprintf("show%d", i)
+		items = append(items, models.LibraryItemCache{
+			ServerID: srv.ID, LibraryID: "lib1", ItemID: id, MediaType: models.MediaTypeTV,
+			Title: id, EpisodeCount: 40, AddedAt: now, SyncedAt: now,
+		})
+		seasons[id] = []models.Season{{ID: "s1", Number: 1}, {ID: "s2", Number: 2}}
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{seasons: seasons, seasonsDelay: delay}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{srv.ID: ms}}
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 5}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+
+	start := time.Now()
+	if _, err := e.EvaluateRule(ctx, rule); err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if ms.callCount() != numShows {
+		t.Fatalf("GetSeasons calls = %d, want %d", ms.callCount(), numShows)
+	}
+
+	serialEstimate := time.Duration(numShows) * delay
+	if elapsed >= serialEstimate {
+		t.Errorf("elapsed = %v, want well under serial estimate %v (evaluation should run concurrently)", elapsed, serialEstimate)
+	}
+
+	ms.mu.Lock()
+	maxInFlight := ms.maxInFlight
+	ms.mu.Unlock()
+	if maxInFlight < 2 {
+		t.Errorf("max concurrent GetSeasons calls = %d, want >= 2 (evaluation should overlap calls)", maxInFlight)
+	}
+	if maxInFlight > keepLatestSeasonsConcurrency {
+		t.Errorf("max concurrent GetSeasons calls = %d, want <= %d (worker pool bound)", maxInFlight, keepLatestSeasonsConcurrency)
 	}
 }
 
@@ -1433,6 +1676,12 @@ func TestEvaluateKeepLatestSeasonsProgress(t *testing.T) {
 		t.Fatalf("got %d progress messages, want 2", len(msgs))
 	}
 
+	// Shows are now evaluated concurrently (bounded worker pool), so
+	// completion -- and therefore which message arrives first -- is no
+	// longer guaranteed to follow item order. Current values must still be
+	// exactly {1, 2} (a strictly increasing per-completion counter), just not
+	// necessarily in that positional order.
+	seenCurrent := make(map[int]bool)
 	for i, msg := range msgs {
 		if msg.Phase != mediautil.PhaseEvaluating {
 			t.Errorf("msg[%d].Phase = %q, want %q", i, msg.Phase, mediautil.PhaseEvaluating)
@@ -1440,12 +1689,13 @@ func TestEvaluateKeepLatestSeasonsProgress(t *testing.T) {
 		if msg.Total != 2 {
 			t.Errorf("msg[%d].Total = %d, want 2", i, msg.Total)
 		}
-		if msg.Current != i+1 {
-			t.Errorf("msg[%d].Current = %d, want %d", i, msg.Current, i+1)
-		}
+		seenCurrent[msg.Current] = true
 		if msg.Library != "lib1" {
 			t.Errorf("msg[%d].Library = %q, want %q", i, msg.Library, "lib1")
 		}
+	}
+	if !seenCurrent[1] || !seenCurrent[2] {
+		t.Errorf("progress Current values = %v, want {1, 2}", seenCurrent)
 	}
 }
 
@@ -1514,4 +1764,65 @@ func TestEvaluateLowResolution_WidthAwareMode_FallbackForLegacyRows(t *testing.T
 	if len(results) != 1 {
 		t.Fatalf("got %d candidates, want 1 (legacy row falls back to bucketed string)", len(results))
 	}
+}
+
+// TestBenchTask16_KeepLatestSeasonsWallTime is a measurement harness (not a
+// correctness test) for Task 16 finding 2.17: it evaluates a library of TV
+// shows against a mock media server with realistic per-call network latency
+// and reports the actual (now-parallel) wall time next to the serial
+// baseline the old implementation would have taken (N shows * per-call
+// latency), since a serial rerun isn't available without reverting the fix.
+func TestBenchTask16_KeepLatestSeasonsWallTime(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping wall-clock benchmark in -short mode")
+	}
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	srv := seedTestServer(t, s)
+
+	const numShows = 40
+	const delay = 150 * time.Millisecond // representative media-server/TMDB round trip
+
+	now := time.Now().UTC()
+	var items []models.LibraryItemCache
+	seasons := map[string][]models.Season{}
+	for i := 0; i < numShows; i++ {
+		id := fmt.Sprintf("show%d", i)
+		items = append(items, models.LibraryItemCache{
+			ServerID: srv.ID, LibraryID: "lib1", ItemID: id, MediaType: models.MediaTypeTV,
+			Title: id, EpisodeCount: 40, AddedAt: now, SyncedAt: now,
+		})
+		seasons[id] = []models.Season{{ID: "s1", Number: 1}, {ID: "s2", Number: 2}, {ID: "s3", Number: 3}, {ID: "s4", Number: 4}}
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	ms := &mockMediaServer{seasons: seasons, seasonsDelay: delay}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{srv.ID: ms}}
+
+	rule := &models.MaintenanceRule{
+		Libraries:     libs(srv.ID, "lib1"),
+		CriterionType: models.CriterionKeepLatestSeasons,
+		Parameters:    json.RawMessage(`{"keep_seasons": 2}`),
+	}
+
+	e := NewEvaluator(s, nil, resolver)
+
+	start := time.Now()
+	results, err := e.EvaluateRule(ctx, rule)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("EvaluateRule: %v", err)
+	}
+
+	serialEstimate := time.Duration(numShows) * delay
+	poolRounds := (numShows + keepLatestSeasonsConcurrency - 1) / keepLatestSeasonsConcurrency
+	concurrentEstimate := time.Duration(poolRounds) * delay
+
+	fmt.Printf("keep_latest_seasons wall time: shows=%d delay=%v concurrency=%d\n", numShows, delay, keepLatestSeasonsConcurrency)
+	fmt.Printf("  serial estimate (old, unbounded 1-at-a-time):   %v\n", serialEstimate)
+	fmt.Printf("  concurrent estimate (new, pool=%d):              %v\n", keepLatestSeasonsConcurrency, concurrentEstimate)
+	fmt.Printf("  measured actual (new):                          %v\n", elapsed)
+	fmt.Printf("  candidates=%d calls=%d\n", len(results), ms.callCount())
 }
