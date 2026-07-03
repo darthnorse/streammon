@@ -73,8 +73,12 @@ func (sch *Scheduler) run(ctx context.Context) {
 
 	sch.cleanupSessions()
 
-	syncTicker := time.NewTicker(durationUntil3AM(time.Now()))
-	defer syncTicker.Stop()
+	// The next daily sync fires once at a variable delay (time until 3 AM,
+	// which shifts across DST transitions) rather than on a fixed period, so
+	// a Timer -- rearmed after each fire -- models it more clearly than a
+	// Ticker.
+	syncTimer := time.NewTimer(durationUntil3AM(time.Now()))
+	defer syncTimer.Stop()
 
 	sessionTicker := time.NewTicker(1 * time.Hour)
 	defer sessionTicker.Stop()
@@ -83,12 +87,12 @@ func (sch *Scheduler) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-syncTicker.C:
+		case <-syncTimer.C:
 			if err := sch.SyncAll(ctx); err != nil {
 				log.Printf("scheduler: daily sync failed: %v", err)
 			}
 			// Recalculate to handle DST transitions
-			syncTicker.Reset(durationUntil3AM(time.Now()))
+			syncTimer.Reset(durationUntil3AM(time.Now()))
 		case <-sessionTicker.C:
 			sch.cleanupSessions()
 		}
