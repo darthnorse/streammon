@@ -53,7 +53,7 @@ export default function App() {
             <Route path="/requests" element={<Navigate to="/discover" replace />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/users" element={<AdminRoute><Users /></AdminRoute>} />
-            <Route path="/users/:name" element={<UserDetail />} />
+            <Route path="/users/:name" element={<AdminRoute><UserDetail /></AdminRoute>} />
             <Route path="/my-stats" element={<MyStats />} />
             <Route path="/history" element={<AdminRoute><History /></AdminRoute>} />
             <Route path="/statistics" element={<AdminRoute><Statistics /></AdminRoute>} />
