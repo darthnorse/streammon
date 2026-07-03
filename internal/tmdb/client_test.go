@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"golang.org/x/time/rate"
 
+	"streammon/internal/httputil"
 	"streammon/internal/store"
 )
 
@@ -118,6 +120,29 @@ func TestCacheExpiry(t *testing.T) {
 	}
 	if string(data) != string(fresh) {
 		t.Fatalf("expected fresh data after expiry, got %s", data)
+	}
+}
+
+func TestDoRedactsAPIKeyOnFailure(t *testing.T) {
+	// Server is closed before use, so the request fails with a connection
+	// error (*url.Error) whose message embeds the full request URL.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	ts.Close()
+
+	secret := "SUPERSECRETTMDBKEY"
+	c := &Client{
+		apiKey:  secret,
+		baseURL: ts.URL,
+		http:    httputil.NewClient(),
+		limiter: rate.NewLimiter(rate.Inf, 0),
+	}
+
+	_, err := c.do(context.Background(), "/configuration", nil)
+	if err == nil {
+		t.Fatal("expected an error from a closed server")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("api key leaked into error: %v", err)
 	}
 }
 

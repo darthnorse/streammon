@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -94,6 +95,27 @@ func TestTestConnectionFailure(t *testing.T) {
 	err := c.TestConnection(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid API key")
+	}
+}
+
+func TestTestConnectionRedactsAPIKeyOnFailure(t *testing.T) {
+	// Server is closed before use, so the request fails with a connection
+	// error (*url.Error) whose message embeds the full request URL.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	ts.Close()
+
+	secret := "SUPERSECRETAPIKEY"
+	c, err := NewClient(ts.URL, secret)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	connErr := c.TestConnection(context.Background())
+	if connErr == nil {
+		t.Fatal("expected an error from a closed server")
+	}
+	if strings.Contains(connErr.Error(), secret) {
+		t.Errorf("api key leaked into error: %v", connErr)
 	}
 }
 

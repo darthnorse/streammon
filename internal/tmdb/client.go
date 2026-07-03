@@ -63,12 +63,12 @@ func (c *Client) do(ctx context.Context, path string, query url.Values) (json.Ra
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("creating request: %w", httputil.RedactURLError(err))
 	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("connection failed: %w", err)
+		return nil, fmt.Errorf("connection failed: %w", httputil.RedactURLError(err))
 	}
 	defer httputil.DrainBody(resp)
 

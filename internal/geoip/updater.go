@@ -14,7 +14,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"streammon/internal/httputil"
 )
+
+// maxmindDownloadURL is the base URL used to fetch GeoLite2 databases.
+// Overridable via Updater.downloadBaseURL in tests.
+const maxmindDownloadURL = "https://download.maxmind.com/app/geoip_download"
 
 type SettingsStore interface {
 	GetSetting(key string) (string, error)
@@ -22,22 +28,24 @@ type SettingsStore interface {
 }
 
 type Updater struct {
-	mu        sync.Mutex
-	store     SettingsStore
-	resolver  *Resolver
-	geoDBPath string
-	asnDBPath string
-	client    *http.Client
+	mu              sync.Mutex
+	store           SettingsStore
+	resolver        *Resolver
+	geoDBPath       string
+	asnDBPath       string
+	client          *http.Client
+	downloadBaseURL string
 }
 
 func NewUpdater(store SettingsStore, resolver *Resolver, geoDBPath string) *Updater {
 	asnDBPath := strings.TrimSuffix(geoDBPath, ".mmdb") + "-ASN.mmdb"
 	return &Updater{
-		store:     store,
-		resolver:  resolver,
-		geoDBPath: geoDBPath,
-		asnDBPath: asnDBPath,
-		client:    &http.Client{Timeout: 2 * time.Minute},
+		store:           store,
+		resolver:        resolver,
+		geoDBPath:       geoDBPath,
+		asnDBPath:       asnDBPath,
+		client:          &http.Client{Timeout: 2 * time.Minute},
+		downloadBaseURL: maxmindDownloadURL,
 	}
 }
 
@@ -141,13 +149,13 @@ func (u *Updater) wasRecentlyUpdated() bool {
 
 func (u *Updater) downloadDB(edition, licenseKey, destDir, destPath string) error {
 	dlURL := fmt.Sprintf(
-		"https://download.maxmind.com/app/geoip_download?edition_id=%s&license_key=%s&suffix=tar.gz",
-		edition, url.QueryEscape(licenseKey),
+		"%s?edition_id=%s&license_key=%s&suffix=tar.gz",
+		u.downloadBaseURL, edition, url.QueryEscape(licenseKey),
 	)
 
 	resp, err := u.client.Get(dlURL)
 	if err != nil {
-		return fmt.Errorf("downloading %s: %w", edition, err)
+		return fmt.Errorf("downloading %s: %w", edition, httputil.RedactURLError(err))
 	}
 	defer resp.Body.Close()
 
