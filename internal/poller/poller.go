@@ -2,6 +2,7 @@ package poller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -63,6 +64,12 @@ type Poller struct {
 
 	idleTimeout   time.Duration
 	idleTimeoutMu sync.RWMutex
+
+	// insertHistoryFn persists a single watch-history entry. It defaults to
+	// store.InsertHistoryContext; tests substitute it to simulate a write
+	// failing with a context error mid-flight (e.g. sqlite3_interrupt firing
+	// while a write is in progress) without needing real DB contention.
+	insertHistoryFn func(ctx context.Context, entry *models.WatchHistoryEntry, thresholdPct int) error
 }
 
 type retryEntry struct {
@@ -119,6 +126,7 @@ func New(s *store.Store, interval time.Duration, opts ...PollerOption) *Poller {
 		wsCancel:    make(map[int64]context.CancelFunc),
 		pendingDLNA: make(map[string]models.ActiveStream),
 	}
+	p.insertHistoryFn = s.InsertHistoryContext
 	for _, opt := range opts {
 		opt(p)
 	}
@@ -407,12 +415,27 @@ func (p *Poller) PersistActiveSessions(ctx context.Context) {
 	}
 	p.sessions = make(map[string]models.ActiveStream)
 	p.mu.Unlock()
+
+	// notPersisted tallies every session that didn't make it to durable
+	// storage: ones skipped outright because the deadline had already
+	// passed, and ones whose write was attempted but failed (including a
+	// write that was in flight when the deadline fired mid-write -- see
+	// persistHistory). Neither case gets a retry: PersistActiveSessions only
+	// runs during shutdown, and nothing drains the retry queue afterward, so
+	// enqueuing one here would silently lose the write instead of retrying
+	// it. The tally below is what actually reflects real data loss.
+	notPersisted := 0
 	for i, s := range sessions {
 		if ctx.Err() != nil {
-			log.Printf("persist active sessions: shutdown deadline reached, %d of %d session(s) not persisted", len(sessions)-i, len(sessions))
-			return
+			notPersisted += len(sessions) - i
+			break
 		}
-		p.persistHistory(ctx, s)
+		if err := p.persistHistory(ctx, s); err != nil {
+			notPersisted++
+		}
+	}
+	if notPersisted > 0 {
+		log.Printf("persist active sessions: shutdown deadline reached, %d of %d session(s) not persisted", notPersisted, len(sessions))
 	}
 }
 
@@ -576,7 +599,13 @@ func (p *Poller) poll(ctx context.Context) {
 	}
 }
 
-func (p *Poller) persistHistory(ctx context.Context, s models.ActiveStream) {
+// persistHistory writes s to watch history. It returns a non-nil error if
+// the write did not land: callers that need to know whether a session was
+// actually persisted (currently just PersistActiveSessions, for its
+// shutdown "not persisted" tally) check the return value; callers that fire
+// this off during normal polling ignore it, since a transient failure is
+// already queued for retry by the time this returns.
+func (p *Poller) persistHistory(ctx context.Context, s models.ActiveStream) error {
 	progressMs := s.ProgressMs
 
 	// Near-end: if within 10s of end, count as complete
@@ -609,10 +638,22 @@ func (p *Poller) persistHistory(ctx context.Context, s models.ActiveStream) {
 
 	log.Printf("session end: user=%q title=%q server=%q watched=%v", s.UserName, s.Title, s.ServerName, watched)
 	entry := p.buildHistoryEntry(s, progressMs, watched)
-	if err := p.store.InsertHistoryContext(ctx, entry, threshold); err != nil {
+	if err := p.insertHistoryFn(ctx, entry, threshold); err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			// The write was in flight when its context was cancelled (e.g.
+			// a shutdown deadline firing mid-write, which the SQLite driver
+			// surfaces as sqlite3_interrupt). Queuing this for retry would
+			// be pointless -- the only caller that can hit this path today
+			// is PersistActiveSessions, which runs once during shutdown and
+			// never drains the retry queue again -- so it would silently
+			// lose the write instead of actually retrying it. Report it
+			// honestly as not persisted instead.
+			log.Printf("persisting history for %s: %v (shutdown cancelled the write; not persisted, will not retry)", s.Title, err)
+			return err
+		}
 		log.Printf("persisting history for %s: %v (will retry)", s.Title, err)
 		p.enqueueRetry(entry, s.Title)
-		return
+		return err
 	}
 
 	if p.geoResolver != nil && s.IPAddress != "" {
@@ -630,6 +671,7 @@ func (p *Poller) persistHistory(ctx context.Context, s models.ActiveStream) {
 			log.Printf("auto-learn household for %s: %v", s.UserName, err)
 		}
 	}
+	return nil
 }
 
 func (p *Poller) buildHistoryEntry(s models.ActiveStream, progressMs int64, watched bool) *models.WatchHistoryEntry {

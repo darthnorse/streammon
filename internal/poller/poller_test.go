@@ -1,8 +1,11 @@
 package poller
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1424,5 +1427,67 @@ func TestPersistActiveSessionsRespectsCancelledContext(t *testing.T) {
 	}
 	if result.Total != 0 {
 		t.Fatalf("expected no history written once the shutdown deadline had passed, got %d", result.Total)
+	}
+}
+
+// TestPersistActiveSessionsCountsInFlightCancelledWrite exercises the other
+// half of the shutdown-cancellation story: unlike
+// TestPersistActiveSessionsRespectsCancelledContext (context already
+// cancelled *before* the loop even starts), here the context is still live
+// when persistHistory is called, and the store write itself fails with a
+// context error partway through -- exactly what happens in production when
+// the shutdown deadline fires while a write is already in flight (the
+// SQLite driver surfaces that as sqlite3_interrupt). That write must be
+// counted as not persisted and must NOT be silently queued for a retry that
+// will never run, since PersistActiveSessions only executes during shutdown
+// and nothing drains the retry queue afterward.
+func TestPersistActiveSessionsCountsInFlightCancelledWrite(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	addRawSession(p, "1:s1:100", models.ActiveStream{
+		SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "In-Flight Movie",
+		MediaType: models.MediaTypeMovie, DurationMs: 100000, ProgressMs: 50000,
+		UserName: "alice", StartedAt: time.Now().UTC(),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Simulate the deadline firing mid-write: the context is still live when
+	// persistHistory calls in, but the store call itself returns a context
+	// error, just as InsertHistoryContext does when sqlite3_interrupt fires
+	// on an in-flight transaction.
+	p.insertHistoryFn = func(ctx context.Context, entry *models.WatchHistoryEntry, thresholdPct int) error {
+		return context.Canceled
+	}
+
+	var logBuf bytes.Buffer
+	prevOut := log.Writer()
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(prevOut)
+
+	p.PersistActiveSessions(ctx)
+
+	logged := logBuf.String()
+	if strings.Contains(logged, "will retry") {
+		t.Errorf("expected no misleading \"will retry\" message for a shutdown-cancelled write, got log:\n%s", logged)
+	}
+	if !strings.Contains(logged, "1 of 1 session(s) not persisted") {
+		t.Errorf("expected the not-persisted tally to include the in-flight cancelled write, got log:\n%s", logged)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected no history written for a cancelled in-flight write, got %d", result.Total)
+	}
+
+	p.retryMu.Lock()
+	queued := len(p.retryQueue)
+	p.retryMu.Unlock()
+	if queued != 0 {
+		t.Fatalf("expected the cancelled in-flight write not to be silently queued for a retry that will never run, got %d queued", queued)
 	}
 }
