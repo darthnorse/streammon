@@ -4,3 +4,12 @@ data/
 geoip/
 .env
 screenshots/
+
+# Claude Code / dev tooling artifacts -- never needed in the build context
+CLAUDE.md
+.claude/
+.superpowers/
+plans/
+
+# local SQLite DBs (dev runs outside Docker, e.g. `go run ./cmd/streammon`)
+*.db
