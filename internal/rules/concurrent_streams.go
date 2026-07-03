@@ -72,7 +72,7 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 	signals := []models.ViolationSignal{
 		{Name: "stream_count", Weight: 0.6, Value: float64(streamCount)},
 		{Name: "max_allowed", Weight: 0.0, Value: float64(config.MaxStreams)},
-		{Name: "excess", Weight: 0.4, Value: float64(streamCount - config.MaxStreams) * 25},
+		{Name: "excess", Weight: 0.4, Value: float64(streamCount-config.MaxStreams) * 25},
 	}
 
 	confidence := models.CalculateConfidence(signals)

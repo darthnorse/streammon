@@ -378,4 +378,3 @@ func (c *Client) StreamHistory(ctx context.Context, batchSize int, handler Batch
 
 	return nil
 }
-

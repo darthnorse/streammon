@@ -959,8 +959,12 @@ func TestOtherCopiesIMDBMatch(t *testing.T) {
 
 	srvA := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
 	srvB := &models.Server{Name: "B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "b", Enabled: true}
-	if err := s.CreateServer(srvA); err != nil { t.Fatal(err) }
-	if err := s.CreateServer(srvB); err != nil { t.Fatal(err) }
+	if err := s.CreateServer(srvA); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateServer(srvB); err != nil {
+		t.Fatal(err)
+	}
 
 	result := seedOtherCopiesTest(t, s, srvA.ID, []models.LibraryItemCache{
 		{ServerID: srvA.ID, LibraryID: "lib1", ItemID: "m1", MediaType: models.MediaTypeMovie,
@@ -984,7 +988,9 @@ func TestOtherCopiesNoExternalIDs(t *testing.T) {
 	now := time.Now().UTC()
 
 	srv := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
-	if err := s.CreateServer(srv); err != nil { t.Fatal(err) }
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
 
 	result := seedOtherCopiesTest(t, s, srv.ID, []models.LibraryItemCache{
 		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "no_ids", MediaType: models.MediaTypeMovie,
@@ -1007,7 +1013,9 @@ func TestOtherCopiesThreeServersDeduped(t *testing.T) {
 	srvB := &models.Server{Name: "B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "b", Enabled: true}
 	srvC := &models.Server{Name: "C", Type: models.ServerTypePlex, URL: "http://c", APIKey: "c", Enabled: true}
 	for _, srv := range []*models.Server{srvA, srvB, srvC} {
-		if err := s.CreateServer(srv); err != nil { t.Fatal(err) }
+		if err := s.CreateServer(srv); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	var items []models.LibraryItemCache
@@ -1043,7 +1051,9 @@ func TestOtherCopiesSameServerExcluded(t *testing.T) {
 	now := time.Now().UTC()
 
 	srv := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
-	if err := s.CreateServer(srv); err != nil { t.Fatal(err) }
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
 
 	result := seedOtherCopiesTest(t, s, srv.ID, []models.LibraryItemCache{
 		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "edition1", MediaType: models.MediaTypeMovie,

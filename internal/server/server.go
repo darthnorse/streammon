@@ -45,21 +45,21 @@ type RulesEngine interface {
 }
 
 type Server struct {
-	router         chi.Router
-	store          *store.Store
-	poller         pollerIface
-	authManager    *auth.Manager
-	corsOrigin     string
-	geoResolver    GeoLookup
-	geoUpdater     *geoip.Updater
-	libCache       *libraryCache
-	rulesEngine    RulesEngine
-	version        *version.Checker
-	enrichment     *enrichmentState
-	autoSync       autoSyncState
-	sseConns       sseConnLimiter
-	librarySync    *librarySyncManager
-	appCtx         context.Context
+	router           chi.Router
+	store            *store.Store
+	poller           pollerIface
+	authManager      *auth.Manager
+	corsOrigin       string
+	geoResolver      GeoLookup
+	geoUpdater       *geoip.Updater
+	libCache         *libraryCache
+	rulesEngine      RulesEngine
+	version          *version.Checker
+	enrichment       *enrichmentState
+	autoSync         autoSyncState
+	sseConns         sseConnLimiter
+	librarySync      *librarySyncManager
+	appCtx           context.Context
 	cascadeDeleter   *maintenance.CascadeDeleter
 	overseerrUsers   *overseerrUserCache
 	overseerrMedia   *overseerrMediaCache
@@ -70,15 +70,15 @@ type Server struct {
 
 func NewServer(s *store.Store, opts ...Option) *Server {
 	srv := &Server{
-		router:     chi.NewRouter(),
-		store:      s,
-		libCache:    &libraryCache{},
-		enrichment:  &enrichmentState{},
-		librarySync: &librarySyncManager{active: make(map[string]*librarySyncJob)},
-		appCtx:     context.Background(),
-		cascadeDeleter: maintenance.NewCascadeDeleter(s),
-		overseerrUsers: &overseerrUserCache{},
-		overseerrMedia: &overseerrMediaCache{},
+		router:           chi.NewRouter(),
+		store:            s,
+		libCache:         &libraryCache{},
+		enrichment:       &enrichmentState{},
+		librarySync:      &librarySyncManager{active: make(map[string]*librarySyncJob)},
+		appCtx:           context.Background(),
+		cascadeDeleter:   maintenance.NewCascadeDeleter(s),
+		overseerrUsers:   &overseerrUserCache{},
+		overseerrMedia:   &overseerrMediaCache{},
 		thumbProxyHTTP:   httputil.NewClient(),
 		sonarrPosterHTTP: httputil.NewClient(),
 	}

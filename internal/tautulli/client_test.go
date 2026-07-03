@@ -346,17 +346,17 @@ func TestGetStreamData(t *testing.T) {
 				"result":  "success",
 				"message": "",
 				"data": map[string]interface{}{
-					"video_codec":          "hevc",
-					"video_width":          3840,
-					"video_height":         2160,
-					"video_bit_depth":      10,
-					"video_dynamic_range":  "HDR",
-					"audio_codec":          "truehd",
-					"audio_channels":       8,
-					"bandwidth":            50000,
-					"transcode_decision":   "direct play",
-					"video_decision":       "direct play",
-					"audio_decision":       "transcode",
+					"video_codec":           "hevc",
+					"video_width":           3840,
+					"video_height":          2160,
+					"video_bit_depth":       10,
+					"video_dynamic_range":   "HDR",
+					"audio_codec":           "truehd",
+					"audio_channels":        8,
+					"bandwidth":             50000,
+					"transcode_decision":    "direct play",
+					"video_decision":        "direct play",
+					"audio_decision":        "transcode",
 					"transcode_hw_decoding": true,
 					"transcode_hw_encoding": false,
 				},
@@ -441,13 +441,13 @@ func TestGetStreamDataFlexibleTypes(t *testing.T) {
 				"result":  "success",
 				"message": "",
 				"data": map[string]interface{}{
-					"video_codec":          "h264",
-					"video_width":          "1920",  // string instead of int
-					"video_height":         "1080",  // string instead of int
-					"audio_channels":       "6",     // string instead of int
-					"bandwidth":            "25000", // string instead of int
-					"transcode_hw_decoding": "1",   // string "1" for boolean
-					"transcode_hw_encoding": 0,     // int 0 for boolean
+					"video_codec":           "h264",
+					"video_width":           "1920",  // string instead of int
+					"video_height":          "1080",  // string instead of int
+					"audio_channels":        "6",     // string instead of int
+					"bandwidth":             "25000", // string instead of int
+					"transcode_hw_decoding": "1",     // string "1" for boolean
+					"transcode_hw_encoding": 0,       // int 0 for boolean
 				},
 			},
 		})
@@ -478,4 +478,3 @@ func TestGetStreamDataFlexibleTypes(t *testing.T) {
 		t.Error("transcode_hw_encode should be false for int 0")
 	}
 }
-

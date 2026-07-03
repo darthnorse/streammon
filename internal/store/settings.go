@@ -150,15 +150,23 @@ func (s *Store) SetSetting(key, value string) error {
 
 type TautulliConfig = IntegrationConfig
 
-func (s *Store) GetTautulliConfig() (TautulliConfig, error)  { return s.getIntegrationConfig("tautulli") }
-func (s *Store) SetTautulliConfig(cfg TautulliConfig) error   { return s.setIntegrationConfig("tautulli", cfg) }
-func (s *Store) DeleteTautulliConfig() error                  { return s.deleteIntegrationConfig("tautulli") }
+func (s *Store) GetTautulliConfig() (TautulliConfig, error) {
+	return s.getIntegrationConfig("tautulli")
+}
+func (s *Store) SetTautulliConfig(cfg TautulliConfig) error {
+	return s.setIntegrationConfig("tautulli", cfg)
+}
+func (s *Store) DeleteTautulliConfig() error { return s.deleteIntegrationConfig("tautulli") }
 
 type JellystatConfig = IntegrationConfig
 
-func (s *Store) GetJellystatConfig() (JellystatConfig, error)  { return s.getIntegrationConfig("jellystat") }
-func (s *Store) SetJellystatConfig(cfg JellystatConfig) error   { return s.setIntegrationConfig("jellystat", cfg) }
-func (s *Store) DeleteJellystatConfig() error                   { return s.deleteIntegrationConfig("jellystat") }
+func (s *Store) GetJellystatConfig() (JellystatConfig, error) {
+	return s.getIntegrationConfig("jellystat")
+}
+func (s *Store) SetJellystatConfig(cfg JellystatConfig) error {
+	return s.setIntegrationConfig("jellystat", cfg)
+}
+func (s *Store) DeleteJellystatConfig() error { return s.deleteIntegrationConfig("jellystat") }
 
 type IntegrationConfig struct {
 	URL     string
@@ -241,19 +249,23 @@ func (s *Store) deleteIntegrationConfig(prefix string) error {
 	return nil
 }
 
-func (s *Store) GetOverseerrConfig() (OverseerrConfig, error) { return s.getIntegrationConfig("overseerr") }
-func (s *Store) SetOverseerrConfig(cfg OverseerrConfig) error  { return s.setIntegrationConfig("overseerr", cfg) }
-func (s *Store) DeleteOverseerrConfig() error                  { return s.deleteIntegrationConfig("overseerr") }
+func (s *Store) GetOverseerrConfig() (OverseerrConfig, error) {
+	return s.getIntegrationConfig("overseerr")
+}
+func (s *Store) SetOverseerrConfig(cfg OverseerrConfig) error {
+	return s.setIntegrationConfig("overseerr", cfg)
+}
+func (s *Store) DeleteOverseerrConfig() error { return s.deleteIntegrationConfig("overseerr") }
 
 func (s *Store) GetSonarrConfig() (SonarrConfig, error) { return s.getIntegrationConfig("sonarr") }
-func (s *Store) SetSonarrConfig(cfg SonarrConfig) error  { return s.setIntegrationConfig("sonarr", cfg) }
-func (s *Store) DeleteSonarrConfig() error               { return s.deleteIntegrationConfig("sonarr") }
+func (s *Store) SetSonarrConfig(cfg SonarrConfig) error { return s.setIntegrationConfig("sonarr", cfg) }
+func (s *Store) DeleteSonarrConfig() error              { return s.deleteIntegrationConfig("sonarr") }
 
 type RadarrConfig = IntegrationConfig
 
 func (s *Store) GetRadarrConfig() (RadarrConfig, error) { return s.getIntegrationConfig("radarr") }
-func (s *Store) SetRadarrConfig(cfg RadarrConfig) error  { return s.setIntegrationConfig("radarr", cfg) }
-func (s *Store) DeleteRadarrConfig() error               { return s.deleteIntegrationConfig("radarr") }
+func (s *Store) SetRadarrConfig(cfg RadarrConfig) error { return s.setIntegrationConfig("radarr", cfg) }
+func (s *Store) DeleteRadarrConfig() error              { return s.deleteIntegrationConfig("radarr") }
 
 // plaintextSecretKeys lists all settings keys that should be encrypted at rest.
 var plaintextSecretKeys = []string{
@@ -578,4 +590,3 @@ func (s *Store) SetMaintenanceResolutionWidthAware(enabled bool) error {
 	}
 	return s.SetSetting(maintenanceResolutionWidthAwareKey, val)
 }
-

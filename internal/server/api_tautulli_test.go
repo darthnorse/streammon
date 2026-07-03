@@ -56,13 +56,13 @@ func configureTautulli(t *testing.T, st *store.Store, mockURL string) {
 
 func TestTautulliIntegrationSettings(t *testing.T) {
 	testIntegrationSettingsCRUD(t, integrationTestConfig{
-		name:           "tautulli",
-		settingsPath:   "/api/settings/tautulli",
-		testPath:       "/api/settings/tautulli/test",
-		configure:      configureTautulli,
-		getConfig:      func(st *store.Store) (store.IntegrationConfig, error) { return st.GetTautulliConfig() },
-		setConfig:      func(st *store.Store, c store.IntegrationConfig) error { return st.SetTautulliConfig(c) },
-		mockServer:     mockTautulli,
+		name:         "tautulli",
+		settingsPath: "/api/settings/tautulli",
+		testPath:     "/api/settings/tautulli/test",
+		configure:    configureTautulli,
+		getConfig:    func(st *store.Store) (store.IntegrationConfig, error) { return st.GetTautulliConfig() },
+		setConfig:    func(st *store.Store, c store.IntegrationConfig) error { return st.SetTautulliConfig(c) },
+		mockServer:   mockTautulli,
 	})
 }
 
@@ -219,9 +219,9 @@ func TestConvertTautulliRecord_StoppedZeroUsesPlayDuration(t *testing.T) {
 		Title:        "Long Movie",
 		MediaType:    "movie",
 		Started:      1700000000,
-		Stopped:      0,           // unknown stop time
-		Duration:     7200,        // 2 hour movie
-		PlayDuration: 600,         // user only watched 10 minutes
+		Stopped:      0,    // unknown stop time
+		Duration:     7200, // 2 hour movie
+		PlayDuration: 600,  // user only watched 10 minutes
 	}
 
 	entry := convertTautulliRecord(rec, 1)

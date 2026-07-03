@@ -109,10 +109,10 @@ func NewEngine(s *store.Store, geo GeoResolver, config EngineConfig) *Engine {
 
 	e := &Engine{
 		store:                  s,
-		geoResolver:           geo,
-		evaluators:            make(map[models.RuleType]Evaluator),
-		ruleCacheTTL:          config.RuleCacheTTL,
-		violationCooldown:     config.ViolationCooldown,
+		geoResolver:            geo,
+		evaluators:             make(map[models.RuleType]Evaluator),
+		ruleCacheTTL:           config.RuleCacheTTL,
+		violationCooldown:      config.ViolationCooldown,
 		trustDecrementCritical: config.TrustDecrementCritical,
 		trustDecrementWarning:  config.TrustDecrementWarning,
 		trustDecrementInfo:     config.TrustDecrementInfo,

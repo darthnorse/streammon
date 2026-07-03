@@ -169,7 +169,7 @@ func injectMediaType(raw json.RawMessage, mediaType string) json.RawMessage {
 }
 
 type tmdbEnvelope struct {
-	TMDB         json.RawMessage     `json:"tmdb"`
+	TMDB         json.RawMessage      `json:"tmdb"`
 	LibraryItems []store.LibraryMatch `json:"library_items"`
 }
 

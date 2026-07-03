@@ -47,9 +47,9 @@ func TestConcurrentStreamsEvaluator_Evaluate(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		rule        *models.Rule
-		input       *EvaluationInput
+		name          string
+		rule          *models.Rule
+		input         *EvaluationInput
 		wantViolation bool
 		wantSeverity  models.Severity
 	}{

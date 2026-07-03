@@ -819,8 +819,8 @@ func TestAutoLearnHouseholdLocationDifferentCities(t *testing.T) {
 }
 
 // TestAutoLearnHouseholdLocationLateGeo covers the case where the geo cache is
-// still empty on the first learn (so the row is created with city='',
-// country='') and only resolves afterwards. The next auto-learn call must
+// still empty on the first learn (so the row is created with city=”,
+// country=”) and only resolves afterwards. The next auto-learn call must
 // migrate the existing blank-city row rather than insert a second row for the
 // same user/IP, since the dedup UPDATE used to key on (user_name, ip_address,
 // city, country) and would miss the now-blank-mismatched row.

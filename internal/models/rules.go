@@ -140,11 +140,11 @@ func (c *DeviceVelocityConfig) Validate() error {
 }
 
 type ConcurrentStreamsConfig struct {
-	MaxStreams        int    `json:"max_streams"`
-	ExemptHousehold   bool   `json:"exempt_household"`
-	CountPausedAsOne  bool   `json:"count_paused_as_one"`
-	AutoTerminate     bool   `json:"auto_terminate"`
-	TerminateMessage  string `json:"terminate_message"`
+	MaxStreams       int    `json:"max_streams"`
+	ExemptHousehold  bool   `json:"exempt_household"`
+	CountPausedAsOne bool   `json:"count_paused_as_one"`
+	AutoTerminate    bool   `json:"auto_terminate"`
+	TerminateMessage string `json:"terminate_message"`
 }
 
 func (c *ConcurrentStreamsConfig) Validate() error {
@@ -410,12 +410,12 @@ type MaintenanceTask struct {
 }
 
 type EvaluationContext struct {
-	Stream           *ActiveStream
-	AllStreams       []ActiveStream
-	RecentHistory    []WatchHistoryEntry
-	Households       []HouseholdLocation
-	GeoData          *GeoResult
-	PreviousGeoData  *GeoResult
+	Stream            *ActiveStream
+	AllStreams        []ActiveStream
+	RecentHistory     []WatchHistoryEntry
+	Households        []HouseholdLocation
+	GeoData           *GeoResult
+	PreviousGeoData   *GeoResult
 	TimeSinceLastSeen time.Duration
 }
 

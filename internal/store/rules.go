@@ -557,9 +557,9 @@ func (s *Store) BackfillHouseholdGeo() {
 	// Phase 2: Backfill remaining empty-city rows from geo cache.
 	// Collects IDs first to avoid holding an open cursor during writes.
 	type backfillRow struct {
-		id                int64
-		city, country     string
-		lat, lng          float64
+		id            int64
+		city, country string
+		lat, lng      float64
 	}
 	rows, err := s.db.Query(`
 		SELECT h.id, g.city, g.country, g.lat, g.lng

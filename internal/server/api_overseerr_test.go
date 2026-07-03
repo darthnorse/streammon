@@ -1090,7 +1090,7 @@ func TestOverseerrListRequests_ViewerNoEmail(t *testing.T) {
 	}
 	var result struct {
 		PageInfo struct{ Results int } `json:"pageInfo"`
-		Results  []json.RawMessage    `json:"results"`
+		Results  []json.RawMessage     `json:"results"`
 	}
 	json.NewDecoder(w.Body).Decode(&result)
 	if len(result.Results) != 0 {
@@ -1118,7 +1118,7 @@ func TestOverseerrListRequests_ViewerNoOverseerrAccount(t *testing.T) {
 	}
 	var result struct {
 		PageInfo struct{ Results int } `json:"pageInfo"`
-		Results  []json.RawMessage    `json:"results"`
+		Results  []json.RawMessage     `json:"results"`
 	}
 	json.NewDecoder(w.Body).Decode(&result)
 	if len(result.Results) != 0 {

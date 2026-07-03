@@ -368,7 +368,7 @@ func TestNotifier_New_BlocksLoopbackDestination(t *testing.T) {
 
 func TestNotifier_SeverityColors(t *testing.T) {
 	tests := []struct {
-		severity models.Severity
+		severity  models.Severity
 		wantColor int
 	}{
 		{models.SeverityCritical, 0xFF0000},

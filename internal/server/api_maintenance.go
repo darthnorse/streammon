@@ -20,9 +20,9 @@ import (
 	"streammon/internal/models"
 )
 
-const maxBulkOperationSize = 500  // SQLite SQLITE_MAX_VARIABLE_NUMBER limit is 999
-const maxExportSize = 10000       // Prevent OOM on large exports
-const maxSearchLength = 200       // Prevent abuse with extremely long search strings
+const maxBulkOperationSize = 500 // SQLite SQLITE_MAX_VARIABLE_NUMBER limit is 999
+const maxExportSize = 10000      // Prevent OOM on large exports
+const maxSearchLength = 200      // Prevent abuse with extremely long search strings
 
 type deleteItemResult struct {
 	ServerDeleted bool
