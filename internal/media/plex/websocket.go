@@ -111,6 +111,16 @@ func (s *Server) wsConnect(ctx context.Context, ch chan<- models.SessionUpdate) 
 		conn.Close()
 	}()
 
+	// Force-close the connection as soon as the context is cancelled so a
+	// ReadMessage blocked below returns immediately instead of waiting out
+	// the read deadline (up to 30s). pingCtx is cancelled both by ctx and by
+	// the cleanup defer above, so this goroutine always exits alongside
+	// wsConnect and never leaks.
+	go func() {
+		<-pingCtx.Done()
+		conn.Close()
+	}()
+
 	// Initial read deadline - will be extended by pong responses
 	conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 
