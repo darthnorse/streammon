@@ -14,30 +14,42 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"streammon/internal/httputil"
+	"streammon/internal/store"
 )
+
+// maxmindDownloadURL is the base URL used to fetch GeoLite2 databases.
+// Overridable via Updater.downloadBaseURL in tests.
+const maxmindDownloadURL = "https://download.maxmind.com/app/geoip_download"
 
 type SettingsStore interface {
 	GetSetting(key string) (string, error)
 	SetSetting(key, value string) error
+	// GetMaxMindLicenseKey returns the decrypted license key (the setting is
+	// encrypted at rest), or store.EncryptedPlaceholder if it can't be decrypted.
+	GetMaxMindLicenseKey() (string, error)
 }
 
 type Updater struct {
-	mu        sync.Mutex
-	store     SettingsStore
-	resolver  *Resolver
-	geoDBPath string
-	asnDBPath string
-	client    *http.Client
+	mu              sync.Mutex
+	store           SettingsStore
+	resolver        *Resolver
+	geoDBPath       string
+	asnDBPath       string
+	client          *http.Client
+	downloadBaseURL string
 }
 
 func NewUpdater(store SettingsStore, resolver *Resolver, geoDBPath string) *Updater {
 	asnDBPath := strings.TrimSuffix(geoDBPath, ".mmdb") + "-ASN.mmdb"
 	return &Updater{
-		store:     store,
-		resolver:  resolver,
-		geoDBPath: geoDBPath,
-		asnDBPath: asnDBPath,
-		client:    &http.Client{Timeout: 2 * time.Minute},
+		store:           store,
+		resolver:        resolver,
+		geoDBPath:       geoDBPath,
+		asnDBPath:       asnDBPath,
+		client:          &http.Client{Timeout: 2 * time.Minute},
+		downloadBaseURL: maxmindDownloadURL,
 	}
 }
 
@@ -62,12 +74,12 @@ func (u *Updater) download(force bool) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	key, err := u.store.GetSetting("maxmind.license_key")
+	key, err := u.store.GetMaxMindLicenseKey()
 	if err != nil {
 		return fmt.Errorf("getting license key: %w", err)
 	}
-	if key == "" {
-		log.Println("geoip: no license key configured, skipping download")
+	if key == "" || key == store.EncryptedPlaceholder {
+		log.Println("geoip: no usable license key configured, skipping download")
 		return nil
 	}
 	log.Println("geoip: license key found, checking databases")
@@ -141,13 +153,13 @@ func (u *Updater) wasRecentlyUpdated() bool {
 
 func (u *Updater) downloadDB(edition, licenseKey, destDir, destPath string) error {
 	dlURL := fmt.Sprintf(
-		"https://download.maxmind.com/app/geoip_download?edition_id=%s&license_key=%s&suffix=tar.gz",
-		edition, url.QueryEscape(licenseKey),
+		"%s?edition_id=%s&license_key=%s&suffix=tar.gz",
+		u.downloadBaseURL, edition, url.QueryEscape(licenseKey),
 	)
 
 	resp, err := u.client.Get(dlURL)
 	if err != nil {
-		return fmt.Errorf("downloading %s: %w", edition, err)
+		return fmt.Errorf("downloading %s: %w", edition, httputil.RedactURLError(err))
 	}
 	defer resp.Body.Close()
 

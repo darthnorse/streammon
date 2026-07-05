@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"streammon/internal/models"
 	"streammon/internal/store"
@@ -29,6 +30,41 @@ func TestAdminListUsers(t *testing.T) {
 	// test-admin + alice
 	if len(users) != 2 {
 		t.Fatalf("expected 2 users, got %d", len(users))
+	}
+}
+
+// TestAdminListUsersTimestampFormat locks in RFC3339 formatting for
+// created_at/updated_at — the response must not hardcode a literal "Z" that
+// could misrepresent a non-UTC time.Time as UTC.
+func TestAdminListUsersTimestampFormat(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	st.CreateLocalUser("alice", "alice@example.com", "hash", models.RoleViewer)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/users", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var raw []map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&raw); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(raw) == 0 {
+		t.Fatal("expected at least one user")
+	}
+	for _, u := range raw {
+		for _, field := range []string{"created_at", "updated_at"} {
+			v, ok := u[field].(string)
+			if !ok || v == "" {
+				t.Fatalf("%s missing or not a string: %v", field, u)
+			}
+			if _, err := time.Parse(time.RFC3339, v); err != nil {
+				t.Errorf("%s = %q is not valid RFC3339: %v", field, v, err)
+			}
+		}
 	}
 }
 

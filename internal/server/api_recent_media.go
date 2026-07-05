@@ -10,6 +10,11 @@ import (
 )
 
 func (s *Server) handleGetRecentMedia(w http.ResponseWriter, r *http.Request) {
+	if s.poller == nil {
+		writeJSON(w, http.StatusOK, []models.LibraryItem{})
+		return
+	}
+
 	servers, err := s.store.ListServers()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")

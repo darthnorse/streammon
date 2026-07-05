@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -33,8 +34,8 @@ func toAdminUserResponse(u *store.AdminUser) adminUserResponse {
 		ThumbURL:   u.ThumbURL,
 		Provider:   u.Provider,
 		ProviderID: u.ProviderID,
-		CreatedAt:  u.CreatedAt.Format("2006-01-02T15:04:05Z"),
-		UpdatedAt:  u.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		CreatedAt:  u.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:  u.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 

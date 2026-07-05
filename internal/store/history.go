@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -186,9 +187,16 @@ func historyInsertArgs(entry *models.WatchHistoryEntry) []any {
 	}
 }
 
-func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
-	ctx := context.Background()
-	thresholdPct, _ := s.GetWatchedThreshold()
+// insertHistoryTx runs the dedup/consolidate/insert logic for a single entry
+// as one transaction, honoring ctx for cancellation (checked up front so a
+// caller with an already-expired context -- e.g. a shutdown deadline -- gets
+// a prompt error instead of waiting out the SQLite busy_timeout). thresholdPct
+// is the watched-threshold percentage to apply, passed in by the caller
+// rather than re-read here (see InsertHistoryContext).
+func (s *Store) insertHistoryTx(ctx context.Context, entry *models.WatchHistoryEntry, thresholdPct int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -229,6 +237,23 @@ func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// InsertHistoryContext is the context- and threshold-aware variant of
+// InsertHistory. Production callers (the poller) already hold a live
+// context and a freshly-read watched threshold, so it lets shutdown/request
+// cancellation propagate into the write, and avoids re-reading the
+// watched-threshold setting that the caller already fetched once.
+func (s *Store) InsertHistoryContext(ctx context.Context, entry *models.WatchHistoryEntry, thresholdPct int) error {
+	return s.insertHistoryTx(ctx, entry, thresholdPct)
+}
+
+// InsertHistory inserts a single watch-history entry. It's a convenience
+// wrapper over InsertHistoryContext for callers (mainly tests) that don't
+// have a context or a pre-fetched watched threshold on hand.
+func (s *Store) InsertHistory(entry *models.WatchHistoryEntry) error {
+	thresholdPct, _ := s.GetWatchedThreshold()
+	return s.insertHistoryTx(context.Background(), entry, thresholdPct)
 }
 
 var validHistorySortColumns = map[string]bool{
@@ -330,9 +355,18 @@ func (s *Store) SearchHistory(page, perPage int, userFilter, search, sortColumn,
 	}, nil
 }
 
-func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string, serverIDs []int64) ([]models.DayStat, error) {
+func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string, serverIDs []int64, tzOffsetMinutes int) ([]models.DayStat, error) {
 	conditions := []string{"started_at >= ?", "started_at < ?", minPlayCond("")}
-	args := []any{start, end}
+
+	// The tz modifier '?' is the first placeholder in the SELECT, so its arg
+	// must precede the WHERE-clause args.
+	dayExpr := "date(started_at)"
+	var args []any
+	if mod, ok := tzModifier(tzOffsetMinutes); ok {
+		dayExpr = "date(started_at, ?)"
+		args = append(args, mod)
+	}
+	args = append(args, start, end)
 
 	if userFilter != "" {
 		conditions = append(conditions, "user_name = ?")
@@ -346,7 +380,7 @@ func (s *Store) DailyWatchCountsForUser(start, end time.Time, userFilter string,
 		}
 	}
 
-	query := `SELECT date(started_at) AS day, media_type, COUNT(*) AS cnt
+	query := `SELECT ` + dayExpr + ` AS day, media_type, COUNT(*) AS cnt
 		FROM watch_history
 		WHERE ` + strings.Join(conditions, " AND ") + `
 		GROUP BY day, media_type
@@ -695,6 +729,23 @@ func (s *Store) GetRecentISPs(userName string, beforeTime time.Time, withinHours
 	return isps, rows.Err()
 }
 
+// testInsertHistoryChunkHook, if non-nil, is called with each chunk's
+// zero-based index right before that chunk's transaction begins. Test-only:
+// lets tests deterministically trigger mid-batch cancellation to exercise
+// per-chunk failure semantics without relying on timing.
+var testInsertHistoryChunkHook func(chunkIndex int)
+
+// InsertHistoryBatch inserts/dedups/consolidates entries in chunks of
+// writeChunkSize, each its own transaction, so the write lock is released
+// periodically instead of held for the whole batch -- see writeChunkSize.
+// The only current caller (history import, api_import.go) already streams
+// entries in pages and treats each page as an independently-reportable unit
+// of progress, tolerating partial import results on failure -- so a failed
+// chunk here no longer rolls back chunks that already committed within the
+// same call; it logs the failure and continues with the remaining chunks.
+// The returned counts always reflect what's actually durable: a chunk that
+// errors contributes 0 to all three (its transaction rolled back), while
+// prior successful chunks' counts are kept.
 func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchHistoryEntry) (inserted, skipped, consolidated int, err error) {
 	if len(entries) == 0 {
 		return 0, 0, 0, nil
@@ -702,6 +753,37 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 
 	thresholdPct, _ := s.GetWatchedThreshold()
 
+	var firstErr error
+	for i, chunk := range chunkSlice(entries, writeChunkSize) {
+		if ctx.Err() != nil {
+			if firstErr == nil {
+				firstErr = ctx.Err()
+			}
+			break
+		}
+		if testInsertHistoryChunkHook != nil {
+			testInsertHistoryChunkHook(i)
+		}
+
+		ins, skip, cons, chunkErr := s.insertHistoryChunk(ctx, chunk, thresholdPct)
+		inserted += ins
+		skipped += skip
+		consolidated += cons
+		if chunkErr != nil {
+			log.Printf("insert history batch: chunk of %d entries failed, kept %d already-committed chunk(s) so far: %v", len(chunk), inserted, chunkErr)
+			if firstErr == nil {
+				firstErr = chunkErr
+			}
+		}
+	}
+
+	return inserted, skipped, consolidated, firstErr
+}
+
+// insertHistoryChunk runs one chunk of InsertHistoryBatch as a single
+// transaction. On error it returns zero counts: the deferred Rollback
+// discards everything this chunk did, so nothing from it is durable.
+func (s *Store) insertHistoryChunk(ctx context.Context, entries []*models.WatchHistoryEntry, thresholdPct int) (inserted, skipped, consolidated int, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("begin tx: %w", err)
@@ -726,6 +808,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 	}
 	defer sessionStmt.Close()
 
+	var ins, skip, cons int
 	for _, entry := range entries {
 		select {
 		case <-ctx.Done():
@@ -736,7 +819,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 		var exists int
 		err := existsStmt.QueryRowContext(ctx, historyDedupArgs(entry)...).Scan(&exists)
 		if err == nil {
-			skipped++
+			skip++
 			continue
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -751,7 +834,7 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 			if _, err := sessionStmt.ExecContext(ctx, sessionInsertArgs(consolidatedID, entry)...); err != nil {
 				return 0, 0, 0, fmt.Errorf("inserting session: %w", err)
 			}
-			consolidated++
+			cons++
 			continue
 		}
 
@@ -766,14 +849,14 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 		if _, err := sessionStmt.ExecContext(ctx, sessionInsertArgs(newID, entry)...); err != nil {
 			return 0, 0, 0, fmt.Errorf("inserting session: %w", err)
 		}
-		inserted++
+		ins++
 	}
 
 	if err := tx.Commit(); err != nil {
 		return 0, 0, 0, fmt.Errorf("commit tx: %w", err)
 	}
 
-	return inserted, skipped, consolidated, nil
+	return ins, skip, cons, nil
 }
 
 type UnenrichedRef struct {

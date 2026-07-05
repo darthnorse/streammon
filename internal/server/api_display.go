@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"streammon/internal/store"
 	"streammon/internal/units"
 )
 
@@ -55,14 +56,27 @@ func (s *Server) handleUpdateDisplaySettings(w http.ResponseWriter, r *http.Requ
 	}
 
 	if req.DiscoverRegion != nil {
-		if err := s.store.SetDiscoverRegion(*req.DiscoverRegion); err != nil {
+		region := *req.DiscoverRegion
+		if region != "" && !store.IsValidRegionCode(region) {
 			writeError(w, http.StatusBadRequest, "invalid region code")
+			return
+		}
+		if err := s.store.SetDiscoverRegion(region); err != nil {
+			writeError(w, http.StatusInternalServerError, "internal")
 			return
 		}
 	}
 
-	system, _ := s.store.GetUnitSystem()
-	region, _ := s.store.GetDiscoverRegion()
+	system, err := s.store.GetUnitSystem()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	region, err := s.store.GetDiscoverRegion()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
 
 	writeJSON(w, http.StatusOK, displaySettingsResponse{
 		UnitSystem:     system,

@@ -16,13 +16,6 @@ import (
 
 const defaultAutoTerminateMessage = "Your stream has been terminated due to a policy violation."
 
-// Detail keys used to pass termination target info from evaluators to the engine.
-const (
-	DetailKeyTerminateServerID  = "terminate_server_id"
-	DetailKeyTerminateSessionID = "terminate_session_id"
-	DetailKeyTerminatePlexUUID  = "terminate_plex_session_uuid"
-)
-
 type terminateConfig struct {
 	Enabled bool
 	Message string
@@ -40,8 +33,22 @@ func getTerminateConfig(rule *models.Rule) terminateConfig {
 	return terminateConfig{Enabled: fields.AutoTerminate, Message: fields.TerminateMessage}
 }
 
+// EngineStore is the persistence surface the rules engine itself depends on
+// (evaluators receive their own HistoryQuerier separately). Depending on an
+// interface lets the engine hoist per-tick-constant reads and stay testable.
+type EngineStore interface {
+	ListEnabledRules() ([]models.Rule, error)
+	ListAllRuleExemptions() (map[int64][]string, error)
+	GetUnitSystem() (string, error)
+	ListTrustedHouseholdLocations(userName string) ([]models.HouseholdLocation, error)
+	ViolationExistsRecent(ruleID int64, userName, sessionKey string, within time.Duration) (bool, error)
+	InsertViolationWithTx(ctx context.Context, v *models.RuleViolation, trustDecrement int) error
+	UpdateViolationAction(violationID int64, action string) error
+	GetChannelsForRule(ruleID int64) ([]models.NotificationChannel, error)
+}
+
 type Engine struct {
-	store          *store.Store
+	store          EngineStore
 	geoResolver    GeoResolver
 	serverResolver ServerResolver
 	evaluators     map[models.RuleType]Evaluator
@@ -102,10 +109,10 @@ func NewEngine(s *store.Store, geo GeoResolver, config EngineConfig) *Engine {
 
 	e := &Engine{
 		store:                  s,
-		geoResolver:           geo,
-		evaluators:            make(map[models.RuleType]Evaluator),
-		ruleCacheTTL:          config.RuleCacheTTL,
-		violationCooldown:     config.ViolationCooldown,
+		geoResolver:            geo,
+		evaluators:             make(map[models.RuleType]Evaluator),
+		ruleCacheTTL:           config.RuleCacheTTL,
+		violationCooldown:      config.ViolationCooldown,
 		trustDecrementCritical: config.TrustDecrementCritical,
 		trustDecrementWarning:  config.TrustDecrementWarning,
 		trustDecrementInfo:     config.TrustDecrementInfo,
@@ -135,15 +142,22 @@ func (e *Engine) SetServerResolver(sr ServerResolver) {
 	e.serverResolver = sr
 }
 
-func (e *Engine) EvaluateSession(ctx context.Context, stream *models.ActiveStream, allStreams []models.ActiveStream) {
-	if stream == nil {
-		return
-	}
+// evalContext holds values fetched once per poll tick and reused across every
+// session in that tick, instead of being re-read per session.
+type evalContext struct {
+	rules      []models.Rule
+	unitSystem units.System
+	// households caches trusted household locations per user within a single
+	// tick so multiple sessions from the same user don't re-query the store.
+	households map[string][]models.HouseholdLocation
+}
 
+// newEvalContext gathers the per-tick-constant reads (enabled rules + unit
+// system) once. Rule fetching goes through the existing double-checked cache.
+func (e *Engine) newEvalContext() (*evalContext, error) {
 	rules, err := e.getEnabledRules()
 	if err != nil {
-		log.Printf("rules engine: failed to get rules: %v", err)
-		return
+		return nil, err
 	}
 
 	unitSys := units.Metric
@@ -151,10 +165,70 @@ func (e *Engine) EvaluateSession(ctx context.Context, stream *models.ActiveStrea
 		unitSys = units.ParseSystem(sys)
 	}
 
+	return &evalContext{
+		rules:      rules,
+		unitSystem: unitSys,
+		households: make(map[string][]models.HouseholdLocation),
+	}, nil
+}
+
+// householdsFor returns the trusted household locations for a user, reading the
+// store at most once per user per tick.
+func (e *Engine) householdsFor(ec *evalContext, userName string) []models.HouseholdLocation {
+	if h, ok := ec.households[userName]; ok {
+		return h
+	}
+	h, err := e.store.ListTrustedHouseholdLocations(userName)
+	if err != nil {
+		h = nil
+	}
+	ec.households[userName] = h
+	return h
+}
+
+// EvaluateSessions evaluates every active session for a tick, fetching the
+// per-tick-constant reads once. It is the batch entry point used by the poller.
+func (e *Engine) EvaluateSessions(ctx context.Context, streams []models.ActiveStream) {
+	if len(streams) == 0 {
+		return
+	}
+
+	ec, err := e.newEvalContext()
+	if err != nil {
+		log.Printf("rules engine: failed to get rules: %v", err)
+		return
+	}
+
+	for i := range streams {
+		e.evaluateStream(ctx, &streams[i], streams, ec)
+	}
+}
+
+// EvaluateSession evaluates a single session, building a one-off tick context.
+// Retained for callers/tests that evaluate one stream at a time.
+func (e *Engine) EvaluateSession(ctx context.Context, stream *models.ActiveStream, allStreams []models.ActiveStream) {
+	if stream == nil {
+		return
+	}
+
+	ec, err := e.newEvalContext()
+	if err != nil {
+		log.Printf("rules engine: failed to get rules: %v", err)
+		return
+	}
+
+	e.evaluateStream(ctx, stream, allStreams, ec)
+}
+
+func (e *Engine) evaluateStream(ctx context.Context, stream *models.ActiveStream, allStreams []models.ActiveStream, ec *evalContext) {
+	if stream == nil {
+		return
+	}
+
 	input := &EvaluationInput{
 		Stream:     stream,
 		AllStreams: allStreams,
-		UnitSystem: unitSys,
+		UnitSystem: ec.unitSystem,
 	}
 
 	if e.geoResolver != nil && stream.IPAddress != "" {
@@ -164,12 +238,9 @@ func (e *Engine) EvaluateSession(ctx context.Context, stream *models.ActiveStrea
 		}
 	}
 
-	households, err := e.store.ListTrustedHouseholdLocations(stream.UserName)
-	if err == nil {
-		input.Households = households
-	}
+	input.Households = e.householdsFor(ec, stream.UserName)
 
-	for _, rule := range rules {
+	for _, rule := range ec.rules {
 		if !rule.Type.IsRealTime() {
 			continue
 		}
@@ -237,17 +308,12 @@ func (e *Engine) evaluateRule(ctx context.Context, rule *models.Rule, evaluator 
 
 		switch rule.Type {
 		case models.RuleTypeConcurrentStreams:
-			// Target: newest stream (identifiers in violation details)
-			if d := result.Violation.Details; d != nil {
-				if v, ok := d[DetailKeyTerminateServerID].(int64); ok {
-					serverID = v
-				}
-				if v, ok := d[DetailKeyTerminateSessionID].(string); ok {
-					sessionID = v
-				}
-				if v, ok := d[DetailKeyTerminatePlexUUID].(string); ok {
-					plexUUID = v
-				}
+			// Target: newest stream, supplied out-of-band by the evaluator
+			// (not persisted on the violation).
+			if t := result.TerminateTarget; t != nil {
+				serverID = t.ServerID
+				sessionID = t.SessionID
+				plexUUID = t.PlexSessionUUID
 			}
 		default:
 			// Target: the stream being evaluated

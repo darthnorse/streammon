@@ -78,6 +78,13 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 	}
 	filter.ServerIDs = sids
 
+	tzOffset, err := parseTZOffset(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tz_offset")
+		return
+	}
+	filter.TZOffsetMinutes = tzOffset
+
 	var resp StatsResponse
 	g, ctx := errgroup.WithContext(r.Context())
 

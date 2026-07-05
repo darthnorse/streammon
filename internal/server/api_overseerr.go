@@ -120,7 +120,7 @@ func (s *Server) handleOverseerrSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeRawJSON(w, http.StatusOK, data)
+	writeRawJSON(w, http.StatusOK, redactRequestsForNonAdmin(r, data))
 }
 
 var allowedDiscoverCategories = map[string]bool{
@@ -155,15 +155,16 @@ func (s *Server) handleOverseerrDiscover(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeRawJSON(w, http.StatusOK, data)
+	writeRawJSON(w, http.StatusOK, redactRequestsForNonAdmin(r, data))
 }
 
 func (s *Server) handleOverseerrMovie(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	id64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid movie ID")
 		return
 	}
+	id := int(id64)
 
 	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
 	if !ok {
@@ -181,11 +182,12 @@ func (s *Server) handleOverseerrMovie(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOverseerrTV(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	id64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid TV ID")
 		return
 	}
+	id := int(id64)
 
 	client, ctx, cancel, ok := s.overseerrClientWithTimeout(w, r)
 	if !ok {
@@ -202,23 +204,26 @@ func (s *Server) handleOverseerrTV(w http.ResponseWriter, r *http.Request) {
 	writeRawJSON(w, http.StatusOK, redactRequestsForNonAdmin(r, data))
 }
 
-// redactRequestsForNonAdmin strips `mediaInfo.requests` (which contains
-// requester PII — email, plexUsername, avatar) from an Overseerr response
-// when the caller is not an admin. Returns the input unchanged if either
-// the caller is an admin or the response shape isn't what we expect (e.g.
-// malformed upstream JSON — let the original bytes pass rather than fail).
+// redactRequestsForNonAdmin strips every `mediaInfo.requests` field (which
+// contains requester PII — email, plexUsername, avatar) from an Overseerr
+// response when the caller is not an admin. It walks the full response tree
+// so it catches a top-level `mediaInfo` (movie/TV detail endpoints) as well
+// as per-result `mediaInfo` fields nested under `results[]` (search/discover
+// lists) and `results[].knownFor[]` (person results), matching Overseerr's
+// MovieResult/TvResult schema which embeds the same MediaInfo object
+// everywhere. Returns the input unchanged if either the caller is an admin
+// or the response shape isn't what we expect (e.g. malformed upstream JSON —
+// let the original bytes pass rather than fail).
 func redactRequestsForNonAdmin(r *http.Request, data []byte) []byte {
 	user := UserFromContext(r.Context())
 	if user != nil && user.Role == models.RoleAdmin {
 		return data
 	}
-	var parsed map[string]any
+	var parsed any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return data
 	}
-	if mi, ok := parsed["mediaInfo"].(map[string]any); ok {
-		delete(mi, "requests")
-	}
+	stripMediaInfoRequests(parsed)
 	out, err := json.Marshal(parsed)
 	if err != nil {
 		return data
@@ -226,14 +231,36 @@ func redactRequestsForNonAdmin(r *http.Request, data []byte) []byte {
 	return out
 }
 
+// stripMediaInfoRequests recursively walks v (as produced by decoding JSON
+// into `any`) and deletes the "requests" key from every "mediaInfo" object
+// found at any nesting depth.
+func stripMediaInfoRequests(v any) {
+	switch val := v.(type) {
+	case map[string]any:
+		if mi, ok := val["mediaInfo"].(map[string]any); ok {
+			delete(mi, "requests")
+		}
+		for _, child := range val {
+			stripMediaInfoRequests(child)
+		}
+	case []any:
+		for _, child := range val {
+			stripMediaInfoRequests(child)
+		}
+	}
+}
+
 func (s *Server) handleOverseerrTVSeason(w http.ResponseWriter, r *http.Request) {
-	tvID, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	tvID64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid TV ID")
 		return
 	}
+	tvID := int(tvID64)
+	// Season 0 is a valid, real-world value (specials/extras), so this is
+	// deliberately not routed through parseIDParam (which rejects <=0).
 	seasonNum, err := strconv.Atoi(chi.URLParam(r, "seasonNumber"))
-	if err != nil {
+	if err != nil || seasonNum < 0 {
 		writeError(w, http.StatusBadRequest, "invalid season number")
 		return
 	}
@@ -250,7 +277,10 @@ func (s *Server) handleOverseerrTVSeason(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	writeRawJSON(w, http.StatusOK, data)
+	// Overseerr's Season schema has no mediaInfo of its own today, but redact
+	// defensively for consistency with the other raw-passthrough endpoints
+	// and in case that ever changes upstream.
+	writeRawJSON(w, http.StatusOK, redactRequestsForNonAdmin(r, data))
 }
 
 func (s *Server) handleOverseerrListRequests(w http.ResponseWriter, r *http.Request) {
@@ -505,7 +535,10 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 	// rather than auto-approving everything as admin.
 	user := UserFromContext(r.Context())
 	if user != nil {
-		enabled, _ := s.store.GetStorePlexTokens()
+		enabled, err := s.store.GetStorePlexTokens()
+		if err != nil {
+			log.Printf("overseerr: get store_plex_tokens setting: %v", err)
+		}
 		if enabled && s.isOverseerrURLSafeForTokens() {
 			plexToken, tokenErr := s.store.GetProviderToken(user.ID, store.ProviderPlex)
 			if tokenErr == nil && plexToken != "" {
@@ -563,11 +596,12 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleOverseerrRequestAction(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	id64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid request ID")
 		return
 	}
+	id := int(id64)
 
 	action := chi.URLParam(r, "action")
 	if action != "approve" && action != "decline" {
@@ -592,11 +626,12 @@ func (s *Server) handleOverseerrRequestAction(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleOverseerrDeleteRequest(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
+	id64, ok := parseIDParam(r, "id")
+	if !ok {
 		writeError(w, http.StatusBadRequest, "invalid request ID")
 		return
 	}
+	id := int(id64)
 
 	user := UserFromContext(r.Context())
 	if user == nil {

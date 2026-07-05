@@ -187,6 +187,57 @@ func TestListLibraryItemDetails_FilterUnplayed(t *testing.T) {
 	}
 }
 
+func TestListLibraryItemDetails_TotalMatchesAcrossPages(t *testing.T) {
+	// Regression test for merging the count and list queries into one
+	// (COUNT(*) OVER()): Total must reflect the full matching-row count on
+	// every page, not just the number of rows returned on that page, and must
+	// stay consistent across pages of the same query.
+	s := newTestStoreWithMigrations(t)
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+	seedThree(t, s)
+
+	page1, err := s.ListLibraryItemDetails(context.Background(), LibraryItemQuery{
+		ServerID: 1, LibraryID: "1", Page: 1, PerPage: 2, SortColumn: "li.title", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if page1.Total != 3 || len(page1.Items) != 2 {
+		t.Fatalf("page1: total=%d items=%d, want total=3 items=2", page1.Total, len(page1.Items))
+	}
+
+	page2, err := s.ListLibraryItemDetails(context.Background(), LibraryItemQuery{
+		ServerID: 1, LibraryID: "1", Page: 2, PerPage: 2, SortColumn: "li.title", SortOrder: "asc"})
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if page2.Total != 3 || len(page2.Items) != 1 {
+		t.Fatalf("page2: total=%d items=%d, want total=3 items=1", page2.Total, len(page2.Items))
+	}
+}
+
+func TestListLibraryItemDetails_TotalZeroWhenNoMatch(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if err := s.CreateServer(&models.Server{
+		Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true,
+	}); err != nil {
+		t.Fatalf("seed server: %v", err)
+	}
+	seedThree(t, s)
+
+	res, err := s.ListLibraryItemDetails(context.Background(), LibraryItemQuery{
+		ServerID: 1, LibraryID: "1", Page: 1, PerPage: 20, Search: "nonexistent-title"})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if res.Total != 0 || len(res.Items) != 0 {
+		t.Errorf("total=%d items=%d, want 0/0 when nothing matches", res.Total, len(res.Items))
+	}
+}
+
 func TestListLibraryItemDetails_SortTitleAsc(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	if err := s.CreateServer(&models.Server{

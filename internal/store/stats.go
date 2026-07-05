@@ -56,6 +56,25 @@ type StatsFilter struct {
 	StartDate time.Time
 	EndDate   time.Time
 	ServerIDs []int64
+	// TZOffsetMinutes is the caller's timezone offset in minutes east of UTC,
+	// used only for day/hour bucketing. Zero (the default) buckets in UTC.
+	TZOffsetMinutes int
+}
+
+// tzModifier builds a SQLite '±HH:MM' datetime modifier from an offset in
+// minutes east of UTC. The bool is false when the offset is zero (UTC) so
+// callers can omit the modifier entirely and keep the plain-UTC query.
+func tzModifier(offsetMinutes int) (string, bool) {
+	if offsetMinutes == 0 {
+		return "", false
+	}
+	sign := "+"
+	m := offsetMinutes
+	if m < 0 {
+		sign = "-"
+		m = -m
+	}
+	return fmt.Sprintf("%s%02d:%02d", sign, m/60, m%60), true
 }
 
 func (f StatsFilter) timeConditionWith(alias string) (string, []any) {
@@ -107,9 +126,11 @@ func (f StatsFilter) conditionsWithPrefix(prefix, alias string) (string, []any) 
 	return prefix + strings.Join(conds, " AND "), args
 }
 
-func (f StatsFilter) conditions() (string, []any)                  { return f.conditionsWithPrefix(" WHERE ", "") }
-func (f StatsFilter) andConditions() (string, []any)               { return f.conditionsWithPrefix(" AND ", "") }
-func (f StatsFilter) andConditionsWith(alias string) (string, []any) { return f.conditionsWithPrefix(" AND ", alias) }
+func (f StatsFilter) conditions() (string, []any)    { return f.conditionsWithPrefix(" WHERE ", "") }
+func (f StatsFilter) andConditions() (string, []any) { return f.conditionsWithPrefix(" AND ", "") }
+func (f StatsFilter) andConditionsWith(alias string) (string, []any) {
+	return f.conditionsWithPrefix(" AND ", alias)
+}
 
 type topMediaConfig struct {
 	selectCol  string
@@ -290,6 +311,28 @@ func (s *Store) LibraryStats(ctx context.Context, filter StatsFilter) (*models.L
 	return &stats, nil
 }
 
+// concurrentStatsDefaultDays bounds the peak-concurrent-streams computation
+// to the most recent year whenever the caller supplies no explicit range at
+// all (no `days`, no start/end date - the same request shape produced by the
+// frontend's "All Time" selection, since there is no separate wire signal
+// for "explicitly unbounded" vs. "no range given"). Without this, that
+// request forces a full watch_history scan whose cost grows without bound as
+// history accumulates.
+//
+// Any explicit range - including a caller-supplied `days` larger than this
+// constant, or an explicit start/end date - is always honored exactly; only
+// the true default (StatsFilter{}) is capped.
+const concurrentStatsDefaultDays = 365
+
+// boundedForConcurrentStats returns f with a default lookback window applied
+// when no explicit range was requested. See concurrentStatsDefaultDays.
+func (f StatsFilter) boundedForConcurrentStats() StatsFilter {
+	if f.Days == 0 && f.StartDate.IsZero() && f.EndDate.IsZero() {
+		f.Days = concurrentStatsDefaultDays
+	}
+	return f
+}
+
 type concurrentEvent struct {
 	t        time.Time
 	delta    int
@@ -306,7 +349,7 @@ func (s *Store) loadConcurrentEvents(ctx context.Context, filter StatsFilter) ([
 	}
 	defer rows.Close()
 
-	var events []concurrentEvent
+	events := make([]concurrentEvent, 0, 512)
 	for rows.Next() {
 		var start, stop time.Time
 		var decision string
@@ -333,9 +376,16 @@ func (s *Store) loadConcurrentEvents(ctx context.Context, filter StatsFilter) ([
 	return events, nil
 }
 
-
+// ConcurrentStats returns the hourly concurrent-stream time series and peak
+// concurrency counts for the given filter. A true default (no explicit
+// range) is capped to concurrentStatsDefaultDays before hitting the store -
+// see boundedForConcurrentStats - so the unbounded watch_history scan this
+// query used to run on every "All Time" request no longer grows without
+// bound as history accumulates. Events come back time-sorted from a single
+// query, so peaks and hourly points are reduced in one forward pass with no
+// second sort and no map.
 func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]models.ConcurrentTimePoint, models.ConcurrentPeaks, error) {
-	events, err := s.loadConcurrentEvents(ctx, filter)
+	events, err := s.loadConcurrentEvents(ctx, filter.boundedForConcurrentStats())
 	if err != nil {
 		return nil, models.ConcurrentPeaks{}, err
 	}
@@ -345,7 +395,7 @@ func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]mode
 
 	var peaks models.ConcurrentPeaks
 	var peakTime time.Time
-	hourlyMax := make(map[time.Time]models.ConcurrentTimePoint)
+	points := make([]models.ConcurrentTimePoint, 0, 64)
 	var directPlay, directStream, transcode int
 
 	for _, ev := range events {
@@ -373,29 +423,27 @@ func (s *Store) ConcurrentStats(ctx context.Context, filter StatsFilter) ([]mode
 			peaks.Transcode = transcode
 		}
 
+		// Events arrive time-sorted, so the hour bucket only ever advances -
+		// no map, no second sort needed to reduce to one point per hour.
 		hourBucket := ev.t.Truncate(time.Hour)
-		if existing, ok := hourlyMax[hourBucket]; !ok || total > existing.Total {
-			hourlyMax[hourBucket] = models.ConcurrentTimePoint{
-				Time:         hourBucket,
-				DirectPlay:   directPlay,
-				DirectStream: directStream,
-				Transcode:    transcode,
-				Total:        total,
+		if n := len(points); n > 0 && points[n-1].Time.Equal(hourBucket) {
+			if total > points[n-1].Total {
+				points[n-1] = models.ConcurrentTimePoint{
+					Time: hourBucket, DirectPlay: directPlay, DirectStream: directStream,
+					Transcode: transcode, Total: total,
+				}
 			}
+		} else {
+			points = append(points, models.ConcurrentTimePoint{
+				Time: hourBucket, DirectPlay: directPlay, DirectStream: directStream,
+				Transcode: transcode, Total: total,
+			})
 		}
 	}
 
 	if !peakTime.IsZero() {
 		peaks.PeakAt = peakTime.Format(time.RFC3339)
 	}
-
-	points := make([]models.ConcurrentTimePoint, 0, len(hourlyMax))
-	for _, p := range hourlyMax {
-		points = append(points, p)
-	}
-	sort.Slice(points, func(i, j int) bool {
-		return points[i].Time.Before(points[j].Time)
-	})
 
 	return points, peaks, nil
 }
@@ -573,12 +621,20 @@ func (s *Store) activityCounts(ctx context.Context, filter StatsFilter, strftime
 
 	whereClause, filterArgs := filter.conditions()
 
-	query := fmt.Sprintf(`SELECT CAST(strftime('%s', started_at) AS INTEGER) as bucket, COUNT(*) as play_count
-		FROM watch_history`, strftimeFmt)
+	bucketExpr := fmt.Sprintf("strftime('%s', started_at)", strftimeFmt)
+	var args []any
+	if mod, ok := tzModifier(filter.TZOffsetMinutes); ok {
+		bucketExpr = fmt.Sprintf("strftime('%s', started_at, ?)", strftimeFmt)
+		args = append(args, mod)
+	}
+	args = append(args, filterArgs...)
+
+	query := fmt.Sprintf(`SELECT CAST(%s AS INTEGER) as bucket, COUNT(*) as play_count
+		FROM watch_history`, bucketExpr)
 	query += whereClause
 	query += ` GROUP BY bucket ORDER BY bucket`
 
-	rows, err := s.db.QueryContext(ctx, query, filterArgs...)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", errContext, err)
 	}
@@ -599,7 +655,8 @@ func (s *Store) activityCounts(ctx context.Context, filter StatsFilter, strftime
 	return counts, nil
 }
 
-// Day/hour calculations are based on UTC timestamps, not user local time.
+// Day/hour bucketing uses filter.TZOffsetMinutes to shift UTC timestamps to
+// the caller's local time; an absent/zero offset buckets in UTC.
 func (s *Store) ActivityByDayOfWeek(ctx context.Context, filter StatsFilter) ([]models.DayOfWeekStat, error) {
 	counts, err := s.activityCounts(ctx, filter, "%w", "activity by day of week")
 	if err != nil {
@@ -683,5 +740,3 @@ func (s *Store) distribution(ctx context.Context, filter StatsFilter, column, er
 
 	return stats, nil
 }
-
-

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo, memo } from 'react'
 import { LeafletMap } from './shared/LeafletMap'
 import { api } from '../lib/api'
 import type { ActiveStream, GeoResult, ServerType } from '../types'
@@ -18,66 +18,98 @@ const SERVER_COLORS: Record<ServerType, string> = {
   jellyfin: '#aa5cc3',
 }
 
-export function StreamLocationMap({ sessions }: StreamLocationMapProps) {
-  const [locations, setLocations] = useState<StreamGeoResult[]>([])
-  const cacheRef = useRef<Map<string, GeoResult>>(new Map())
+function StreamLocationMapComponent({ sessions }: StreamLocationMapProps) {
+  // Geo coordinates are cached per IP (network lookup) and only need
+  // refetching when a *new* IP shows up. `geoCacheRef` is the synchronous
+  // source of truth used to dedupe fetches; `geoCache` state mirrors it so
+  // that a change to the cache re-triggers the `locations` memo below.
+  const geoCacheRef = useRef<Map<string, GeoResult>>(new Map())
+  const [geoCache, setGeoCache] = useState<Map<string, GeoResult>>(new Map())
+
+  // The 1Hz progress interpolation gives `sessions` a new array reference
+  // every tick even when the set of IPs hasn't changed. Derive a stable key
+  // from just the distinct IPs so the geo lookup below only re-fires when
+  // there's actually something new to resolve.
+  const ipKey = useMemo(
+    () => [...new Set(sessions.map(s => s.ip_address).filter(Boolean))].sort().join('|'),
+    [sessions]
+  )
 
   useEffect(() => {
-    if (sessions.length === 0) {
-      setLocations([])
+    const uniqueIPs = ipKey === '' ? [] : ipKey.split('|')
+
+    if (uniqueIPs.length === 0) {
       return
     }
 
-    const uniqueIPs = [...new Set(sessions.map(s => s.ip_address).filter(Boolean))]
+    let ignore = false
 
-    async function fetchLocations() {
-      const results: StreamGeoResult[] = []
-      const ipToStreams = new Map<string, ActiveStream[]>()
+    async function fetchGeo() {
+      const newEntries = new Map<string, GeoResult>()
 
-      // Group streams by IP
-      for (const session of sessions) {
-        if (!session.ip_address) continue
-        const existing = ipToStreams.get(session.ip_address) || []
-        existing.push(session)
-        ipToStreams.set(session.ip_address, existing)
-      }
-
-      // Fetch geo data for each unique IP
       for (const ip of uniqueIPs) {
-        // Check cache first
-        let geo = cacheRef.current.get(ip)
+        if (ignore) break
+        // Already cached: nothing to fetch for this IP.
+        if (geoCacheRef.current.has(ip)) continue
 
-        if (!geo) {
-          try {
-            geo = await api.get<GeoResult>(`/api/geoip/${encodeURIComponent(ip)}`)
-            if (geo && geo.lat && geo.lng) {
-              cacheRef.current.set(ip, geo)
-            }
-          } catch {
-            // Skip IPs that fail to resolve
-            continue
+        try {
+          const geo = await api.get<GeoResult>(`/api/geoip/${encodeURIComponent(ip)}`)
+          // A newer IP set (or unmount) superseded this run while the
+          // request was in flight — stop applying/firing further lookups.
+          if (ignore) break
+          if (geo && geo.lat && geo.lng) {
+            newEntries.set(ip, geo)
           }
-        }
-
-        if (geo && geo.lat && geo.lng) {
-          const streams = ipToStreams.get(ip) || []
-          // Use the first stream's server type for the marker color
-          const serverType = streams[0]?.server_type
-          results.push({
-            ...geo,
-            ip,
-            users: streams.map(s => s.user_name),
-            streams,
-            serverType,
-          })
+        } catch {
+          // Skip IPs that fail to resolve
         }
       }
 
-      setLocations(results)
+      if (!ignore && newEntries.size > 0) {
+        for (const [ip, geo] of newEntries) {
+          geoCacheRef.current.set(ip, geo)
+        }
+        setGeoCache(new Map(geoCacheRef.current))
+      }
     }
 
-    fetchLocations()
-  }, [sessions])
+    fetchGeo()
+
+    return () => {
+      ignore = true
+    }
+    // `sessions` is intentionally omitted: `ipKey` is the stable proxy for
+    // "which IPs need geo data," so we only want to re-fetch when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ipKey])
+
+  // Stream metadata (who/what is playing at each IP) is cheap and has no
+  // network cost, so it's recomputed from the *current* `sessions` prop on
+  // every render — unlike the geo lookup above, it must never go stale.
+  const locations = useMemo(() => {
+    const ipToStreams = new Map<string, ActiveStream[]>()
+    for (const session of sessions) {
+      if (!session.ip_address) continue
+      const existing = ipToStreams.get(session.ip_address) || []
+      existing.push(session)
+      ipToStreams.set(session.ip_address, existing)
+    }
+
+    const results: StreamGeoResult[] = []
+    for (const [ip, streams] of ipToStreams) {
+      const geo = geoCache.get(ip)
+      if (!geo) continue
+      // Use the first stream's server type for the marker color
+      results.push({
+        ...geo,
+        ip,
+        users: streams.map(s => s.user_name),
+        streams,
+        serverType: streams[0]?.server_type,
+      })
+    }
+    return results
+  }, [sessions, geoCache])
 
   if (sessions.length === 0) {
     return null
@@ -113,3 +145,5 @@ export function StreamLocationMap({ sessions }: StreamLocationMapProps) {
     </div>
   )
 }
+
+export const StreamLocationMap = memo(StreamLocationMapComponent)

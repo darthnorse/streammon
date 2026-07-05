@@ -150,15 +150,23 @@ func (s *Store) SetSetting(key, value string) error {
 
 type TautulliConfig = IntegrationConfig
 
-func (s *Store) GetTautulliConfig() (TautulliConfig, error)  { return s.getIntegrationConfig("tautulli") }
-func (s *Store) SetTautulliConfig(cfg TautulliConfig) error   { return s.setIntegrationConfig("tautulli", cfg) }
-func (s *Store) DeleteTautulliConfig() error                  { return s.deleteIntegrationConfig("tautulli") }
+func (s *Store) GetTautulliConfig() (TautulliConfig, error) {
+	return s.getIntegrationConfig("tautulli")
+}
+func (s *Store) SetTautulliConfig(cfg TautulliConfig) error {
+	return s.setIntegrationConfig("tautulli", cfg)
+}
+func (s *Store) DeleteTautulliConfig() error { return s.deleteIntegrationConfig("tautulli") }
 
 type JellystatConfig = IntegrationConfig
 
-func (s *Store) GetJellystatConfig() (JellystatConfig, error)  { return s.getIntegrationConfig("jellystat") }
-func (s *Store) SetJellystatConfig(cfg JellystatConfig) error   { return s.setIntegrationConfig("jellystat", cfg) }
-func (s *Store) DeleteJellystatConfig() error                   { return s.deleteIntegrationConfig("jellystat") }
+func (s *Store) GetJellystatConfig() (JellystatConfig, error) {
+	return s.getIntegrationConfig("jellystat")
+}
+func (s *Store) SetJellystatConfig(cfg JellystatConfig) error {
+	return s.setIntegrationConfig("jellystat", cfg)
+}
+func (s *Store) DeleteJellystatConfig() error { return s.deleteIntegrationConfig("jellystat") }
 
 type IntegrationConfig struct {
 	URL     string
@@ -241,24 +249,52 @@ func (s *Store) deleteIntegrationConfig(prefix string) error {
 	return nil
 }
 
-func (s *Store) GetOverseerrConfig() (OverseerrConfig, error) { return s.getIntegrationConfig("overseerr") }
-func (s *Store) SetOverseerrConfig(cfg OverseerrConfig) error  { return s.setIntegrationConfig("overseerr", cfg) }
-func (s *Store) DeleteOverseerrConfig() error                  { return s.deleteIntegrationConfig("overseerr") }
+func (s *Store) GetOverseerrConfig() (OverseerrConfig, error) {
+	return s.getIntegrationConfig("overseerr")
+}
+func (s *Store) SetOverseerrConfig(cfg OverseerrConfig) error {
+	return s.setIntegrationConfig("overseerr", cfg)
+}
+func (s *Store) DeleteOverseerrConfig() error { return s.deleteIntegrationConfig("overseerr") }
 
 func (s *Store) GetSonarrConfig() (SonarrConfig, error) { return s.getIntegrationConfig("sonarr") }
-func (s *Store) SetSonarrConfig(cfg SonarrConfig) error  { return s.setIntegrationConfig("sonarr", cfg) }
-func (s *Store) DeleteSonarrConfig() error               { return s.deleteIntegrationConfig("sonarr") }
+func (s *Store) SetSonarrConfig(cfg SonarrConfig) error { return s.setIntegrationConfig("sonarr", cfg) }
+func (s *Store) DeleteSonarrConfig() error              { return s.deleteIntegrationConfig("sonarr") }
 
 type RadarrConfig = IntegrationConfig
 
 func (s *Store) GetRadarrConfig() (RadarrConfig, error) { return s.getIntegrationConfig("radarr") }
-func (s *Store) SetRadarrConfig(cfg RadarrConfig) error  { return s.setIntegrationConfig("radarr", cfg) }
-func (s *Store) DeleteRadarrConfig() error               { return s.deleteIntegrationConfig("radarr") }
+func (s *Store) SetRadarrConfig(cfg RadarrConfig) error { return s.setIntegrationConfig("radarr", cfg) }
+func (s *Store) DeleteRadarrConfig() error              { return s.deleteIntegrationConfig("radarr") }
 
 // plaintextSecretKeys lists all settings keys that should be encrypted at rest.
 var plaintextSecretKeys = []string{
 	"overseerr.api_key", "sonarr.api_key", "radarr.api_key", "tautulli.api_key",
-	"jellystat.api_key", "oidc.client_secret",
+	"jellystat.api_key", "oidc.client_secret", "maxmind.license_key",
+}
+
+// GetMaxMindLicenseKey returns the decrypted MaxMind license key, or
+// EncryptedPlaceholder if it's encrypted but no encryption key is configured.
+func (s *Store) GetMaxMindLicenseKey() (string, error) {
+	raw, err := s.GetSetting("maxmind.license_key")
+	if err != nil {
+		return "", err
+	}
+	key, err := s.decryptOrPlaceholder(raw)
+	if err != nil {
+		return "", fmt.Errorf("decrypting maxmind license key: %w", err)
+	}
+	return key, nil
+}
+
+// SetMaxMindLicenseKey encrypts and stores the MaxMind license key. Passing
+// an empty string clears the key.
+func (s *Store) SetMaxMindLicenseKey(key string) error {
+	val, err := s.encryptValue(key)
+	if err != nil {
+		return fmt.Errorf("encrypting maxmind license key: %w", err)
+	}
+	return s.SetSetting("maxmind.license_key", val)
 }
 
 // EncryptPlaintextKeys finds secrets stored without the "enc:" prefix
@@ -375,13 +411,17 @@ func (s *Store) GetDiscoverRegion() (string, error) {
 }
 
 func (s *Store) SetDiscoverRegion(region string) error {
-	if region != "" && !isValidRegionCode(region) {
+	if region != "" && !IsValidRegionCode(region) {
 		return fmt.Errorf("invalid region code: %s", region)
 	}
 	return s.SetSetting(discoverRegionKey, region)
 }
 
-func isValidRegionCode(code string) bool {
+// IsValidRegionCode reports whether code is a well-formed two-letter,
+// uppercase ISO-3166 region code. Exported so callers (e.g. HTTP handlers)
+// can validate input before calling SetDiscoverRegion, letting them
+// distinguish a bad request (400) from a genuine storage failure (500).
+func IsValidRegionCode(code string) bool {
 	if len(code) != 2 {
 		return false
 	}
@@ -550,4 +590,3 @@ func (s *Store) SetMaintenanceResolutionWidthAware(enabled bool) error {
 	}
 	return s.SetSetting(maintenanceResolutionWidthAwareKey, val)
 }
-

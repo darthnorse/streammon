@@ -2,10 +2,21 @@ import { Link } from 'react-router-dom'
 import type { RuleViolation, Severity } from '../types'
 import { formatDate } from '../lib/format'
 import { SEVERITY_COLORS } from '../lib/constants'
+import { useAuth } from '../context/AuthContext'
 
 interface ViolationsTableProps {
   violations: RuleViolation[]
   loading?: boolean
+}
+
+/** Only admins can reach /users/:name (see AdminRoute in App.tsx); everyone else gets plain text. */
+function ViolationUserLink({ name, isAdmin }: { name: string; isAdmin: boolean }) {
+  if (!isAdmin) return <span>{name}</span>
+  return (
+    <Link to={`/users/${encodeURIComponent(name)}`} className="hover:text-accent hover:underline">
+      {name}
+    </Link>
+  )
 }
 
 function SeverityBadge({ severity, className = '' }: { severity: Severity; className?: string }) {
@@ -16,7 +27,7 @@ function SeverityBadge({ severity, className = '' }: { severity: Severity; class
   )
 }
 
-function ViolationCard({ violation }: { violation: RuleViolation }) {
+function ViolationCard({ violation, isAdmin }: { violation: RuleViolation; isAdmin: boolean }) {
   return (
     <div className="card p-4" data-testid="violation-card">
       <div className="flex items-start justify-between gap-3">
@@ -32,9 +43,7 @@ function ViolationCard({ violation }: { violation: RuleViolation }) {
         </div>
       </div>
       <div className="flex items-center gap-3 mt-2 text-xs text-muted dark:text-muted-dark">
-        <Link to={`/users/${encodeURIComponent(violation.user_name)}`} className="hover:text-accent hover:underline">
-          {violation.user_name}
-        </Link>
+        <ViolationUserLink name={violation.user_name} isAdmin={isAdmin} />
         <span>&middot;</span>
         <span>{formatDate(violation.occurred_at)}</span>
         <span>&middot;</span>
@@ -56,6 +65,8 @@ function ActionBadge({ action }: { action?: string }) {
 }
 
 export function ViolationsTable({ violations, loading }: ViolationsTableProps) {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const loadingClass = loading ? 'opacity-50 pointer-events-none' : ''
 
   if (loading && violations.length === 0) {
@@ -79,7 +90,7 @@ export function ViolationsTable({ violations, loading }: ViolationsTableProps) {
     <>
       <div className={`md:hidden space-y-3 ${loadingClass}`}>
         {violations.map(violation => (
-          <ViolationCard key={violation.id} violation={violation} />
+          <ViolationCard key={violation.id} violation={violation} isAdmin={isAdmin} />
         ))}
       </div>
 
@@ -110,9 +121,7 @@ export function ViolationsTable({ violations, loading }: ViolationsTableProps) {
                     {formatDate(v.occurred_at)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <Link to={`/users/${encodeURIComponent(v.user_name)}`} className="hover:text-accent hover:underline">
-                      {v.user_name}
-                    </Link>
+                    <ViolationUserLink name={v.user_name} isAdmin={isAdmin} />
                   </td>
                   <td className="px-4 py-3">{v.rule_name ?? 'Unknown rule'}</td>
                   <td className="px-4 py-3">

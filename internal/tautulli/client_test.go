@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -94,6 +95,27 @@ func TestTestConnectionFailure(t *testing.T) {
 	err := c.TestConnection(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid API key")
+	}
+}
+
+func TestTestConnectionRedactsAPIKeyOnFailure(t *testing.T) {
+	// Server is closed before use, so the request fails with a connection
+	// error (*url.Error) whose message embeds the full request URL.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	ts.Close()
+
+	secret := "SUPERSECRETAPIKEY"
+	c, err := NewClient(ts.URL, secret)
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	connErr := c.TestConnection(context.Background())
+	if connErr == nil {
+		t.Fatal("expected an error from a closed server")
+	}
+	if strings.Contains(connErr.Error(), secret) {
+		t.Errorf("api key leaked into error: %v", connErr)
 	}
 }
 
@@ -324,17 +346,17 @@ func TestGetStreamData(t *testing.T) {
 				"result":  "success",
 				"message": "",
 				"data": map[string]interface{}{
-					"video_codec":          "hevc",
-					"video_width":          3840,
-					"video_height":         2160,
-					"video_bit_depth":      10,
-					"video_dynamic_range":  "HDR",
-					"audio_codec":          "truehd",
-					"audio_channels":       8,
-					"bandwidth":            50000,
-					"transcode_decision":   "direct play",
-					"video_decision":       "direct play",
-					"audio_decision":       "transcode",
+					"video_codec":           "hevc",
+					"video_width":           3840,
+					"video_height":          2160,
+					"video_bit_depth":       10,
+					"video_dynamic_range":   "HDR",
+					"audio_codec":           "truehd",
+					"audio_channels":        8,
+					"bandwidth":             50000,
+					"transcode_decision":    "direct play",
+					"video_decision":        "direct play",
+					"audio_decision":        "transcode",
 					"transcode_hw_decoding": true,
 					"transcode_hw_encoding": false,
 				},
@@ -419,13 +441,13 @@ func TestGetStreamDataFlexibleTypes(t *testing.T) {
 				"result":  "success",
 				"message": "",
 				"data": map[string]interface{}{
-					"video_codec":          "h264",
-					"video_width":          "1920",  // string instead of int
-					"video_height":         "1080",  // string instead of int
-					"audio_channels":       "6",     // string instead of int
-					"bandwidth":            "25000", // string instead of int
-					"transcode_hw_decoding": "1",   // string "1" for boolean
-					"transcode_hw_encoding": 0,     // int 0 for boolean
+					"video_codec":           "h264",
+					"video_width":           "1920",  // string instead of int
+					"video_height":          "1080",  // string instead of int
+					"audio_channels":        "6",     // string instead of int
+					"bandwidth":             "25000", // string instead of int
+					"transcode_hw_decoding": "1",     // string "1" for boolean
+					"transcode_hw_encoding": 0,       // int 0 for boolean
 				},
 			},
 		})
@@ -456,4 +478,3 @@ func TestGetStreamDataFlexibleTypes(t *testing.T) {
 		t.Error("transcode_hw_encode should be false for int 0")
 	}
 }
-

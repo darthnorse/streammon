@@ -1,15 +1,81 @@
 package poller
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"streammon/internal/models"
 	"streammon/internal/store"
 )
+
+// blockingEvaluator stands in for the rules engine and blocks inside
+// EvaluateSessions until released, so tests can prove rule evaluation runs
+// asynchronously and never back-pressures the poll loop.
+type blockingEvaluator struct {
+	calls   atomic.Int32
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingEvaluator) EvaluateSessions(ctx context.Context, streams []models.ActiveStream) {
+	b.calls.Add(1)
+	select {
+	case b.started <- struct{}{}:
+	default:
+	}
+	select {
+	case <-b.release:
+	case <-ctx.Done():
+	}
+}
+
+func TestRuleEvaluationDoesNotBlockPoll(t *testing.T) {
+	s := newTestStore(t)
+	be := &blockingEvaluator{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	p := New(s, time.Hour, WithRulesEngine(be))
+	p.triggerPoll = make(chan struct{}, 1)
+	p.pollNotify = make(chan struct{}, 1)
+
+	ms := &mockServer{
+		name: "test",
+		sessions: []models.ActiveStream{
+			{SessionID: "s1", ServerID: 1, UserName: "u", Title: "Movie", MediaType: models.MediaTypeMovie, StartedAt: time.Now().UTC()},
+		},
+	}
+	p.AddServer(1, ms)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+
+	// The poll must complete even though rule evaluation is blocked.
+	waitPoll(t, p)
+
+	// Evaluation was handed off to the async worker and is now running.
+	select {
+	case <-be.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("rule evaluation was not dispatched to the async worker")
+	}
+
+	// It is still blocked (we never released it), proving poll did not wait.
+	close(be.release)
+	p.Stop()
+
+	if be.calls.Load() == 0 {
+		t.Fatal("expected at least one evaluation call")
+	}
+}
 
 type mockServer struct {
 	mu       sync.Mutex
@@ -1292,5 +1358,136 @@ func TestIdleTimeoutSetsAccurateStoppedAt(t *testing.T) {
 	if diff > 2*time.Second {
 		t.Errorf("StoppedAt should be near LastProgressChange (%v), got %v (diff %v)",
 			progressTime, entry.StoppedAt, diff)
+	}
+}
+
+func addRawSession(p *Poller, key string, s models.ActiveStream) {
+	p.mu.Lock()
+	p.sessions[key] = s
+	p.mu.Unlock()
+}
+
+func TestPersistActiveSessionsPersistsAndClears(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	addRawSession(p, "1:s1:100", models.ActiveStream{
+		SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Shutdown Movie",
+		MediaType: models.MediaTypeMovie, DurationMs: 100000, ProgressMs: 50000,
+		UserName: "alice", StartedAt: time.Now().UTC(),
+	})
+
+	p.PersistActiveSessions(context.Background())
+
+	if len(p.CurrentSessions()) != 0 {
+		t.Fatalf("expected sessions cleared after persist, got %d", len(p.CurrentSessions()))
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 history entry, got %d", result.Total)
+	}
+	if result.Items[0].Title != "Shutdown Movie" {
+		t.Errorf("expected Shutdown Movie, got %s", result.Items[0].Title)
+	}
+}
+
+// TestPersistActiveSessionsRespectsCancelledContext exercises the graceful-
+// shutdown-deadline-exceeded path: PersistActiveSessions must notice a
+// context that's already past its deadline and bail out immediately rather
+// than attempt (and block on) each session's write, so a bounded shutdown
+// context actually bounds this call.
+func TestPersistActiveSessionsRespectsCancelledContext(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	addRawSession(p, "1:s1:100", models.ActiveStream{
+		SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "Too Late Movie",
+		MediaType: models.MediaTypeMovie, DurationMs: 100000, ProgressMs: 50000,
+		UserName: "alice", StartedAt: time.Now().UTC(),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	start := time.Now()
+	p.PersistActiveSessions(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("PersistActiveSessions took %v with an already-cancelled context; expected a prompt return", elapsed)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected no history written once the shutdown deadline had passed, got %d", result.Total)
+	}
+}
+
+// TestPersistActiveSessionsCountsInFlightCancelledWrite exercises the other
+// half of the shutdown-cancellation story: unlike
+// TestPersistActiveSessionsRespectsCancelledContext (context already
+// cancelled *before* the loop even starts), here the context is still live
+// when persistHistory is called, and the store write itself fails with a
+// context error partway through -- exactly what happens in production when
+// the shutdown deadline fires while a write is already in flight (the
+// SQLite driver surfaces that as sqlite3_interrupt). That write must be
+// counted as not persisted and must NOT be silently queued for a retry that
+// will never run, since PersistActiveSessions only executes during shutdown
+// and nothing drains the retry queue afterward.
+func TestPersistActiveSessionsCountsInFlightCancelledWrite(t *testing.T) {
+	s, srv := newTestStoreWithServer(t)
+	p := newTestPoller(t, s)
+
+	addRawSession(p, "1:s1:100", models.ActiveStream{
+		SessionID: "s1", ServerID: srv.ID, ItemID: "100", Title: "In-Flight Movie",
+		MediaType: models.MediaTypeMovie, DurationMs: 100000, ProgressMs: 50000,
+		UserName: "alice", StartedAt: time.Now().UTC(),
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Simulate the deadline firing mid-write: the context is still live when
+	// persistHistory calls in, but the store call itself returns a context
+	// error, just as InsertHistoryContext does when sqlite3_interrupt fires
+	// on an in-flight transaction.
+	p.insertHistoryFn = func(ctx context.Context, entry *models.WatchHistoryEntry, thresholdPct int) error {
+		return context.Canceled
+	}
+
+	var logBuf bytes.Buffer
+	prevOut := log.Writer()
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(prevOut)
+
+	p.PersistActiveSessions(ctx)
+
+	logged := logBuf.String()
+	if strings.Contains(logged, "will retry") {
+		t.Errorf("expected no misleading \"will retry\" message for a shutdown-cancelled write, got log:\n%s", logged)
+	}
+	if !strings.Contains(logged, "1 of 1 session(s) not persisted") {
+		t.Errorf("expected the not-persisted tally to include the in-flight cancelled write, got log:\n%s", logged)
+	}
+
+	result, err := s.ListHistory(1, 10, "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 0 {
+		t.Fatalf("expected no history written for a cancelled in-flight write, got %d", result.Total)
+	}
+
+	p.retryMu.Lock()
+	queued := len(p.retryQueue)
+	p.retryMu.Unlock()
+	if queued != 0 {
+		t.Fatalf("expected the cancelled in-flight write not to be silently queued for a retry that will never run, got %d queued", queued)
 	}
 }

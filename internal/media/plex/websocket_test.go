@@ -131,6 +131,53 @@ func TestSubscribeStopsOnContextCancel(t *testing.T) {
 	}
 }
 
+// TestSubscribeClosesPromptlyOnCancelAfterConnect guards against a slow
+// leak: once the websocket handshake completes, wsConnect blocks in
+// conn.ReadMessage() and previously had no way to notice ctx cancellation
+// until the 30s read deadline expired. It must instead close the update
+// channel (and free the goroutine) promptly on cancel, not ~30s later.
+func TestSubscribeClosesPromptlyOnCancelAfterConnect(t *testing.T) {
+	connected := make(chan struct{})
+	srv := startWSServer(t, func(conn *websocket.Conn) {
+		close(connected)
+		for {
+			_, _, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+		}
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := srv.Subscribe(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-connected:
+	case <-time.After(2 * time.Second):
+		t.Fatal("server never saw a connection")
+	}
+	// Give the client goroutine a moment to finish set up and enter its
+	// blocking read loop before cancelling.
+	time.Sleep(50 * time.Millisecond)
+
+	cancel()
+
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case _, ok := <-ch:
+		if ok {
+			for range ch {
+			}
+		}
+	case <-timer.C:
+		t.Fatal("channel not closed promptly after context cancel (relying on 30s read deadline instead)")
+	}
+}
+
 func TestSubscribeReconnectsOnClose(t *testing.T) {
 	var connectCount atomic.Int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

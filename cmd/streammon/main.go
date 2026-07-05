@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -40,12 +42,18 @@ func main() {
 		log.Printf("CORS origin: %s", corsOrigin)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+	// 0700: this directory holds the SQLite DB, which contains encrypted
+	// (and, until TOKEN_ENCRYPTION_KEY is set, plaintext) API tokens.
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0700); err != nil {
 		log.Fatal(err)
 	}
 
+	encKey, err := readSecretEnv("TOKEN_ENCRYPTION_KEY")
+	if err != nil {
+		log.Fatal(err)
+	}
 	var storeOpts []store.Option
-	if encKey := os.Getenv("TOKEN_ENCRYPTION_KEY"); encKey != "" {
+	if encKey != "" {
 		enc, err := crypto.NewEncryptor(encKey)
 		if err != nil {
 			log.Fatalf("invalid TOKEN_ENCRYPTION_KEY: %v", err)
@@ -88,7 +96,11 @@ func main() {
 
 	geoUpdater := geoip.NewUpdater(s, geoResolver, geoDBPath)
 
-	tmdbClient := tmdb.New(os.Getenv("TMDB_API_KEY"), s)
+	// TMDB is an optional integration: an unset/empty key just disables
+	// metadata lookups, so a _FILE read error here must not take down the
+	// whole monitoring app the way TOKEN_ENCRYPTION_KEY's does.
+	tmdbAPIKey := optionalSecret("TMDB_API_KEY")
+	tmdbClient := tmdb.New(tmdbAPIKey, s)
 
 	authMgr := auth.NewManager(s)
 	authMgr.RegisterProvider(auth.NewLocalProvider(s, authMgr))
@@ -215,20 +227,61 @@ func main() {
 
 	<-ctx.Done()
 	log.Println("Shutting down...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+
+	// httpShutdownTimeout bounds draining in-flight HTTP/SSE connections.
+	// cleanupTimeout bounds everything after that (session persistence,
+	// stopping the poller and background workers, draining notifications).
+	// Both run sequentially, so size them to stay comfortably under
+	// docker-compose's stop_grace_period (see docker-compose.example.yml)
+	// -- we'd rather log and exit on our own terms than be SIGKILLed
+	// mid-write.
+	const (
+		httpShutdownTimeout = 10 * time.Second
+		cleanupTimeout      = 15 * time.Second
+	)
+
+	httpShutdownCtx, cancelHTTP := context.WithTimeout(context.Background(), httpShutdownTimeout)
+	defer cancelHTTP()
+	if err := httpServer.Shutdown(httpShutdownCtx); err != nil {
 		log.Printf("shutdown error: %v", err)
 	}
-	p.PersistActiveSessions()
-	p.Stop()
-	srv.WaitEnrichment()
-	srv.WaitAutoSync()
-	srv.WaitLibrarySync()
-	rulesEngine.WaitForNotifications()
-	server.StopRateLimiter()
-	server.StopAuthRateLimiter()
-	log.Println("Shutdown complete")
+
+	cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), cleanupTimeout)
+	defer cancelCleanup()
+	runBoundedCleanup(cleanupCtx, func() {
+		// PersistActiveSessions runs first so it gets first claim on the
+		// cleanup budget: losing in-progress watch sessions is the failure
+		// this whole sequence exists to prevent.
+		p.PersistActiveSessions(cleanupCtx)
+		p.Stop()
+		srv.WaitEnrichment()
+		srv.WaitAutoSync()
+		srv.WaitLibrarySync()
+		rulesEngine.WaitForNotifications()
+		server.StopRateLimiter()
+		server.StopAuthRateLimiter()
+	})
+}
+
+// runBoundedCleanup runs fn and waits for it to finish, but gives up and
+// returns as soon as ctx is done instead of blocking indefinitely, logging
+// when that happens. fn's own steps that accept a context (e.g.
+// PersistActiveSessions, and the store writes underneath it) observe the
+// same ctx and exit early on their own once it expires; this wrapper is the
+// backstop that keeps main() itself from hanging past the shutdown budget
+// on a step that doesn't.
+func runBoundedCleanup(ctx context.Context, fn func()) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	select {
+	case <-done:
+		log.Println("Shutdown complete")
+	case <-ctx.Done():
+		log.Printf("shutdown cleanup did not finish within the budget (%v); exiting anyway", ctx.Err())
+	}
 }
 
 func envOr(key, fallback string) string {
@@ -236,6 +289,51 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// readSecretEnv reads a secret from either the plain "<name>" env var or,
+// as a Docker-secrets-friendly fallback, a file whose path is given by
+// "<name>_FILE" (trailing newline trimmed). The plain env var takes
+// precedence when both are set, so a deployment can override a mounted
+// secret file with an explicit env var without editing the mount. If both
+// are set, that shadowing is logged as a warning rather than left silent,
+// since it usually means a leftover env var is masking an intentionally
+// mounted secret file.
+func readSecretEnv(name string) (string, error) {
+	fileVar := name + "_FILE"
+	filePath := os.Getenv(fileVar)
+
+	if v := os.Getenv(name); v != "" {
+		if filePath != "" {
+			log.Printf("WARNING: both %s and %s are set; using %s and ignoring the file", name, fileVar, name)
+		}
+		return v, nil
+	}
+	if filePath == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", fileVar, err)
+	}
+	return strings.TrimRight(string(data), "\r\n"), nil
+}
+
+// optionalSecret reads a secret via readSecretEnv but treats a read error
+// (e.g. a mis-typed "<name>_FILE" path or a secrets-mount race) as
+// non-fatal: it logs a warning and returns an empty string instead of
+// propagating the error. Use this for secrets that guard optional
+// integrations, where "unset" is already a valid, handled state — as
+// opposed to readSecretEnv's error return, which callers should treat as
+// fatal for secrets startup genuinely can't proceed without (e.g.
+// TOKEN_ENCRYPTION_KEY).
+func optionalSecret(name string) string {
+	v, err := readSecretEnv(name)
+	if err != nil {
+		log.Printf("WARNING: %v; continuing with %s unset", err, name)
+		return ""
+	}
+	return v
 }
 
 // geoAdapter adapts geoip.Resolver to the rules.GeoResolver interface.

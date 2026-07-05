@@ -63,7 +63,24 @@ describe('DailyChart', () => {
     mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
     renderWithRouter(<DailyChart days={30} />)
     const url = mockUseFetch.mock.calls[0][0] as string
-    expect(url).toMatch(/^\/api\/history\/daily\?start=\d{4}-\d{2}-\d{2}&end=\d{4}-\d{2}-\d{2}$/)
+    const [path, qs] = url.split('?')
+    const params = new URLSearchParams(qs)
+    // tz_offset depends on the host timezone; the date params are what matter here.
+    params.delete('tz_offset')
+    expect(path).toBe('/api/history/daily')
+    expect(params.get('start')).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect(params.get('end')).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect([...params.keys()].sort()).toEqual(['end', 'start'])
+  })
+
+  it('includes tz_offset when the browser is not in UTC', () => {
+    // getTimezoneOffset returns minutes WEST as positive; 300 -> -300 east.
+    vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(300)
+    mockUseFetch.mockReturnValue({ data: null, loading: true, error: null, refetch: vi.fn() })
+    renderWithRouter(<DailyChart days={30} />)
+    const url = mockUseFetch.mock.calls[0][0] as string
+    const params = new URLSearchParams(url.split('?')[1])
+    expect(params.get('tz_offset')).toBe('-300')
   })
 
   it('sets end to today (backend makes it exclusive)', () => {

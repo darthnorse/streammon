@@ -199,6 +199,13 @@ export function localDaysAgo(n: number): string {
   return padDate(d)
 }
 
+// Minutes east of UTC for the browser's timezone. getTimezoneOffset() returns
+// minutes WEST as a positive number, so negate it. Used to bucket stats charts
+// in local time on the backend.
+export function localTZOffsetMinutes(): number {
+  return -new Date().getTimezoneOffset()
+}
+
 export function thumbUrl(serverId: number, thumbPath: string): string {
   if (thumbPath.startsWith('http://') || thumbPath.startsWith('https://')) return thumbPath
   const normalized = thumbPath.replace(/^\/+/, '')

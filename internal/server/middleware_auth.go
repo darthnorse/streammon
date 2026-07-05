@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -44,14 +47,14 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 				// Rate-limit before doing any work on attacker-controlled input.
 				if !globalAuthRateLimiter.check(ip) {
 					w.Header().Set("Retry-After", "900")
-					http.Error(w, `{"error":"too many auth attempts, try again later"}`, http.StatusTooManyRequests)
+					writeError(w, http.StatusTooManyRequests, "too many auth attempts, try again later")
 					return
 				}
 
 				// Defense-in-depth: API-key acceptance only after setup is complete.
 				if required, err := mgr.IsSetupRequired(); err != nil || required {
 					globalAuthRateLimiter.record(ip)
-					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					writeError(w, http.StatusUnauthorized, "unauthorized")
 					return
 				}
 
@@ -59,7 +62,7 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 				// on attacker input and disambiguates intent.
 				if len(vals) > 1 || !validAPIKeyShape(vals[0]) {
 					globalAuthRateLimiter.record(ip)
-					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					writeError(w, http.StatusUnauthorized, "unauthorized")
 					return
 				}
 
@@ -67,7 +70,7 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 				stored, err := mgr.Store().GetAPIKey()
 				if err != nil || !auth.CompareAPIKey(stored, apiKey) {
 					globalAuthRateLimiter.record(ip)
-					http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+					writeError(w, http.StatusUnauthorized, "unauthorized")
 					return
 				}
 				ctx := context.WithValue(r.Context(), userContextKey, syntheticAPIKeyUser())
@@ -77,13 +80,13 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 
 			cookie, err := r.Cookie(auth.CookieName)
 			if err != nil {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				writeError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
 			user, err := mgr.Store().GetSessionUser(cookie.Value)
 			if err != nil {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				writeError(w, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 
@@ -124,7 +127,7 @@ func RequireInteractiveSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := UserFromContext(r.Context())
 		if user == nil || user.APIKeyAuth {
-			http.Error(w, `{"error":"interactive session required"}`, http.StatusForbidden)
+			writeError(w, http.StatusForbidden, "interactive session required")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -139,15 +142,15 @@ func setupCheck(mgr *auth.Manager, requireSetup bool) func(http.Handler) http.Ha
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			required, err := mgr.IsSetupRequired()
 			if err != nil {
-				http.Error(w, `{"error":"internal error"}`, http.StatusInternalServerError)
+				writeError(w, http.StatusInternalServerError, "internal error")
 				return
 			}
 			if requireSetup && !required {
-				http.Error(w, `{"error":"setup already complete"}`, http.StatusForbidden)
+				writeError(w, http.StatusForbidden, "setup already complete")
 				return
 			}
 			if !requireSetup && required {
-				http.Error(w, `{"error":"setup required"}`, http.StatusForbidden)
+				writeError(w, http.StatusForbidden, "setup required")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -171,7 +174,7 @@ func RequireRole(role models.Role) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := UserFromContext(r.Context())
 			if user == nil || user.Role != role {
-				http.Error(w, `{"error":"forbidden"}`, http.StatusForbidden)
+				writeError(w, http.StatusForbidden, "forbidden")
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -284,19 +287,18 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 
-// RateLimitAuth applies rate limiting to authentication endpoints.
+// rateLimitAuthWith applies the failed-attempt limiter keyed by keyFn(r).
 // Only failed attempts (4xx/5xx responses) count toward the limit.
-// Keys on the raw socket peer captured by CaptureRawRemoteAddr so a spoofed
-// X-Forwarded-For (already applied by middleware.RealIP) cannot rotate the
-// limiter's bucket.
-func RateLimitAuth(next http.Handler) http.Handler {
+func rateLimitAuthWith(keyFn func(*http.Request) string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := rawClientIP(r)
+		key := keyFn(r)
 
-		if !globalAuthRateLimiter.check(ip) {
-			log.Printf("auth rate limit: ip=%s path=%s", ip, r.URL.Path)
+		if !globalAuthRateLimiter.check(key) {
+			// Log the raw peer + path only — never the attacker-controlled
+			// username portion of the key, to avoid log injection.
+			log.Printf("auth rate limit: ip=%s path=%s", rawClientIP(r), r.URL.Path)
 			w.Header().Set("Retry-After", "900") // 15 minutes
-			http.Error(w, `{"error":"too many login attempts, try again later"}`, http.StatusTooManyRequests)
+			writeError(w, http.StatusTooManyRequests, "too many login attempts, try again later")
 			return
 		}
 
@@ -305,7 +307,64 @@ func RateLimitAuth(next http.Handler) http.Handler {
 
 		// Only count failed attempts (4xx/5xx)
 		if rec.status >= 400 {
-			globalAuthRateLimiter.record(ip)
+			globalAuthRateLimiter.record(key)
 		}
 	})
+}
+
+// RateLimitAuth applies IP-only rate limiting to authentication endpoints that
+// carry no login username (setup, OIDC, password-change, API-key rotate).
+// Keys on the raw socket peer captured by CaptureRawRemoteAddr so a spoofed
+// X-Forwarded-For (already applied by middleware.RealIP) cannot rotate the
+// limiter's bucket.
+func RateLimitAuth(next http.Handler) http.Handler {
+	return rateLimitAuthWith(func(r *http.Request) string { return rawClientIP(r) }, next)
+}
+
+// RateLimitLogin applies rate limiting to credential-login endpoints, scoped by
+// "<rawClientIP>|<username>". Behind a reverse proxy every user shares one
+// socket peer, so IP-only keying lets one bad actor's failed logins lock out
+// all users. Scoping by the submitted account identifier confines a flood to
+// the targeted account while still keying on the raw socket peer (not a
+// spoofable X-Forwarded-For) for the IP portion. Falls back to IP-only when no
+// username is present in the body (e.g. Plex token login).
+func RateLimitLogin(next http.Handler) http.Handler {
+	return rateLimitAuthWith(loginRateLimitKey, next)
+}
+
+// loginRateLimitKey builds the per-account limiter bucket key for a login
+// request: "<ip>|<username>" when a username is submitted, else IP-only.
+func loginRateLimitKey(r *http.Request) string {
+	ip := rawClientIP(r)
+	username := extractLoginUsername(r)
+	if username == "" {
+		return ip
+	}
+	return ip + "|" + username
+}
+
+// extractLoginUsername peeks the JSON request body for a "username" field so
+// the login limiter can scope per account. The body is read in full and then
+// restored via io.NopCloser so the downstream login handler can still decode
+// it. Only the username is unmarshalled — the password (and any other field) is
+// never read into a variable or logged. Returns "" (IP-only scoping) when the
+// body is empty, unreadable, or carries no username.
+func extractLoginUsername(r *http.Request) string {
+	if r.Body == nil || r.Body == http.NoBody {
+		return ""
+	}
+	buf, err := io.ReadAll(r.Body)
+	// Restore the body unconditionally so the handler sees the original bytes,
+	// even if the read hit the MaxBytesReader limit installed by limitBody.
+	r.Body = io.NopCloser(bytes.NewReader(buf))
+	if err != nil {
+		return ""
+	}
+	var creds struct {
+		Username string `json:"username"`
+	}
+	if json.Unmarshal(buf, &creds) != nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(creds.Username))
 }

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -340,7 +341,7 @@ func TestConcurrentStreamsPeakByTypeEmptyDecision(t *testing.T) {
 	// Session with empty transcode_decision (e.g. music, old imported data)
 	s.InsertHistory(&models.WatchHistoryEntry{
 		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMusic,
-		Title: "Song1",
+		Title:     "Song1",
 		StartedAt: base, StoppedAt: base.Add(5 * time.Minute),
 	})
 	// Session with explicit direct play
@@ -903,6 +904,100 @@ func TestActivityByHourEmpty(t *testing.T) {
 	}
 }
 
+func TestTZModifier(t *testing.T) {
+	cases := []struct {
+		offset int
+		want   string
+		apply  bool
+	}{
+		{0, "", false},
+		{-300, "-05:00", true}, // US Eastern (EST)
+		{60, "+01:00", true},   // CET
+		{330, "+05:30", true},  // India (half hour)
+		{765, "+12:45", true},  // Chatham Islands (45 min)
+		{-840, "-14:00", true}, // clamp lower bound
+		{840, "+14:00", true},  // clamp upper bound
+		{-45, "-00:45", true},  // sub-hour negative
+	}
+	for _, c := range cases {
+		got, apply := tzModifier(c.offset)
+		if apply != c.apply || got != c.want {
+			t.Errorf("tzModifier(%d) = (%q, %v), want (%q, %v)", c.offset, got, apply, c.want, c.apply)
+		}
+	}
+}
+
+func TestActivityByHourWithTZOffset(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	// Stored UTC timestamp 04:30 corresponds to 23:30 the previous local day
+	// for a -05:00 zone.
+	utcTime := time.Date(2024, 1, 9, 4, 30, 0, 0, time.UTC)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", StartedAt: utcTime, StoppedAt: utcTime.Add(time.Hour),
+	})
+
+	ctx := context.Background()
+
+	cases := []struct {
+		offset   int
+		wantHour int
+	}{
+		{0, 4},     // UTC path (regression)
+		{-300, 23}, // -05:00 -> 04:30 - 5h = 23:30 prev day
+		{330, 10},  // +05:30 -> 04:30 + 5:30 = 10:00
+		{765, 17},  // +12:45 -> 04:30 + 12:45 = 17:15
+	}
+	for _, c := range cases {
+		stats, err := s.ActivityByHour(ctx, StatsFilter{TZOffsetMinutes: c.offset})
+		if err != nil {
+			t.Fatalf("ActivityByHour(offset=%d): %v", c.offset, err)
+		}
+		for h, st := range stats {
+			want := 0
+			if h == c.wantHour {
+				want = 1
+			}
+			if st.PlayCount != want {
+				t.Errorf("offset=%d hour %d play_count = %d, want %d", c.offset, h, st.PlayCount, want)
+			}
+		}
+	}
+}
+
+func TestActivityByDayOfWeekWithTZOffset(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+
+	// 2024-01-09 04:30 UTC is a Tuesday (%w=2). With a -05:00 offset the local
+	// time is 2024-01-08 23:30, a Monday (%w=1).
+	utcTime := time.Date(2024, 1, 9, 4, 30, 0, 0, time.UTC)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", StartedAt: utcTime, StoppedAt: utcTime.Add(time.Hour),
+	})
+
+	ctx := context.Background()
+
+	utcStats, err := s.ActivityByDayOfWeek(ctx, StatsFilter{})
+	if err != nil {
+		t.Fatalf("ActivityByDayOfWeek(UTC): %v", err)
+	}
+	if utcStats[2].PlayCount != 1 || utcStats[1].PlayCount != 0 {
+		t.Errorf("UTC: Tue=%d Mon=%d, want Tue=1 Mon=0", utcStats[2].PlayCount, utcStats[1].PlayCount)
+	}
+
+	localStats, err := s.ActivityByDayOfWeek(ctx, StatsFilter{TZOffsetMinutes: -300})
+	if err != nil {
+		t.Fatalf("ActivityByDayOfWeek(-300): %v", err)
+	}
+	if localStats[1].PlayCount != 1 || localStats[2].PlayCount != 0 {
+		t.Errorf("offset -300: Mon=%d Tue=%d, want Mon=1 Tue=0", localStats[1].PlayCount, localStats[2].PlayCount)
+	}
+}
+
 func TestPlatformDistribution(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	serverID := seedServer(t, s)
@@ -1124,6 +1219,89 @@ func TestConcurrentStreamsOverTimeHourlyBucketing(t *testing.T) {
 	// we should have far fewer than 20 data points due to hourly bucketing
 	if len(points) > 5 {
 		t.Errorf("expected hourly bucketing to reduce points, got %d", len(points))
+	}
+}
+
+// TestConcurrentStreamsHalfOpenIntervals verifies that a session which ends
+// exactly when the next one begins is never counted as 2 concurrent streams
+// (half-open interval semantics: stop events sort before start events at the
+// same instant). This is the trickiest part of loadConcurrentEvents'
+// sweep-line ordering to preserve when changing its implementation.
+func TestConcurrentStreamsHalfOpenIntervals(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	ctx := context.Background()
+
+	base := time.Now().UTC().Add(-24 * time.Hour)
+
+	// Session A: 0:00 - 1:00
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "M1", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: base, StoppedAt: base.Add(time.Hour),
+	})
+	// Session B: starts exactly when A stops, 1:00 - 2:00
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "M2", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: base.Add(time.Hour), StoppedAt: base.Add(2 * time.Hour),
+	})
+
+	_, peaks, err := s.ConcurrentStats(ctx, StatsFilter{})
+	if err != nil {
+		t.Fatalf("ConcurrentStats: %v", err)
+	}
+
+	if peaks.Total != 1 {
+		t.Errorf("total peak = %d, want 1 (back-to-back sessions must not overlap)", peaks.Total)
+	}
+}
+
+// TestConcurrentStreamsDefaultIsBounded verifies that ConcurrentStats with no
+// explicit range (StatsFilter{}, the same request shape as the frontend's
+// "All Time" selection) no longer scans the full watch_history table: a
+// session older than concurrentStatsDefaultDays must be excluded from the
+// default peak, while an explicit range still reaches it unbounded-within-range.
+func TestConcurrentStreamsDefaultIsBounded(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	ctx := context.Background()
+
+	// Old phase, well outside the default window: 3 overlapping sessions.
+	old := time.Now().UTC().AddDate(0, 0, -(concurrentStatsDefaultDays + 30))
+	for i, user := range []string{"alice", "bob", "carol"} {
+		s.InsertHistory(&models.WatchHistoryEntry{
+			ServerID: serverID, UserName: user, MediaType: models.MediaTypeMovie,
+			Title: fmt.Sprintf("Old%d", i), TranscodeDecision: models.TranscodeDecisionDirectPlay,
+			StartedAt: old, StoppedAt: old.Add(time.Hour),
+		})
+	}
+
+	// Recent, single session inside the default window.
+	recent := time.Now().UTC().Add(-24 * time.Hour)
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "dave", MediaType: models.MediaTypeMovie,
+		Title: "Recent", TranscodeDecision: models.TranscodeDecisionDirectPlay,
+		StartedAt: recent, StoppedAt: recent.Add(time.Hour),
+	})
+
+	// Default (no explicit range): old phase must be excluded.
+	_, peaks, err := s.ConcurrentStats(ctx, StatsFilter{})
+	if err != nil {
+		t.Fatalf("ConcurrentStats: %v", err)
+	}
+	if peaks.Total != 1 {
+		t.Errorf("default (no range) total peak = %d, want 1 (the >%d-day-old phase must be excluded)",
+			peaks.Total, concurrentStatsDefaultDays)
+	}
+
+	// Explicit range wide enough to include the old phase: must be honored exactly.
+	_, peaks, err = s.ConcurrentStats(ctx, StatsFilter{Days: concurrentStatsDefaultDays + 60})
+	if err != nil {
+		t.Fatalf("ConcurrentStats (explicit range): %v", err)
+	}
+	if peaks.Total != 3 {
+		t.Errorf("explicit wide-range total peak = %d, want 3 (explicit range must not be capped)", peaks.Total)
 	}
 }
 
@@ -1379,7 +1557,7 @@ func TestMinPlayDurationFilter(t *testing.T) {
 	t.Run("DailyWatchCounts", func(t *testing.T) {
 		start := now.Truncate(24 * time.Hour)
 		end := start.Add(48 * time.Hour)
-		days, err := s.DailyWatchCountsForUser(start, end, "", nil)
+		days, err := s.DailyWatchCountsForUser(start, end, "", nil, 0)
 		if err != nil {
 			t.Fatalf("DailyWatchCounts: %v", err)
 		}
@@ -1475,4 +1653,3 @@ func TestMinPlayDurationBoundary(t *testing.T) {
 		t.Errorf("TotalPlays = %d, want 1 (boundary included, just-under excluded)", lib.TotalPlays)
 	}
 }
-

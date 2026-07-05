@@ -131,7 +131,7 @@ func rateLimit(next http.Handler) http.Handler {
 			if !searchRateLimiter.allow(ip) {
 				log.Printf("search rate limit: ip=%s path=%s", ip, r.URL.Path)
 				w.Header().Set("Retry-After", "60")
-				http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+				writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
 				return
 			}
 		}
@@ -170,11 +170,41 @@ func corsMiddleware(allowedOrigin string) func(http.Handler) http.Handler {
 	}
 }
 
+// contentSecurityPolicy is deliberately conservative rather than exhaustively
+// scoped to every third-party host currently in use:
+//   - script-src has no 'unsafe-inline' — the only inline script (theme
+//     bootstrap in index.html) was moved to a same-origin file
+//     (web/public/theme-init.js) specifically so this can stay strict.
+//   - style-src allows 'unsafe-inline' because Tailwind/React and the
+//     Leaflet/Recharts dependencies set inline style attributes at runtime;
+//     auditing every call site was impractical, and style injection is a
+//     much lower-severity primitive than script injection.
+//   - img-src allows any https: host (plus data: and self) rather than an
+//     allowlist, since posters/avatars are fetched from several third
+//     parties (TMDB, Plex.tv, Overseerr/Gravatar avatars) and map tiles
+//     from *.basemaps.cartocdn.com — all already same-origin-proxied or
+//     https, so a broad https: allowance doesn't add new risk beyond what
+//     <img> tags could already load.
+//   - connect-src/frame-ancestors/etc. are locked to 'self' since the SPA
+//     only talks to its own backend (REST + SSE), never third-party APIs
+//     directly from the browser.
+const contentSecurityPolicy = "default-src 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data: https:; " +
+	"font-src 'self' data:; " +
+	"connect-src 'self'; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"frame-ancestors 'none'"
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
 		next.ServeHTTP(w, r)
 	})
 }

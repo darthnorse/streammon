@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -43,6 +44,18 @@ func TestRequireAuthManager_NoCookie_Returns401(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", w.Code)
+	}
+	// The error body is JSON (via writeError), not http.Error's default
+	// text/plain, so callers can reliably decode it as {"error": "..."}.
+	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %q", ct)
+	}
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("body is not valid JSON: %v (body=%s)", err, w.Body.String())
+	}
+	if body["error"] == "" {
+		t.Errorf("expected non-empty error field, got %v", body)
 	}
 }
 
@@ -486,6 +499,91 @@ func TestRateLimitAuth_IgnoresSpoofedXForwardedFor(t *testing.T) {
 
 	if lastStatus != http.StatusTooManyRequests {
 		t.Errorf("11th attempt with rotating X-Forwarded-For: status = %d, want 429", lastStatus)
+	}
+}
+
+// A flood of bad logins against one account must not lock out other accounts
+// sharing the same source IP (the reverse-proxy case). The targeted account is
+// still locked, and the limiter falls back to IP-only when no username is
+// present in the body.
+func TestRateLimitLogin_PerAccountScoping(t *testing.T) {
+	resetAuthRateLimiter(t)
+
+	var lastSeenBody string
+	handler := RateLimitLogin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Prove the peeked body was restored for the downstream handler.
+		b, _ := io.ReadAll(r.Body)
+		lastSeenBody = string(b)
+		http.Error(w, `{"error":"bad creds"}`, http.StatusUnauthorized)
+	}))
+
+	loginAs := func(username string) *httptest.ResponseRecorder {
+		body := fmt.Sprintf(`{"username":%q,"password":"secret"}`, username)
+		req := httptest.NewRequest(http.MethodPost, "/auth/local/login", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "10.0.0.1:1234"
+		req = req.WithContext(context.WithValue(req.Context(), rawRemoteAddrKey{}, req.RemoteAddr))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+
+	// Saturate alice's bucket with 10 failed logins from a single IP.
+	for i := 0; i < 10; i++ {
+		if w := loginAs("alice"); w.Code != http.StatusUnauthorized {
+			t.Fatalf("alice attempt %d: expected 401, got %d", i, w.Code)
+		}
+	}
+	if !strings.Contains(lastSeenBody, `"password":"secret"`) {
+		t.Fatalf("handler did not receive restored body, got %q", lastSeenBody)
+	}
+
+	// 11th alice attempt is locked out with a Retry-After header.
+	w := loginAs("alice")
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("alice 11th: expected 429, got %d", w.Code)
+	}
+	if w.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on alice 429")
+	}
+
+	// Case-insensitive: "ALICE" shares alice's (now-locked) bucket.
+	if w := loginAs("ALICE"); w.Code != http.StatusTooManyRequests {
+		t.Errorf("ALICE (same bucket, case-insensitive): expected 429, got %d", w.Code)
+	}
+
+	// bob from the SAME IP is unaffected by alice's flood.
+	if w := loginAs("bob"); w.Code != http.StatusUnauthorized {
+		t.Errorf("bob from same IP: expected 401 (not locked out), got %d", w.Code)
+	}
+}
+
+// When the login body carries no username, RateLimitLogin degrades to IP-only
+// scoping so the endpoint is still protected against blind floods.
+func TestRateLimitLogin_NoUsername_FallsBackToIP(t *testing.T) {
+	resetAuthRateLimiter(t)
+
+	handler := RateLimitLogin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":"bad"}`, http.StatusUnauthorized)
+	}))
+
+	post := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/auth/plex/login", strings.NewReader(`{"auth_token":"x"}`))
+		req.Header.Set("Content-Type", "application/json")
+		req.RemoteAddr = "10.0.0.9:1234"
+		req = req.WithContext(context.WithValue(req.Context(), rawRemoteAddrKey{}, req.RemoteAddr))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w
+	}
+
+	for i := 0; i < 10; i++ {
+		if w := post(); w.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: expected 401, got %d", i, w.Code)
+		}
+	}
+	if w := post(); w.Code != http.StatusTooManyRequests {
+		t.Errorf("11th no-username attempt: expected 429 (IP-only bucket), got %d", w.Code)
 	}
 }
 

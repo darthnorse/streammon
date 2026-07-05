@@ -8,7 +8,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"streammon/internal/media"
 	"streammon/internal/mediautil"
@@ -277,6 +280,13 @@ func (e *Evaluator) evaluateLargeFiles(ctx context.Context, rule *models.Mainten
 	return results, items, nil
 }
 
+// keepLatestSeasonsConcurrency bounds how many shows evaluateKeepLatestSeasons
+// fetches remote data for at once. It caps simultaneous requests against the
+// media server and TMDB -- a basic form of rate limiting on top of what TMDB
+// already enforces internally (see tmdb.Client's rate.Limiter) -- so a
+// library with hundreds of shows doesn't hammer either API.
+const keepLatestSeasonsConcurrency = 6
+
 func (e *Evaluator) evaluateKeepLatestSeasons(ctx context.Context, rule *models.MaintenanceRule) ([]models.BatchCandidate, []models.LibraryItemCache, error) {
 	var params models.KeepLatestSeasonsParams
 	if err := json.Unmarshal(rule.Parameters, &params); err != nil {
@@ -298,90 +308,138 @@ func (e *Evaluator) evaluateKeepLatestSeasons(ctx context.Context, rule *models.
 
 	total := countByMediaType(items, models.MediaTypeTV)
 
-	var results []models.BatchCandidate
-	processed := 0
-	for _, item := range items {
-		if ctx.Err() != nil {
-			return nil, nil, ctx.Err()
+	// tvIndexes preserves items' original (added_at DESC) order so the
+	// candidates built from the concurrent evaluation below can be
+	// reassembled in that same order -- deduplicateCandidates relies on it
+	// to decide which duplicate copy of a show survives.
+	tvIndexes := make([]int, 0, total)
+	for i, item := range items {
+		if item.MediaType == models.MediaTypeTV {
+			tvIndexes = append(tvIndexes, i)
 		}
-		if item.MediaType != models.MediaTypeTV {
-			continue
-		}
+	}
 
-		processed++
-		mediautil.SendProgress(ctx, mediautil.SyncProgress{
-			Phase:   mediautil.PhaseEvaluating,
-			Current: processed,
-			Total:   total,
-			Library: item.LibraryID,
-		})
+	candidateAt := make([]*models.BatchCandidate, len(items))
+	var processed int64
 
-		if len(genreFilter) > 0 {
-			if item.TMDBID == "" {
-				continue // unknown genre, skip when filtering
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(keepLatestSeasonsConcurrency)
+
+	for _, idx := range tvIndexes {
+		item := items[idx]
+		g.Go(func() error {
+			if gctx.Err() != nil {
+				return gctx.Err()
 			}
-			if e.tmdb != nil {
-				tmdbID, parseErr := strconv.Atoi(item.TMDBID)
-				if parseErr != nil {
-					continue
-				}
-				raw, tmdbErr := e.tmdb.GetTV(ctx, tmdbID)
-				if tmdbErr != nil {
-					log.Printf("keep_latest_seasons: tmdb lookup for %q (id=%d): %v", item.Title, tmdbID, tmdbErr)
-					continue // can't verify genre, skip to be safe
-				}
-				var parsed struct {
-					Genres []struct {
-						ID int `json:"id"`
-					} `json:"genres"`
-				}
-				if jsonErr := json.Unmarshal(raw, &parsed); jsonErr != nil {
-					log.Printf("keep_latest_seasons: unmarshal genres for %q (tmdb=%d): %v", item.Title, tmdbID, jsonErr)
-					continue // can't verify genre, skip to be safe
-				}
-				matched := false
-				for _, g := range parsed.Genres {
-					if genreFilter[g.ID] {
-						matched = true
-						break
-					}
-				}
-				if !matched {
-					continue
-				}
-			}
-		}
 
-		if e.servers == nil {
-			continue
-		}
+			candidateAt[idx] = e.evaluateKeepLatestSeasonsItem(gctx, item, params, genreFilter)
 
-		ms, ok := e.servers.GetServer(item.ServerID)
-		if !ok {
-			continue
-		}
-
-		seasons, seasonsErr := ms.GetSeasons(ctx, item.ItemID)
-		if seasonsErr != nil {
-			log.Printf("keep_latest_seasons: get seasons for %q (item=%s): %v", item.Title, item.ItemID, seasonsErr)
-			continue
-		}
-
-		regularCount := 0
-		for _, s := range seasons {
-			if s.Number > 0 {
-				regularCount++
-			}
-		}
-
-		if regularCount > params.KeepSeasons {
-			results = append(results, models.BatchCandidate{
-				LibraryItemID: item.ID,
-				Reason:        fmt.Sprintf("%d seasons \u2014 keeping latest %d", regularCount, params.KeepSeasons),
+			n := atomic.AddInt64(&processed, 1)
+			mediautil.SendProgress(gctx, mediautil.SyncProgress{
+				Phase:   mediautil.PhaseEvaluating,
+				Current: int(n),
+				Total:   total,
+				Library: item.LibraryID,
 			})
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	var results []models.BatchCandidate
+	for _, idx := range tvIndexes {
+		if c := candidateAt[idx]; c != nil {
+			results = append(results, *c)
 		}
 	}
 	return results, items, nil
+}
+
+// evaluateKeepLatestSeasonsItem evaluates a single TV show against the
+// keep_latest_seasons rule, returning a non-nil candidate only when the show
+// has more regular (non-special) seasons than params.KeepSeasons allows. It
+// makes the rule's remote calls (TMDB genre lookup, media-server season
+// list) and is safe to run concurrently across shows -- see
+// evaluateKeepLatestSeasons, which bounds that concurrency.
+func (e *Evaluator) evaluateKeepLatestSeasonsItem(ctx context.Context, item models.LibraryItemCache, params models.KeepLatestSeasonsParams, genreFilter map[int]bool) *models.BatchCandidate {
+	if len(genreFilter) > 0 {
+		if item.TMDBID == "" {
+			return nil // unknown genre, skip when filtering
+		}
+		if e.tmdb != nil {
+			tmdbID, parseErr := strconv.Atoi(item.TMDBID)
+			if parseErr != nil {
+				return nil
+			}
+			raw, tmdbErr := e.tmdb.GetTV(ctx, tmdbID)
+			if tmdbErr != nil {
+				log.Printf("keep_latest_seasons: tmdb lookup for %q (id=%d): %v", item.Title, tmdbID, tmdbErr)
+				return nil // can't verify genre, skip to be safe
+			}
+			var parsed struct {
+				Genres []struct {
+					ID int `json:"id"`
+				} `json:"genres"`
+			}
+			if jsonErr := json.Unmarshal(raw, &parsed); jsonErr != nil {
+				log.Printf("keep_latest_seasons: unmarshal genres for %q (tmdb=%d): %v", item.Title, tmdbID, jsonErr)
+				return nil // can't verify genre, skip to be safe
+			}
+			matched := false
+			for _, g := range parsed.Genres {
+				if genreFilter[g.ID] {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return nil
+			}
+		}
+	}
+
+	if e.servers == nil {
+		return nil
+	}
+
+	ms, ok := e.servers.GetServer(item.ServerID)
+	if !ok {
+		return nil
+	}
+
+	// A show's regular-season count can never exceed its total episode
+	// count (each season has at least one episode). episode_count is
+	// already synced from the last library sync, so when it's within
+	// KeepSeasons the show can never be a keep_latest_seasons candidate --
+	// skip the remote GetSeasons call entirely. A zero episode_count means
+	// unknown/not synced, so it never qualifies for this shortcut.
+	if item.EpisodeCount > 0 && item.EpisodeCount <= params.KeepSeasons {
+		return nil
+	}
+
+	seasons, seasonsErr := ms.GetSeasons(ctx, item.ItemID)
+	if seasonsErr != nil {
+		log.Printf("keep_latest_seasons: get seasons for %q (item=%s): %v", item.Title, item.ItemID, seasonsErr)
+		return nil
+	}
+
+	regularCount := 0
+	for _, s := range seasons {
+		if s.Number > 0 {
+			regularCount++
+		}
+	}
+
+	if regularCount > params.KeepSeasons {
+		return &models.BatchCandidate{
+			LibraryItemID: item.ID,
+			Reason:        fmt.Sprintf("%d seasons \u2014 keeping latest %d", regularCount, params.KeepSeasons),
+		}
+	}
+	return nil
 }
 
 // Items sharing any key represent the same movie/show.

@@ -52,7 +52,7 @@ func parsePlaybackReportingTSV(data []byte, userMap map[string]string, serverID 
 		}
 
 		watchedMs := clampMs(int64(durationSec)*1000, maxDurationMs)
-		stoppedAt := startedAt.Add(time.Duration(durationSec) * time.Second)
+		stoppedAt := clampStoppedAt(startedAt, startedAt.Add(time.Duration(durationSec)*time.Second))
 
 		entry := &models.WatchHistoryEntry{
 			ServerID:          serverID,
@@ -178,8 +178,8 @@ func (s *Server) handlePlaybackReportingImport() http.HandlerFunc {
 		}
 		defer mu.Unlock()
 
-		const maxUpload = 50 << 20      // 50 MiB file cap
-		const multipartSlack = 1 << 20  // 1 MiB headroom for form fields and multipart envelope
+		const maxUpload = 50 << 20     // 50 MiB file cap
+		const multipartSlack = 1 << 20 // 1 MiB headroom for form fields and multipart envelope
 		r.Body = http.MaxBytesReader(w, r.Body, maxUpload+multipartSlack)
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			writeError(w, http.StatusRequestEntityTooLarge, "upload too large or invalid multipart form")
@@ -188,7 +188,7 @@ func (s *Server) handlePlaybackReportingImport() http.HandlerFunc {
 
 		serverIDStr := r.FormValue("server_id")
 		serverID, err := strconv.ParseInt(serverIDStr, 10, 64)
-		if err != nil || serverID == 0 {
+		if err != nil || serverID <= 0 {
 			writeError(w, http.StatusBadRequest, "server_id is required")
 			return
 		}

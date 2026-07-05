@@ -35,6 +35,9 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 
 	userName := input.Stream.UserName
 	userStreams := filterStreamsByUser(input.AllStreams, userName)
+	if config.CountPausedAsOne {
+		userStreams = collapsePausedStreams(userStreams)
+	}
 	streamCount := len(userStreams)
 
 	if streamCount <= config.MaxStreams {
@@ -46,7 +49,19 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 	}
 
 	// Tiebreak by SessionID for deterministic ordering with identical timestamps.
+	// When paused streams are collapsed to a single representative, that
+	// representative must never be preferred over a genuinely active stream
+	// as the auto-terminate target — otherwise a paused session could be
+	// terminated ahead of an active one. Scoped to CountPausedAsOne so the
+	// default (disabled) path's ordering is unchanged.
 	sort.Slice(userStreams, func(i, j int) bool {
+		if config.CountPausedAsOne {
+			iPaused := userStreams[i].State == models.SessionStatePaused
+			jPaused := userStreams[j].State == models.SessionStatePaused
+			if iPaused != jPaused {
+				return !iPaused
+			}
+		}
 		if userStreams[i].StartedAt.Equal(userStreams[j].StartedAt) {
 			return userStreams[i].SessionID > userStreams[j].SessionID
 		}
@@ -57,7 +72,7 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 	signals := []models.ViolationSignal{
 		{Name: "stream_count", Weight: 0.6, Value: float64(streamCount)},
 		{Name: "max_allowed", Weight: 0.0, Value: float64(config.MaxStreams)},
-		{Name: "excess", Weight: 0.4, Value: float64(streamCount - config.MaxStreams) * 25},
+		{Name: "excess", Weight: 0.4, Value: float64(streamCount-config.MaxStreams) * 25},
 	}
 
 	confidence := models.CalculateConfidence(signals)
@@ -77,13 +92,10 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 		Severity: determineSeverity(streamCount, config.MaxStreams),
 		Message:  fmt.Sprintf("%d concurrent streams detected (max: %d)", streamCount, config.MaxStreams),
 		Details: map[string]interface{}{
-			"stream_count":                streamCount,
-			"max_allowed":                 config.MaxStreams,
-			"locations":                   locations,
-			"devices":                     devices,
-			DetailKeyTerminateServerID:  newest.ServerID,
-			DetailKeyTerminateSessionID: newest.SessionID,
-			DetailKeyTerminatePlexUUID:  newest.PlexSessionUUID,
+			"stream_count": streamCount,
+			"max_allowed":  config.MaxStreams,
+			"locations":    locations,
+			"devices":      devices,
 		},
 		ConfidenceScore: confidence,
 		OccurredAt:      time.Now().UTC(),
@@ -92,7 +104,38 @@ func (e *ConcurrentStreamsEvaluator) Evaluate(ctx context.Context, rule *models.
 	return &EvaluationResult{
 		Violation: violation,
 		Signals:   signals,
+		TerminateTarget: &TerminateTarget{
+			ServerID:        newest.ServerID,
+			SessionID:       newest.SessionID,
+			PlexSessionUUID: newest.PlexSessionUUID,
+		},
 	}, nil
+}
+
+// collapsePausedStreams collapses all paused streams down to a single
+// representative (the most recently started one), so that multiple paused
+// streams from one user count as one toward the concurrent-streams limit.
+// Non-paused streams are unaffected.
+func collapsePausedStreams(streams []models.ActiveStream) []models.ActiveStream {
+	var result []models.ActiveStream
+	var representative *models.ActiveStream
+
+	for i := range streams {
+		s := streams[i]
+		if s.State != models.SessionStatePaused {
+			result = append(result, s)
+			continue
+		}
+		if representative == nil || s.StartedAt.After(representative.StartedAt) {
+			representative = &s
+		}
+	}
+
+	if representative != nil {
+		result = append(result, *representative)
+	}
+
+	return result
 }
 
 func allFromHousehold(streams []models.ActiveStream, households []models.HouseholdLocation) bool {

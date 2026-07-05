@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +14,119 @@ import (
 	"streammon/internal/models"
 	"streammon/internal/store"
 )
+
+// countingEngineStore wraps an EngineStore to count the per-tick-constant reads,
+// so tests can assert they happen once per tick rather than once per session.
+type countingEngineStore struct {
+	EngineStore
+	unitCalls      atomic.Int32
+	householdCalls atomic.Int32
+}
+
+func (c *countingEngineStore) GetUnitSystem() (string, error) {
+	c.unitCalls.Add(1)
+	return c.EngineStore.GetUnitSystem()
+}
+
+func (c *countingEngineStore) ListTrustedHouseholdLocations(userName string) ([]models.HouseholdLocation, error) {
+	c.householdCalls.Add(1)
+	return c.EngineStore.ListTrustedHouseholdLocations(userName)
+}
+
+// TestEngine_EvaluateSessions_HoistsConstantReads verifies the batched tick path
+// reads the unit system once per tick (not per session) and the trusted
+// households once per distinct user (not per session).
+func TestEngine_EvaluateSessions_HoistsConstantReads(t *testing.T) {
+	e, s := setupTestEngine(t)
+	ctx := context.Background()
+
+	// A high limit so no violation fires; households/unit are still read.
+	config := models.ConcurrentStreamsConfig{MaxStreams: 100}
+	configJSON, _ := json.Marshal(config)
+	rule := &models.Rule{Name: "loose", Type: models.RuleTypeConcurrentStreams, Enabled: true, Config: configJSON}
+	if err := s.CreateRule(rule); err != nil {
+		t.Fatalf("CreateRule: %v", err)
+	}
+	e.RefreshRules()
+
+	cs := &countingEngineStore{EngineStore: e.store}
+	e.store = cs
+
+	now := time.Now().UTC()
+	streams := []models.ActiveStream{
+		{SessionID: "a", UserName: "alice", IPAddress: "192.168.1.1", StartedAt: now},
+		{SessionID: "b", UserName: "alice", IPAddress: "192.168.1.2", StartedAt: now},
+		{SessionID: "c", UserName: "alice", IPAddress: "192.168.1.3", StartedAt: now},
+		{SessionID: "d", UserName: "bob", IPAddress: "192.168.1.4", StartedAt: now},
+	}
+
+	e.EvaluateSessions(ctx, streams)
+
+	if got := cs.unitCalls.Load(); got != 1 {
+		t.Errorf("GetUnitSystem calls = %d, want 1 (hoisted once per tick)", got)
+	}
+	// Two distinct users -> two household reads (cached per user within the tick).
+	if got := cs.householdCalls.Load(); got != 2 {
+		t.Errorf("ListTrustedHouseholdLocations calls = %d, want 2 (one per distinct user)", got)
+	}
+
+	// Per-session path re-reads for every session for comparison.
+	cs.unitCalls.Store(0)
+	cs.householdCalls.Store(0)
+	for i := range streams {
+		e.EvaluateSession(ctx, &streams[i], streams)
+	}
+	if got := cs.unitCalls.Load(); got != int32(len(streams)) {
+		t.Errorf("per-session GetUnitSystem calls = %d, want %d", got, len(streams))
+	}
+}
+
+// TestEngine_EvaluateSessions_MatchesPerSession verifies the batched path
+// produces the same violations as evaluating each session individually.
+func TestEngine_EvaluateSessions_MatchesPerSession(t *testing.T) {
+	run := func(t *testing.T, batched bool) int {
+		e, s := setupTestEngine(t)
+		ctx := context.Background()
+
+		config := models.ConcurrentStreamsConfig{MaxStreams: 1}
+		configJSON, _ := json.Marshal(config)
+		rule := &models.Rule{Name: "Max 1", Type: models.RuleTypeConcurrentStreams, Enabled: true, Config: configJSON}
+		if err := s.CreateRule(rule); err != nil {
+			t.Fatalf("CreateRule: %v", err)
+		}
+		e.RefreshRules()
+
+		now := time.Now().UTC()
+		streams := []models.ActiveStream{
+			{SessionID: "a", UserName: "u1", IPAddress: "10.0.0.1", StartedAt: now},
+			{SessionID: "b", UserName: "u1", IPAddress: "10.0.0.2", StartedAt: now.Add(time.Second)},
+			{SessionID: "c", UserName: "u2", IPAddress: "10.0.0.3", StartedAt: now},
+		}
+
+		if batched {
+			e.EvaluateSessions(ctx, streams)
+		} else {
+			for i := range streams {
+				e.EvaluateSession(ctx, &streams[i], streams)
+			}
+		}
+
+		result, err := s.ListViolations(1, 100, store.ViolationFilters{})
+		if err != nil {
+			t.Fatalf("ListViolations: %v", err)
+		}
+		return result.Total
+	}
+
+	perSession := run(t, false)
+	batched := run(t, true)
+	if perSession != batched {
+		t.Errorf("violation count mismatch: per-session=%d batched=%d", perSession, batched)
+	}
+	if batched == 0 {
+		t.Errorf("expected at least one violation, got 0")
+	}
+}
 
 func setupTestEngine(t *testing.T) (*Engine, *store.Store) {
 	t.Helper()
@@ -528,6 +642,49 @@ func TestEngine_AutoTerminate_ConcurrentStreams(t *testing.T) {
 	}
 	if result.Items[0].ActionTaken != "terminated" {
 		t.Errorf("ActionTaken = %q, want %q", result.Items[0].ActionTaken, "terminated")
+	}
+}
+
+func TestEngine_AutoTerminate_ConcurrentStreams_CountPausedAsOne(t *testing.T) {
+	e, s := setupTestEngine(t)
+	ctx := context.Background()
+
+	ms := &mockMediaServer{id: 1, serverType: models.ServerTypeEmby}
+	resolver := &mockServerResolver{servers: map[int64]media.MediaServer{1: ms}}
+	e.SetServerResolver(resolver)
+
+	config := models.ConcurrentStreamsConfig{
+		MaxStreams:       2,
+		CountPausedAsOne: true,
+		AutoTerminate:    true,
+	}
+	configJSON, _ := json.Marshal(config)
+	rule := &models.Rule{
+		Name:    "Auto-Kill Streams",
+		Type:    models.RuleTypeConcurrentStreams,
+		Enabled: true,
+		Config:  configJSON,
+	}
+	s.CreateRule(rule)
+	e.RefreshRules()
+
+	now := time.Now().UTC()
+	streams := []models.ActiveStream{
+		{SessionID: "active", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now, State: models.SessionStatePlaying},
+		{SessionID: "paused1", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second), State: models.SessionStatePaused},
+		{SessionID: "paused2", ServerID: 1, UserName: "testuser", IPAddress: "192.168.1.3", StartedAt: now.Add(2 * time.Second), State: models.SessionStatePaused},
+	}
+
+	e.EvaluateSession(ctx, &streams[0], streams)
+
+	terminated := ms.getTerminatedIDs()
+	if len(terminated) != 0 {
+		t.Fatalf("Expected no terminated sessions (1 active + 2 paused collapsed = 2, at max), got %v", terminated)
+	}
+
+	result, _ := s.ListViolations(1, 10, store.ViolationFilters{UserName: "testuser"})
+	if result.Total != 0 {
+		t.Fatalf("Expected 0 violations, got %d", result.Total)
 	}
 }
 

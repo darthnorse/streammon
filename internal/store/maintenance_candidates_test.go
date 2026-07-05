@@ -112,6 +112,131 @@ func TestBatchUpsertCandidatesReplacesExisting(t *testing.T) {
 	}
 }
 
+// seedChunkTestItems creates n additional library items in lib1 (on top of
+// whatever seedMaintenanceTestData already seeded there) and returns the
+// full current item list for that library.
+func seedChunkTestItems(t *testing.T, s *Store, ctx context.Context, serverID int64, n int) []models.LibraryItemCache {
+	t.Helper()
+	now := time.Now().UTC()
+	items := make([]models.LibraryItemCache, n)
+	for i := range items {
+		items[i] = models.LibraryItemCache{
+			ServerID: serverID, LibraryID: "lib1", ItemID: fmt.Sprintf("chunk_item_%d", i),
+			MediaType: models.MediaTypeMovie, Title: fmt.Sprintf("Chunk Movie %d", i),
+			Year: 2024, AddedAt: now.AddDate(0, 0, -i), SyncedAt: now,
+		}
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+	libItems, err := s.ListLibraryItems(ctx, serverID, "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return libItems
+}
+
+// TestBatchUpsertCandidatesChunkedMatchesSingleTx verifies that with
+// writeChunkSize shrunk to force several chunk transactions, every candidate
+// still persists with the correct reason and no duplicates -- the same
+// outcome the old single-transaction version produced.
+func TestBatchUpsertCandidatesChunkedMatchesSingleTx(t *testing.T) {
+	withWriteChunkSize(t, 3)
+
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
+	libItems := seedChunkTestItems(t, s, ctx, serverID, 10)
+
+	var candidates []models.BatchCandidate
+	wantReason := make(map[int64]string, len(libItems))
+	for _, it := range libItems {
+		reason := "Reason for " + it.ItemID
+		candidates = append(candidates, models.BatchCandidate{LibraryItemID: it.ID, Reason: reason})
+		wantReason[it.ID] = reason
+	}
+
+	if err := s.BatchUpsertCandidates(ctx, ruleID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := s.ListAllCandidatesForRule(ctx, ruleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != len(candidates) {
+		t.Fatalf("got %d candidates, want %d", len(all), len(candidates))
+	}
+	seen := make(map[int64]bool)
+	for _, c := range all {
+		want, ok := wantReason[c.LibraryItemID]
+		if !ok {
+			t.Fatalf("unexpected candidate for library_item_id=%d", c.LibraryItemID)
+		}
+		if c.Reason != want {
+			t.Errorf("library_item_id=%d reason = %q, want %q", c.LibraryItemID, c.Reason, want)
+		}
+		if seen[c.LibraryItemID] {
+			t.Errorf("duplicate candidate for library_item_id=%d", c.LibraryItemID)
+		}
+		seen[c.LibraryItemID] = true
+	}
+}
+
+// TestBatchUpsertCandidatesChunkedReplacesAcrossChunkBoundary verifies a
+// second BatchUpsertCandidates call, spanning multiple chunks, still fully
+// replaces the first call's candidate set (not just the chunks it happens to
+// share item overlap with).
+func TestBatchUpsertCandidatesChunkedReplacesAcrossChunkBoundary(t *testing.T) {
+	withWriteChunkSize(t, 3)
+
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	serverID, ruleID, _ := seedMaintenanceTestData(t, s)
+	libItems := seedChunkTestItems(t, s, ctx, serverID, 10)
+	if len(libItems) < 10 {
+		t.Fatalf("expected at least 10 items, got %d", len(libItems))
+	}
+
+	firstSet := libItems[:5]
+	var firstCandidates []models.BatchCandidate
+	for _, it := range firstSet {
+		firstCandidates = append(firstCandidates, models.BatchCandidate{LibraryItemID: it.ID, Reason: "first"})
+	}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, firstCandidates); err != nil {
+		t.Fatal(err)
+	}
+
+	secondSet := libItems[5:10]
+	var secondCandidates []models.BatchCandidate
+	secondIDs := make(map[int64]bool, len(secondSet))
+	for _, it := range secondSet {
+		secondCandidates = append(secondCandidates, models.BatchCandidate{LibraryItemID: it.ID, Reason: "second"})
+		secondIDs[it.ID] = true
+	}
+	if err := s.BatchUpsertCandidates(ctx, ruleID, secondCandidates); err != nil {
+		t.Fatal(err)
+	}
+
+	all, err := s.ListAllCandidatesForRule(ctx, ruleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != len(secondCandidates) {
+		t.Fatalf("got %d candidates, want %d (only the second set)", len(all), len(secondCandidates))
+	}
+	for _, c := range all {
+		if !secondIDs[c.LibraryItemID] {
+			t.Errorf("candidate for library_item_id=%d is from the first (replaced) set", c.LibraryItemID)
+		}
+		if c.Reason != "second" {
+			t.Errorf("reason = %q, want %q", c.Reason, "second")
+		}
+	}
+}
+
 func seedCandidatesFromItems(t *testing.T, s *Store, ctx context.Context, serverID, ruleID int64) {
 	t.Helper()
 	libItems, err := s.ListLibraryItems(ctx, serverID, "lib1")
@@ -834,8 +959,12 @@ func TestOtherCopiesIMDBMatch(t *testing.T) {
 
 	srvA := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
 	srvB := &models.Server{Name: "B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "b", Enabled: true}
-	if err := s.CreateServer(srvA); err != nil { t.Fatal(err) }
-	if err := s.CreateServer(srvB); err != nil { t.Fatal(err) }
+	if err := s.CreateServer(srvA); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateServer(srvB); err != nil {
+		t.Fatal(err)
+	}
 
 	result := seedOtherCopiesTest(t, s, srvA.ID, []models.LibraryItemCache{
 		{ServerID: srvA.ID, LibraryID: "lib1", ItemID: "m1", MediaType: models.MediaTypeMovie,
@@ -859,7 +988,9 @@ func TestOtherCopiesNoExternalIDs(t *testing.T) {
 	now := time.Now().UTC()
 
 	srv := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
-	if err := s.CreateServer(srv); err != nil { t.Fatal(err) }
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
 
 	result := seedOtherCopiesTest(t, s, srv.ID, []models.LibraryItemCache{
 		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "no_ids", MediaType: models.MediaTypeMovie,
@@ -882,7 +1013,9 @@ func TestOtherCopiesThreeServersDeduped(t *testing.T) {
 	srvB := &models.Server{Name: "B", Type: models.ServerTypePlex, URL: "http://b", APIKey: "b", Enabled: true}
 	srvC := &models.Server{Name: "C", Type: models.ServerTypePlex, URL: "http://c", APIKey: "c", Enabled: true}
 	for _, srv := range []*models.Server{srvA, srvB, srvC} {
-		if err := s.CreateServer(srv); err != nil { t.Fatal(err) }
+		if err := s.CreateServer(srv); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	var items []models.LibraryItemCache
@@ -918,7 +1051,9 @@ func TestOtherCopiesSameServerExcluded(t *testing.T) {
 	now := time.Now().UTC()
 
 	srv := &models.Server{Name: "A", Type: models.ServerTypePlex, URL: "http://a", APIKey: "a", Enabled: true}
-	if err := s.CreateServer(srv); err != nil { t.Fatal(err) }
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
 
 	result := seedOtherCopiesTest(t, s, srv.ID, []models.LibraryItemCache{
 		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "edition1", MediaType: models.MediaTypeMovie,
@@ -1161,6 +1296,135 @@ func seedTVStatusTestData(t *testing.T, s *Store) (ruleID int64) {
 	}
 
 	return rule.ID
+}
+
+// TestListAllCandidatesForRulePlayCount verifies ListAllCandidatesForRule's
+// CTE-based play_count (candidatePlayCountCTE) matches the paginated path's
+// correlated-subquery play_count for the same data: movie plays via
+// item_id, TV plays via grandparent_item_id, zero plays, and a short/
+// interrupted play on a long video excluded by minPlayCond.
+func TestListAllCandidatesForRulePlayCount(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Movie One", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show1", MediaType: models.MediaTypeTV, Title: "Show One", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie2", MediaType: models.MediaTypeMovie, Title: "Never Watched", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie3", MediaType: models.MediaTypeMovie, Title: "Interrupted Long Movie", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+	libItems, err := s.ListLibraryItems(ctx, srv.ID, "lib1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// movie1: 2 qualifying plays via item_id.
+	for i := 0; i < 2; i++ {
+		if _, err := s.db.Exec(
+			`INSERT INTO watch_history (server_id, item_id, user_name, title, media_type, started_at, stopped_at)
+			 VALUES (?, 'movie1', 'alice', 'Movie One', 'movie', '2024-01-01T00:00:00Z', '2024-01-01T02:00:00Z')`,
+			srv.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// show1: 3 episode plays via grandparent_item_id.
+	for i := 0; i < 3; i++ {
+		if _, err := s.db.Exec(
+			`INSERT INTO watch_history (server_id, item_id, grandparent_item_id, user_name, title, grandparent_title, media_type, started_at, stopped_at)
+			 VALUES (?, ?, 'show1', 'alice', 'Episode', 'Show One', 'episode', '2024-01-01T00:00:00Z', '2024-01-01T00:30:00Z')`,
+			srv.ID, fmt.Sprintf("ep%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// movie3: one long video (duration 40min) watched only 30s -- below
+	// minPlayCond's threshold, must NOT count toward play_count.
+	if _, err := s.db.Exec(
+		`INSERT INTO watch_history (server_id, item_id, user_name, title, media_type, started_at, stopped_at, duration_ms, watched_ms)
+		 VALUES (?, 'movie3', 'alice', 'Interrupted Long Movie', 'movie', '2024-01-01T00:00:00Z', '2024-01-01T00:00:30Z', 2400000, 30000)`,
+		srv.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	rule, err := s.CreateMaintenanceRule(ctx, &models.MaintenanceRuleInput{
+		Name: "Test Rule", MediaType: models.MediaTypeMovie, CriterionType: models.CriterionUnwatchedMovie,
+		Parameters: json.RawMessage(`{}`), Enabled: true,
+		Libraries: []models.RuleLibrary{{ServerID: srv.ID, LibraryID: "lib1"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var candidates []models.BatchCandidate
+	var ids []int64
+	for _, item := range libItems {
+		candidates = append(candidates, models.BatchCandidate{LibraryItemID: item.ID, Reason: "Test"})
+	}
+	if err := s.BatchUpsertCandidates(ctx, rule.ID, candidates); err != nil {
+		t.Fatal(err)
+	}
+
+	paginated, err := s.ListCandidatesForRule(ctx, rule.ID, models.CandidateListOptions{Page: 1, PerPage: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paginated.Items) != 4 {
+		t.Fatalf("paginated: got %d items, want 4", len(paginated.Items))
+	}
+	wantByItemID := make(map[string]int)
+	for _, c := range paginated.Items {
+		wantByItemID[c.Item.ItemID] = c.PlayCount
+		ids = append(ids, c.ID)
+	}
+	if wantByItemID["movie1"] != 2 || wantByItemID["show1"] != 3 || wantByItemID["movie2"] != 0 || wantByItemID["movie3"] != 0 {
+		t.Fatalf("paginated play counts = %+v, want movie1=2 show1=3 movie2=0 movie3=0", wantByItemID)
+	}
+
+	t.Run("ListAllCandidatesForRule matches paginated", func(t *testing.T) {
+		all, err := s.ListAllCandidatesForRule(ctx, rule.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(all) != len(paginated.Items) {
+			t.Fatalf("got %d candidates, want %d", len(all), len(paginated.Items))
+		}
+		for _, c := range all {
+			want, ok := wantByItemID[c.Item.ItemID]
+			if !ok {
+				t.Fatalf("unexpected item %q in ListAllCandidatesForRule result", c.Item.ItemID)
+			}
+			if c.PlayCount != want {
+				t.Errorf("ListAllCandidatesForRule: item %q play_count = %d, want %d (paginated value)", c.Item.ItemID, c.PlayCount, want)
+			}
+		}
+	})
+
+	t.Run("GetMaintenanceCandidates matches paginated", func(t *testing.T) {
+		got, err := s.GetMaintenanceCandidates(ctx, ids)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != len(paginated.Items) {
+			t.Fatalf("got %d candidates, want %d", len(got), len(paginated.Items))
+		}
+		for _, c := range got {
+			want, ok := wantByItemID[c.Item.ItemID]
+			if !ok {
+				t.Fatalf("unexpected item %q in GetMaintenanceCandidates result", c.Item.ItemID)
+			}
+			if c.PlayCount != want {
+				t.Errorf("GetMaintenanceCandidates: item %q play_count = %d, want %d (paginated value)", c.Item.ItemID, c.PlayCount, want)
+			}
+		}
+	})
 }
 
 func TestListCandidatesForRuleStatusFilter(t *testing.T) {

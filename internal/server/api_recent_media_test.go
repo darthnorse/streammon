@@ -1,11 +1,37 @@
 package server
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"streammon/internal/models"
 )
+
+// TestRecentMediaNilPoller guards against a nil-pointer panic when the
+// server has no poller configured (e.g. no media servers set up yet); it
+// should degrade to an empty list like sibling dashboard/library handlers.
+func TestRecentMediaNilPoller(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/recent-media", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var items []models.LibraryItem
+	if err := json.NewDecoder(w.Body).Decode(&items); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected empty list, got %d items", len(items))
+	}
+}
 
 func TestDedupeLibraryItemsSeparatesSeasonBatchFromEpisodeZero(t *testing.T) {
 	// A whole-season batch entry (SeasonBatch=true) and a real S1E0 special

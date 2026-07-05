@@ -95,7 +95,8 @@ export function useSSE(url: string): SSEState {
       setSessions(prev => {
         if (prev.length === 0) return prev
 
-        return prev.map(session => {
+        let changed = false
+        const next = prev.map(session => {
           if (session.state && session.state !== 'playing') return session
 
           const duration = session.duration_ms ?? 0
@@ -103,6 +104,7 @@ export function useSSE(url: string): SSEState {
 
           if (duration === 0 || progress < duration) {
             const newProgress = progress + INTERPOLATION_INTERVAL_MS
+            changed = true
             return {
               ...session,
               progress_ms: duration > 0 ? Math.min(newProgress, duration) : newProgress,
@@ -110,6 +112,11 @@ export function useSSE(url: string): SSEState {
           }
           return session
         })
+
+        // Bail out with the same reference when nothing actually advanced
+        // (e.g. every session is paused, or all are at end of duration) so
+        // React can skip re-rendering the dashboard and its children.
+        return changed ? next : prev
       })
     }, INTERPOLATION_INTERVAL_MS)
 

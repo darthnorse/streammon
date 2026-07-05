@@ -47,9 +47,9 @@ func TestConcurrentStreamsEvaluator_Evaluate(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		rule        *models.Rule
-		input       *EvaluationInput
+		name          string
+		rule          *models.Rule
+		input         *EvaluationInput
 		wantViolation bool
 		wantSeverity  models.Severity
 	}{
@@ -267,6 +267,136 @@ func TestConcurrentStreamsEvaluator_ViolationDetails(t *testing.T) {
 	if len(result.Signals) == 0 {
 		t.Error("expected signals to be populated")
 	}
+
+	// Termination routing must never be persisted on the violation (it's
+	// serialized to JSON and returned by GET /api/violations) — it belongs
+	// solely on the non-persisted EvaluationResult.TerminateTarget.
+	for _, key := range []string{"terminate_server_id", "terminate_session_id", "terminate_plex_session_uuid"} {
+		if _, present := v.Details[key]; present {
+			t.Errorf("Violation.Details unexpectedly contains %q; termination routing must not be persisted", key)
+		}
+	}
+
+	if result.TerminateTarget == nil {
+		t.Fatal("expected TerminateTarget to be set")
+	}
+	if result.TerminateTarget.SessionID != "b" {
+		t.Errorf("TerminateTarget.SessionID = %q, want %q (newest stream)", result.TerminateTarget.SessionID, "b")
+	}
+}
+
+func TestConcurrentStreamsEvaluator_CountPausedAsOne(t *testing.T) {
+	e := NewConcurrentStreamsEvaluator()
+	ctx := context.Background()
+
+	makeRule := func(maxStreams int, countPausedAsOne bool) *models.Rule {
+		config := models.ConcurrentStreamsConfig{
+			MaxStreams:       maxStreams,
+			CountPausedAsOne: countPausedAsOne,
+		}
+		configJSON, _ := json.Marshal(config)
+		return &models.Rule{
+			ID:     1,
+			Name:   "Max Streams",
+			Type:   models.RuleTypeConcurrentStreams,
+			Config: configJSON,
+		}
+	}
+
+	now := time.Now().UTC()
+
+	// 1 playing + 2 paused streams for "testuser".
+	threeStreams := func() []models.ActiveStream {
+		return []models.ActiveStream{
+			{SessionID: "playing", UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now, State: models.SessionStatePlaying},
+			{SessionID: "paused1", UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second), State: models.SessionStatePaused},
+			{SessionID: "paused2", UserName: "testuser", IPAddress: "192.168.1.3", StartedAt: now.Add(2 * time.Second), State: models.SessionStatePaused},
+		}
+	}
+
+	t.Run("enabled: 1 active + 2 paused under max 2 does not violate", func(t *testing.T) {
+		streams := threeStreams()
+		rule := makeRule(2, true)
+		input := &EvaluationInput{Stream: &streams[0], AllStreams: streams}
+
+		result, err := e.Evaluate(ctx, rule, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if result != nil && result.Violation != nil {
+			t.Errorf("expected no violation, got %+v", result.Violation)
+		}
+	})
+
+	t.Run("disabled: 1 active + 2 paused violates (current behavior preserved)", func(t *testing.T) {
+		streams := threeStreams()
+		rule := makeRule(2, false)
+		input := &EvaluationInput{Stream: &streams[0], AllStreams: streams}
+
+		result, err := e.Evaluate(ctx, rule, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if result == nil || result.Violation == nil {
+			t.Fatal("expected violation with option disabled")
+		}
+		streamCount, _ := result.Violation.Details["stream_count"].(int)
+		if streamCount != 3 {
+			t.Errorf("stream_count = %d, want 3", streamCount)
+		}
+	})
+
+	t.Run("boundary: enabled, 1 active + 1 paused at max 2 does not violate", func(t *testing.T) {
+		streams := []models.ActiveStream{
+			{SessionID: "playing", UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now, State: models.SessionStatePlaying},
+			{SessionID: "paused1", UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second), State: models.SessionStatePaused},
+		}
+		rule := makeRule(2, true)
+		input := &EvaluationInput{Stream: &streams[0], AllStreams: streams}
+
+		result, err := e.Evaluate(ctx, rule, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if result != nil && result.Violation != nil {
+			t.Errorf("expected no violation at boundary, got %+v", result.Violation)
+		}
+	})
+
+	t.Run("boundary: enabled, 2 active + 2 paused over max 2 violates using collapsed count", func(t *testing.T) {
+		streams := []models.ActiveStream{
+			{SessionID: "playing1", UserName: "testuser", IPAddress: "192.168.1.1", StartedAt: now, State: models.SessionStatePlaying},
+			{SessionID: "playing2", UserName: "testuser", IPAddress: "192.168.1.2", StartedAt: now.Add(time.Second), State: models.SessionStatePlaying},
+			{SessionID: "paused1", UserName: "testuser", IPAddress: "192.168.1.3", StartedAt: now.Add(2 * time.Second), State: models.SessionStatePaused},
+			{SessionID: "paused2", UserName: "testuser", IPAddress: "192.168.1.4", StartedAt: now.Add(3 * time.Second), State: models.SessionStatePaused},
+		}
+		rule := makeRule(2, true)
+		input := &EvaluationInput{Stream: &streams[0], AllStreams: streams}
+
+		result, err := e.Evaluate(ctx, rule, input)
+		if err != nil {
+			t.Fatalf("Evaluate() error = %v", err)
+		}
+		if result == nil || result.Violation == nil {
+			t.Fatal("expected violation: 2 active + 1 collapsed paused = 3 > max 2")
+		}
+		streamCount, _ := result.Violation.Details["stream_count"].(int)
+		if streamCount != 3 {
+			t.Errorf("stream_count = %d, want 3 (2 active + 1 collapsed paused)", streamCount)
+		}
+
+		// The termination target must be an active (non-paused) stream: with
+		// paused streams collapsed to a single representative, that
+		// representative must never be preferred over a genuinely active
+		// stream, even if it is nominally "newer" by StartedAt.
+		if result.TerminateTarget == nil {
+			t.Fatal("expected TerminateTarget to be set")
+		}
+		sessionID := result.TerminateTarget.SessionID
+		if sessionID != "playing1" && sessionID != "playing2" {
+			t.Errorf("terminate target = %q, want an active session (playing1 or playing2), not a paused one", sessionID)
+		}
+	})
 }
 
 func TestConcurrentStreamsEvaluator_InvalidConfig(t *testing.T) {

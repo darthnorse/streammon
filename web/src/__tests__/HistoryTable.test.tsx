@@ -179,7 +179,7 @@ describe('HistoryTable', () => {
 
     expect(getTableRows()[0].textContent).toContain('bob')
 
-    await user.click(screen.getByRole('columnheader', { name: /user/i }))
+    await user.click(screen.getByRole('button', { name: /user/i }))
 
     expect(getTableRows()[0].textContent).toContain('alice')
     expect(getTableRows()[1].textContent).toContain('bob')
@@ -196,7 +196,7 @@ describe('HistoryTable', () => {
     const table = document.querySelector('table')!
     const getTableRows = () => table.querySelectorAll('tbody tr')
 
-    const userHeader = screen.getByRole('columnheader', { name: /user/i })
+    const userHeader = screen.getByRole('button', { name: /user/i })
     await user.click(userHeader) // asc
     expect(getTableRows()[0].textContent).toContain('alice')
 
@@ -205,6 +205,33 @@ describe('HistoryTable', () => {
 
     await user.click(userHeader) // clear - back to original order
     expect(getTableRows()[0].textContent).toContain('alice')
+  })
+
+  it('sorts via keyboard activation (Enter/Space) on the header', async () => {
+    const user = userEvent.setup()
+    const entries = [
+      { ...baseHistoryEntry, id: 1, user_name: 'bob' },
+      { ...baseHistoryEntry, id: 2, user_name: 'alice' },
+    ]
+    renderWithRouter(<HistoryTable entries={entries} />)
+
+    const table = document.querySelector('table')!
+    const getTableRows = () => table.querySelectorAll('tbody tr')
+    const userHeader = screen.getByRole('button', { name: /user/i })
+
+    userHeader.focus()
+    await user.keyboard('{Enter}')
+    expect(getTableRows()[0].textContent).toContain('alice')
+
+    await user.keyboard(' ')
+    expect(getTableRows()[0].textContent).toContain('bob')
+  })
+
+  it('non-sortable headers are not exposed as buttons', () => {
+    renderWithRouter(<HistoryTable entries={[baseHistoryEntry]} />)
+    // "ISP" has no sortValue and should keep its plain columnheader role
+    expect(screen.getByRole('columnheader', { name: 'ISP' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'ISP' })).not.toBeInTheDocument()
   })
 
   it('shows chevron for multi-session entries', () => {

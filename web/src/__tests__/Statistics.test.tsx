@@ -87,6 +87,17 @@ function getStatsUrl(): string {
   return last ? (last[0] as string) : ''
 }
 
+// tz_offset depends on the ambient timezone of the test host; strip it so the
+// day/server-param assertions stay deterministic.
+function getStatsUrlNoTZ(): string {
+  const [path, qs] = getStatsUrl().split('?')
+  if (!qs) return path
+  const params = new URLSearchParams(qs)
+  params.delete('tz_offset')
+  const rest = params.toString()
+  return rest ? `${path}?${rest}` : path
+}
+
 describe('Statistics', () => {
   it('defaults to 30 days filter', () => {
     mockStats()
@@ -205,21 +216,31 @@ describe('Statistics', () => {
   it('fetches stats with days=30 by default', () => {
     mockStats()
     renderWithRouter(<Statistics />)
-    expect(getStatsUrl()).toBe('/api/stats?days=30')
+    expect(getStatsUrlNoTZ()).toBe('/api/stats?days=30')
   })
 
   it('fetches stats with days=7 after clicking 7 days', async () => {
     mockStats()
     renderWithRouter(<Statistics />)
     await userEvent.click(screen.getByText('7 days'))
-    expect(getStatsUrl()).toBe('/api/stats?days=7')
+    expect(getStatsUrlNoTZ()).toBe('/api/stats?days=7')
   })
 
   it('fetches stats with no days param for All time', async () => {
     mockStats()
     renderWithRouter(<Statistics />)
     await userEvent.click(screen.getByText('All time'))
-    expect(getStatsUrl()).toBe('/api/stats')
+    expect(getStatsUrlNoTZ()).toBe('/api/stats')
+  })
+
+  it('includes tz_offset when the browser is not in UTC', () => {
+    // getTimezoneOffset returns minutes WEST as positive; 300 -> -300 east.
+    const spy = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(300)
+    mockStats()
+    renderWithRouter(<Statistics />)
+    const params = new URLSearchParams(getStatsUrl().split('?')[1])
+    expect(params.get('tz_offset')).toBe('-300')
+    spy.mockRestore()
   })
 
   it('fetches stats with start_date and end_date for custom range', async () => {

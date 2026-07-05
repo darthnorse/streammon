@@ -11,12 +11,56 @@ import (
 	"streammon/internal/models"
 )
 
-var candidateSelectColumns = `
+const candidateBaseColumns = `
 	c.id, c.rule_id, c.library_item_id, c.reason, c.computed_at,
 	i.id, i.server_id, i.library_id, i.item_id, i.media_type, i.title, i.year,
 	i.added_at, i.last_watched_at, i.video_resolution, i.video_width, i.video_height, i.file_size, i.episode_count, i.thumb_url,
-	i.tmdb_id, i.tvdb_id, i.imdb_id, i.tmdb_status, i.synced_at,
+	i.tmdb_id, i.tvdb_id, i.imdb_id, i.tmdb_status, i.synced_at`
+
+// candidateSelectColumns computes play_count with a correlated subquery,
+// re-run once per returned row. That's fine for the paginated path
+// (ListCandidatesForRule bounds it to PerPage rows) but far too slow applied
+// to hundreds/thousands of rows -- see candidateSelectColumnsAgg below,
+// used by the unbounded list paths.
+var candidateSelectColumns = candidateBaseColumns + `,
 	(SELECT COUNT(*) FROM watch_history wh WHERE wh.server_id = i.server_id AND (wh.item_id = i.item_id OR wh.grandparent_item_id = i.item_id) AND ` + minPlayCond("wh") + `) as play_count`
+
+// candidatePlayCountCTE pre-aggregates watch_history into a play count per
+// (server_id, k) -- the same key shape watchAggCTE uses (library_detail.go)
+// -- where k is grandparent_item_id when set, else item_id, so one pass over
+// watch_history covers every candidate row instead of one correlated
+// subquery per row.
+//
+// This is intentionally a separate aggregate from watchAggCTE rather than a
+// shared one: watchAggCTE's plays column is an unfiltered raw play count
+// (used for library-detail/summary display) and always has been, even before
+// it existed as a CTE. This candidate list's play_count has always applied
+// minPlayCond to exclude very short/interrupted plays from longer content --
+// that's the existing, intentional semantics being preserved here, not
+// something to unify away.
+//
+// MATERIALIZED for the same reason as watchAggCTE: GetMaintenanceCandidates
+// below joins via an id IN (...) list, a point-lookup shape that makes
+// SQLite choose a per-row CO-ROUTINE plan (re-aggregating all of
+// watch_history per outer row) without the hint.
+var candidatePlayCountCTE = `
+WITH play_counts AS MATERIALIZED (
+	SELECT server_id,
+	       COALESCE(NULLIF(grandparent_item_id, ''), item_id) AS k,
+	       COUNT(*) AS play_count
+	FROM watch_history
+	WHERE COALESCE(NULLIF(grandparent_item_id, ''), item_id) != ''
+	  AND ` + minPlayCond("") + `
+	GROUP BY server_id, k
+)`
+
+// candidateSelectColumnsAgg is candidateSelectColumns' shape with play_count
+// sourced from a LEFT JOIN against candidatePlayCountCTE instead of a
+// correlated subquery. Callers must prefix their query with
+// candidatePlayCountCTE and join play_counts pc on pc.server_id =
+// i.server_id and pc.k = i.item_id.
+var candidateSelectColumnsAgg = candidateBaseColumns + `,
+	COALESCE(pc.play_count, 0) as play_count`
 
 // SQL mirror of mediautil.HeightFromWidth + resolveLogicalHeight; keep in sync.
 const candidateLogicalHeightSQL = `
@@ -372,23 +416,47 @@ func (s *Store) HasKeepLatestSeasonsCandidate(ctx context.Context, libraryItemID
 	return exists, nil
 }
 
-// BatchUpsertCandidates replaces all candidates for a rule in a transaction
+// BatchUpsertCandidates replaces all candidates for a rule: the existing set
+// is deleted, then the new set is inserted in chunks of writeChunkSize, each
+// its own transaction, so the write lock is released periodically instead of
+// held for a whole rule's (potentially large) candidate set -- see
+// writeChunkSize.
+//
+// This trades the old single-transaction all-or-nothing replace for a
+// narrower guarantee: each chunk is atomic, but the full replace no longer
+// is. A reader (e.g. the maintenance dashboard) can observe a transient
+// partial state mid-call, and a failure partway through leaves the delete
+// applied plus whatever chunks committed before the error -- not the old
+// candidate set, and not the full new one either. That's acceptable here:
+// candidates are informational/advisory, never auto-deleted (deleting a
+// library item always requires an explicit authenticated admin action, see
+// the deletion-safety note on GetStreamMonWatchTimes in library_items.go),
+// and the next scheduled or manual re-evaluation recomputes the set from
+// scratch regardless.
 func (s *Store) BatchUpsertCandidates(ctx context.Context, ruleID int64, candidates []models.BatchCandidate) error {
+	if err := s.DeleteCandidatesForRule(ctx, ruleID); err != nil {
+		return err
+	}
+
+	now := time.Now().UTC()
+	for _, chunk := range chunkSlice(candidates, writeChunkSize) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err := s.insertCandidateChunk(ctx, ruleID, chunk, now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) insertCandidateChunk(ctx context.Context, ruleID int64, chunk []models.BatchCandidate, now time.Time) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM maintenance_candidates WHERE rule_id = ?`, ruleID); err != nil {
-		return fmt.Errorf("clear candidates: %w", err)
-	}
-
-	if len(candidates) == 0 {
-		return tx.Commit()
-	}
-
-	now := time.Now().UTC()
 	stmt, err := tx.PrepareContext(ctx, `
 		INSERT INTO maintenance_candidates (rule_id, library_item_id, reason, computed_at)
 		VALUES (?, ?, ?, ?)`)
@@ -397,7 +465,7 @@ func (s *Store) BatchUpsertCandidates(ctx context.Context, ruleID int64, candida
 	}
 	defer stmt.Close()
 
-	for _, c := range candidates {
+	for _, c := range chunk {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -468,10 +536,11 @@ func (s *Store) GetMaintenanceCandidates(ctx context.Context, ids []int64) ([]mo
 		args[i] = id
 	}
 
-	query := `
-		SELECT ` + candidateSelectColumns + `
+	query := candidatePlayCountCTE + `
+		SELECT ` + candidateSelectColumnsAgg + `
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
+		LEFT JOIN play_counts pc ON pc.server_id = i.server_id AND pc.k = i.item_id
 		WHERE c.id IN (` + strings.Join(placeholders, ",") + `)`
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -504,11 +573,12 @@ func (s *Store) RecordDeleteAction(ctx context.Context, serverID int64, itemID, 
 
 // ListAllCandidatesForRule returns all candidates without pagination, excluding excluded items
 func (s *Store) ListAllCandidatesForRule(ctx context.Context, ruleID int64) ([]models.MaintenanceCandidate, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+candidateSelectColumns+`
+	rows, err := s.db.QueryContext(ctx, candidatePlayCountCTE+`
+		SELECT `+candidateSelectColumnsAgg+`
 		FROM maintenance_candidates c
 		JOIN library_items i ON c.library_item_id = i.id
 		LEFT JOIN maintenance_exclusions e ON c.library_item_id = e.library_item_id
+		LEFT JOIN play_counts pc ON pc.server_id = i.server_id AND pc.k = i.item_id
 		WHERE c.rule_id = ? AND e.id IS NULL
 		ORDER BY i.added_at DESC`, ruleID)
 	if err != nil {

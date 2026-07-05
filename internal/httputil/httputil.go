@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
+	"syscall"
 	"time"
 )
 
@@ -66,6 +68,123 @@ func ValidateIntegrationURL(rawURL string) error {
 		}
 	}
 	return nil
+}
+
+// isBlockedResolvedIP reports whether ip must not be used as an outbound
+// connection target. Unlike ValidateIP (which only inspects IP literals
+// typed into a config field), this is applied at dial time, after DNS
+// resolution — defense-in-depth against SSRF via DNS rebinding, redirects,
+// or hostnames that only resolve to an internal address at connection time.
+//
+// Private (RFC1918) and unique-local (RFC4193/ULA) addresses are
+// deliberately NOT blocked: StreamMon is a self-hosted homelab app, and
+// users legitimately point notification channels (ntfy, generic webhooks,
+// Home Assistant, etc.) at LAN hosts. The real SSRF targets — cloud
+// metadata (169.254.169.254, link-local), loopback-to-self, and the
+// unspecified address — are covered without breaking LAN setups.
+func isBlockedResolvedIP(ip net.IP) bool {
+	return ip.IsUnspecified() ||
+		ip.IsLoopback() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast()
+}
+
+// safeDialControl is a net.Dialer.Control hook that runs after DNS
+// resolution but before the socket connects, rejecting resolved addresses
+// that are loopback, link-local, or unspecified.
+func safeDialControl(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("invalid dial address %q: %w", address, err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return fmt.Errorf("resolved address %q is not an IP", host)
+	}
+	if isBlockedResolvedIP(ip) {
+		return fmt.Errorf("connection to %s is not allowed", ip)
+	}
+	return nil
+}
+
+// NewSafeClient returns an *http.Client for outbound integration and
+// notification requests (e.g. webhook/Discord/ntfy sends). It rejects
+// connections whose resolved remote IP is loopback, link-local, or
+// unspecified — even if the URL's hostname looked public at
+// config-validation time — and refuses to auto-follow redirects so a
+// redirect to an internal host is never dialed (mirrors the pattern in
+// overseerr.CreateRequestAsUser). Private (RFC1918) and unique-local (ULA)
+// addresses are allowed, since this is a self-hosted app where LAN-hosted
+// notification receivers are a legitimate, common setup.
+func NewSafeClient(timeout time.Duration) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DialContext = (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control:   safeDialControl,
+	}).DialContext
+
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
+// sensitiveURLParams lists query-string parameter names that carry secrets
+// (API keys, tokens, license keys) and must never reach logs or error
+// messages.
+var sensitiveURLParams = []string{"key", "token", "apikey", "api_key", "license_key"}
+
+// sensitiveParamPattern is a fallback for scrubbing secrets out of strings
+// that aren't (or don't parse as) a well-formed URL, e.g. an error message
+// with an embedded query string further down a wrapped error chain.
+var sensitiveParamPattern = regexp.MustCompile(`(?i)\b(key|token|apikey|api_key|license_key)=[^&\s"']+`)
+
+// RedactURL returns rawURL with the values of sensitive query parameters
+// (key, token, apikey, api_key, license_key) replaced with "REDACTED", so
+// secrets configured as URL query params — the MaxMind license key, and the
+// TMDB/Tautulli API keys — never reach logs or error messages. If rawURL
+// doesn't parse as a URL, or has no query string, sensitive params are
+// scrubbed via pattern matching on the raw string instead.
+func RedactURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.RawQuery == "" {
+		return sensitiveParamPattern.ReplaceAllString(rawURL, "$1=REDACTED")
+	}
+	q := u.Query()
+	for _, name := range sensitiveURLParams {
+		if q.Has(name) {
+			q.Set(name, "REDACTED")
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// RedactURLError returns err with any embedded request URL's secrets
+// redacted via RedactURL. *url.Error — returned by http.Client when a
+// request fails — is handled directly by redacting its URL field, which
+// preserves the error's Op and underlying cause. Any other error is
+// scrubbed by pattern-matching its message string, which also catches a
+// *url.Error further down an already-wrapped chain. Errors with no embedded
+// secret are returned unchanged.
+func RedactURLError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if urlErr, ok := err.(*url.Error); ok {
+		redacted := *urlErr
+		redacted.URL = RedactURL(urlErr.URL)
+		return &redacted
+	}
+	msg := err.Error()
+	if scrubbed := sensitiveParamPattern.ReplaceAllString(msg, "$1=REDACTED"); scrubbed != msg {
+		return errors.New(scrubbed)
+	}
+	return err
 }
 
 // Truncate converts a byte slice to string and truncates to maxRunes runes,

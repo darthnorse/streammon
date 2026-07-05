@@ -169,12 +169,12 @@ func (c *Client) doRequest(ctx context.Context, params url.Values, maxBodySize i
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
+		return nil, fmt.Errorf("creating request: %w", httputil.RedactURLError(err))
 	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("connection failed: %w", err)
+		return nil, fmt.Errorf("connection failed: %w", httputil.RedactURLError(err))
 	}
 	defer httputil.DrainBody(resp)
 
@@ -378,4 +378,3 @@ func (c *Client) StreamHistory(ctx context.Context, batchSize int, handler Batch
 
 	return nil
 }
-

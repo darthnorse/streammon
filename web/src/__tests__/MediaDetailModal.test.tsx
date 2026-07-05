@@ -222,7 +222,7 @@ describe('MediaDetailModal', () => {
       render(
         <MemoryRouter>
           <ShowDetail
-            item={{ ...mockItem, tmdb_id: 27205 }}
+            item={{ ...mockItem, tmdb_id: '27205' }}
             loading={false}
             onClose={() => {}}
             pushModal={() => {}}

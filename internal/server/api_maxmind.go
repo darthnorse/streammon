@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+
+	"streammon/internal/store"
 )
 
 type maxmindSettingsResponse struct {
@@ -20,13 +22,26 @@ type maxmindSettingsRequest struct {
 }
 
 func (s *Server) handleGetMaxMindSettings(w http.ResponseWriter, r *http.Request) {
-	key, _ := s.store.GetSetting("maxmind.license_key")
-	lastUpdated, _ := s.store.GetSetting("maxmind.last_updated")
+	key, err := s.store.GetMaxMindLicenseKey()
+	if err != nil {
+		log.Printf("get maxmind license key: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	lastUpdated, err := s.store.GetSetting("maxmind.last_updated")
+	if err != nil {
+		log.Printf("get maxmind.last_updated setting: %v", err)
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
 
 	maskedKey := ""
-	if len(key) > 4 {
+	switch {
+	case key == store.EncryptedPlaceholder:
+		maskedKey = maskedSecret
+	case len(key) > 4:
 		maskedKey = "****" + key[len(key)-4:]
-	} else if key != "" {
+	case key != "":
 		maskedKey = "****"
 	}
 
@@ -61,7 +76,7 @@ func (s *Server) handleUpdateMaxMindSettings(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := s.store.SetSetting("maxmind.license_key", req.LicenseKey); err != nil {
+	if err := s.store.SetMaxMindLicenseKey(req.LicenseKey); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to save")
 		return
 	}
@@ -78,7 +93,7 @@ func (s *Server) handleUpdateMaxMindSettings(w http.ResponseWriter, r *http.Requ
 }
 
 func (s *Server) handleDeleteMaxMindSettings(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.SetSetting("maxmind.license_key", ""); err != nil {
+	if err := s.store.SetMaxMindLicenseKey(""); err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to delete")
 		return
 	}
@@ -113,10 +128,19 @@ func (s *Server) handleGeoBackfill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ctx := r.Context()
 	resolved := 0
 	skipped := 0
 
 	for _, ipStr := range ips {
+		// Client may have disconnected (e.g. closed the settings page) partway
+		// through a large backfill; stop rather than continuing to hammer the
+		// resolver and DB for a response nobody will read.
+		if ctx.Err() != nil {
+			log.Printf("geo backfill: stopping early, client disconnected after %d of %d IPs: %v", resolved+skipped, len(ips), ctx.Err())
+			return
+		}
+
 		ip := net.ParseIP(ipStr)
 		if ip == nil {
 			skipped++

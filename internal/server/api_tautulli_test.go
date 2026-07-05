@@ -56,13 +56,13 @@ func configureTautulli(t *testing.T, st *store.Store, mockURL string) {
 
 func TestTautulliIntegrationSettings(t *testing.T) {
 	testIntegrationSettingsCRUD(t, integrationTestConfig{
-		name:           "tautulli",
-		settingsPath:   "/api/settings/tautulli",
-		testPath:       "/api/settings/tautulli/test",
-		configure:      configureTautulli,
-		getConfig:      func(st *store.Store) (store.IntegrationConfig, error) { return st.GetTautulliConfig() },
-		setConfig:      func(st *store.Store, c store.IntegrationConfig) error { return st.SetTautulliConfig(c) },
-		mockServer:     mockTautulli,
+		name:         "tautulli",
+		settingsPath: "/api/settings/tautulli",
+		testPath:     "/api/settings/tautulli/test",
+		configure:    configureTautulli,
+		getConfig:    func(st *store.Store) (store.IntegrationConfig, error) { return st.GetTautulliConfig() },
+		setConfig:    func(st *store.Store, c store.IntegrationConfig) error { return st.SetTautulliConfig(c) },
+		mockServer:   mockTautulli,
 	})
 }
 
@@ -70,6 +70,21 @@ func TestTautulliImport_MissingServerID(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/import", strings.NewReader(`{}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestTautulliImport_NegativeServerID guards against a negative server_id
+// slipping past the "server_id is required" check (which used to compare
+// against == 0 only) and reaching the store as a bogus lookup.
+func TestTautulliImport_NegativeServerID(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/import", strings.NewReader(`{"server_id":-1}`))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
 
@@ -140,6 +155,21 @@ func TestStartEnrich_MissingServerID(t *testing.T) {
 	}
 }
 
+// TestStartEnrich_NegativeServerID guards against a negative server_id
+// slipping past the "server_id is required" check (which used to compare
+// against == 0 only) and reaching the store as a bogus lookup.
+func TestStartEnrich_NegativeServerID(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/tautulli/enrich", strings.NewReader(`{"server_id":-1}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestStartEnrich_NoTautulliConfigured(t *testing.T) {
 	srv, st := newTestServerWrapped(t)
 	plex := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "k", Enabled: true}
@@ -189,9 +219,9 @@ func TestConvertTautulliRecord_StoppedZeroUsesPlayDuration(t *testing.T) {
 		Title:        "Long Movie",
 		MediaType:    "movie",
 		Started:      1700000000,
-		Stopped:      0,           // unknown stop time
-		Duration:     7200,        // 2 hour movie
-		PlayDuration: 600,         // user only watched 10 minutes
+		Stopped:      0,    // unknown stop time
+		Duration:     7200, // 2 hour movie
+		PlayDuration: 600,  // user only watched 10 minutes
 	}
 
 	entry := convertTautulliRecord(rec, 1)
@@ -221,6 +251,27 @@ func TestConvertTautulliRecord_StoppedNonZeroUsesActualStop(t *testing.T) {
 	}
 }
 
+func TestConvertTautulliRecord_StoppedBeforeStarted(t *testing.T) {
+	rec := tautulli.HistoryRecord{
+		User:         "alice",
+		Title:        "Corrupted",
+		MediaType:    "movie",
+		Started:      1700000000,
+		Stopped:      1699999000, // corrupted: stop time before start time
+		Duration:     7200,
+		PlayDuration: 600,
+	}
+
+	entry := convertTautulliRecord(rec, 1)
+
+	if entry.StoppedAt.Before(entry.StartedAt) {
+		t.Errorf("stoppedAt (%v) must never be before startedAt (%v)", entry.StoppedAt, entry.StartedAt)
+	}
+	if !entry.StoppedAt.Equal(entry.StartedAt) {
+		t.Errorf("stoppedAt = %v, want %v (clamped to startedAt)", entry.StoppedAt, entry.StartedAt)
+	}
+}
+
 func TestConvertTautulliRecord_StoppedAndPlayDurationBothZero(t *testing.T) {
 	rec := tautulli.HistoryRecord{
 		User:         "alice",
@@ -234,15 +285,15 @@ func TestConvertTautulliRecord_StoppedAndPlayDurationBothZero(t *testing.T) {
 
 	entry := convertTautulliRecord(rec, 1)
 
-	// stoppedAt stays as time.Unix(0) (epoch), which is before startedAt.
-	// loadConcurrentEvents correctly skips entries where stop < start,
-	// so this entry won't inflate concurrent stream counts.
-	expectedStop := time.Unix(0, 0).UTC()
-	if !entry.StoppedAt.Equal(expectedStop) {
-		t.Errorf("stoppedAt = %v, want %v (should not use Duration as fallback)", entry.StoppedAt, expectedStop)
+	// Without a real stop time or play duration, stoppedAt would otherwise
+	// fall back to the epoch (time.Unix(0)), which is before startedAt.
+	// convertTautulliRecord clamps this to a zero-length span at startedAt
+	// instead, so no imported row ever has stopped_at < started_at.
+	if entry.StoppedAt.Before(entry.StartedAt) {
+		t.Errorf("stoppedAt (%v) must never be before startedAt (%v)", entry.StoppedAt, entry.StartedAt)
 	}
-	if !entry.StoppedAt.Before(entry.StartedAt) {
-		t.Error("stoppedAt should be before startedAt so it gets filtered from concurrent stats")
+	if !entry.StoppedAt.Equal(entry.StartedAt) {
+		t.Errorf("stoppedAt = %v, want %v (zero-length span, not epoch fallback)", entry.StoppedAt, entry.StartedAt)
 	}
 }
 

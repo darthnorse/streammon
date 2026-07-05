@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"streammon/internal/httputil"
 	"streammon/internal/models"
 )
 
@@ -19,9 +20,15 @@ type Notifier struct {
 	client *http.Client
 }
 
+// New returns a Notifier that sends over httputil.NewSafeClient, which
+// rejects connections to loopback/private/link-local resolved IPs and does
+// not auto-follow redirects. This is SSRF defense-in-depth: admin-configured
+// notification URLs are validated at config time (models.DiscordConfig,
+// models.NtfyConfig, models.WebhookConfig), but a hostname can still resolve
+// to an internal address at send time.
 func New() *Notifier {
 	return &Notifier{
-		client: &http.Client{Timeout: 30 * time.Second},
+		client: httputil.NewSafeClient(httputil.IntegrationTimeout),
 	}
 }
 

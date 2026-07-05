@@ -15,6 +15,14 @@ import (
 
 const maxPerPage = 100
 
+// maxHistoryPage mirrors parsePagination's page cap (see api_maintenance.go)
+// so an absurd ?page= value can't force an unbounded OFFSET scan. Kept
+// separate from parsePagination itself because handleListHistory's per_page
+// semantics differ: an out-of-range per_page here is capped to maxPerPage,
+// not reset to the default, and changing parsePagination would alter that
+// behavior for its other (violations/exclusions) callers.
+const maxHistoryPage = 10000
+
 var allowedSortColumns = map[string]string{
 	"started_at": "h.started_at",
 	"user":       "h.user_name",
@@ -31,6 +39,8 @@ func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
+	} else if page > maxHistoryPage {
+		page = maxHistoryPage
 	}
 	perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
 	if perPage < 1 {
@@ -163,7 +173,13 @@ func (s *Server) handleDailyHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stats, err := s.store.DailyWatchCountsForUser(start, end, userFilter, serverIDs)
+	tzOffset, err := parseTZOffset(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid tz_offset")
+		return
+	}
+
+	stats, err := s.store.DailyWatchCountsForUser(start, end, userFilter, serverIDs, tzOffset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal")
 		return

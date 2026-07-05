@@ -167,6 +167,28 @@ func (s *Store) DeleteStaleLibraryItems(ctx context.Context, serverID int64, lib
 
 // SyncLibraryItems atomically upserts items and deletes stale ones in a single transaction.
 // This prevents race conditions between concurrent syncs for the same library.
+//
+// Deliberately NOT chunked into multiple commits (unlike BatchUpsertCandidates
+// and InsertHistoryBatch): nothing coordinates syncs of the same
+// (server_id, library_id) across callers -- the manual "sync now" API
+// (api_maintenance.go's librarySyncManager) and the daily scheduler
+// (scheduler.go's syncLibrary) run in different packages with no shared
+// lock. SQLite's single-writer serialization is the ONLY thing preventing
+// two concurrent syncs from interleaving their upsert/delete-stale steps.
+// If this were chunked, a second sync's full upsert+delete could commit in
+// the gap between this sync's chunk commits: the second sync's fresher
+// delete-stale step could remove an item this sync already re-upserted with
+// its older (pre-chunking) syncTime, then this sync's LATER chunk would
+// resurrect that item (already-deleted-from-the-source) with a synced_at
+// value older than the second sync's cutoff, so this sync's own delete step
+// (which already ran) never catches it either -- it lingers until the next
+// full sync. A single transaction closes that window entirely: SQLite
+// can't interleave another writer's commit inside it. Measured lock-hold
+// duration for this function is small in practice (~26ms for the largest
+// observed library, 2536 items -- see task-16-report.md), so the tradeoff
+// favors correctness here. If sync volume grows enough to matter, add a
+// cross-package advisory lock keyed by (server_id, library_id) shared by
+// both callers, THEN chunk safely.
 func (s *Store) SyncLibraryItems(ctx context.Context, serverID int64, libraryID string, items []models.LibraryItemCache) (upserted int, deleted int64, err error) {
 	if len(items) == 0 {
 		deleted, err = s.DeleteStaleLibraryItems(ctx, serverID, libraryID, time.Now().UTC())
@@ -424,22 +446,39 @@ func (s *Store) GetCrossServerWatchTimes(ctx context.Context, itemIDs []int64) (
 	return result, nil
 }
 
-// GetStreamMonWatchTimes returns the most recent watch_history activity for a batch of library items.
-// For movies it matches on item_id; for TV shows it also matches on grandparent_item_id (series ID).
-// Title-based fallback covers legacy data where grandparent_item_id is empty; constrained to same
-// server and media_type to avoid false positives from title collisions.
+// GetStreamMonWatchTimes returns the most recent watch_history activity for a batch of
+// library items, via the watchAggCTE pre-aggregation defined in library_detail.go. For
+// movies it matches on item_id; for TV shows it matches on grandparent_item_id (series
+// ID). This reflects StreamMon's own poller history, which captures ALL users' sessions
+// — not just the API user whose watch data the media server reports.
+//
+// Unlike the OR-join this replaced, it does NOT fall back to matching by title for
+// legacy rows with an empty item_id/grandparent_item_id: watchAggCTE dropped that
+// fallback because it over-attributes plays across same-titled items (see the
+// watchAggCTE doc comment). Dropping it here too keeps this path's notion of "watched"
+// consistent with the library-detail/summary paths, which already made that call.
+//
+// SAFETY: this feeds the "unwatched" maintenance rule, so an item whose only watch
+// signal was the dropped title fallback now surfaces as a deletion candidate. That is
+// acceptable only because candidates never delete themselves — deletion requires an
+// explicit authenticated admin action (POST /api/maintenance/candidates/bulk-delete,
+// handleBulkDeleteCandidates in internal/server/api_maintenance.go; the scheduler only
+// upserts candidates via BatchUpsertCandidates, it never deletes). If deletion is ever
+// made automatic, re-evaluate whether a title-based fail-safe belongs back in this query.
 func (s *Store) GetStreamMonWatchTimes(ctx context.Context, itemIDs []int64) (map[int64]*time.Time, error) {
 	result := make(map[int64]*time.Time)
 	if len(itemIDs) == 0 {
 		return result, nil
 	}
 
+	// wh_agg <-> library_items is a 1:1 join (both (server_id, k) and
+	// (server_id, item_id) are unique), so no outer GROUP BY is needed.
 	err := s.batchQueryTimes(ctx, itemIDs, func(ph string) string {
-		return `SELECT li.id, MAX(wh.stopped_at) as last_activity
+		return watchAggCTE + `
+			SELECT li.id, a.last_played_at
 			FROM library_items li
-			JOIN watch_history wh ON ` + libraryWatchMatch + `
-			WHERE li.id IN (` + ph + `)
-			GROUP BY li.id`
+			JOIN wh_agg a ON a.server_id = li.server_id AND a.k = li.item_id
+			WHERE li.id IN (` + ph + `)`
 	}, "streammon watch times", result)
 	if err != nil {
 		return nil, err

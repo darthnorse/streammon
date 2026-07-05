@@ -12,6 +12,14 @@ import (
 	"streammon/internal/models"
 )
 
+// newTestNotifier builds a Notifier with a plain (unguarded) HTTP client so
+// tests can talk to httptest servers on 127.0.0.1. Production code must use
+// New(), whose client refuses connections to loopback/private/link-local
+// resolved IPs (see httputil.NewSafeClient) as SSRF defense-in-depth.
+func newTestNotifier() *Notifier {
+	return &Notifier{client: &http.Client{Timeout: 5 * time.Second}}
+}
+
 func TestNotifier_SendDiscord(t *testing.T) {
 	var receivedBody map[string]interface{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27,7 +35,7 @@ func TestNotifier_SendDiscord(t *testing.T) {
 	}))
 	defer server.Close()
 
-	n := New()
+	n := newTestNotifier()
 	ctx := context.Background()
 
 	channel := models.NotificationChannel{
@@ -73,7 +81,7 @@ func TestNotifier_SendWebhook(t *testing.T) {
 	}))
 	defer server.Close()
 
-	n := New()
+	n := newTestNotifier()
 	ctx := context.Background()
 
 	channel := models.NotificationChannel{
@@ -121,7 +129,7 @@ func TestNotifier_SendNtfy(t *testing.T) {
 	}))
 	defer server.Close()
 
-	n := New()
+	n := newTestNotifier()
 	ctx := context.Background()
 
 	channel := models.NotificationChannel{
@@ -168,7 +176,7 @@ func TestNotifier_MultipleChannels(t *testing.T) {
 	}))
 	defer server.Close()
 
-	n := New()
+	n := newTestNotifier()
 	ctx := context.Background()
 
 	channels := []models.NotificationChannel{
@@ -202,7 +210,7 @@ func TestNotifier_ErrorHandling(t *testing.T) {
 	}))
 	defer server.Close()
 
-	n := New()
+	n := newTestNotifier()
 	ctx := context.Background()
 
 	channel := models.NotificationChannel{
@@ -238,7 +246,7 @@ func TestNotifier_PartialFailure(t *testing.T) {
 	}))
 	defer badServer.Close()
 
-	n := New()
+	n := newTestNotifier()
 	ctx := context.Background()
 
 	channels := []models.NotificationChannel{
@@ -271,7 +279,7 @@ func TestNotifier_TestChannel(t *testing.T) {
 	}))
 	defer server.Close()
 
-	n := New()
+	n := newTestNotifier()
 	ctx := context.Background()
 
 	channel := &models.NotificationChannel{
@@ -296,7 +304,7 @@ func TestNotifier_TestChannel(t *testing.T) {
 }
 
 func TestNotifier_InvalidConfig(t *testing.T) {
-	n := New()
+	n := newTestNotifier()
 	ctx := context.Background()
 
 	channel := models.NotificationChannel{
@@ -321,9 +329,46 @@ func TestNotifier_InvalidConfig(t *testing.T) {
 	}
 }
 
+func TestNotifier_New_BlocksLoopbackDestination(t *testing.T) {
+	// New() is the production constructor used by the "Test channel" admin
+	// endpoint and the rules engine. Its client must refuse to actually
+	// deliver to a loopback/private/link-local resolved address even
+	// though such an address passes DiscordConfig.Validate (self-hosted
+	// targets are legal to configure) — this is the SSRF defense-in-depth
+	// guard from httputil.NewSafeClient.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	n := New()
+	ctx := context.Background()
+
+	channel := models.NotificationChannel{
+		Name:        "Loopback Discord",
+		ChannelType: models.ChannelTypeDiscord,
+		Config:      json.RawMessage(`{"webhook_url":"` + server.URL + `"}`),
+	}
+
+	violation := &models.RuleViolation{
+		RuleID:          1,
+		RuleName:        "Test",
+		UserName:        "test",
+		Severity:        models.SeverityInfo,
+		Message:         "Test",
+		ConfidenceScore: 50,
+		OccurredAt:      time.Now().UTC(),
+	}
+
+	err := n.Notify(ctx, violation, []models.NotificationChannel{channel})
+	if err == nil {
+		t.Error("expected New()'s client to refuse a loopback destination")
+	}
+}
+
 func TestNotifier_SeverityColors(t *testing.T) {
 	tests := []struct {
-		severity models.Severity
+		severity  models.Severity
 		wantColor int
 	}{
 		{models.SeverityCritical, 0xFF0000},
@@ -341,7 +386,7 @@ func TestNotifier_SeverityColors(t *testing.T) {
 			}))
 			defer server.Close()
 
-			n := New()
+			n := newTestNotifier()
 			ctx := context.Background()
 
 			channel := models.NotificationChannel{

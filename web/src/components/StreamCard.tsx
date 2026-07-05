@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import { Link } from 'react-router-dom'
 import type { ActiveStream, TitleClickHandler } from '../types'
 import { formatTimestamp, formatBitrate, formatChannels, formatEpisode, parseSeasonFromTitle, thumbUrl } from '../lib/format'
@@ -146,7 +146,7 @@ function TranscodeInfo({ stream }: { stream: ActiveStream }) {
   )
 }
 
-export function StreamCard({ stream, isAdmin, onTitleClick }: StreamCardProps) {
+function StreamCardComponent({ stream, isAdmin, onTitleClick }: StreamCardProps) {
   const [showTerminate, setShowTerminate] = useState(false)
 
   const progress = stream.duration_ms > 0
@@ -255,3 +255,5 @@ export function StreamCard({ stream, isAdmin, onTitleClick }: StreamCardProps) {
     </div>
   )
 }
+
+export const StreamCard = memo(StreamCardComponent)

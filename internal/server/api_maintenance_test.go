@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -924,6 +925,115 @@ func doBulkDelete(t *testing.T, srv *testServer, body string) models.BulkDeleteR
 		t.Fatal(err)
 	}
 	return resp
+}
+
+// doBulkDeleteSSE posts a bulk-delete request with Accept: text/event-stream
+// and returns the parsed progress events from the "data: " lines.
+func doBulkDeleteSSE(t *testing.T, srv *testServer, body string) []BulkDeleteProgress {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/api/maintenance/candidates/bulk-delete", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	w := &flushRecorder{httptest.NewRecorder()}
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var events []BulkDeleteProgress
+	scanner := bufio.NewScanner(w.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var evt BulkDeleteProgress
+		if err := json.Unmarshal([]byte(line[len("data: "):]), &evt); err != nil {
+			continue // "event: complete" payload is a BulkDeleteResult, not a BulkDeleteProgress
+		}
+		events = append(events, evt)
+	}
+	return events
+}
+
+// TestBulkDeleteSSE_EmitsTerminalDeletedEventWithoutCrossServer covers 2.13:
+// the terminal "deleted" progress event used to be nested inside the
+// includeCrossServer branch, so the common case (no cross-server) emitted no
+// terminal event at all and a streaming client could never tell a candidate
+// had finished.
+func TestBulkDeleteSSE_EmitsTerminalDeletedEventWithoutCrossServer(t *testing.T) {
+	srv, s := newTestServerWrapped(t)
+	ids := setupDeleteCandidateTest(t, s, "item1")
+
+	p := setupTestPoller(t, srv.Unwrap(), s)
+	mock := &mockDeleteServer{}
+	p.AddServer(ids.serverID, mock)
+
+	events := doBulkDeleteSSE(t, srv, fmt.Sprintf(`{"candidate_ids":[%d]}`, ids.candidateID))
+
+	var sawDeleted bool
+	for _, e := range events {
+		if e.Status == "deleted" {
+			sawDeleted = true
+		}
+	}
+	if !sawDeleted {
+		t.Fatalf("expected a terminal 'deleted' SSE event without include_cross_server, got events: %+v", events)
+	}
+}
+
+// TestBulkDeleteSSE_EmitsTerminalFailedEvent covers 2.13: a candidate whose
+// delete fails on the media server must emit a terminal "failed" event, not
+// just a "deleting" event with no follow-up.
+func TestBulkDeleteSSE_EmitsTerminalFailedEvent(t *testing.T) {
+	srv, s := newTestServerWrapped(t)
+	ids := setupDeleteCandidateTest(t, s, "item1")
+
+	p := setupTestPoller(t, srv.Unwrap(), s)
+	mock := &mockDeleteServer{deleteErr: errors.New("server error")}
+	p.AddServer(ids.serverID, mock)
+
+	events := doBulkDeleteSSE(t, srv, fmt.Sprintf(`{"candidate_ids":[%d]}`, ids.candidateID))
+
+	var sawFailed bool
+	for _, e := range events {
+		if e.Status == "failed" {
+			sawFailed = true
+		}
+	}
+	if !sawFailed {
+		t.Fatalf("expected a terminal 'failed' SSE event, got events: %+v", events)
+	}
+}
+
+// TestBulkDeleteSSE_EmitsTerminalSkippedEvent covers 2.13: a candidate that
+// is skipped because its library item is excluded must emit a terminal
+// "skipped" event.
+func TestBulkDeleteSSE_EmitsTerminalSkippedEvent(t *testing.T) {
+	srv, s := newTestServerWrapped(t)
+	ctx := context.Background()
+	ids := setupDeleteCandidateTest(t, s, "item1")
+
+	if _, err := s.CreateExclusions(ctx, []int64{ids.libraryItemID}, "test@test.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	p := setupTestPoller(t, srv.Unwrap(), s)
+	mock := &mockDeleteServer{}
+	p.AddServer(ids.serverID, mock)
+
+	events := doBulkDeleteSSE(t, srv, fmt.Sprintf(`{"candidate_ids":[%d]}`, ids.candidateID))
+
+	var sawSkipped bool
+	for _, e := range events {
+		if e.Status == "skipped" {
+			sawSkipped = true
+		}
+	}
+	if !sawSkipped {
+		t.Fatalf("expected a terminal 'skipped' SSE event, got events: %+v", events)
+	}
 }
 
 func TestBulkDeleteCrossServerAPI(t *testing.T) {

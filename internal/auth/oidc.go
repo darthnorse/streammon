@@ -100,8 +100,15 @@ func (p *OIDCProvider) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	nonce, err := generateState()
+	if err != nil {
+		log.Printf("failed to generate OIDC nonce: %v", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	http.SetCookie(w, makeCookie(stateCookieName, state, "/", 300, r))
-	http.Redirect(w, r, oauth2Cfg.AuthCodeURL(state), http.StatusFound)
+	http.SetCookie(w, makeCookie(nonceCookieName, nonce, "/", 300, r))
+	http.Redirect(w, r, oauth2Cfg.AuthCodeURL(state, gooidc.Nonce(nonce)), http.StatusFound)
 }
 
 func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +123,8 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid state", http.StatusBadRequest)
 		return
 	}
+
+	nonceCookie, _ := r.Cookie(nonceCookieName)
 
 	token, err := oauth2Cfg.Exchange(r.Context(), r.URL.Query().Get("code"))
 	if err != nil {
@@ -134,6 +143,15 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("login failed: oidc (token verify error: %v)", err)
 		http.Error(w, "invalid token", http.StatusUnauthorized)
+		return
+	}
+
+	// go-oidc's Verify does not check the nonce - that's the caller's
+	// responsibility. Binding the ID token to the nonce we generated at
+	// HandleLogin defends against ID token replay/injection.
+	if nonceCookie == nil || idToken.Nonce == "" || idToken.Nonce != nonceCookie.Value {
+		log.Printf("login failed: oidc (nonce mismatch)")
+		http.Error(w, "invalid nonce", http.StatusBadRequest)
 		return
 	}
 
@@ -164,6 +182,7 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	if !guestAccess && !groupAdmin && !p.isExistingAdmin(claims.Sub, emailForLinking) {
 		log.Printf("login denied: oidc sub=%q (guest access disabled)", claims.Sub)
 		http.SetCookie(w, clearCookie(stateCookieName, "/", r))
+		http.SetCookie(w, clearCookie(nonceCookieName, "/", r))
 		http.Redirect(w, r, "/login?error=guest_access_disabled", http.StatusFound)
 		return
 	}
@@ -212,6 +231,7 @@ func (p *OIDCProvider) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	log.Printf("login success: oidc user=%q role=%s", user.Name, user.Role)
 
 	http.SetCookie(w, clearCookie(stateCookieName, "/", r))
+	http.SetCookie(w, clearCookie(nonceCookieName, "/", r))
 	http.Redirect(w, r, "/", http.StatusFound)
 }
 

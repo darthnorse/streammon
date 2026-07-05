@@ -56,6 +56,7 @@ func (c Config) Validate() error {
 const SessionDuration = 7 * 24 * time.Hour
 const CookieName = "streammon_session"
 const stateCookieName = "oidc_state"
+const nonceCookieName = "oidc_nonce"
 
 type oidcProvider struct {
 	provider *gooidc.Provider

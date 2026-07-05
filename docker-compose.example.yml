@@ -16,7 +16,24 @@ services:
       # Required: encrypts API keys and tokens at rest.
       # Generate with: openssl rand -base64 32
       - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY}
+      # Optional: enables TMDB metadata lookups.
+      # - TMDB_API_KEY=${TMDB_API_KEY}
       # Optional: set to match your host user (useful for Synology/Unraid/TrueNAS)
       # - PUID=1000
       # - PGID=1000
+      #
+      # Docker-secrets alternative: instead of the plain env vars above,
+      # mount a secret file and point the matching *_FILE var at it --
+      # avoids the value showing up in `docker inspect` / /proc/<pid>/environ.
+      # Supported for TOKEN_ENCRYPTION_KEY_FILE and TMDB_API_KEY_FILE; the
+      # plain env var wins if both are set for the same secret.
+      # - TOKEN_ENCRYPTION_KEY_FILE=/run/secrets/token_encryption_key
+      # - TMDB_API_KEY_FILE=/run/secrets/tmdb_api_key
+    # secrets:               # sibling of `environment:` above, not nested in it
+    #   - token_encryption_key
+    #   - tmdb_api_key
     restart: unless-stopped
+    # Graceful shutdown persists in-progress watch sessions before exiting
+    # (HTTP drain + cleanup budget totals ~25s internally) -- raised above
+    # Docker's 10s default so that fits with room to spare before SIGKILL.
+    stop_grace_period: 30s

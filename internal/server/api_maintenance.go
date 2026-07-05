@@ -20,9 +20,9 @@ import (
 	"streammon/internal/models"
 )
 
-const maxBulkOperationSize = 500  // SQLite SQLITE_MAX_VARIABLE_NUMBER limit is 999
-const maxExportSize = 10000       // Prevent OOM on large exports
-const maxSearchLength = 200       // Prevent abuse with extremely long search strings
+const maxBulkOperationSize = 500 // SQLite SQLITE_MAX_VARIABLE_NUMBER limit is 999
+const maxExportSize = 10000      // Prevent OOM on large exports
+const maxSearchLength = 200      // Prevent abuse with extremely long search strings
 
 type deleteItemResult struct {
 	ServerDeleted bool
@@ -952,7 +952,9 @@ func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) 
 		}
 		w.Header().Set("Content-Type", "text/csv")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			log.Printf("csv export write (rule %d): %v", ruleID, err)
+		}
 	} else {
 		data, err := exportCandidatesJSON(candidates, ruleID)
 		if err != nil {
@@ -962,7 +964,9 @@ func (s *Server) handleExportCandidates(w http.ResponseWriter, r *http.Request) 
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			log.Printf("json export write (rule %d): %v", ruleID, err)
+		}
 	}
 }
 
@@ -1285,18 +1289,25 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 			title = candidate.Item.Title
 		}
 
-		if onProgress != nil {
-			onProgress(BulkDeleteProgress{
-				Current:   i + 1,
-				Total:     total,
-				Title:     title,
-				Status:    "deleting",
-				Deleted:   result.Deleted,
-				Failed:    result.Failed,
-				Skipped:   result.Skipped,
-				TotalSize: result.TotalSize,
-			})
+		// emitProgress reports the given terminal (or in-progress) status for the
+		// candidate currently being processed. Defined per-iteration so it always
+		// reflects the current i/title and the latest result counters.
+		emitProgress := func(status string) {
+			if onProgress != nil {
+				onProgress(BulkDeleteProgress{
+					Current:   i + 1,
+					Total:     total,
+					Title:     title,
+					Status:    status,
+					Deleted:   result.Deleted,
+					Failed:    result.Failed,
+					Skipped:   result.Skipped,
+					TotalSize: result.TotalSize,
+				})
+			}
 		}
+
+		emitProgress("deleting")
 
 		if !exists {
 			result.Failed++
@@ -1305,6 +1316,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 				Title:       "Unknown",
 				Error:       "candidate not found",
 			})
+			emitProgress("failed")
 			continue
 		}
 
@@ -1315,6 +1327,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 				Title:       "Unknown",
 				Error:       "library item not found",
 			})
+			emitProgress("failed")
 			continue
 		}
 
@@ -1323,6 +1336,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 		if deletedItemIDs[candidate.LibraryItemID] {
 			result.Deleted++
 			result.TotalSize += candidate.Item.FileSize
+			emitProgress("deleted")
 			continue
 		}
 
@@ -1337,10 +1351,12 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 				Title:       candidate.Item.Title,
 				Error:       "failed to verify exclusion status",
 			})
+			emitProgress("failed")
 			continue
 		}
 		if excluded {
 			result.Skipped++
+			emitProgress("skipped")
 			continue
 		}
 
@@ -1367,6 +1383,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 				Title:       candidate.Item.Title,
 				Error:       "rule not found — skipping to prevent unintended deletion",
 			})
+			emitProgress("failed")
 			continue
 		}
 
@@ -1388,19 +1405,11 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 
 			if includeCrossServer {
 				s.deleteCrossServerCopies(candidate, rule, deletedBy, deletedItemIDs, &result)
-				if onProgress != nil {
-					onProgress(BulkDeleteProgress{
-						Current:   i + 1,
-						Total:     total,
-						Title:     title,
-						Status:    "deleted",
-						Deleted:   result.Deleted,
-						Failed:    result.Failed,
-						Skipped:   result.Skipped,
-						TotalSize: result.TotalSize,
-					})
-				}
 			}
+			// Emitted regardless of includeCrossServer — this is the common case
+			// and clients switching on Status need to see a terminal event for
+			// every candidate, not just cross-server ones.
+			emitProgress("deleted")
 		} else {
 			log.Printf("bulk delete: %q (candidate %d): %s", candidate.Item.Title, candidateID, delResult.Error)
 			result.Failed++
@@ -1409,6 +1418,7 @@ func (s *Server) executeBulkDelete(ctx context.Context, candidateIDs []int64, ca
 				Title:       candidate.Item.Title,
 				Error:       delResult.Error,
 			})
+			emitProgress("failed")
 			if delResult.ServerDeleted {
 				consecutiveServerFailures = 0
 			} else {

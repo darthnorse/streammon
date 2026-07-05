@@ -12,7 +12,7 @@ import {
 import { useFetch } from '../hooks/useFetch'
 import type { DayStat } from '../types'
 import { CHART_COLORS, LineChartTooltip } from '../lib/chartUtils'
-import { parseYMD } from '../lib/format'
+import { parseYMD, localTZOffsetMinutes } from '../lib/format'
 import { useLocalToday } from '../hooks/useLocalToday'
 
 interface DailyChartProps {
@@ -55,6 +55,10 @@ export function DailyChart({ days, startDate, endDate, serverIds }: DailyChartPr
   const params = new URLSearchParams({ start, end })
   if (serverIds && serverIds.length > 0) {
     params.set('server_ids', serverIds.join(','))
+  }
+  const tzOffset = localTZOffsetMinutes()
+  if (tzOffset !== 0) {
+    params.set('tz_offset', String(tzOffset))
   }
   const url = `/api/history/daily?${params.toString()}`
   const { data, loading, error } = useFetch<DayStat[]>(url)

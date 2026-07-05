@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
-	"net"
-	"net/url"
 	"time"
 
 	"streammon/internal/httputil"
@@ -142,11 +140,11 @@ func (c *DeviceVelocityConfig) Validate() error {
 }
 
 type ConcurrentStreamsConfig struct {
-	MaxStreams        int    `json:"max_streams"`
-	ExemptHousehold   bool   `json:"exempt_household"`
-	CountPausedAsOne  bool   `json:"count_paused_as_one"`
-	AutoTerminate     bool   `json:"auto_terminate"`
-	TerminateMessage  string `json:"terminate_message"`
+	MaxStreams       int    `json:"max_streams"`
+	ExemptHousehold  bool   `json:"exempt_household"`
+	CountPausedAsOne bool   `json:"count_paused_as_one"`
+	AutoTerminate    bool   `json:"auto_terminate"`
+	TerminateMessage string `json:"terminate_message"`
 }
 
 func (c *ConcurrentStreamsConfig) Validate() error {
@@ -336,7 +334,7 @@ func (c *DiscordConfig) Validate() error {
 	if c.WebhookURL == "" {
 		return errors.New("webhook_url is required")
 	}
-	return nil
+	return httputil.ValidateIntegrationURL(c.WebhookURL)
 }
 
 type WebhookConfig struct {
@@ -346,20 +344,8 @@ type WebhookConfig struct {
 }
 
 func (c *WebhookConfig) Validate() error {
-	if c.URL == "" {
-		return errors.New("url is required")
-	}
-	u, err := url.Parse(c.URL)
-	if err != nil {
-		return errors.New("invalid url format")
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return errors.New("url must use http or https scheme")
-	}
-	if ip := net.ParseIP(u.Hostname()); ip != nil {
-		if err := httputil.ValidateIP(ip); err != nil {
-			return err
-		}
+	if err := httputil.ValidateIntegrationURL(c.URL); err != nil {
+		return err
 	}
 	if c.Method == "" {
 		c.Method = "POST"
@@ -395,7 +381,7 @@ func (c *NtfyConfig) Validate() error {
 	if c.Topic == "" {
 		return errors.New("topic is required")
 	}
-	return nil
+	return httputil.ValidateIntegrationURL(c.ServerURL)
 }
 
 type MaintenanceTaskStatus string
@@ -424,12 +410,12 @@ type MaintenanceTask struct {
 }
 
 type EvaluationContext struct {
-	Stream           *ActiveStream
-	AllStreams       []ActiveStream
-	RecentHistory    []WatchHistoryEntry
-	Households       []HouseholdLocation
-	GeoData          *GeoResult
-	PreviousGeoData  *GeoResult
+	Stream            *ActiveStream
+	AllStreams        []ActiveStream
+	RecentHistory     []WatchHistoryEntry
+	Households        []HouseholdLocation
+	GeoData           *GeoResult
+	PreviousGeoData   *GeoResult
 	TimeSinceLastSeen time.Duration
 }
 

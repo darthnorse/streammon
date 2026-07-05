@@ -3,6 +3,7 @@ import type { Server, OIDCSettings, IntegrationSettings, OverseerrSettings, Sona
 import { api, getMaintenanceSettings, updateMaintenanceSettings } from '../lib/api'
 import type { MaintenanceSettings } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
+import { invalidateServers } from '../hooks/useServers'
 import { useUnits } from '../hooks/useUnits'
 import { getDiscoverRegion, setDiscoverRegion } from '../lib/units'
 import { ServerForm } from '../components/ServerForm'
@@ -123,6 +124,7 @@ export function Settings() {
   function handleSaved() {
     closeForm()
     refetchServers()
+    invalidateServers()
   }
 
   const handleDeleteConfirm = useCallback(async (keepHistory: boolean) => {
@@ -136,6 +138,7 @@ export function Settings() {
       setActionError('')
       setDeletingServer(null)
       refetchServers()
+      invalidateServers()
     } catch {
       setDeleteError('Failed to delete server. Please try again.')
     }
@@ -152,6 +155,7 @@ export function Settings() {
       await api.post(`/api/servers/${server.id}/restore`, {})
       setActionError('')
       refetchServers()
+      invalidateServers()
     } catch {
       setActionError('Failed to restore server')
     } finally {

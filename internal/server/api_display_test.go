@@ -6,6 +6,10 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"streammon/internal/auth"
+	"streammon/internal/models"
 )
 
 func TestDisplaySettings(t *testing.T) {
@@ -240,6 +244,43 @@ func TestDisplaySettings(t *testing.T) {
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("update discover region storage failure returns 500, not 400", func(t *testing.T) {
+		// Two independent stores: authStore backs session auth (kept open so
+		// the middleware's session lookup succeeds), opsStore backs the
+		// Server's operations and is closed before the request to simulate a
+		// genuine storage failure distinct from bad input. Before the 2.12
+		// fix, SetDiscoverRegion's error (regardless of cause) was always
+		// mapped to 400 "invalid region code" — masking real storage failures.
+		authStore := newEmptyStore(t)
+		admin, err := authStore.CreateLocalUser("test-admin", "admin@test.local", "", models.RoleAdmin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		token, err := authStore.CreateSession(admin.ID, time.Now().UTC().Add(24*time.Hour))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		opsStore := newEmptyStore(t)
+		if err := opsStore.Close(); err != nil {
+			t.Fatal(err)
+		}
+
+		authMgr := auth.NewManager(authStore)
+		authMgr.RegisterProvider(auth.NewLocalProvider(authStore, authMgr))
+		srv := NewServer(opsStore, WithAuthManager(authMgr))
+
+		body := `{"discover_region":"US"}`
+		req := httptest.NewRequest(http.MethodPut, "/api/settings/display", strings.NewReader(body))
+		req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: token})
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Fatalf("expected 500 for a genuine storage failure with valid input, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 
