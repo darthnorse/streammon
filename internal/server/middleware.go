@@ -185,15 +185,16 @@ func corsMiddleware(allowedOrigin string) func(http.Handler) http.Handler {
 //     from *.basemaps.cartocdn.com — all already same-origin-proxied or
 //     https, so a broad https: allowance doesn't add new risk beyond what
 //     <img> tags could already load.
-//   - connect-src/frame-ancestors/etc. are locked to 'self' since the SPA
-//     only talks to its own backend (REST + SSE), never third-party APIs
-//     directly from the browser.
+//   - connect-src is 'self' plus https://plex.tv: the SPA talks to its own
+//     backend (REST + SSE) for everything except the Plex sign-in flow,
+//     which does PIN OAuth against plex.tv directly from the browser
+//     (web/src/lib/plexOAuth.ts). frame-ancestors/etc. stay locked down.
 const contentSecurityPolicy = "default-src 'self'; " +
 	"script-src 'self'; " +
 	"style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data: https:; " +
 	"font-src 'self' data:; " +
-	"connect-src 'self'; " +
+	"connect-src 'self' https://plex.tv; " +
 	"object-src 'none'; " +
 	"base-uri 'self'; " +
 	"form-action 'self'; " +

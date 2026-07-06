@@ -24,6 +24,9 @@ func TestSecurityHeaders_CSPPresent(t *testing.T) {
 		"script-src 'self'",
 		"object-src 'none'",
 		"frame-ancestors 'none'",
+		// The Plex sign-in flow fetches plex.tv directly from the browser
+		// (web/src/lib/plexOAuth.ts), so connect-src must allow it.
+		"connect-src 'self' https://plex.tv",
 	} {
 		if !strings.Contains(csp, want) {
 			t.Errorf("expected CSP to contain %q, got %q", want, csp)
