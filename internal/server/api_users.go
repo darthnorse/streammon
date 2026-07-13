@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net"
@@ -23,6 +24,31 @@ func viewerCanAccessUser(r *http.Request, targetName string) bool {
 		return true
 	}
 	return user.Name == targetName
+}
+
+// userIsStreaming reports whether name has an active session in the poller.
+func (s *Server) userIsStreaming(name string) bool {
+	if s.poller == nil {
+		return false
+	}
+	for _, sess := range s.poller.CurrentSessions() {
+		if sess.UserName == name {
+			return true
+		}
+	}
+	return false
+}
+
+// userDerivedExists reports whether name is a known media-server user even when
+// absent from the users (login/synced) table: media users are derived from
+// watch_history and live sessions. Callers that already looked up the users
+// table use this as the fallback existence check.
+func (s *Server) userDerivedExists(ctx context.Context, name string) (bool, error) {
+	hasHistory, err := s.store.UserHasHistory(ctx, name)
+	if err != nil {
+		return false, err
+	}
+	return hasHistory || s.userIsStreaming(name), nil
 }
 
 func (s *Server) handleListUsers(w http.ResponseWriter, r *http.Request) {
@@ -71,6 +97,18 @@ func (s *Server) handleGetUser(w http.ResponseWriter, r *http.Request) {
 	user, err := s.store.GetUser(name)
 	if err != nil {
 		if errors.Is(err, models.ErrNotFound) {
+			// Media-server users aren't always in the users table; synthesize a
+			// minimal profile if they exist via watch history or a live session.
+			derived, derr := s.userDerivedExists(r.Context(), name)
+			if derr != nil {
+				log.Printf("userDerivedExists error: %v", derr)
+				writeError(w, http.StatusInternalServerError, "internal")
+				return
+			}
+			if derived {
+				writeJSON(w, http.StatusOK, &models.User{Name: name, Role: models.RoleViewer})
+				return
+			}
 			writeError(w, http.StatusNotFound, "not found")
 			return
 		}
@@ -171,8 +209,18 @@ func (s *Server) handleGetUserStats(w http.ResponseWriter, r *http.Request) {
 	if stats.SessionCount == 0 {
 		_, err := s.store.GetUser(name)
 		if errors.Is(err, models.ErrNotFound) {
-			writeError(w, http.StatusNotFound, "not found")
-			return
+			// Media-server users are derived from watch_history/live sessions,
+			// not the users table; only 404 when no source knows this name.
+			derived, derr := s.userDerivedExists(r.Context(), name)
+			if derr != nil {
+				log.Printf("userDerivedExists error: %v", derr)
+				writeError(w, http.StatusInternalServerError, "internal")
+				return
+			}
+			if !derived {
+				writeError(w, http.StatusNotFound, "not found")
+				return
+			}
 		} else if err != nil {
 			log.Printf("GetUser error: %v", err)
 			writeError(w, http.StatusInternalServerError, "internal")

@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -78,6 +79,21 @@ func (s *Store) GetUser(name string) (*models.User, error) {
 		return nil, fmt.Errorf("getting user: %w", err)
 	}
 	return &u, nil
+}
+
+// UserHasHistory reports whether any watch_history row exists for name,
+// regardless of watched duration. Media-server users are derived from
+// watch_history (the source of truth), so this is a broader existence check
+// than GetUser, which only covers the users (login/synced) table.
+func (s *Store) UserHasHistory(ctx context.Context, name string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM watch_history WHERE user_name = ?)`, name,
+	).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("checking user history: %w", err)
+	}
+	return exists, nil
 }
 
 func (s *Store) UpdateUserRole(name string, role models.Role) error {
