@@ -540,6 +540,12 @@ func (s *Store) MergeUsers(keepID, deleteID int64) (*MergeUsersResult, error) {
 		return nil, fmt.Errorf("deleting sessions: %w", err)
 	}
 
+	// Preserve the merged-away user's private admin note before its row is
+	// deleted; append when the kept user already has one so neither is lost.
+	if err := reconcileMergedNotes(tx, keepID, deleteID); err != nil {
+		return nil, err
+	}
+
 	if _, err := tx.Exec(`DELETE FROM users WHERE id = ?`, deleteID); err != nil {
 		return nil, fmt.Errorf("deleting user: %w", err)
 	}
@@ -566,6 +572,42 @@ func (s *Store) GetUserNotes(name string) (string, error) {
 		return "", fmt.Errorf("getting user notes: %w", err)
 	}
 	return notes, nil
+}
+
+const mergedNotesSeparator = "\n\n---\n\n"
+
+// mergeNoteValues combines a kept user's note with a merged-away user's note
+// without losing either: the kept note holds its position and the deleted
+// note is appended when both are present.
+func mergeNoteValues(keep, del string) string {
+	switch {
+	case del == "":
+		return keep
+	case keep == "":
+		return del
+	default:
+		return keep + mergedNotesSeparator + del
+	}
+}
+
+// reconcileMergedNotes folds the delete-user's note into the keep-user's row
+// within the merge transaction, before the delete-user row is removed.
+func reconcileMergedNotes(tx *sql.Tx, keepID, deleteID int64) error {
+	var keepNote, deleteNote string
+	if err := tx.QueryRow(`SELECT notes FROM users WHERE id = ?`, keepID).Scan(&keepNote); err != nil {
+		return fmt.Errorf("reading kept user note: %w", err)
+	}
+	if err := tx.QueryRow(`SELECT notes FROM users WHERE id = ?`, deleteID).Scan(&deleteNote); err != nil {
+		return fmt.Errorf("reading merged user note: %w", err)
+	}
+	merged := mergeNoteValues(keepNote, deleteNote)
+	if merged == keepNote {
+		return nil
+	}
+	if _, err := tx.Exec(`UPDATE users SET notes = ? WHERE id = ?`, merged, keepID); err != nil {
+		return fmt.Errorf("merging user notes: %w", err)
+	}
+	return nil
 }
 
 // SetUserNotes upserts a user's private admin note, creating a minimal user row

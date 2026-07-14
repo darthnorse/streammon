@@ -851,6 +851,62 @@ func TestMergeUsers_PreservesKeepUserData(t *testing.T) {
 	}
 }
 
+func TestMergeUsers_AppendsDeleteUserNote(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.CreateLocalUser("admin", "admin@example.com", "hash", models.RoleAdmin)
+	s.CreateLocalUser("alice", "alice@example.com", "hash", models.RoleViewer)
+	s.CreateLocalUser("bob", "bob@example.com", "hash", models.RoleViewer)
+	alice, _ := s.GetUser("alice")
+	bob, _ := s.GetUser("bob")
+
+	if err := s.SetUserNotes("alice", "keep note"); err != nil {
+		t.Fatalf("SetUserNotes alice: %v", err)
+	}
+	if err := s.SetUserNotes("bob", "merged note"); err != nil {
+		t.Fatalf("SetUserNotes bob: %v", err)
+	}
+
+	if _, err := s.MergeUsers(alice.ID, bob.ID); err != nil {
+		t.Fatalf("MergeUsers: %v", err)
+	}
+
+	got, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	want := "keep note\n\n---\n\nmerged note"
+	if got != want {
+		t.Fatalf("expected merged note %q, got %q", want, got)
+	}
+}
+
+func TestMergeUsers_CarriesOverNoteWhenKeepEmpty(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.CreateLocalUser("admin", "admin@example.com", "hash", models.RoleAdmin)
+	s.CreateLocalUser("alice", "alice@example.com", "hash", models.RoleViewer)
+	s.CreateLocalUser("bob", "bob@example.com", "hash", models.RoleViewer)
+	alice, _ := s.GetUser("alice")
+	bob, _ := s.GetUser("bob")
+
+	if err := s.SetUserNotes("bob", "only note"); err != nil {
+		t.Fatalf("SetUserNotes bob: %v", err)
+	}
+
+	if _, err := s.MergeUsers(alice.ID, bob.ID); err != nil {
+		t.Fatalf("MergeUsers: %v", err)
+	}
+
+	got, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if got != "only note" {
+		t.Fatalf("expected carried-over note %q, got %q", "only note", got)
+	}
+}
+
 // Test that MergeUsers transfers delete-user data when it exists
 func TestMergeUsers_TransfersDeleteUserData(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
