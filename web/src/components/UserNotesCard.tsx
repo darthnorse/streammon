@@ -14,18 +14,28 @@ export function UserNotesCard({ userName }: UserNotesCardProps) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const startEdit = () => {
     setDraft(notes)
+    setSaveError(null)
     setEditing(true)
+  }
+
+  const cancelEdit = () => {
+    setSaveError(null)
+    setEditing(false)
   }
 
   const save = async () => {
     setSaving(true)
+    setSaveError(null)
     try {
       await updateUserNotes(userName, draft)
       setEditing(false)
       refetch()
+    } catch {
+      setSaveError('Failed to save note.')
     } finally {
       setSaving(false)
     }
@@ -70,13 +80,16 @@ export function UserNotesCard({ userName }: UserNotesCardProps) {
               {saving ? 'Saving…' : 'Save'}
             </button>
             <button
-              onClick={() => setEditing(false)}
+              onClick={cancelEdit}
               disabled={saving}
               className="px-4 py-2 text-sm hover:text-accent hover:underline disabled:opacity-50"
             >
               Cancel
             </button>
           </div>
+          {saveError && (
+            <p className="text-sm text-red-500 dark:text-red-400">{saveError}</p>
+          )}
         </div>
       ) : notes ? (
         <p className="text-sm whitespace-pre-wrap">{notes}</p>

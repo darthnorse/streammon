@@ -55,4 +55,18 @@ describe('UserNotesCard', () => {
     expect(screen.queryByText('+ Add a note')).not.toBeInTheDocument()
     expect(screen.queryByText('Edit')).not.toBeInTheDocument()
   })
+
+  it('surfaces a save error and keeps the editor open when the PUT fails', async () => {
+    get.mockResolvedValue({ notes: '' })
+    put.mockRejectedValue(new Error('boom'))
+    render(<UserNotesCard userName="alice" />)
+
+    fireEvent.click(await screen.findByText('+ Add a note'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'oops' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    expect(await screen.findByText(/failed to save/i)).toBeInTheDocument()
+    // editor stays open with the unsaved draft so the admin can retry
+    expect(screen.getByRole('textbox')).toHaveValue('oops')
+  })
 })
