@@ -70,3 +70,7 @@ export function getMaintenanceSettings(): Promise<MaintenanceSettings> {
 export function updateMaintenanceSettings(settings: MaintenanceSettings): Promise<MaintenanceSettings> {
   return api.put<MaintenanceSettings>('/api/settings/maintenance', settings)
 }
+
+export function updateUserNotes(name: string, notes: string): Promise<{ notes: string }> {
+  return api.put<{ notes: string }>(`/api/users/${encodeURIComponent(name)}/notes`, { notes })
+}

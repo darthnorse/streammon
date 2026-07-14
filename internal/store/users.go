@@ -540,6 +540,12 @@ func (s *Store) MergeUsers(keepID, deleteID int64) (*MergeUsersResult, error) {
 		return nil, fmt.Errorf("deleting sessions: %w", err)
 	}
 
+	// Preserve the merged-away user's private admin note before its row is
+	// deleted; append when the kept user already has one so neither is lost.
+	if err := reconcileMergedNotes(tx, keepID, deleteID); err != nil {
+		return nil, err
+	}
+
 	if _, err := tx.Exec(`DELETE FROM users WHERE id = ?`, deleteID); err != nil {
 		return nil, fmt.Errorf("deleting user: %w", err)
 	}
@@ -551,4 +557,76 @@ func (s *Store) MergeUsers(keepID, deleteID int64) (*MergeUsersResult, error) {
 	return &MergeUsersResult{
 		WatchHistoryMoved: int(historyMoved),
 	}, nil
+}
+
+// GetUserNotes returns the private admin note for a user, or "" when the user
+// has no row or no note set. Media users are not always present in the users
+// table, so a missing row is not an error.
+func (s *Store) GetUserNotes(name string) (string, error) {
+	var notes string
+	err := s.db.QueryRow(`SELECT notes FROM users WHERE name = ?`, name).Scan(&notes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("getting user notes: %w", err)
+	}
+	return notes, nil
+}
+
+const mergedNotesSeparator = "\n\n---\n\n"
+
+// mergeNoteValues combines a kept user's note with a merged-away user's note
+// without losing either: the kept note holds its position and the deleted
+// note is appended when both are present. The result is bounded to
+// models.MaxUserNotesLen runes so a merged note never exceeds the API cap and
+// stays editable in the UI.
+func mergeNoteValues(keep, del string) string {
+	var merged string
+	switch {
+	case del == "":
+		merged = keep
+	case keep == "":
+		merged = del
+	default:
+		merged = keep + mergedNotesSeparator + del
+	}
+	if r := []rune(merged); len(r) > models.MaxUserNotesLen {
+		merged = string(r[:models.MaxUserNotesLen])
+	}
+	return merged
+}
+
+// reconcileMergedNotes folds the delete-user's note into the keep-user's row
+// within the merge transaction, before the delete-user row is removed.
+func reconcileMergedNotes(tx *sql.Tx, keepID, deleteID int64) error {
+	var keepNote, deleteNote string
+	if err := tx.QueryRow(`SELECT notes FROM users WHERE id = ?`, keepID).Scan(&keepNote); err != nil {
+		return fmt.Errorf("reading kept user note: %w", err)
+	}
+	if err := tx.QueryRow(`SELECT notes FROM users WHERE id = ?`, deleteID).Scan(&deleteNote); err != nil {
+		return fmt.Errorf("reading merged user note: %w", err)
+	}
+	merged := mergeNoteValues(keepNote, deleteNote)
+	if merged == keepNote {
+		return nil
+	}
+	if _, err := tx.Exec(`UPDATE users SET notes = ? WHERE id = ?`, merged, keepID); err != nil {
+		return fmt.Errorf("merging user notes: %w", err)
+	}
+	return nil
+}
+
+// SetUserNotes upserts a user's private admin note, creating a minimal user row
+// when the user is absent from the users table (mirrors GetOrCreateUser).
+func (s *Store) SetUserNotes(name, notes string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO users (name, provider, notes) VALUES (?, '', ?)
+		 ON CONFLICT(name) DO UPDATE SET notes = excluded.notes, updated_at = CURRENT_TIMESTAMP`,
+		name, notes,
+	)
+	if err != nil {
+		return fmt.Errorf("setting user notes: %w", err)
+	}
+	return nil
 }

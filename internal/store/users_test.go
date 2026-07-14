@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"streammon/internal/models"
@@ -851,6 +852,95 @@ func TestMergeUsers_PreservesKeepUserData(t *testing.T) {
 	}
 }
 
+func TestMergeUsers_AppendsDeleteUserNote(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.CreateLocalUser("admin", "admin@example.com", "hash", models.RoleAdmin)
+	s.CreateLocalUser("alice", "alice@example.com", "hash", models.RoleViewer)
+	s.CreateLocalUser("bob", "bob@example.com", "hash", models.RoleViewer)
+	alice, _ := s.GetUser("alice")
+	bob, _ := s.GetUser("bob")
+
+	if err := s.SetUserNotes("alice", "keep note"); err != nil {
+		t.Fatalf("SetUserNotes alice: %v", err)
+	}
+	if err := s.SetUserNotes("bob", "merged note"); err != nil {
+		t.Fatalf("SetUserNotes bob: %v", err)
+	}
+
+	if _, err := s.MergeUsers(alice.ID, bob.ID); err != nil {
+		t.Fatalf("MergeUsers: %v", err)
+	}
+
+	got, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	want := "keep note\n\n---\n\nmerged note"
+	if got != want {
+		t.Fatalf("expected merged note %q, got %q", want, got)
+	}
+}
+
+func TestMergeUsers_CarriesOverNoteWhenKeepEmpty(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.CreateLocalUser("admin", "admin@example.com", "hash", models.RoleAdmin)
+	s.CreateLocalUser("alice", "alice@example.com", "hash", models.RoleViewer)
+	s.CreateLocalUser("bob", "bob@example.com", "hash", models.RoleViewer)
+	alice, _ := s.GetUser("alice")
+	bob, _ := s.GetUser("bob")
+
+	if err := s.SetUserNotes("bob", "only note"); err != nil {
+		t.Fatalf("SetUserNotes bob: %v", err)
+	}
+
+	if _, err := s.MergeUsers(alice.ID, bob.ID); err != nil {
+		t.Fatalf("MergeUsers: %v", err)
+	}
+
+	got, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if got != "only note" {
+		t.Fatalf("expected carried-over note %q, got %q", "only note", got)
+	}
+}
+
+func TestMergeUsers_CapsMergedNoteToLimit(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.CreateLocalUser("admin", "admin@example.com", "hash", models.RoleAdmin)
+	s.CreateLocalUser("alice", "alice@example.com", "hash", models.RoleViewer)
+	s.CreateLocalUser("bob", "bob@example.com", "hash", models.RoleViewer)
+	alice, _ := s.GetUser("alice")
+	bob, _ := s.GetUser("bob")
+
+	keepNote := strings.Repeat("a", 4000)
+	if err := s.SetUserNotes("alice", keepNote); err != nil {
+		t.Fatalf("SetUserNotes alice: %v", err)
+	}
+	if err := s.SetUserNotes("bob", strings.Repeat("b", 4000)); err != nil {
+		t.Fatalf("SetUserNotes bob: %v", err)
+	}
+
+	if _, err := s.MergeUsers(alice.ID, bob.ID); err != nil {
+		t.Fatalf("MergeUsers: %v", err)
+	}
+
+	got, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if n := len([]rune(got)); n != models.MaxUserNotesLen {
+		t.Fatalf("expected merged note capped to %d runes, got %d", models.MaxUserNotesLen, n)
+	}
+	if !strings.HasPrefix(got, keepNote) {
+		t.Fatal("expected the kept user's note to hold its position at the start")
+	}
+}
+
 // Test that MergeUsers transfers delete-user data when it exists
 func TestMergeUsers_TransfersDeleteUserData(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
@@ -998,5 +1088,61 @@ func TestMergeUsers_ViolationEmptySessionKey(t *testing.T) {
 	s.db.QueryRow(`SELECT COUNT(*) FROM rule_violations WHERE user_name = 'alice'`).Scan(&count)
 	if count != 2 {
 		t.Errorf("expected 2 violations for alice after merge (both preserved), got %d", count)
+	}
+}
+
+func TestUserNotes_EmptyByDefault(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if _, err := s.GetOrCreateUser("alice"); err != nil {
+		t.Fatalf("GetOrCreateUser: %v", err)
+	}
+	notes, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if notes != "" {
+		t.Fatalf("expected empty notes, got %q", notes)
+	}
+}
+
+func TestUserNotes_EmptyForMissingRow(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	notes, err := s.GetUserNotes("ghost")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if notes != "" {
+		t.Fatalf("expected empty notes for missing row, got %q", notes)
+	}
+}
+
+func TestUserNotes_RoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if _, err := s.GetOrCreateUser("alice"); err != nil {
+		t.Fatalf("GetOrCreateUser: %v", err)
+	}
+	if err := s.SetUserNotes("alice", "brother of patrik"); err != nil {
+		t.Fatalf("SetUserNotes: %v", err)
+	}
+	notes, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if notes != "brother of patrik" {
+		t.Fatalf("expected note, got %q", notes)
+	}
+}
+
+func TestUserNotes_UpsertsMissingRow(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if err := s.SetUserNotes("ghost", "cryptic media user"); err != nil {
+		t.Fatalf("SetUserNotes: %v", err)
+	}
+	notes, err := s.GetUserNotes("ghost")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if notes != "cryptic media user" {
+		t.Fatalf("expected upserted note, got %q", notes)
 	}
 }

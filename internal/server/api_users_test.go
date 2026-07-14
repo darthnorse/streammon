@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -282,5 +284,113 @@ func TestListUserSummaries_AdminAllowed(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("admin hitting /api/users/summary: status = %d, want 200", w.Code)
+	}
+}
+
+func TestUserNotesAPI_RoundTrip(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	if _, err := st.GetOrCreateUser("alice"); err != nil {
+		t.Fatalf("GetOrCreateUser: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/users/alice/notes",
+		strings.NewReader(`{"notes":"brother of patrik"}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT expected 200, got %d", w.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/users/alice/notes", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("GET expected 200, got %d", w.Code)
+	}
+	var resp struct {
+		Notes string `json:"notes"`
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Notes != "brother of patrik" {
+		t.Fatalf("expected note, got %q", resp.Notes)
+	}
+}
+
+func TestUserNotesAPI_UpsertsAbsentUser(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/users/ghost/notes",
+		strings.NewReader(`{"notes":"cryptic media user"}`))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("PUT expected 200, got %d", w.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/users/ghost/notes", nil)
+	w = httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	var resp struct {
+		Notes string `json:"notes"`
+	}
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp.Notes != "cryptic media user" {
+		t.Fatalf("expected upserted note, got %q", resp.Notes)
+	}
+}
+
+func TestUserNotesAPI_ForbiddenForViewer(t *testing.T) {
+	srv, st := newTestServer(t) // unwrapped: no auto admin cookie
+	viewerToken := createViewerSession(t, st, "vic")
+
+	req := httptest.NewRequest(http.MethodGet, "/api/users/alice/notes", nil)
+	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Code)
+	}
+
+	putReq := httptest.NewRequest(http.MethodPut, "/api/users/alice/notes",
+		strings.NewReader(`{"notes":"nice try"}`))
+	putReq.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	putW := httptest.NewRecorder()
+	srv.ServeHTTP(putW, putReq)
+	if putW.Code != http.StatusForbidden {
+		t.Fatalf("PUT expected 403, got %d", putW.Code)
+	}
+}
+
+func TestUserNotesAPI_TooLong(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+	body := `{"notes":"` + strings.Repeat("a", 5001) + `"}`
+
+	req := httptest.NewRequest(http.MethodPut, "/api/users/alice/notes",
+		strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestUserNotesAPI_MultibyteWithinRuneCap(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	if _, err := st.GetOrCreateUser("alice"); err != nil {
+		t.Fatalf("GetOrCreateUser: %v", err)
+	}
+
+	notesJSON, err := json.Marshal(struct {
+		Notes string `json:"notes"`
+	}{Notes: strings.Repeat("€", 3000)})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/users/alice/notes", bytes.NewReader(notesJSON))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 }
