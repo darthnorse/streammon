@@ -578,16 +578,23 @@ const mergedNotesSeparator = "\n\n---\n\n"
 
 // mergeNoteValues combines a kept user's note with a merged-away user's note
 // without losing either: the kept note holds its position and the deleted
-// note is appended when both are present.
+// note is appended when both are present. The result is bounded to
+// models.MaxUserNotesLen runes so a merged note never exceeds the API cap and
+// stays editable in the UI.
 func mergeNoteValues(keep, del string) string {
+	var merged string
 	switch {
 	case del == "":
-		return keep
+		merged = keep
 	case keep == "":
-		return del
+		merged = del
 	default:
-		return keep + mergedNotesSeparator + del
+		merged = keep + mergedNotesSeparator + del
 	}
+	if r := []rune(merged); len(r) > models.MaxUserNotesLen {
+		merged = string(r[:models.MaxUserNotesLen])
+	}
+	return merged
 }
 
 // reconcileMergedNotes folds the delete-user's note into the keep-user's row

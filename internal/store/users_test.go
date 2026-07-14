@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"streammon/internal/models"
@@ -904,6 +905,39 @@ func TestMergeUsers_CarriesOverNoteWhenKeepEmpty(t *testing.T) {
 	}
 	if got != "only note" {
 		t.Fatalf("expected carried-over note %q, got %q", "only note", got)
+	}
+}
+
+func TestMergeUsers_CapsMergedNoteToLimit(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	s.CreateLocalUser("admin", "admin@example.com", "hash", models.RoleAdmin)
+	s.CreateLocalUser("alice", "alice@example.com", "hash", models.RoleViewer)
+	s.CreateLocalUser("bob", "bob@example.com", "hash", models.RoleViewer)
+	alice, _ := s.GetUser("alice")
+	bob, _ := s.GetUser("bob")
+
+	keepNote := strings.Repeat("a", 4000)
+	if err := s.SetUserNotes("alice", keepNote); err != nil {
+		t.Fatalf("SetUserNotes alice: %v", err)
+	}
+	if err := s.SetUserNotes("bob", strings.Repeat("b", 4000)); err != nil {
+		t.Fatalf("SetUserNotes bob: %v", err)
+	}
+
+	if _, err := s.MergeUsers(alice.ID, bob.ID); err != nil {
+		t.Fatalf("MergeUsers: %v", err)
+	}
+
+	got, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if n := len([]rune(got)); n != models.MaxUserNotesLen {
+		t.Fatalf("expected merged note capped to %d runes, got %d", models.MaxUserNotesLen, n)
+	}
+	if !strings.HasPrefix(got, keepNote) {
+		t.Fatal("expected the kept user's note to hold its position at the start")
 	}
 }
 

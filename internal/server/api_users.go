@@ -300,8 +300,6 @@ func (s *Server) handleSyncUserAvatars(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-const maxUserNotesLen = 5000
-
 type userNotesResponse struct {
 	Notes string `json:"notes"`
 }
@@ -328,7 +326,7 @@ func (s *Server) handleUpdateUserNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if len([]rune(req.Notes)) > maxUserNotesLen {
+	if len([]rune(req.Notes)) > models.MaxUserNotesLen {
 		writeError(w, http.StatusBadRequest, "notes too long")
 		return
 	}

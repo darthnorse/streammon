@@ -150,6 +150,11 @@ type User struct {
 	APIKeyAuth bool `json:"-"`
 }
 
+// MaxUserNotesLen bounds a user's private admin note (in runes). Enforced by the
+// notes API and by the merge reconciliation so a note never exceeds what the UI
+// and API accept.
+const MaxUserNotesLen = 5000
+
 type WatchHistoryEntry struct {
 	ID                  int64             `json:"id"`
 	ServerID            int64             `json:"server_id"`
