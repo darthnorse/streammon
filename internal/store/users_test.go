@@ -1000,3 +1000,59 @@ func TestMergeUsers_ViolationEmptySessionKey(t *testing.T) {
 		t.Errorf("expected 2 violations for alice after merge (both preserved), got %d", count)
 	}
 }
+
+func TestUserNotes_EmptyByDefault(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if _, err := s.GetOrCreateUser("alice"); err != nil {
+		t.Fatalf("GetOrCreateUser: %v", err)
+	}
+	notes, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if notes != "" {
+		t.Fatalf("expected empty notes, got %q", notes)
+	}
+}
+
+func TestUserNotes_EmptyForMissingRow(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	notes, err := s.GetUserNotes("ghost")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if notes != "" {
+		t.Fatalf("expected empty notes for missing row, got %q", notes)
+	}
+}
+
+func TestUserNotes_RoundTrip(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if _, err := s.GetOrCreateUser("alice"); err != nil {
+		t.Fatalf("GetOrCreateUser: %v", err)
+	}
+	if err := s.SetUserNotes("alice", "brother of patrik"); err != nil {
+		t.Fatalf("SetUserNotes: %v", err)
+	}
+	notes, err := s.GetUserNotes("alice")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if notes != "brother of patrik" {
+		t.Fatalf("expected note, got %q", notes)
+	}
+}
+
+func TestUserNotes_UpsertsMissingRow(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	if err := s.SetUserNotes("ghost", "cryptic media user"); err != nil {
+		t.Fatalf("SetUserNotes: %v", err)
+	}
+	notes, err := s.GetUserNotes("ghost")
+	if err != nil {
+		t.Fatalf("GetUserNotes: %v", err)
+	}
+	if notes != "cryptic media user" {
+		t.Fatalf("expected upserted note, got %q", notes)
+	}
+}

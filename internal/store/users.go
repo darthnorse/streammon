@@ -552,3 +552,32 @@ func (s *Store) MergeUsers(keepID, deleteID int64) (*MergeUsersResult, error) {
 		WatchHistoryMoved: int(historyMoved),
 	}, nil
 }
+
+// GetUserNotes returns the private admin note for a user, or "" when the user
+// has no row or no note set. Media users are not always present in the users
+// table, so a missing row is not an error.
+func (s *Store) GetUserNotes(name string) (string, error) {
+	var notes string
+	err := s.db.QueryRow(`SELECT notes FROM users WHERE name = ?`, name).Scan(&notes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("getting user notes: %w", err)
+	}
+	return notes, nil
+}
+
+// SetUserNotes upserts a user's private admin note, creating a minimal user row
+// when the user is absent from the users table (mirrors GetOrCreateUser).
+func (s *Store) SetUserNotes(name, notes string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO users (name, provider, notes) VALUES (?, '', ?)
+		 ON CONFLICT(name) DO UPDATE SET notes = excluded.notes, updated_at = CURRENT_TIMESTAMP`,
+		name, notes,
+	)
+	if err != nil {
+		return fmt.Errorf("setting user notes: %w", err)
+	}
+	return nil
+}
