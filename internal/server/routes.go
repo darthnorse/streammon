@@ -74,6 +74,8 @@ func (s *Server) routes() {
 		r.Get("/users/{name}", s.handleGetUser)
 		r.Get("/users/{name}/locations", s.handleGetUserLocations)
 		r.Get("/users/{name}/stats", s.handleGetUserStats)
+		r.With(RequireRole(models.RoleAdmin)).Get("/users/{name}/notes", s.handleGetUserNotes)
+		r.With(RequireRole(models.RoleAdmin)).Put("/users/{name}/notes", s.handleUpdateUserNotes)
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
 		r.With(RequireRole(models.RoleAdmin)).Get("/dashboard/summary", s.handleDashboardSummary)

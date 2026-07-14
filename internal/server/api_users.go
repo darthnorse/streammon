@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net"
@@ -297,4 +298,43 @@ func (s *Server) handleSyncUserAvatars(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, response)
+}
+
+const maxUserNotesLen = 5000
+
+type userNotesResponse struct {
+	Notes string `json:"notes"`
+}
+
+type updateUserNotesRequest struct {
+	Notes string `json:"notes"`
+}
+
+func (s *Server) handleGetUserNotes(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+	notes, err := s.store.GetUserNotes(name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	writeJSON(w, http.StatusOK, userNotesResponse{Notes: notes})
+}
+
+func (s *Server) handleUpdateUserNotes(w http.ResponseWriter, r *http.Request) {
+	name := chi.URLParam(r, "name")
+
+	var req updateUserNotesRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len([]rune(req.Notes)) > maxUserNotesLen {
+		writeError(w, http.StatusBadRequest, "notes too long")
+		return
+	}
+	if err := s.store.SetUserNotes(name, req.Notes); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal")
+		return
+	}
+	writeJSON(w, http.StatusOK, userNotesResponse{Notes: req.Notes})
 }
