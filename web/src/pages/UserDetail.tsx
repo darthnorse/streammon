@@ -14,6 +14,7 @@ import { UserDevicesCard } from '../components/UserDevicesCard'
 import { UserISPCard } from '../components/UserISPCard'
 import { UserTrustScoreCard } from '../components/UserTrustScoreCard'
 import { UserHouseholdCard } from '../components/UserHouseholdCard'
+import { UserNotesCard } from '../components/UserNotesCard'
 import { ViolationsTable } from '../components/ViolationsTable'
 import { HISTORY_COLUMNS } from '../lib/historyColumns'
 import { useAuth } from '../context/AuthContext'
@@ -174,6 +175,8 @@ export function UserDetail({ userName }: UserDetailProps) {
           )}
         </div>
       </div>
+
+      {isAdmin && <UserNotesCard userName={decodedName} />}
 
       {statsError && !statsLoading && (
         <div className="text-sm text-red-500 dark:text-red-400">
