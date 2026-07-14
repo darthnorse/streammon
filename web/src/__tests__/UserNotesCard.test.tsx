@@ -46,4 +46,13 @@ describe('UserNotesCard', () => {
       expect(put).toHaveBeenCalledWith('/api/users/alice/notes', { notes: 'new note' }),
     )
   })
+
+  it('shows an error state instead of the empty state when the fetch fails', async () => {
+    get.mockRejectedValue(new Error('boom'))
+    render(<UserNotesCard userName="alice" />)
+
+    expect(await screen.findByText(/failed to load/i)).toBeInTheDocument()
+    expect(screen.queryByText('+ Add a note')).not.toBeInTheDocument()
+    expect(screen.queryByText('Edit')).not.toBeInTheDocument()
+  })
 })

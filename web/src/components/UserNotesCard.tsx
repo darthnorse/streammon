@@ -8,7 +8,7 @@ interface UserNotesCardProps {
 
 export function UserNotesCard({ userName }: UserNotesCardProps) {
   const encoded = encodeURIComponent(userName)
-  const { data, loading, refetch } = useFetch<{ notes: string }>(`/api/users/${encoded}/notes`)
+  const { data, loading, error, refetch } = useFetch<{ notes: string }>(`/api/users/${encoded}/notes`)
   const notes = data?.notes ?? ''
 
   const [editing, setEditing] = useState(false)
@@ -37,14 +37,21 @@ export function UserNotesCard({ userName }: UserNotesCardProps) {
     <div className="card p-4">
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-semibold text-muted dark:text-muted-dark">Notes</h2>
-        {!editing && (
+        {!editing && !error && (
           <button onClick={startEdit} className="text-sm hover:text-accent hover:underline">
             {notes ? 'Edit' : '+ Add a note'}
           </button>
         )}
       </div>
 
-      {editing ? (
+      {error && !editing ? (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm text-muted dark:text-muted-dark">Failed to load notes.</p>
+          <button onClick={() => refetch()} className="text-sm hover:text-accent hover:underline">
+            Retry
+          </button>
+        </div>
+      ) : editing ? (
         <div className="space-y-2">
           <textarea
             value={draft}

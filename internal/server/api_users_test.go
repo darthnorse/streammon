@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -349,6 +350,15 @@ func TestUserNotesAPI_ForbiddenForViewer(t *testing.T) {
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("expected 403, got %d", w.Code)
 	}
+
+	putReq := httptest.NewRequest(http.MethodPut, "/api/users/alice/notes",
+		strings.NewReader(`{"notes":"nice try"}`))
+	putReq.AddCookie(&http.Cookie{Name: auth.CookieName, Value: viewerToken})
+	putW := httptest.NewRecorder()
+	srv.ServeHTTP(putW, putReq)
+	if putW.Code != http.StatusForbidden {
+		t.Fatalf("PUT expected 403, got %d", putW.Code)
+	}
 }
 
 func TestUserNotesAPI_TooLong(t *testing.T) {
@@ -361,5 +371,26 @@ func TestUserNotesAPI_TooLong(t *testing.T) {
 	srv.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", w.Code)
+	}
+}
+
+func TestUserNotesAPI_MultibyteWithinRuneCap(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	if _, err := st.GetOrCreateUser("alice"); err != nil {
+		t.Fatalf("GetOrCreateUser: %v", err)
+	}
+
+	notesJSON, err := json.Marshal(struct {
+		Notes string `json:"notes"`
+	}{Notes: strings.Repeat("€", 3000)})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPut, "/api/users/alice/notes", bytes.NewReader(notesJSON))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
 }
