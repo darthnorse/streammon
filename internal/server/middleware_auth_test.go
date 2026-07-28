@@ -155,10 +155,16 @@ func TestRequireAuthManager_InvalidAPIKey_ReturnsAuthError_AndRateLimits(t *test
 	}
 
 	globalAuthRateLimiter.mu.Lock()
-	count := len(globalAuthRateLimiter.attempts["10.0.0.1"])
+	count := len(globalAuthRateLimiter.attempts["apikey|ip:10.0.0.1"])
+	shared := len(globalAuthRateLimiter.attempts["10.0.0.1"])
 	globalAuthRateLimiter.mu.Unlock()
 	if count != 1 {
 		t.Errorf("expected rate-limit counter incremented once, got %d", count)
+	}
+	// API-key failures live in their own bucket so they cannot exhaust the
+	// budget of the session-auth endpoints.
+	if shared != 0 {
+		t.Errorf("expected no attempts on the bare-IP bucket, got %d", shared)
 	}
 }
 
@@ -617,5 +623,94 @@ func TestBodyLimitEnforced_AuthRoutes(t *testing.T) {
 				t.Errorf("expected error for oversized body on %s, got 200: %s", rt.path, body)
 			}
 		})
+	}
+}
+
+// Behind a reverse proxy every user shares one socket peer, so IP-only keying
+// let one user's failures lock out everyone on the shared RateLimitAuth bucket.
+// Authenticated callers must key on their account instead.
+func TestRateLimitAuth_PerUserScoping(t *testing.T) {
+	resetAuthRateLimiter(t)
+
+	handler := RateLimitAuth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"bad"}`, http.StatusUnauthorized)
+	}))
+
+	call := func(userID int64) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/me/password", nil)
+		req.RemoteAddr = "10.9.9.9:1234" // one shared proxy peer
+		req = req.WithContext(contextWithUser(req.Context(), &models.User{ID: userID}))
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	for i := 0; i < 11; i++ {
+		call(1)
+	}
+	if got := call(1); got != http.StatusTooManyRequests {
+		t.Errorf("targeted user: status = %d, want 429", got)
+	}
+	if got := call(2); got != http.StatusUnauthorized {
+		t.Errorf("bystander user sharing the proxy IP: status = %d, want 401 (not locked out)", got)
+	}
+}
+
+// Exhausting one auth endpoint must not consume another's budget: a flood of
+// bad password-changes should not lock out OIDC login.
+func TestRateLimitAuth_PerRouteScoping(t *testing.T) {
+	resetAuthRateLimiter(t)
+
+	unauthorized := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"bad"}`, http.StatusUnauthorized)
+	})
+
+	r := chi.NewRouter()
+	r.With(RateLimitAuth).Post("/api/me/password", unauthorized)
+	r.With(RateLimitAuth).Get("/api/auth/oidc/login", unauthorized)
+
+	call := func(method, path string) int {
+		req := httptest.NewRequest(method, path, nil)
+		req.RemoteAddr = "10.9.9.9:1234"
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	for i := 0; i < 11; i++ {
+		call(http.MethodPost, "/api/me/password")
+	}
+	if got := call(http.MethodPost, "/api/me/password"); got != http.StatusTooManyRequests {
+		t.Errorf("flooded route: status = %d, want 429", got)
+	}
+	if got := call(http.MethodGet, "/api/auth/oidc/login"); got != http.StatusUnauthorized {
+		t.Errorf("unrelated auth route: status = %d, want 401 (not locked out)", got)
+	}
+}
+
+// A parameterised route must share one bucket. Keying on the raw URL instead of
+// the matched pattern would let an attacker mint a fresh bucket per request by
+// varying the path parameter, bypassing the limit entirely.
+func TestRateLimitAuth_ParameterisedRouteSharesOneBucket(t *testing.T) {
+	resetAuthRateLimiter(t)
+
+	r := chi.NewRouter()
+	r.With(RateLimitAuth).Post("/api/thing/{id}/act", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"bad"}`, http.StatusUnauthorized)
+	}))
+
+	call := func(id string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/thing/"+id+"/act", nil)
+		req.RemoteAddr = "10.9.9.9:1234"
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	for i := 0; i < 11; i++ {
+		call(fmt.Sprintf("id-%d", i))
+	}
+	if got := call("id-999"); got != http.StatusTooManyRequests {
+		t.Errorf("rotating the path parameter: status = %d, want 429 (bucket must be per-pattern)", got)
 	}
 }

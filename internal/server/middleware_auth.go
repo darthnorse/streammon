@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"streammon/internal/auth"
 	"streammon/internal/models"
@@ -42,7 +45,10 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 			// Use Values, not Get: an explicitly-empty header (e.g. "X-API-Key: ")
 			// must reject + rate-limit, not silently fall through to cookie auth.
 			if vals := r.Header.Values("X-API-Key"); len(vals) > 0 {
-				ip := rawClientIP(r)
+				// Own bucket: a bad API key must not consume the budget of the
+				// session-auth endpoints. Keyed on the peer rather than the
+				// presented key, which an attacker could rotate freely.
+				ip := "apikey|ip:" + rawClientIP(r)
 
 				// Rate-limit before doing any work on attacker-controlled input.
 				if !globalAuthRateLimiter.check(ip) {
@@ -312,13 +318,42 @@ func rateLimitAuthWith(keyFn func(*http.Request) string, next http.Handler) http
 	})
 }
 
-// RateLimitAuth applies IP-only rate limiting to authentication endpoints that
-// carry no login username (setup, OIDC, password-change, API-key rotate).
-// Keys on the raw socket peer captured by CaptureRawRemoteAddr so a spoofed
-// X-Forwarded-For (already applied by middleware.RealIP) cannot rotate the
-// limiter's bucket.
+// RateLimitAuth applies rate limiting to authentication endpoints that carry no
+// login username (setup, OIDC, password-change, API-key rotate), keyed by
+// "<route>|<identity>".
+//
+// Identity is the authenticated account when there is one, else the raw socket
+// peer captured by CaptureRawRemoteAddr (so a spoofed X-Forwarded-For cannot
+// rotate the bucket). Behind a reverse proxy every user shares one socket peer,
+// so IP-only keying let a single user's failures lock out everyone; keying an
+// authenticated caller by account confines the flood to that account. The route
+// scope stops one endpoint's failures from consuming another's budget.
 func RateLimitAuth(next http.Handler) http.Handler {
-	return rateLimitAuthWith(func(r *http.Request) string { return rawClientIP(r) }, next)
+	return rateLimitAuthWith(authRateLimitKey, next)
+}
+
+// authRateLimitKey builds the RateLimitAuth bucket key: "<route>|user:<id>" for
+// an authenticated caller, else "<route>|ip:<rawClientIP>".
+func authRateLimitKey(r *http.Request) string {
+	return authRateLimitScope(r) + "|" + authRateLimitIdentity(r)
+}
+
+// authRateLimitScope prefers chi's matched route pattern over the raw path so
+// parameterised routes share one bucket instead of one per URL.
+func authRateLimitScope(r *http.Request) string {
+	if rc := chi.RouteContext(r.Context()); rc != nil {
+		if pattern := rc.RoutePattern(); pattern != "" {
+			return pattern
+		}
+	}
+	return r.URL.Path
+}
+
+func authRateLimitIdentity(r *http.Request) string {
+	if u := UserFromContext(r.Context()); u != nil {
+		return fmt.Sprintf("user:%d", u.ID)
+	}
+	return "ip:" + rawClientIP(r)
 }
 
 // RateLimitLogin applies rate limiting to credential-login endpoints, scoped by
