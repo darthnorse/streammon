@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"streammon/internal/auth"
+	"streammon/internal/clientip"
 	"streammon/internal/models"
 )
 
@@ -712,5 +713,74 @@ func TestRateLimitAuth_ParameterisedRouteSharesOneBucket(t *testing.T) {
 	}
 	if got := call("id-999"); got != http.StatusTooManyRequests {
 		t.Errorf("rotating the path parameter: status = %d, want 429 (bucket must be per-pattern)", got)
+	}
+}
+
+// Two users behind one reverse proxy must get independent limiter buckets. This
+// is the payoff of trusted-proxy resolution: before it, both collapsed onto the
+// proxy's socket peer.
+func TestRateLimitAuth_SeparatesClientsBehindTrustedProxy(t *testing.T) {
+	resetAuthRateLimiter(t)
+
+	prefixes, err := clientip.ParseTrustedProxies("192.168.0.0/16", true)
+	if err != nil {
+		t.Fatalf("ParseTrustedProxies: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Use(clientip.Middleware(prefixes))
+	r.With(RateLimitAuth).Post("/api/me/password", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"bad"}`, http.StatusUnauthorized)
+	}))
+
+	call := func(client string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/me/password", nil)
+		req.RemoteAddr = "192.168.0.24:5555" // the proxy, shared by both users
+		req.Header.Set("X-Forwarded-For", client)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	for i := 0; i < 11; i++ {
+		call("203.0.113.9")
+	}
+	if got := call("203.0.113.9"); got != http.StatusTooManyRequests {
+		t.Errorf("flooding client: status = %d, want 429", got)
+	}
+	if got := call("203.0.113.50"); got != http.StatusUnauthorized {
+		t.Errorf("second client behind the same proxy: status = %d, want 401 (own bucket)", got)
+	}
+}
+
+// The other direction: an UNTRUSTED peer rotating X-Forwarded-For must stay in one
+// bucket. This is the bypass the socket-peer keying prevented, and resolution must
+// not reintroduce it.
+func TestRateLimitAuth_UntrustedPeerCannotRotateBuckets(t *testing.T) {
+	resetAuthRateLimiter(t)
+
+	prefixes, err := clientip.ParseTrustedProxies("192.168.0.0/16", true)
+	if err != nil {
+		t.Fatalf("ParseTrustedProxies: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Use(clientip.Middleware(prefixes))
+	r.With(RateLimitAuth).Post("/api/me/password", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"bad"}`, http.StatusUnauthorized)
+	}))
+
+	var last int
+	for i := 0; i < 12; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/me/password", nil)
+		req.RemoteAddr = "203.0.113.9:5555" // untrusted: not in 192.168.0.0/16
+		req.Header.Set("X-Forwarded-For", fmt.Sprintf("10.1.1.%d", i+1))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		last = w.Code
+	}
+
+	if last != http.StatusTooManyRequests {
+		t.Errorf("untrusted peer rotating X-Forwarded-For: status = %d, want 429", last)
 	}
 }

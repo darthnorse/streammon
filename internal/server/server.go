@@ -4,11 +4,13 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/netip"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
 	"streammon/internal/auth"
+	"streammon/internal/clientip"
 	"streammon/internal/geoip"
 	"streammon/internal/httputil"
 	"streammon/internal/maintenance"
@@ -66,6 +68,7 @@ type Server struct {
 	tmdbClient       *tmdb.Client
 	thumbProxyHTTP   *http.Client
 	sonarrPosterHTTP *http.Client
+	trustedProxies   []netip.Prefix
 }
 
 func NewServer(s *store.Store, opts ...Option) *Server {
@@ -89,7 +92,7 @@ func NewServer(s *store.Store, opts ...Option) *Server {
 		panic("server: authManager is required — use WithAuthManager")
 	}
 	srv.router.Use(CaptureRawRemoteAddr)
-	srv.router.Use(middleware.RealIP)
+	srv.router.Use(clientip.Middleware(srv.trustedProxies))
 	srv.router.Use(middleware.Recoverer)
 	srv.router.Use(securityHeaders)
 	srv.routes()
@@ -132,6 +135,10 @@ func WithAppContext(ctx context.Context) Option {
 
 func WithTMDBClient(c *tmdb.Client) Option {
 	return func(s *Server) { s.tmdbClient = c }
+}
+
+func WithTrustedProxies(prefixes []netip.Prefix) Option {
+	return func(s *Server) { s.trustedProxies = prefixes }
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

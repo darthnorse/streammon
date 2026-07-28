@@ -48,7 +48,7 @@ func RequireAuthManager(mgr *auth.Manager) func(http.Handler) http.Handler {
 				// Own bucket: a bad API key must not consume the budget of the
 				// session-auth endpoints. Keyed on the peer rather than the
 				// presented key, which an attacker could rotate freely.
-				ip := "apikey|ip:" + rawClientIP(r)
+				ip := "apikey|ip:" + resolvedClientIP(r)
 
 				// Rate-limit before doing any work on attacker-controlled input.
 				if !globalAuthRateLimiter.check(ip) {
@@ -322,18 +322,19 @@ func rateLimitAuthWith(keyFn func(*http.Request) string, next http.Handler) http
 // login username (setup, OIDC, password-change, API-key rotate), keyed by
 // "<route>|<identity>".
 //
-// Identity is the authenticated account when there is one, else the raw socket
-// peer captured by CaptureRawRemoteAddr (so a spoofed X-Forwarded-For cannot
-// rotate the bucket). Behind a reverse proxy every user shares one socket peer,
-// so IP-only keying let a single user's failures lock out everyone; keying an
-// authenticated caller by account confines the flood to that account. The route
-// scope stops one endpoint's failures from consuming another's budget.
+// Identity is the authenticated account when there is one, else the resolved
+// client IP (the trusted-proxy-forwarded IP, or the raw socket peer when the
+// peer isn't a trusted proxy — so a spoofed X-Forwarded-For cannot rotate the
+// bucket). Behind a reverse proxy every user shares one socket peer, so
+// IP-only keying let a single user's failures lock out everyone; keying an
+// authenticated caller by account confines the flood to that account. The
+// route scope stops one endpoint's failures from consuming another's budget.
 func RateLimitAuth(next http.Handler) http.Handler {
 	return rateLimitAuthWith(authRateLimitKey, next)
 }
 
 // authRateLimitKey builds the RateLimitAuth bucket key: "<route>|user:<id>" for
-// an authenticated caller, else "<route>|ip:<rawClientIP>".
+// an authenticated caller, else "<route>|ip:<resolvedClientIP>".
 func authRateLimitKey(r *http.Request) string {
 	return authRateLimitScope(r) + "|" + authRateLimitIdentity(r)
 }
@@ -353,16 +354,16 @@ func authRateLimitIdentity(r *http.Request) string {
 	if u := UserFromContext(r.Context()); u != nil {
 		return fmt.Sprintf("user:%d", u.ID)
 	}
-	return "ip:" + rawClientIP(r)
+	return "ip:" + resolvedClientIP(r)
 }
 
 // RateLimitLogin applies rate limiting to credential-login endpoints, scoped by
-// "<rawClientIP>|<username>". Behind a reverse proxy every user shares one
+// "<resolvedClientIP>|<username>". Behind a reverse proxy every user shares one
 // socket peer, so IP-only keying lets one bad actor's failed logins lock out
 // all users. Scoping by the submitted account identifier confines a flood to
-// the targeted account while still keying on the raw socket peer (not a
-// spoofable X-Forwarded-For) for the IP portion. Falls back to IP-only when no
-// username is present in the body (e.g. Plex token login).
+// the targeted account while still resolving the IP portion through the
+// trusted-proxy gate (not a bare, spoofable X-Forwarded-For). Falls back to
+// IP-only when no username is present in the body (e.g. Plex token login).
 func RateLimitLogin(next http.Handler) http.Handler {
 	return rateLimitAuthWith(loginRateLimitKey, next)
 }
@@ -370,7 +371,7 @@ func RateLimitLogin(next http.Handler) http.Handler {
 // loginRateLimitKey builds the per-account limiter bucket key for a login
 // request: "<ip>|<username>" when a username is submitted, else IP-only.
 func loginRateLimitKey(r *http.Request) string {
-	ip := rawClientIP(r)
+	ip := resolvedClientIP(r)
 	username := extractLoginUsername(r)
 	if username == "" {
 		return ip

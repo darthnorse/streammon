@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"streammon/internal/clientip"
 )
 
 const maxBodySize = 1 << 20 // 1MB
@@ -36,6 +38,18 @@ func rawClientIP(r *http.Request) string {
 		return host
 	}
 	return addr
+}
+
+// resolvedClientIP returns the IP to key rate/connection limits on: the
+// trusted-proxy-resolved IP from clientip.FromRequest when the peer is trusted
+// to report it, else the raw socket peer. The X-Forwarded-For-derived value is
+// only as trustworthy as the peer presenting it, so anything less than a
+// verified-trusted peer falls back to rawClientIP.
+func resolvedClientIP(r *http.Request) string {
+	if clientip.PeerTrusted(r) {
+		return clientip.FromRequest(r)
+	}
+	return rawClientIP(r)
 }
 
 type rateLimiter struct {

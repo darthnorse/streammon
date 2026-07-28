@@ -57,5 +57,5 @@ func ssePrincipalKey(user *models.User, r *http.Request) string {
 	if user != nil {
 		return fmt.Sprintf("user:%d", user.ID)
 	}
-	return "ip:" + rawClientIP(r)
+	return "ip:" + resolvedClientIP(r)
 }
