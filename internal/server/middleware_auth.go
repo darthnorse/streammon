@@ -300,9 +300,11 @@ func rateLimitAuthWith(keyFn func(*http.Request) string, next http.Handler) http
 		key := keyFn(r)
 
 		if !globalAuthRateLimiter.check(key) {
-			// Log the raw peer + path only — never the attacker-controlled
-			// username portion of the key, to avoid log injection.
-			log.Printf("auth rate limit: ip=%s path=%s", rawClientIP(r), r.URL.Path)
+			// Both values are parsed addresses, never raw header text; the
+			// username portion of the key stays out of the log to avoid
+			// injection. peer is logged alongside so a forged resolved IP is
+			// still attributable to the socket it came from.
+			log.Printf("auth rate limit: ip=%s peer=%s path=%s", resolvedClientIP(r), rawClientIP(r), r.URL.Path)
 			w.Header().Set("Retry-After", "900") // 15 minutes
 			writeError(w, http.StatusTooManyRequests, "too many login attempts, try again later")
 			return

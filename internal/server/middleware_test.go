@@ -6,6 +6,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"streammon/internal/clientip"
 )
 
 func TestSecurityHeaders_CSPPresent(t *testing.T) {
@@ -83,5 +88,43 @@ func TestSecurityHeaders_AppliedToAllResponses(t *testing.T) {
 	}
 	if w.Header().Get("X-Frame-Options") != "DENY" {
 		t.Fatalf("expected X-Frame-Options: DENY, got %q", w.Header().Get("X-Frame-Options"))
+	}
+}
+
+// The search limiter must key on the resolved client IP, not the shared proxy
+// peer: otherwise one admin's searching 429s every other admin behind the proxy.
+func TestRateLimit_SearchSeparatesClientsBehindTrustedProxy(t *testing.T) {
+	searchRateLimiter.mu.Lock()
+	searchRateLimiter.requests = make(map[string][]time.Time)
+	searchRateLimiter.mu.Unlock()
+
+	prefixes, err := clientip.ParseTrustedProxies("192.168.0.0/16", true)
+	if err != nil {
+		t.Fatalf("ParseTrustedProxies: %v", err)
+	}
+
+	r := chi.NewRouter()
+	r.Use(clientip.Middleware(prefixes))
+	r.With(rateLimit).Get("/api/things", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	call := func(client string) int {
+		req := httptest.NewRequest(http.MethodGet, "/api/things?search=x", nil)
+		req.RemoteAddr = "192.168.0.24:5555" // the proxy, shared by both admins
+		req.Header.Set("X-Forwarded-For", client)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	for i := 0; i < 31; i++ {
+		call("203.0.113.9")
+	}
+	if got := call("203.0.113.9"); got != http.StatusTooManyRequests {
+		t.Errorf("flooding admin: status = %d, want 429", got)
+	}
+	if got := call("203.0.113.50"); got != http.StatusOK {
+		t.Errorf("second admin behind the same proxy: status = %d, want 200 (own bucket)", got)
 	}
 }

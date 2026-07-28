@@ -15,10 +15,10 @@ const maxBodySize = 1 << 20 // 1MB
 
 type rawRemoteAddrKey struct{}
 
-// CaptureRawRemoteAddr stashes r.RemoteAddr in the request context before any
-// later middleware (notably middleware.RealIP) can rewrite it from
-// X-Forwarded-For. Rate limiters that must key on the actual socket peer should
-// read the captured value via rawClientIP.
+// CaptureRawRemoteAddr stashes r.RemoteAddr in the request context so the true
+// socket peer stays available even if a middleware that rewrites it is ever
+// added ahead of the consumers. Nothing in the current chain rewrites it.
+// Rate limiters that must key on the actual peer read it via rawClientIP.
 func CaptureRawRemoteAddr(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := context.WithValue(r.Context(), rawRemoteAddrKey{}, r.RemoteAddr)
@@ -27,8 +27,8 @@ func CaptureRawRemoteAddr(next http.Handler) http.Handler {
 }
 
 // rawClientIP returns the host portion of the original socket peer captured by
-// CaptureRawRemoteAddr. Falls back to r.RemoteAddr (which may have been
-// rewritten by middleware.RealIP) if the capture middleware is not installed.
+// CaptureRawRemoteAddr, falling back to r.RemoteAddr when that middleware is
+// not installed.
 func rawClientIP(r *http.Request) string {
 	addr, ok := r.Context().Value(rawRemoteAddrKey{}).(string)
 	if !ok {
@@ -141,7 +141,7 @@ func StopRateLimiter() {
 func rateLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Query().Get("search") != "" {
-			ip := rawClientIP(r)
+			ip := resolvedClientIP(r)
 			if !searchRateLimiter.allow(ip) {
 				log.Printf("search rate limit: ip=%s path=%s", ip, r.URL.Path)
 				w.Header().Set("Retry-After", "60")

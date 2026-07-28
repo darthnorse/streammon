@@ -63,6 +63,13 @@ func parseEntry(entry string) (netip.Prefix, error) {
 		if err != nil {
 			return netip.Prefix{}, fmt.Errorf("invalid trusted proxy %q: %w", entry, err)
 		}
+		if p.Addr().Is4In6() {
+			bits := p.Bits() - 96
+			if bits < 0 {
+				return netip.Prefix{}, fmt.Errorf("invalid trusted proxy %q: IPv4-mapped prefix shorter than /96", entry)
+			}
+			p = netip.PrefixFrom(p.Addr().Unmap(), bits)
+		}
 		return p.Masked(), nil
 	}
 
@@ -70,5 +77,8 @@ func parseEntry(entry string) (netip.Prefix, error) {
 	if err != nil {
 		return netip.Prefix{}, fmt.Errorf("invalid trusted proxy %q: %w", entry, err)
 	}
+	// Peers are unmapped before the prefix check, so a v4-mapped entry kept as a
+	// 128-bit prefix could never match — it would be silently ineffective.
+	addr = addr.Unmap()
 	return netip.PrefixFrom(addr, addr.BitLen()), nil
 }

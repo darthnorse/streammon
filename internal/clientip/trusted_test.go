@@ -36,6 +36,24 @@ func TestParseTrustedProxies(t *testing.T) {
 			want:  []string{"127.0.0.1/32", "192.168.0.24/32"},
 		},
 		{name: "unmasked CIDR is normalised", raw: "192.168.0.24/16", isSet: true, want: []string{"192.168.0.0/16"}},
+		{
+			name:  "v4-mapped IPv6 folds to a v4 host prefix",
+			raw:   "::ffff:192.168.0.24",
+			isSet: true,
+			want:  []string{"192.168.0.24/32"},
+		},
+		{
+			name:  "v4-mapped IPv6 CIDR folds to its v4 equivalent",
+			raw:   "::ffff:10.0.0.0/104",
+			isSet: true,
+			want:  []string{"10.0.0.0/8"},
+		},
+		{
+			name:    "v4-mapped prefix shorter than /96 is rejected",
+			raw:     "::ffff:0.0.0.0/64",
+			isSet:   true,
+			wantErr: "::ffff:0.0.0.0/64",
+		},
 		{name: "invalid entry names the entry", raw: "192.168.0.999", isSet: true, wantErr: "192.168.0.999"},
 		{name: "invalid CIDR names the entry", raw: "10.0.0.0/99", isSet: true, wantErr: "10.0.0.0/99"},
 	}
