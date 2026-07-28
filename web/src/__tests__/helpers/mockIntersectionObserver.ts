@@ -1,11 +1,10 @@
 import { vi } from 'vitest'
 
 /**
- * Models IntersectionObserver's transition semantics: observe() delivers the
- * current state (synchronously here, asynchronously in a real browser) and the
- * callback otherwise fires only when the state changes. Use setIntersecting to
- * drive scrolling; triggerIntersection fires an unconditional hit for the
- * simple cases and deliberately leaves the tracked state alone.
+ * observe() delivers the current state, then the callback fires only on
+ * transitions — the real API's semantics, which stalls buggy infinite scroll.
+ * triggerIntersection is an unconditional pulse and deliberately does not
+ * touch the tracked state; tests that pulse it repeatedly depend on that.
  */
 export function setupIntersectionObserver(initiallyIntersecting = false) {
   const observers: Array<{ cb: IntersectionObserverCallback; active: boolean }> = []

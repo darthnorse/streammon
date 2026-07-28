@@ -14,11 +14,8 @@ interface PageResponse<T> {
 
 type PagedResponse<T> = OffsetResponse<T> | PageResponse<T>
 
-// Pages the sentinel may pull while it stays continuously in view. Consumers
-// render a filtered subset of items (Discover's request search, DiscoverAll's
-// media-type filter), so a short rendered list can keep the sentinel visible
-// forever and drain the whole dataset. Enough to fill any viewport, not enough
-// to walk a large result set.
+// Consumers render a filtered subset, so a short list can keep the sentinel
+// visible forever — without this bound it would drain the whole dataset.
 const MAX_AUTO_FILL = 10
 
 interface UseInfiniteFetchReturn<T> {
@@ -50,7 +47,6 @@ export function useInfiniteFetch<T>(
   const fetchingRef = useRef(false)
   // -1 = no page fetched yet; on success set to the fetched page number
   const pageRef = useRef(-1)
-  // Pages auto-loaded without the sentinel ever leaving view; see MAX_AUTO_FILL.
   const autoFillRef = useRef(0)
 
   const fetchPage = useCallback((pageNum: number) => {
@@ -140,9 +136,9 @@ export function useInfiniteFetch<T>(
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-    // fetchTick re-observes after every completed page: IntersectionObserver only
-    // fires on transitions, so without this the hook stalls whenever the loaded
-    // content still fits the viewport and there is nothing left to scroll.
+    // fetchTick re-observes after every completed page. IntersectionObserver only
+    // fires on transitions, so without it the hook stalls once the content fits
+    // the viewport and there is nothing left to scroll.
   }, [hasMore, loading, fetchPage, fetchTick])
 
   const retry = useCallback(() => {

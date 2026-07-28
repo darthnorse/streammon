@@ -157,14 +157,10 @@ describe('useInfiniteFetch', () => {
     }) as never)
   }
 
-  // Two flushes: one for the in-flight request's continuation, one for the
-  // re-observe it schedules.
+  // Two flushes: the in-flight request's continuation, then the re-observe it schedules.
   const settle = () => act(async () => { await Promise.resolve(); await Promise.resolve() })
 
   it('keeps loading while the sentinel stays in view (viewport not filled)', async () => {
-    // A tall/wide viewport shows every loaded card, so the sentinel never leaves
-    // the screen and the user has nothing to scroll. The hook must keep filling
-    // until the content overflows rather than stalling after one page.
     const observer = installObserver(true)
     servePages(50)
 
@@ -172,21 +168,17 @@ describe('useInfiniteFetch', () => {
 
     await waitFor(() => expect(screen.getAllByTestId('item').length).toBeGreaterThan(4))
 
-    // Content now overflows: the sentinel leaves the viewport and loading stops.
     await act(async () => { observer.setIntersecting(false) })
     await settle()
     const settledCalls = mockGet.mock.calls.length
     await settle()
     expect(mockGet.mock.calls.length).toBe(settledCalls)
 
-    // Scrolling back down to the sentinel starts a new request.
     await act(async () => { observer.setIntersecting(true) })
     await waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(settledCalls))
   })
 
   it('stops auto-filling at the cap when the sentinel never leaves view', async () => {
-    // A consumer rendering a filtered subset can keep the sentinel visible no
-    // matter how much loads; the hook must not walk the whole result set.
     installObserver(true)
     servePages(500)
 
