@@ -1,8 +1,12 @@
 package clientip
 
 import (
+	"bytes"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 )
 
@@ -111,5 +115,70 @@ func TestFromRequest_WithoutMiddleware(t *testing.T) {
 	}
 	if PeerTrusted(req) {
 		t.Error("PeerTrusted = true without the middleware installed")
+	}
+}
+
+// captureLog swaps the standard logger's output for the duration of fn.
+func captureLog(t *testing.T, fn func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+	fn()
+	return buf.String()
+}
+
+// A misconfigured TRUSTED_PROXIES silently discards X-Forwarded-*; without a log
+// line the operator only discovers it by inspecting cookies in devtools.
+func TestMiddleware_WarnsOnForwardedHeadersFromUntrustedPeer(t *testing.T) {
+	out := captureLog(t, func() {
+		serve(t, "192.168.0.0/16", "203.0.113.9:5555", []string{"1.2.3.4"})
+	})
+
+	if !strings.Contains(out, "203.0.113.9") {
+		t.Errorf("warning should name the untrusted peer, got %q", out)
+	}
+	if !strings.Contains(out, "TRUSTED_PROXIES") {
+		t.Errorf("warning should point at the setting to change, got %q", out)
+	}
+}
+
+func TestMiddleware_NoWarnForTrustedPeerOrExplicitOptOut(t *testing.T) {
+	trusted := captureLog(t, func() {
+		serve(t, "192.168.0.0/16", "192.168.0.24:5555", []string{"203.0.113.9"})
+	})
+	if trusted != "" {
+		t.Errorf("no warning expected for a trusted peer, got %q", trusted)
+	}
+
+	// TRUSTED_PROXIES=none is a deliberate choice; warning every interval is noise.
+	optOut := captureLog(t, func() {
+		serve(t, "none", "203.0.113.9:5555", []string{"1.2.3.4"})
+	})
+	if optOut != "" {
+		t.Errorf("no warning expected when trust is explicitly disabled, got %q", optOut)
+	}
+}
+
+// A directly-exposed instance sees scanner traffic carrying these headers; the
+// warning must not turn that into a log flood.
+func TestMiddleware_WarnIsThrottled(t *testing.T) {
+	prefixes, err := ParseTrustedProxies("192.168.0.0/16", true)
+	if err != nil {
+		t.Fatalf("ParseTrustedProxies: %v", err)
+	}
+	h := Middleware(prefixes)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+
+	out := captureLog(t, func() {
+		for i := 0; i < 50; i++ {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = "203.0.113.9:5555"
+			req.Header.Set("X-Forwarded-For", "1.2.3.4")
+			h.ServeHTTP(httptest.NewRecorder(), req)
+		}
+	})
+
+	if got := strings.Count(out, "TRUSTED_PROXIES"); got != 1 {
+		t.Errorf("50 requests produced %d warnings, want exactly 1", got)
 	}
 }

@@ -14,9 +14,14 @@ func TestParseTrustedProxies(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:  "unset uses the RFC1918 default",
+			name:  "unset trusts loopback plus private address space",
 			isSet: false,
-			want:  []string{"127.0.0.1/32", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
+			want: []string{
+				"127.0.0.1/32", "::1/128",
+				"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+				"100.64.0.0/10", // CGNAT — Tailscale/Headscale
+				"fc00::/7",      // IPv6 unique-local
+			},
 		},
 		{name: "explicitly empty trusts nothing", raw: "", isSet: true, want: nil},
 		{name: "none trusts nothing", raw: "none", isSet: true, want: nil},

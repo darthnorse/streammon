@@ -2,9 +2,12 @@ package clientip
 
 import (
 	"context"
+	"log"
 	"net"
 	"net/http"
 	"net/netip"
+	"sync"
+	"time"
 
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -42,14 +45,51 @@ func Middleware(trusted []netip.Prefix) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(withClientIP(r.Context(), ip, true)))
 		}))
 
+		warner := &warnLimiter{}
+
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if len(trusted) == 0 || !peerIsTrusted(r, trusted) {
+				// An empty set is a deliberate opt-out, so only warn when the
+				// operator configured a set that this peer failed to match.
+				if len(trusted) > 0 && forwardedHeaderPresent(r) {
+					warner.warn(peerHost(r))
+				}
 				next.ServeHTTP(w, r.WithContext(withClientIP(r.Context(), peerHost(r), false)))
 				return
 			}
 			viaXFF.ServeHTTP(w, r)
 		})
 	}
+}
+
+func forwardedHeaderPresent(r *http.Request) bool {
+	return r.Header.Get("X-Forwarded-For") != "" || r.Header.Get("X-Forwarded-Proto") != ""
+}
+
+// warnLimiter throttles the untrusted-header warning. A directly-reachable
+// instance sees these headers on ordinary scanner traffic, and keying by peer
+// would grow without bound, so one throttled line carries the most recent peer
+// and how many were suppressed behind it.
+type warnLimiter struct {
+	mu         sync.Mutex
+	last       time.Time
+	suppressed int
+}
+
+const warnInterval = 10 * time.Minute
+
+func (l *warnLimiter) warn(peer string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.suppressed++
+	if !l.last.IsZero() && time.Since(l.last) < warnInterval {
+		return
+	}
+	log.Printf("WARNING: ignoring X-Forwarded-* from untrusted peer %s (%d occurrence(s)); "+
+		"if that is your reverse proxy, add it to TRUSTED_PROXIES", peer, l.suppressed)
+	l.last = time.Now().UTC()
+	l.suppressed = 0
 }
 
 // FromRequest returns the resolved client IP, host only and never empty. Without

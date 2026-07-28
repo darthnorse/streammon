@@ -18,6 +18,8 @@ var DefaultTrustedProxies = []string{
 	"10.0.0.0/8",
 	"172.16.0.0/12",
 	"192.168.0.0/16",
+	"100.64.0.0/10", // CGNAT, as used by Tailscale/Headscale
+	"fc00::/7",      // IPv6 unique-local (covers fc00::-fdff::)
 }
 
 // ParseTrustedProxies resolves the TRUSTED_PROXIES setting. isSet reports whether
