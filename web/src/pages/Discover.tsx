@@ -8,7 +8,7 @@ import { useDebouncedSearch } from '../hooks/useDebouncedSearch'
 import { useHorizontalScroll } from '../hooks/useHorizontalScroll'
 import { useAuth } from '../context/AuthContext'
 import { useModalStack } from '../hooks/useModalStack'
-import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS, isSelectableMedia } from '../lib/constants'
+import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS, isSelectableMedia, loadMoreBtnClass } from '../lib/constants'
 import { EmptyState } from '../components/EmptyState'
 import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
@@ -173,6 +173,8 @@ export function Discover() {
     sentinelRef,
     retry: retryRequests,
     refetch: refetchRequests,
+    capped: requestsCapped,
+    loadMore: loadMoreRequests,
   } = useInfiniteFetch<OverseerrRequest>(requestsBaseUrl, 30)
 
   useEffect(() => {
@@ -361,6 +363,11 @@ export function Discover() {
               {loadingMore && (
                 <div className="flex justify-center py-4">
                   <div className="h-6 w-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+              {requestsCapped && !loadingMore && !requestsError && (
+                <div className="flex justify-center py-4">
+                  <button onClick={loadMoreRequests} className={loadMoreBtnClass}>Load more</button>
                 </div>
               )}
               {requestsError && (

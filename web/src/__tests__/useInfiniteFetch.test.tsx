@@ -36,7 +36,7 @@ function mockNextResponseDeferred(mode: 'offset' | 'page' = 'offset') {
 }
 
 function TestHarness({ url, pageSize, mode }: { url: string | null; pageSize: number; mode?: 'offset' | 'page' }) {
-  const { items, loading, loadingMore, hasMore, error, sentinelRef, retry, refetch } =
+  const { items, loading, loadingMore, hasMore, error, sentinelRef, retry, refetch, capped, loadMore } =
     useInfiniteFetch<Item>(url, pageSize, mode)
   return (
     <div>
@@ -57,6 +57,11 @@ function TestHarness({ url, pageSize, mode }: { url: string | null; pageSize: nu
       <button data-testid="refetch" onClick={refetch}>
         Refetch
       </button>
+      {capped && (
+        <button data-testid="load-more" onClick={loadMore}>
+          Load more
+        </button>
+      )}
       {!hasMore && !loading && <div data-testid="no-more">No more</div>}
     </div>
   )
@@ -191,6 +196,32 @@ describe('useInfiniteFetch', () => {
 
     expect(mockGet.mock.calls.length).toBe(calls)
     expect(calls).toBeLessThanOrEqual(11) // initial page + MAX_AUTO_FILL
+  })
+
+  it('offers loadMore at the cap and resumes from it', async () => {
+    installObserver(true)
+    servePages(500)
+
+    render(<TestHarness url="/api/test" pageSize={2} mode="page" />)
+
+    await waitFor(() => expect(screen.getByTestId('load-more')).toBeDefined())
+    await settle()
+    const cappedCalls = mockGet.mock.calls.length
+
+    await act(async () => { screen.getByTestId('load-more').click() })
+    await waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(cappedCalls))
+  })
+
+  it('clears the cap once the sentinel leaves view', async () => {
+    const observer = installObserver(true)
+    servePages(500)
+
+    render(<TestHarness url="/api/test" pageSize={2} mode="page" />)
+
+    await waitFor(() => expect(screen.getByTestId('load-more')).toBeDefined())
+
+    await act(async () => { observer.setIntersecting(false) })
+    expect(screen.queryByTestId('load-more')).toBeNull()
   })
 
   it('keeps filling when a page returns no rows but more pages remain', async () => {

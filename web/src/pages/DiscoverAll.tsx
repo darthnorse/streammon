@@ -2,7 +2,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useInfiniteFetch } from '../hooks/useInfiniteFetch'
 import { useDiscoverData } from '../hooks/useDiscoverData'
 import { useModalStack } from '../hooks/useModalStack'
-import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS, isSelectableMedia } from '../lib/constants'
+import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS, isSelectableMedia, loadMoreBtnClass } from '../lib/constants'
 import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
 import { ModalStackRenderer } from '../components/ModalStackRenderer'
@@ -45,7 +45,7 @@ export function DiscoverAll() {
   const { overseerrConfigured, libraryIds, mediaStatuses } = useDiscoverData()
 
   const url = valid ? `/api/tmdb/discover/${category}` : null
-  const { items, loading, loadingMore, hasMore, error, sentinelRef } =
+  const { items, loading, loadingMore, hasMore, error, sentinelRef, capped, loadMore } =
     useInfiniteFetch<TMDBMediaResult>(url, 20, 'page')
 
   const filtered = items.filter(isSelectableMedia)
@@ -97,6 +97,11 @@ export function DiscoverAll() {
             </div>
           )}
           {error && <ErrorBanner message={error} />}
+          {capped && hasMore && !loadingMore && !error && (
+            <div className="flex justify-center py-4">
+              <button onClick={loadMore} className={loadMoreBtnClass}>Load more</button>
+            </div>
+          )}
           {!hasMore && !error && (
             <p className="text-center text-sm text-muted dark:text-muted-dark py-4">No more results</p>
           )}

@@ -27,6 +27,8 @@ interface UseInfiniteFetchReturn<T> {
   sentinelRef: React.RefObject<HTMLDivElement>
   retry: () => void
   refetch: () => void
+  capped: boolean
+  loadMore: () => void
 }
 
 export function useInfiniteFetch<T>(
@@ -41,6 +43,7 @@ export function useInfiniteFetch<T>(
   const [error, setError] = useState<string | null>(null)
   const [resetTick, setResetTick] = useState(0)
   const [fetchTick, setFetchTick] = useState(0)
+  const [capped, setCapped] = useState(false)
 
   const sentinelRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -84,7 +87,6 @@ export function useInfiniteFetch<T>(
           : (data as OffsetResponse<T>).pageInfo.pages
         setHasMore((pageNum + 1) < totalPages)
         pageRef.current = pageNum
-        setFetchTick(t => t + 1)
       })
       .catch(err => {
         if ((err as Error).name === 'AbortError') return
@@ -97,6 +99,8 @@ export function useInfiniteFetch<T>(
         fetchingRef.current = false
         if (isFirst) setLoading(false)
         else setLoadingMore(false)
+        // Must trail fetchingRef, or the re-observe races the in-flight guard.
+        setFetchTick(t => t + 1)
       })
   }, [baseUrl, pageSize, mode])
 
@@ -109,6 +113,7 @@ export function useInfiniteFetch<T>(
     setHasMore(true)
     setLoadingMore(false)
     setError(null)
+    setCapped(false)
 
     if (baseUrl) {
       fetchPage(0)
@@ -127,9 +132,14 @@ export function useInfiniteFetch<T>(
     const observer = new IntersectionObserver(entries => {
       if (!entries[0].isIntersecting) {
         autoFillRef.current = 0
+        setCapped(false)
         return
       }
-      if (fetchingRef.current || autoFillRef.current >= MAX_AUTO_FILL) return
+      if (fetchingRef.current) return
+      if (autoFillRef.current >= MAX_AUTO_FILL) {
+        setCapped(true)
+        return
+      }
       autoFillRef.current += 1
       fetchPage(pageRef.current + 1)
     }, { rootMargin: '200px' })
@@ -152,5 +162,12 @@ export function useInfiniteFetch<T>(
     setResetTick(t => t + 1)
   }, [])
 
-  return { items, loading, loadingMore, hasMore, error, sentinelRef, retry, refetch }
+  const loadMore = useCallback(() => {
+    if (fetchingRef.current) return
+    autoFillRef.current = 0
+    setCapped(false)
+    fetchPage(pageRef.current + 1)
+  }, [fetchPage])
+
+  return { items, loading, loadingMore, hasMore, error, sentinelRef, retry, refetch, capped, loadMore }
 }
