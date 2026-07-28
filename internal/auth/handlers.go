@@ -4,13 +4,17 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
+
+	"streammon/internal/clientip"
 )
 
-// isSecureRequest checks if the request came over HTTPS.
-// SECURITY: Trusts X-Forwarded-Proto for reverse proxy setups.
-// Ensure your reverse proxy strips/overwrites this header from clients.
+// isSecureRequest reports whether the request reached us over HTTPS.
+// X-Forwarded-Proto is honoured only from a trusted proxy; see TRUSTED_PROXIES.
 func isSecureRequest(r *http.Request) bool {
-	return r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	if r.TLS != nil {
+		return true
+	}
+	return clientip.PeerTrusted(r) && r.Header.Get("X-Forwarded-Proto") == "https"
 }
 
 func generateState() (string, error) {
