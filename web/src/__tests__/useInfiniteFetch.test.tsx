@@ -141,6 +141,77 @@ describe('useInfiniteFetch', () => {
     )
   })
 
+  function installObserver(initiallyIntersecting: boolean) {
+    const observer = setupIntersectionObserver(initiallyIntersecting)
+    triggerIntersection = observer.triggerIntersection
+    mockDisconnect = observer.disconnect
+    return observer
+  }
+
+  function servePages(totalPages: number, emptyPage?: number) {
+    let served = 0
+    mockGet.mockImplementation((() => {
+      served += 1
+      const rows = served === emptyPage ? [] : [served * 10, served * 10 + 1]
+      return Promise.resolve(makeResponse(rows, totalPages, 'page'))
+    }) as never)
+  }
+
+  // Two flushes: one for the in-flight request's continuation, one for the
+  // re-observe it schedules.
+  const settle = () => act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+  it('keeps loading while the sentinel stays in view (viewport not filled)', async () => {
+    // A tall/wide viewport shows every loaded card, so the sentinel never leaves
+    // the screen and the user has nothing to scroll. The hook must keep filling
+    // until the content overflows rather than stalling after one page.
+    const observer = installObserver(true)
+    servePages(50)
+
+    render(<TestHarness url="/api/test" pageSize={2} mode="page" />)
+
+    await waitFor(() => expect(screen.getAllByTestId('item').length).toBeGreaterThan(4))
+
+    // Content now overflows: the sentinel leaves the viewport and loading stops.
+    await act(async () => { observer.setIntersecting(false) })
+    await settle()
+    const settledCalls = mockGet.mock.calls.length
+    await settle()
+    expect(mockGet.mock.calls.length).toBe(settledCalls)
+
+    // Scrolling back down to the sentinel starts a new request.
+    await act(async () => { observer.setIntersecting(true) })
+    await waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(settledCalls))
+  })
+
+  it('stops auto-filling at the cap when the sentinel never leaves view', async () => {
+    // A consumer rendering a filtered subset can keep the sentinel visible no
+    // matter how much loads; the hook must not walk the whole result set.
+    installObserver(true)
+    servePages(500)
+
+    render(<TestHarness url="/api/test" pageSize={2} mode="page" />)
+
+    await waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(1))
+    await settle()
+    const calls = mockGet.mock.calls.length
+    await settle()
+
+    expect(mockGet.mock.calls.length).toBe(calls)
+    expect(calls).toBeLessThanOrEqual(11) // initial page + MAX_AUTO_FILL
+  })
+
+  it('keeps filling when a page returns no rows but more pages remain', async () => {
+    // items.length cannot detect this: an empty page leaves it unchanged.
+    installObserver(true)
+    servePages(50, 2)
+
+    render(<TestHarness url="/api/test" pageSize={2} mode="page" />)
+
+    await waitFor(() => expect(mockGet.mock.calls.length).toBeGreaterThan(2))
+    expect(screen.getAllByTestId('item').length).toBeGreaterThan(2)
+  })
+
   it('sets hasMore to false when last page is reached', async () => {
     mockNextResponse([1, 2], 1)
 

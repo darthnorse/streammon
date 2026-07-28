@@ -14,6 +14,13 @@ interface PageResponse<T> {
 
 type PagedResponse<T> = OffsetResponse<T> | PageResponse<T>
 
+// Pages the sentinel may pull while it stays continuously in view. Consumers
+// render a filtered subset of items (Discover's request search, DiscoverAll's
+// media-type filter), so a short rendered list can keep the sentinel visible
+// forever and drain the whole dataset. Enough to fill any viewport, not enough
+// to walk a large result set.
+const MAX_AUTO_FILL = 10
+
 interface UseInfiniteFetchReturn<T> {
   items: T[]
   loading: boolean
@@ -36,12 +43,15 @@ export function useInfiniteFetch<T>(
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [resetTick, setResetTick] = useState(0)
+  const [fetchTick, setFetchTick] = useState(0)
 
   const sentinelRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   const fetchingRef = useRef(false)
   // -1 = no page fetched yet; on success set to the fetched page number
   const pageRef = useRef(-1)
+  // Pages auto-loaded without the sentinel ever leaving view; see MAX_AUTO_FILL.
+  const autoFillRef = useRef(0)
 
   const fetchPage = useCallback((pageNum: number) => {
     if (!baseUrl) return
@@ -78,6 +88,7 @@ export function useInfiniteFetch<T>(
           : (data as OffsetResponse<T>).pageInfo.pages
         setHasMore((pageNum + 1) < totalPages)
         pageRef.current = pageNum
+        setFetchTick(t => t + 1)
       })
       .catch(err => {
         if ((err as Error).name === 'AbortError') return
@@ -97,6 +108,7 @@ export function useInfiniteFetch<T>(
     abortRef.current?.abort()
     fetchingRef.current = false
     pageRef.current = -1
+    autoFillRef.current = 0
     setItems([])
     setHasMore(true)
     setLoadingMore(false)
@@ -117,14 +129,21 @@ export function useInfiniteFetch<T>(
     if (!sentinel) return
 
     const observer = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && !fetchingRef.current) {
-        fetchPage(pageRef.current + 1)
+      if (!entries[0].isIntersecting) {
+        autoFillRef.current = 0
+        return
       }
+      if (fetchingRef.current || autoFillRef.current >= MAX_AUTO_FILL) return
+      autoFillRef.current += 1
+      fetchPage(pageRef.current + 1)
     }, { rootMargin: '200px' })
 
     observer.observe(sentinel)
     return () => observer.disconnect()
-  }, [hasMore, loading, fetchPage])
+    // fetchTick re-observes after every completed page: IntersectionObserver only
+    // fires on transitions, so without this the hook stalls whenever the loaded
+    // content still fits the viewport and there is nothing left to scroll.
+  }, [hasMore, loading, fetchPage, fetchTick])
 
   const retry = useCallback(() => {
     setError(null)
