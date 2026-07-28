@@ -22,6 +22,10 @@ services:
       # - PUID=1000
       # - PGID=1000
       #
+      # Reverse-proxy addresses whose X-Forwarded-For is trusted. Defaults to
+      # loopback + RFC1918 when unset; set to "none" to trust nothing.
+      # - TRUSTED_PROXIES=127.0.0.1/32,::1/128,192.168.0.0/16
+      #
       # Docker-secrets alternative: instead of the plain env vars above,
       # mount a secret file and point the matching *_FILE var at it --
       # avoids the value showing up in `docker inspect` / /proc/<pid>/environ.

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"streammon/internal/auth"
+	"streammon/internal/clientip"
 	"streammon/internal/crypto"
 	"streammon/internal/geoip"
 	"streammon/internal/media"
@@ -36,6 +37,17 @@ func main() {
 	listenAddr := envOr("LISTEN_ADDR", ":7935")
 	migrationsDir := envOr("MIGRATIONS_DIR", "./migrations")
 	corsOrigin := os.Getenv("CORS_ORIGIN")
+
+	rawTrusted, trustedSet := os.LookupEnv("TRUSTED_PROXIES")
+	trustedProxies, err := clientip.ParseTrustedProxies(rawTrusted, trustedSet)
+	if err != nil {
+		log.Fatalf("TRUSTED_PROXIES: %v", err)
+	}
+	if len(trustedProxies) == 0 {
+		log.Printf("Trusted proxies: none (X-Forwarded-For ignored, using socket peer)")
+	} else {
+		log.Printf("Trusted proxies: %v", trustedProxies)
+	}
 
 	log.Printf("Database: %s", dbPath)
 	if corsOrigin != "" {
@@ -205,6 +217,7 @@ func main() {
 	if corsOrigin != "" {
 		opts = append(opts, server.WithCORSOrigin(corsOrigin))
 	}
+	opts = append(opts, server.WithTrustedProxies(trustedProxies))
 	srv := server.NewServer(s, opts...)
 
 	httpServer := &http.Server{
