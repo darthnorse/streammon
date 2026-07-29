@@ -1,6 +1,6 @@
 import { Component, useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
-import { HeatmapLayer } from 'react-leaflet-heatmap-layer-v3'
+import { HeatmapLayerFactory } from '@pauloak_/react-leaflet-heatmap-layer'
 import type { LatLngBoundsExpression, LeafletEvent } from 'leaflet'
 import { useIsDark } from '../../hooks/useIsDark'
 import { formatLocation } from '../../lib/format'
@@ -20,6 +20,10 @@ const HEATMAP_CONFIG = {
   minOpacity: 0.4,
   maxZoom: 12,
 }
+
+// Built once at module scope: a per-render factory call would give React a new
+// component type each time and remount the layer.
+const HeatmapLayer = HeatmapLayerFactory<GeoResult>()
 
 const DEFAULT_CENTER: [number, number] = [30, 0]
 const DEFAULT_ZOOM = 2
@@ -210,14 +214,11 @@ function LeafletMapInner({
       {viewMode === 'heatmap' && locations.length > 0 && (
         <HeatmapLayer
           points={locations}
-          latitudeExtractor={(loc: GeoResult) => loc.lat}
-          longitudeExtractor={(loc: GeoResult) => loc.lng}
-          intensityExtractor={(loc: GeoResult) => Math.log10((loc.users?.length || 1) + 1)}
+          latitudeExtractor={(loc) => loc.lat}
+          longitudeExtractor={(loc) => loc.lng}
+          intensityExtractor={(loc) => Math.log10((loc.users?.length || 1) + 1)}
           gradient={heatmapGradient}
-          radius={HEATMAP_CONFIG.radius}
-          blur={HEATMAP_CONFIG.blur}
-          minOpacity={HEATMAP_CONFIG.minOpacity}
-          maxZoom={HEATMAP_CONFIG.maxZoom}
+          {...HEATMAP_CONFIG}
         />
       )}
 
