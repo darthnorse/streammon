@@ -1,4 +1,10 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["src/__tests__", "src/test-utils.tsx"]
+  // test-setup.ts is excluded and types emptied together, not separately: it imports
+  // vitest, whose optional-types pulls @types/node into the program. Either path alone
+  // still lets Node globals (process, Buffer) typecheck in browser code Vite never shims.
+  "exclude": ["src/__tests__", "src/test-utils.tsx", "src/test-setup.ts"],
+  "compilerOptions": {
+    "types": []
+  }
 }
