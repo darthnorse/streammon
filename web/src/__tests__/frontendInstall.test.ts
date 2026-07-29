@@ -10,21 +10,20 @@ const repoDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 const INSTALL_ENTRYPOINTS = ['Dockerfile', 'Makefile']
 
 // Joins backslash line continuations so a wrapped `npm ci \` + `--legacy-peer-deps`
-// is inspected as the single command it actually is.
-function installCommands(source: string): string[] {
-  return source
-    .replace(/\\\r?\n\s*/g, ' ')
-    .split('\n')
-    .filter((line) => /npm (ci|install|i)\b/.test(line))
+// reads as the single command it actually is.
+function joinContinuations(source: string): string {
+  return source.replace(/\\\r?\n\s*/g, ' ')
 }
+
+const INSTALL_COMMAND = /\bnpm\b[^\n]*\b(ci|install|i)\b/
 
 describe('frontend dependency resolution', () => {
   it.each(INSTALL_ENTRYPOINTS)('%s installs without legacy peer resolution', (entrypoint) => {
-    const commands = installCommands(readFileSync(resolve(repoDir, entrypoint), 'utf8'))
+    const source = joinContinuations(readFileSync(resolve(repoDir, entrypoint), 'utf8'))
 
-    expect(commands.length).toBeGreaterThan(0)
-    for (const command of commands) {
-      expect(command).not.toContain('--legacy-peer-deps')
-    }
+    expect(source).toMatch(INSTALL_COMMAND)
+    // Checked against the whole file rather than matched command lines: an install
+    // written any other way must not be able to smuggle the flag past this guard.
+    expect(source).not.toContain('--legacy-peer-deps')
   })
 })
