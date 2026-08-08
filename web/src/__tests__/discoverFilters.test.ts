@@ -28,6 +28,14 @@ describe('categoryCaps', () => {
     expect(categoryCaps('nope')).toBeNull()
   })
 
+  // The argument is the route splat, i.e. attacker-chosen via a crafted link;
+  // an inherited Object.prototype member must not satisfy the | null contract.
+  it('returns null for inherited Object.prototype keys', () => {
+    expect(categoryCaps('constructor')).toBeNull()
+    expect(categoryCaps('__proto__')).toBeNull()
+    expect(categoryCaps('toString')).toBeNull()
+  })
+
   it('returns a stable reference so hook memoisation holds', () => {
     expect(categoryCaps('tv')).toBe(categoryCaps('tv'))
   })
@@ -102,6 +110,17 @@ describe('filtersFromParams', () => {
   it('rejects a future year, matching the backend ceiling', () => {
     expect(filtersFromParams(new URLSearchParams('year=2999'), tvCaps).year).toBeNull()
   })
+
+  // Number.isInteger accepts values beyond JS's safe range and Go's int; such
+  // values break the parse-and-reserialise contract (e.g. re-serialise in
+  // exponential notation), so the backend 400s them on the round trip.
+  it('rejects a genre id in exponential notation beyond the safe integer range', () => {
+    expect(filtersFromParams(new URLSearchParams('genres=1e21'), tvCaps).genres).toEqual([])
+  })
+
+  it('rejects a genre id far beyond Go int range', () => {
+    expect(filtersFromParams(new URLSearchParams('genres=99999999999999999999'), tvCaps).genres).toEqual([])
+  })
 })
 
 // On a mixed category (caps.type === true), the backend 400s any filtered
@@ -160,6 +179,26 @@ describe('filtersToParams', () => {
   it('omits defaults', () => {
     expect(filtersToParams(EMPTY_FILTERS, tvCaps).toString()).toBe('')
   })
+
+  // apiParams (which filtersToParams wraps) must enforce the same backend
+  // invariants filtersFromParams does, or the write and read sides disagree
+  // and state silently reverts on the next render.
+  it('round-trips to the normalised form on a mixed category with no type set', () => {
+    const filters = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: true, type: null }
+    const normalised = { ...EMPTY_FILTERS, hideOwned: true }
+    expect(filtersFromParams(filtersToParams(filters, trendingCaps), trendingCaps)).toEqual(normalised)
+  })
+
+  it('round-trips to the normalised form when more than MAX_GENRES genres are set', () => {
+    const tooMany = Array.from({ length: MAX_GENRES + 1 }, (_, i) => i + 1)
+    const filters = { ...EMPTY_FILTERS, genres: tooMany }
+    const normalised = { ...EMPTY_FILTERS, genres: tooMany.slice(0, MAX_GENRES) }
+    expect(filtersFromParams(filtersToParams(filters, tvCaps), tvCaps)).toEqual(normalised)
+  })
+
+  it('never leaves a phantom param in the URL when type is missing on a mixed category', () => {
+    expect(filtersToQuery({ ...EMPTY_FILTERS, sort: 'rating' }, trendingCaps)).toBe('')
+  })
 })
 
 describe('filtersToQuery', () => {
@@ -191,6 +230,14 @@ describe('activeFilterCount', () => {
 
   it('counts a genre selection once regardless of how many genres', () => {
     expect(activeFilterCount({ ...EMPTY_FILTERS, genres: [80, 18, 35] }, tvCaps)).toBe(1)
+  })
+
+  // On a mixed category with no type set, apiParams (via filtersToParams) emits
+  // nothing but hideOwned, so the badge must agree: 0 filters, or 1 with hideOwned.
+  it('counts nothing but hideOwned on a mixed category with no type set', () => {
+    const filters = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: false, type: null }
+    expect(activeFilterCount(filters, trendingCaps)).toBe(0)
+    expect(activeFilterCount({ ...filters, hideOwned: true }, trendingCaps)).toBe(1)
   })
 })
 

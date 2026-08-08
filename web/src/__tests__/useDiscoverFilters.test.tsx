@@ -74,9 +74,11 @@ describe('useDiscoverFilters', () => {
   })
 })
 
+type MediaTypeProp = { mediaType: 'movie' | 'tv' }
+
 describe('useTMDBGenres', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   it('fetches the genre list for a media type', async () => {
@@ -97,14 +99,17 @@ describe('useTMDBGenres', () => {
   it('does not surface the previous type\'s genres while loading a new type', async () => {
     mockApi.get.mockResolvedValueOnce({ genres: [{ id: 878, name: 'Science Fiction' }] })
 
+    const initialProps: MediaTypeProp = { mediaType: 'movie' }
     const { result, rerender } = renderHook(
-      ({ mediaType }: { mediaType: 'movie' | 'tv' }) => useTMDBGenres(mediaType),
-      { wrapper: wrapperAt('/'), initialProps: { mediaType: 'movie' as const } },
+      ({ mediaType }: MediaTypeProp) => useTMDBGenres(mediaType),
+      { wrapper: wrapperAt('/'), initialProps },
     )
     await waitFor(() => expect(result.current.genres).toHaveLength(1))
 
     let resolveTv: (value: { genres: { id: number; name: string }[] }) => void = () => {}
-    mockApi.get.mockImplementationOnce((() => new Promise(resolve => { resolveTv = resolve })) as typeof api.get)
+    mockApi.get.mockImplementationOnce(
+      () => new Promise<{ genres: { id: number; name: string }[] }>(resolve => { resolveTv = resolve }),
+    )
 
     rerender({ mediaType: 'tv' })
     expect(result.current.genres).toEqual([])
@@ -113,5 +118,36 @@ describe('useTMDBGenres', () => {
       resolveTv({ genres: [{ id: 10765, name: 'Sci-Fi & Fantasy' }] })
     })
     await waitFor(() => expect(result.current.genres[0].id).toBe(10765))
+  })
+
+  it('never commits a render exposing the previous type\'s genres after a type switch', async () => {
+    mockApi.get.mockResolvedValueOnce({ genres: [{ id: 878, name: 'Science Fiction' }] })
+
+    const committed: number[][] = []
+    const initialProps: MediaTypeProp = { mediaType: 'movie' }
+    const { rerender } = renderHook(
+      ({ mediaType }: MediaTypeProp) => {
+        const { genres } = useTMDBGenres(mediaType)
+        committed.push(genres.map(g => g.id))
+        return genres
+      },
+      { wrapper: wrapperAt('/'), initialProps },
+    )
+    await waitFor(() => expect(committed.some(ids => ids.includes(878))).toBe(true))
+
+    let resolveTv: (value: { genres: { id: number; name: string }[] }) => void = () => {}
+    mockApi.get.mockImplementationOnce(
+      () => new Promise<{ genres: { id: number; name: string }[] }>(resolve => { resolveTv = resolve }),
+    )
+
+    const beforeSwitch = committed.length
+    rerender({ mediaType: 'tv' })
+
+    await act(async () => {
+      resolveTv({ genres: [{ id: 10765, name: 'Sci-Fi & Fantasy' }] })
+    })
+    await waitFor(() => expect(committed.some(ids => ids.includes(10765))).toBe(true))
+
+    expect(committed.slice(beforeSwitch).some(ids => ids.includes(878))).toBe(false)
   })
 })

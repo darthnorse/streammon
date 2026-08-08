@@ -1,9 +1,11 @@
+import { DISCOVER_CATEGORIES } from './constants'
+
 export type DiscoverSort = 'popularity' | 'rating' | 'newest'
 export type DiscoverMediaType = 'movie' | 'tv'
 
 export interface DiscoverFilters {
   year: number | null
-  genres: number[]
+  genres: readonly number[]
   sort: DiscoverSort
   rating: number | null
   hideOwned: boolean
@@ -16,10 +18,7 @@ export interface DiscoverCategoryCaps {
   readonly mediaType: DiscoverMediaType | null
 }
 
-// Declared separately so `genres` keeps its number[] type; Object.freeze's
-// array overload would otherwise widen it to a non-assignable readonly type.
-const FROZEN_EMPTY_GENRES: number[] = []
-Object.freeze(FROZEN_EMPTY_GENRES)
+const FROZEN_EMPTY_GENRES: readonly number[] = Object.freeze([])
 
 export const EMPTY_FILTERS: DiscoverFilters = Object.freeze({
   year: null,
@@ -32,7 +31,15 @@ export const EMPTY_FILTERS: DiscoverFilters = Object.freeze({
 
 export const MAX_GENRES = 5
 
-const CAPS: Record<string, DiscoverCategoryCaps> = {
+// TMDB genre ids are 5 digits; this ceiling is generous and, more importantly,
+// keeps every accepted value inside both JS's safe-integer range and Go's int.
+const MAX_GENRE_ID = 1_000_000
+
+type DiscoverPath = (typeof DISCOVER_CATEGORIES)[number]['path']
+
+// Keyed off DISCOVER_CATEGORIES so a new routed category with no caps entry
+// here is a compile error rather than a silently disabled filter bar.
+const CAPS: Record<DiscoverPath, DiscoverCategoryCaps> = {
   trending: Object.freeze({ year: true, type: true, mediaType: null }),
   movies: Object.freeze({ year: true, type: false, mediaType: 'movie' }),
   'movies/upcoming': Object.freeze({ year: false, type: false, mediaType: 'movie' }),
@@ -41,8 +48,10 @@ const CAPS: Record<string, DiscoverCategoryCaps> = {
 }
 
 // Returns the shared frozen object so consumers can memoise on identity.
+// Object.prototype.hasOwnProperty.call, not `in` or bare indexing, so an
+// inherited key like "constructor" cannot masquerade as a known category.
 export function categoryCaps(path: string): DiscoverCategoryCaps | null {
-  return CAPS[path] ?? null
+  return Object.prototype.hasOwnProperty.call(CAPS, path) ? CAPS[path as DiscoverPath] : null
 }
 
 const SORTS: DiscoverSort[] = ['popularity', 'rating', 'newest']
@@ -59,7 +68,7 @@ function parseGenres(raw: string | null): number[] {
   if (!raw) return []
   const ids = raw.split(',').map(part => Number(part))
   if (ids.length > MAX_GENRES) return []
-  if (ids.some(id => !Number.isInteger(id) || id <= 0)) return []
+  if (ids.some(id => !Number.isSafeInteger(id) || id <= 0 || id > MAX_GENRE_ID)) return []
   return ids
 }
 
@@ -98,11 +107,16 @@ export function filtersFromParams(params: URLSearchParams, caps: DiscoverCategor
   }
 }
 
-// apiParams holds everything the backend understands; hideOwned is client-side only.
+// apiParams holds everything the backend understands; hideOwned is client-side
+// only. Mirrors the invariants filtersFromParams enforces on the read side: a
+// mixed category with no type emits nothing (the backend 400s otherwise), and
+// an over-long genre list is clamped rather than sent whole and rejected.
 function apiParams(filters: DiscoverFilters, caps: DiscoverCategoryCaps): URLSearchParams {
   const params = new URLSearchParams()
+  if (caps.type && filters.type === null) return params
   if (caps.year && filters.year !== null) params.set('year', String(filters.year))
-  if (filters.genres.length > 0) params.set('genres', filters.genres.join(','))
+  const genres = filters.genres.slice(0, MAX_GENRES)
+  if (genres.length > 0) params.set('genres', genres.join(','))
   if (filters.sort !== 'popularity') params.set('sort', filters.sort)
   if (filters.rating !== null) params.set('rating', String(filters.rating))
   if (caps.type && filters.type !== null) params.set('type', filters.type)
@@ -119,15 +133,12 @@ export function filtersToQuery(filters: DiscoverFilters, caps: DiscoverCategoryC
   return apiParams(filters, caps).toString()
 }
 
+// Derived from filtersToParams rather than re-enumerated, so a filter added
+// to apiParams alone cannot silently under-count the badge. This intentionally
+// undercounts genres beyond MAX_GENRES and any server-side filter on a mixed
+// category with no type set, matching what apiParams actually sends.
 export function activeFilterCount(filters: DiscoverFilters, caps: DiscoverCategoryCaps): number {
-  let count = 0
-  if (caps.year && filters.year !== null) count++
-  if (filters.genres.length > 0) count++
-  if (filters.sort !== 'popularity') count++
-  if (filters.rating !== null) count++
-  if (caps.type && filters.type !== null) count++
-  if (filters.hideOwned) count++
-  return count
+  return filtersToParams(filters, caps).size
 }
 
 // Genre IDs differ between movie and TV, and the backend rejects server-side
