@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 
 	"streammon/internal/models"
 	"streammon/internal/store"
+	"streammon/internal/tmdb"
 )
 
 const tmdbTimeout = 15 * time.Second
@@ -80,43 +82,164 @@ func (s *Server) handleTMDBSearch(w http.ResponseWriter, r *http.Request) {
 	writeRawJSON(w, http.StatusOK, data)
 }
 
+type discoverCategory struct {
+	fn        func(context.Context, int, string) (json.RawMessage, error)
+	mediaType string // "" means the category mixes types and requires ?type=
+	upcoming  bool
+}
+
+const (
+	minDiscoverYear = 1900
+	maxGenreFilters = 5
+)
+
+func (s *Server) discoverCategories() map[string]discoverCategory {
+	return map[string]discoverCategory{
+		"trending":        {fn: s.tmdbClient.Trending},
+		"movies":          {fn: s.tmdbClient.PopularMovies, mediaType: "movie"},
+		"movies/upcoming": {fn: s.tmdbClient.UpcomingMovies, mediaType: "movie", upcoming: true},
+		"tv":              {fn: s.tmdbClient.PopularTV, mediaType: "tv"},
+		"tv/upcoming":     {fn: s.tmdbClient.UpcomingTV, mediaType: "tv", upcoming: true},
+	}
+}
+
+// parseDiscoverFilters reads the filter query parameters. active reports whether
+// any filter was supplied, which is what selects the /discover endpoint over the
+// curated one.
+func parseDiscoverFilters(r *http.Request, cat discoverCategory) (filters tmdb.DiscoverFilters, active bool, err error) {
+	q := r.URL.Query()
+
+	if raw := q.Get("year"); raw != "" {
+		if cat.upcoming {
+			return filters, false, fmt.Errorf("year is not supported on upcoming categories")
+		}
+		// A future floor cannot be satisfied on a non-upcoming category, and
+		// combined with sort=newest it would produce gte=<future>, lte=<today>.
+		year, convErr := strconv.Atoi(raw)
+		if convErr != nil || year < minDiscoverYear || year > time.Now().UTC().Year() {
+			return filters, false, fmt.Errorf("invalid year")
+		}
+		filters.YearGTE = year
+		active = true
+	}
+
+	if raw := q.Get("genres"); raw != "" {
+		parts := strings.Split(raw, ",")
+		if len(parts) > maxGenreFilters {
+			return filters, false, fmt.Errorf("too many genres (max %d)", maxGenreFilters)
+		}
+		for _, part := range parts {
+			id, convErr := strconv.Atoi(part)
+			if convErr != nil || id <= 0 {
+				return filters, false, fmt.Errorf("invalid genre id")
+			}
+			filters.GenreIDs = append(filters.GenreIDs, id)
+		}
+		active = true
+	}
+
+	// popularity is the default ordering, so an explicit sort=popularity narrows
+	// nothing and must not switch away from the curated endpoint. The client
+	// omits it for the same reason; this keeps a hand-edited URL consistent.
+	if raw := q.Get("sort"); raw != "" {
+		switch raw {
+		case "popularity":
+		case "rating", "newest":
+			filters.Sort = raw
+			active = true
+		default:
+			return filters, false, fmt.Errorf("invalid sort")
+		}
+	}
+
+	// A zero floor is not a filter; the client omits the parameter for "any".
+	// The positive form of the bounds check also rejects NaN, which ParseFloat
+	// accepts and which fails every ordinary comparison.
+	if raw := q.Get("rating"); raw != "" {
+		rating, convErr := strconv.ParseFloat(raw, 64)
+		if convErr != nil || !(rating > 0 && rating <= 10) {
+			return filters, false, fmt.Errorf("invalid rating")
+		}
+		filters.RatingGTE = rating
+		active = true
+	}
+
+	filters.Upcoming = cat.upcoming
+	return filters, active, nil
+}
+
 func (s *Server) handleTMDBDiscover(w http.ResponseWriter, r *http.Request) {
 	category := chi.URLParam(r, "*")
+	cat, ok := s.discoverCategories()[category]
+	if !ok {
+		writeError(w, http.StatusNotFound, "unknown discover category")
+		return
+	}
 
 	region, err := s.store.GetDiscoverRegion()
 	if err != nil {
 		log.Printf("failed to read discover region setting: %v", err)
 	}
 
-	dispatchers := map[string]func(context.Context, int, string) (json.RawMessage, error){
-		"trending":        s.tmdbClient.Trending,
-		"movies":          s.tmdbClient.PopularMovies,
-		"movies/upcoming": s.tmdbClient.UpcomingMovies,
-		"tv":              s.tmdbClient.PopularTV,
-		"tv/upcoming":     s.tmdbClient.UpcomingTV,
+	mediaType := cat.mediaType
+	typeParam := r.URL.Query().Get("type")
+	if typeParam != "" {
+		if cat.mediaType != "" {
+			writeError(w, http.StatusBadRequest, "type is only valid on mixed categories")
+			return
+		}
+		if typeParam != "movie" && typeParam != "tv" {
+			writeError(w, http.StatusBadRequest, "invalid type")
+			return
+		}
+		mediaType = typeParam
 	}
 
-	fn, ok := dispatchers[category]
-	if !ok {
-		writeError(w, http.StatusNotFound, "unknown discover category")
+	filters, active, err := parseDiscoverFilters(r, cat)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// Narrowing a mixed category to one media type is itself a filter.
+	if typeParam != "" {
+		active = true
+	}
+	if active && mediaType == "" {
+		writeError(w, http.StatusBadRequest, "type is required when filtering this category")
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), tmdbTimeout)
 	defer cancel()
 
-	data, err := fn(ctx, parsePage(r), region)
+	var data json.RawMessage
+	if active {
+		filters.Region = region
+		filters.Now = time.Now().UTC()
+		data, err = s.tmdbClient.Discover(ctx, mediaType, filters, parsePage(r))
+	} else {
+		data, err = cat.fn(ctx, parsePage(r), region)
+	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
-	if category != "trending" {
-		mediaType := "movie"
-		if strings.HasPrefix(category, "tv") {
-			mediaType = "tv"
-		}
+	if mediaType != "" {
 		data = injectMediaType(data, mediaType)
+	}
+
+	writeRawJSON(w, http.StatusOK, data)
+}
+
+func (s *Server) handleTMDBMovieGenres(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), tmdbTimeout)
+	defer cancel()
+
+	data, err := s.tmdbClient.GetMovieGenres(ctx)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "upstream service error")
+		return
 	}
 
 	writeRawJSON(w, http.StatusOK, data)

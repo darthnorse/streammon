@@ -178,6 +178,7 @@ func (s *Server) routes() {
 			sr.Get("/person/{id}", s.handleTMDBPerson)
 			sr.Get("/collection/{id}", s.handleTMDBCollection)
 			sr.Get("/genres/tv", s.handleTMDBTVGenres)
+			sr.Get("/genres/movie", s.handleTMDBMovieGenres)
 		})
 
 		r.With(s.requireDiscover).Get("/library/tmdb-ids", s.handleLibraryTMDBIDs)
