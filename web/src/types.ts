@@ -1169,3 +1169,8 @@ export type ModalEntry =
   | { type: 'season'; serverId: number; itemId: string }
   | { type: 'episode'; serverId: number; itemId: string }
 
+export interface TMDBGenre {
+  id: number
+  name: string
+}
+
