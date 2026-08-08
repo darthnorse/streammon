@@ -347,15 +347,36 @@ func TestDiscoverFilteredInjectsMediaType(t *testing.T) {
 	}
 }
 
-func TestDiscoverTrendingTypeAloneIsAFilter(t *testing.T) {
+func TestDiscoverTrendingTypeAlonePreservesTrending(t *testing.T) {
+	cases := map[string]string{
+		"movie": "/trending/movie/week",
+		"tv":    "/trending/tv/week",
+	}
+	for typeParam, wantPath := range cases {
+		srv, captured := captureDiscoverQuery(t, discoverStubBody)
+		w := getDiscover(t, srv, "/api/tmdb/discover/trending?type="+typeParam)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d: %s", typeParam, w.Code, w.Body.String())
+		}
+		path, _ := captured()
+		if path != wantPath {
+			t.Fatalf("%s: type alone must preserve trending: got upstream path %s, want %s", typeParam, path, wantPath)
+		}
+		if !strings.Contains(w.Body.String(), `"media_type":"`+typeParam+`"`) {
+			t.Fatalf("%s: expected media_type injected, got %s", typeParam, w.Body.String())
+		}
+	}
+}
+
+func TestDiscoverTrendingTypeWithFilterUsesDiscover(t *testing.T) {
 	srv, captured := captureDiscoverQuery(t, discoverStubBody)
-	w := getDiscover(t, srv, "/api/tmdb/discover/trending?type=movie")
+	w := getDiscover(t, srv, "/api/tmdb/discover/trending?type=movie&year=2024")
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	path, _ := captured()
 	if path != "/discover/movie" {
-		t.Fatalf("type alone must filter: got upstream path %s", path)
+		t.Fatalf("type+filter must use discover: got upstream path %s", path)
 	}
 }
 

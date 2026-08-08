@@ -133,6 +133,17 @@ func (c *Client) Trending(ctx context.Context, page int, _ string) (json.RawMess
 	return c.pagedList(ctx, "trending", "/trending/all/week", page, "")
 }
 
+// TrendingByType narrows Trending to a single media type while preserving the
+// trending ranking, unlike Discover's popularity.desc sort which is all-time.
+func (c *Client) TrendingByType(ctx context.Context, mediaType string, page int) (json.RawMessage, error) {
+	switch mediaType {
+	case "movie", "tv":
+	default:
+		return nil, fmt.Errorf("invalid media type %q", mediaType)
+	}
+	return c.pagedList(ctx, "trending/"+mediaType, "/trending/"+mediaType+"/week", page, "")
+}
+
 func (c *Client) PopularMovies(ctx context.Context, page int, region string) (json.RawMessage, error) {
 	return c.pagedList(ctx, "movies/popular", "/movie/popular", page, region)
 }
@@ -188,6 +199,13 @@ func (c *Client) GetGenres(ctx context.Context, mediaType string) (json.RawMessa
 
 const discoverMinVoteCount = 100
 
+// Upcoming date ceilings mirror the curated endpoints /discover replaces:
+// /movie/upcoming and /tv/on_the_air are bounded windows, not open-ended.
+const (
+	discoverUpcomingMovieWindowMonths = 3
+	discoverUpcomingTVWindowDays      = 7
+)
+
 // DiscoverFilters is the filter set for TMDB's /discover endpoints. Now is
 // injected rather than read from the clock so date-dependent behaviour is
 // deterministic under test; callers must pass a UTC time.
@@ -225,9 +243,16 @@ func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilte
 		params.Set("region", f.Region)
 	}
 
-	today := f.Now.UTC().Format("2006-01-02")
+	now := f.Now.UTC()
+	today := now.Format("2006-01-02")
 	if f.Upcoming {
 		params.Set(upcomingField+".gte", today)
+		switch mediaType {
+		case "movie":
+			params.Set(upcomingField+".lte", now.AddDate(0, discoverUpcomingMovieWindowMonths, 0).Format("2006-01-02"))
+		case "tv":
+			params.Set(upcomingField+".lte", now.AddDate(0, 0, discoverUpcomingTVWindowDays).Format("2006-01-02"))
+		}
 	} else if f.YearGTE > 0 {
 		params.Set(releaseField+".gte", fmt.Sprintf("%d-01-01", f.YearGTE))
 	}
@@ -269,7 +294,9 @@ func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilte
 		rating := math.Round(f.RatingGTE*10) / 10
 		params.Set("vote_average.gte", strconv.FormatFloat(rating, 'f', -1, 64))
 	}
-	if f.Sort == "rating" || f.RatingGTE > 0 {
+	// Unreleased titles rarely have discoverMinVoteCount votes yet; the floor
+	// would empty out an upcoming page instead of narrowing it.
+	if !f.Upcoming && (f.Sort == "rating" || f.RatingGTE > 0) {
 		params.Set("vote_count.gte", strconv.Itoa(discoverMinVoteCount))
 	}
 

@@ -203,15 +203,13 @@ func (s *Server) handleTMDBDiscover(w http.ResponseWriter, r *http.Request) {
 		mediaType = typeParam
 	}
 
-	filters, active, err := parseDiscoverFilters(r, cat)
+	filters, filtersActive, err := parseDiscoverFilters(r, cat)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	// Narrowing a mixed category to one media type is itself a filter.
-	if typeParam != "" {
-		active = true
-	}
+	active := filtersActive || typeParam != ""
 	if active && mediaType == "" {
 		writeError(w, http.StatusBadRequest, "type is required when filtering this category")
 		return
@@ -221,11 +219,16 @@ func (s *Server) handleTMDBDiscover(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var data json.RawMessage
-	if active {
+	switch {
+	case filtersActive:
 		filters.Region = region
 		filters.Now = time.Now().UTC()
 		data, err = s.tmdbClient.Discover(ctx, mediaType, filters, parsePage(r))
-	} else {
+	case cat.mediaType == "" && typeParam != "":
+		// A mixed category narrowed only by ?type= keeps its trending ranking
+		// instead of falling back to Discover's all-time popularity sort.
+		data, err = s.tmdbClient.TrendingByType(ctx, mediaType, parsePage(r))
+	default:
 		data, err = cat.fn(ctx, parsePage(r), region)
 	}
 	if err != nil {

@@ -255,6 +255,43 @@ func TestTrendingIgnoresRegion(t *testing.T) {
 	}
 }
 
+func TestTrendingByType(t *testing.T) {
+	cases := []struct{ mediaType, wantPath string }{
+		{"movie", "/trending/movie/week"},
+		{"tv", "/trending/tv/week"},
+	}
+	for _, tc := range cases {
+		expected := json.RawMessage(`{"page":1,"results":[]}`)
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != tc.wantPath {
+				t.Errorf("unexpected path: %s", r.URL.Path)
+			}
+			if got := r.URL.Query().Get("region"); got != "" {
+				t.Errorf("expected no region param, got %q", got)
+			}
+			w.Write(expected)
+		}), newTestStore(t))
+
+		data, err := c.TrendingByType(context.Background(), tc.mediaType, 1)
+		if err != nil {
+			t.Fatalf("%s: TrendingByType: %v", tc.mediaType, err)
+		}
+		if string(data) != string(expected) {
+			t.Fatalf("%s: got %s, want %s", tc.mediaType, data, expected)
+		}
+	}
+}
+
+func TestTrendingByTypeRejectsUnknownMediaType(t *testing.T) {
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("upstream must not be called")
+	}), newTestStore(t))
+
+	if _, err := c.TrendingByType(context.Background(), "person", 1); err == nil {
+		t.Fatal("expected error for media type person")
+	}
+}
+
 func TestRegions(t *testing.T) {
 	expected := json.RawMessage(`[{"iso_3166_1":"US","english_name":"United States"}]`)
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -433,6 +470,25 @@ func TestDiscoverVoteCountGuard(t *testing.T) {
 	}
 }
 
+// An unreleased title rarely has 100 votes yet, so the floor that guards
+// rating filters elsewhere would empty out an upcoming page.
+func TestDiscoverUpcomingSkipsVoteCountFloor(t *testing.T) {
+	_, q := discoverQueryFor(t, "movie", DiscoverFilters{Upcoming: true, RatingGTE: 7, Now: testNow}, 1)
+	if q.Get("vote_count.gte") != "" {
+		t.Fatalf("upcoming must not set a vote count floor, got %q", q.Get("vote_count.gte"))
+	}
+	if got := q.Get("vote_average.gte"); got != "7" {
+		t.Fatalf("vote_average.gte: got %q, want 7", got)
+	}
+}
+
+func TestDiscoverNonUpcomingKeepsVoteCountFloor(t *testing.T) {
+	_, q := discoverQueryFor(t, "movie", DiscoverFilters{Upcoming: false, RatingGTE: 7, Now: testNow}, 1)
+	if got := q.Get("vote_count.gte"); got != "100" {
+		t.Fatalf("non-upcoming rating guard: got %q, want 100", got)
+	}
+}
+
 func TestDiscoverNewestCapsAtToday(t *testing.T) {
 	_, q := discoverQueryFor(t, "tv", DiscoverFilters{Sort: "newest", Now: testNow}, 1)
 	if got := q.Get("first_air_date.lte"); got != "2026-08-08" {
@@ -446,19 +502,25 @@ func TestDiscoverNewestCapsAtToday(t *testing.T) {
 }
 
 // Upcoming movies means "released from today"; upcoming TV means "has an episode
-// airing from today", which is air_date, not the series premiere date.
+// airing from today", which is air_date, not the series premiere date. Both also
+// carry an upper bound, mirroring the curated endpoints they replace: 3 months
+// for movie.upcoming, 7 days for tv.on_the_air. The ceiling applies regardless of
+// Sort so it is present here even though Sort is unset.
 func TestDiscoverUpcomingUsesTheRightDateField(t *testing.T) {
 	_, q := discoverQueryFor(t, "movie", DiscoverFilters{Upcoming: true, Now: testNow}, 1)
 	if got := q.Get("primary_release_date.gte"); got != "2026-08-08" {
 		t.Fatalf("movie upcoming floor: got %q", got)
 	}
-	if q.Get("primary_release_date.lte") != "" {
-		t.Fatal("upcoming must not cap the upper bound")
+	if got := q.Get("primary_release_date.lte"); got != "2026-11-08" {
+		t.Fatalf("movie upcoming ceiling: got %q, want 2026-11-08", got)
 	}
 
 	_, q = discoverQueryFor(t, "tv", DiscoverFilters{Upcoming: true, Now: testNow}, 1)
 	if got := q.Get("air_date.gte"); got != "2026-08-08" {
 		t.Fatalf("tv upcoming floor: got %q, want air_date.gte=2026-08-08", got)
+	}
+	if got := q.Get("air_date.lte"); got != "2026-08-15" {
+		t.Fatalf("tv upcoming ceiling: got %q, want 2026-08-15", got)
 	}
 	if q.Get("first_air_date.gte") != "" {
 		t.Fatal("tv upcoming must not constrain first_air_date")
