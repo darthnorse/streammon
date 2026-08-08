@@ -31,6 +31,29 @@ describe('categoryCaps', () => {
   it('returns a stable reference so hook memoisation holds', () => {
     expect(categoryCaps('tv')).toBe(categoryCaps('tv'))
   })
+
+  it('freezes each caps entry so mutation cannot corrupt the shared singleton', () => {
+    expect(Object.isFrozen(categoryCaps('tv'))).toBe(true)
+    expect(Object.isFrozen(categoryCaps('trending'))).toBe(true)
+  })
+})
+
+describe('EMPTY_FILTERS', () => {
+  it('is frozen, including its genres array, so it cannot be mutated in place', () => {
+    expect(Object.isFrozen(EMPTY_FILTERS)).toBe(true)
+    expect(Object.isFrozen(EMPTY_FILTERS.genres)).toBe(true)
+  })
+
+  it('still supports spread-based derivation', () => {
+    expect({ ...EMPTY_FILTERS, hideOwned: true }).toEqual({
+      year: null,
+      genres: [],
+      sort: 'popularity',
+      rating: null,
+      hideOwned: true,
+      type: null,
+    })
+  })
 })
 
 describe('filtersFromParams', () => {
@@ -78,6 +101,53 @@ describe('filtersFromParams', () => {
 
   it('rejects a future year, matching the backend ceiling', () => {
     expect(filtersFromParams(new URLSearchParams('year=2999'), tvCaps).year).toBeNull()
+  })
+})
+
+// On a mixed category (caps.type === true), the backend 400s any filtered
+// request that lacks ?type=. Filters and type must hydrate as a single unit.
+describe('filtersFromParams on mixed categories', () => {
+  const filtered = 'year=2024&genres=80,18&sort=rating&rating=7'
+
+  it('drops every server-side filter when type is missing on trending', () => {
+    expect(filtersFromParams(new URLSearchParams(filtered), trendingCaps)).toEqual(EMPTY_FILTERS)
+  })
+
+  it('hydrates normally once type is present', () => {
+    expect(filtersFromParams(new URLSearchParams(`${filtered}&type=movie`), trendingCaps)).toEqual({
+      year: 2024,
+      genres: [80, 18],
+      sort: 'rating',
+      rating: 7,
+      hideOwned: false,
+      type: 'movie',
+    })
+  })
+
+  it('keeps hideOwned even when the other filters are dropped', () => {
+    expect(filtersFromParams(new URLSearchParams('year=2024&hide_owned=1'), trendingCaps)).toEqual({
+      ...EMPTY_FILTERS,
+      hideOwned: true,
+    })
+  })
+
+  it('never lets filtersToQuery emit a server-side param without type on trending', () => {
+    const scenarios = ['year=2024', 'genres=80,18', 'sort=rating', 'rating=7', filtered]
+    for (const raw of scenarios) {
+      const filters = filtersFromParams(new URLSearchParams(raw), trendingCaps)
+      expect(filtersToQuery(filters, trendingCaps)).toBe('')
+    }
+  })
+
+  it('leaves non-mixed categories unaffected', () => {
+    expect(filtersFromParams(new URLSearchParams(filtered), tvCaps)).toEqual({
+      year: 2024,
+      genres: [80, 18],
+      sort: 'rating',
+      rating: 7,
+      hideOwned: false,
+      type: null,
+    })
   })
 })
 

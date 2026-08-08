@@ -11,28 +11,33 @@ export interface DiscoverFilters {
 }
 
 export interface DiscoverCategoryCaps {
-  year: boolean
-  type: boolean
-  mediaType: DiscoverMediaType | null
+  readonly year: boolean
+  readonly type: boolean
+  readonly mediaType: DiscoverMediaType | null
 }
 
-export const EMPTY_FILTERS: DiscoverFilters = {
+// Declared separately so `genres` keeps its number[] type; Object.freeze's
+// array overload would otherwise widen it to a non-assignable readonly type.
+const FROZEN_EMPTY_GENRES: number[] = []
+Object.freeze(FROZEN_EMPTY_GENRES)
+
+export const EMPTY_FILTERS: DiscoverFilters = Object.freeze({
   year: null,
-  genres: [],
+  genres: FROZEN_EMPTY_GENRES,
   sort: 'popularity',
   rating: null,
   hideOwned: false,
   type: null,
-}
+})
 
 export const MAX_GENRES = 5
 
 const CAPS: Record<string, DiscoverCategoryCaps> = {
-  trending: { year: true, type: true, mediaType: null },
-  movies: { year: true, type: false, mediaType: 'movie' },
-  'movies/upcoming': { year: false, type: false, mediaType: 'movie' },
-  tv: { year: true, type: false, mediaType: 'tv' },
-  'tv/upcoming': { year: false, type: false, mediaType: 'tv' },
+  trending: Object.freeze({ year: true, type: true, mediaType: null }),
+  movies: Object.freeze({ year: true, type: false, mediaType: 'movie' }),
+  'movies/upcoming': Object.freeze({ year: false, type: false, mediaType: 'movie' }),
+  tv: Object.freeze({ year: true, type: false, mediaType: 'tv' }),
+  'tv/upcoming': Object.freeze({ year: false, type: false, mediaType: 'tv' }),
 }
 
 // Returns the shared frozen object so consumers can memoise on identity.
@@ -74,14 +79,22 @@ function parseRating(raw: string | null): number | null {
   return rating
 }
 
+// On a mixed category (caps.type), the backend 400s any filtered request
+// that lacks ?type=, so a missing type must drop the other server-side
+// filters here rather than let an incoherent combination reach filtersToQuery.
 export function filtersFromParams(params: URLSearchParams, caps: DiscoverCategoryCaps): DiscoverFilters {
+  const type = caps.type ? parseType(params.get('type')) : null
+  const hideOwned = params.get('hide_owned') === '1'
+  if (caps.type && type === null) {
+    return { ...EMPTY_FILTERS, hideOwned }
+  }
   return {
     year: caps.year ? parseYear(params.get('year'), new Date()) : null,
     genres: parseGenres(params.get('genres')),
     sort: parseSort(params.get('sort')),
     rating: parseRating(params.get('rating')),
-    hideOwned: params.get('hide_owned') === '1',
-    type: caps.type ? parseType(params.get('type')) : null,
+    hideOwned,
+    type,
   }
 }
 
