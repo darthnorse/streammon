@@ -289,9 +289,14 @@ func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilte
 	params.Set("sort_by", sortBy)
 
 	if f.RatingGTE > 0 {
-		// Quantise to one decimal so near-identical client-supplied floats (7,
-		// 7.0000001, ...) collapse to the same cache key instead of forking it.
-		rating := math.Round(f.RatingGTE*10) / 10
+		// Quantise up to one decimal, never down: this is a minimum-rating
+		// filter, so rounding must not return titles below the requested floor
+		// or collapse a small positive rating to 0 and silently drop the
+		// filter. The inner Round to whole hundredths absorbs float noise
+		// (e.g. 7.9*10 == 79.00000000000001) before the Ceil, so an
+		// already-quantised value passes through exactly instead of picking up
+		// an artefact from the multiplication.
+		rating := math.Ceil(math.Round(f.RatingGTE*1000)/100) / 10
 		params.Set("vote_average.gte", strconv.FormatFloat(rating, 'f', -1, 64))
 	}
 	// Unreleased titles rarely have discoverMinVoteCount votes yet; the floor

@@ -434,6 +434,53 @@ func TestDiscoverRatingIsQuantised(t *testing.T) {
 	}
 }
 
+// RatingGTE is a minimum-rating filter: quantisation must never round down,
+// since that would either silently drop the filter (a positive rating
+// collapsing to 0) or return titles below the requested floor.
+func TestDiscoverRatingQuantisationRoundsUp(t *testing.T) {
+	cases := []struct {
+		name string
+		in   float64
+		want string
+	}{
+		{"near-zero rounds up, not down to a dropped filter", 0.01, "0.1"},
+		{"fractional rounds up to next decile, never below request", 7.94, "8"},
+		{"already-quantised integer passes through with no fp artefact", 7, "7"},
+		{"already-quantised decimal passes through with no fp artefact", 7.9, "7.9"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, q := discoverQueryFor(t, "movie", DiscoverFilters{RatingGTE: tc.in, Now: testNow}, 1)
+			if got := q.Get("vote_average.gte"); got != tc.want {
+				t.Fatalf("RatingGTE=%v: vote_average.gte got %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// Values that quantise to the same decile after rounding up must still share
+// one upstream call, or the fix for the rounding-direction bug would silently
+// reopen the cache-key cardinality problem the quantisation exists to bound.
+func TestDiscoverRatingQuantisationStillBoundsCacheKey(t *testing.T) {
+	s := newTestStore(t)
+	var calls int
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`{"page":1,"results":[]}`))
+	}), s)
+
+	if _, err := c.Discover(context.Background(), "movie", DiscoverFilters{RatingGTE: 7.01, Now: testNow}, 1); err != nil {
+		t.Fatalf("Discover(rating=7.01): %v", err)
+	}
+	if _, err := c.Discover(context.Background(), "movie", DiscoverFilters{RatingGTE: 7.09, Now: testNow}, 1); err != nil {
+		t.Fatalf("Discover(rating=7.09): %v", err)
+	}
+
+	if calls != 1 {
+		t.Fatalf("expected 1 upstream call for ratings quantising to the same decile, got %d", calls)
+	}
+}
+
 func TestDiscoverSortMapping(t *testing.T) {
 	cases := []struct{ mediaType, sort, want string }{
 		{"movie", "", "popularity.desc"},
