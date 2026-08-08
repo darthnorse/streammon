@@ -54,10 +54,13 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
   const { genres } = useTMDBGenres(mediaType)
   const disabled = caps.type && filters.type === null
 
+  // Keyed on the year rather than [] so a bar left mounted across New Year
+  // still offers the new year, without rebuilding the list every render.
+  const currentYear = new Date().getUTCFullYear()
   const yearOpts = useMemo<DropdownOption<string>[]>(() => [
     { value: '', label: 'Any year' },
     ...yearOptions(new Date()).map(year => ({ value: String(year), label: `${year} or newer` })),
-  ], [])
+  ], [currentYear])
 
   const genreOpts = useMemo<DropdownOption<string>[]>(
     () => genres.map(g => ({ value: String(g.id), label: g.name })),
@@ -111,7 +114,7 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
         )}
 
         {caps.year && (
-          <label className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <span className={labelClass}>Year</span>
             <Dropdown
               aria-label="Release year"
@@ -120,10 +123,10 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
               value={filters.year === null ? '' : String(filters.year)}
               onChange={value => onChange({ ...filters, year: value ? Number(value) : null })}
             />
-          </label>
+          </div>
         )}
 
-        <label className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <span className={labelClass}>Genres</span>
           <Dropdown
             multi
@@ -136,9 +139,9 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
             selected={filters.genres.map(String)}
             onChange={values => onChange({ ...filters, genres: values.map(Number) })}
           />
-        </label>
+        </div>
 
-        <label className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <span className={labelClass}>Sort</span>
           <Dropdown
             aria-label="Sort by"
@@ -147,9 +150,9 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
             value={filters.sort}
             onChange={value => onChange({ ...filters, sort: value })}
           />
-        </label>
+        </div>
 
-        <label className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <span className={labelClass}>Rating</span>
           <Dropdown
             aria-label="Minimum rating"
@@ -158,7 +161,7 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
             value={filters.rating === null ? '' : String(filters.rating)}
             onChange={value => onChange({ ...filters, rating: value ? Number(value) : null })}
           />
-        </label>
+        </div>
 
         <label className={`flex items-center gap-2 ${disabled ? '' : 'cursor-pointer'}`}>
           <ToggleSwitch

@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { DiscoverFilterBar } from '../components/DiscoverFilterBar'
-import { EMPTY_FILTERS, MAX_GENRES, categoryCaps, type DiscoverFilters } from '../lib/discoverFilters'
+import { EMPTY_FILTERS, MAX_GENRES, categoryCaps, yearOptions, type DiscoverFilters } from '../lib/discoverFilters'
 
 vi.mock('../lib/api', () => ({
   api: { get: vi.fn() },
@@ -54,10 +54,12 @@ describe('DiscoverFilterBar', () => {
     const user = userEvent.setup()
     const { onChange } = renderBar(tvCaps)
 
-    await user.click(screen.getByLabelText('Release year'))
-    await user.click(screen.getByText('2024 or newer'))
+    const year = yearOptions(new Date())[2]
 
-    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_FILTERS, year: 2024 })
+    await user.click(screen.getByLabelText('Release year'))
+    await user.click(screen.getByText(`${year} or newer`))
+
+    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_FILTERS, year })
   })
 
   it('emits a multi-genre selection', async () => {
@@ -155,6 +157,46 @@ describe('DiscoverFilterBar', () => {
 
     await user.click(toggle)
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('names every control without nesting labels', async () => {
+    const user = userEvent.setup()
+    const { container } = renderBar(tvCaps)
+
+    await user.click(screen.getByLabelText('Genres'))
+    await screen.findByRole('checkbox', { name: 'Drama' })
+
+    expect(container.querySelectorAll('label label')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Genres' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Release year' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Sort by' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Minimum rating' })).toBeDefined()
+    expect(screen.getByRole('switch', { name: 'Hide items in my library' })).toBeDefined()
+  })
+
+  it('refreshes the year options when the calendar year rolls over', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-06-01T00:00:00Z'))
+      // A fresh element each time: React bails out of re-rendering a component
+      // whose element is referentially identical to the previous one.
+      const bar = () => (
+        <DiscoverFilterBar caps={tvCaps} filters={EMPTY_FILTERS} onChange={() => {}} onClear={() => {}} activeCount={0} />
+      )
+      const { rerender } = render(bar())
+
+      fireEvent.click(screen.getByLabelText('Release year'))
+      expect(screen.queryByText('2027 or newer')).toBeNull()
+      fireEvent.click(screen.getByLabelText('Release year'))
+
+      vi.setSystemTime(new Date('2027-06-01T00:00:00Z'))
+      rerender(bar())
+
+      fireEvent.click(screen.getByLabelText('Release year'))
+      expect(screen.getByText('2027 or newer')).toBeDefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows a clear button only when filters are active', async () => {
