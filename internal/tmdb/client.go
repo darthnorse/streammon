@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/time/rate"
@@ -178,6 +180,92 @@ func (c *Client) GetCollection(ctx context.Context, id int) (json.RawMessage, er
 
 func (c *Client) GetTVGenres(ctx context.Context) (json.RawMessage, error) {
 	return c.cached(ctx, "genres:tv", "/genre/tv/list", nil)
+}
+
+const discoverMinVoteCount = 100
+
+// DiscoverFilters is the filter set for TMDB's /discover endpoints. Now is
+// injected rather than read from the clock so date-dependent behaviour is
+// deterministic under test; callers must pass a UTC time.
+type DiscoverFilters struct {
+	YearGTE   int
+	GenreIDs  []int
+	Sort      string
+	RatingGTE float64
+	Upcoming  bool
+	Region    string
+	Now       time.Time
+}
+
+func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilters, page int) (json.RawMessage, error) {
+	// releaseField is the series/film debut date, used for the year floor and the
+	// newest sort. upcomingField is what "upcoming" means for the type: a film's
+	// release, but for TV the next episode air date — mirroring /tv/on_the_air,
+	// which is about episodes, not premieres.
+	var releaseField, upcomingField string
+	switch mediaType {
+	case "movie":
+		releaseField, upcomingField = "primary_release_date", "primary_release_date"
+	case "tv":
+		releaseField, upcomingField = "first_air_date", "air_date"
+	default:
+		return nil, fmt.Errorf("invalid media type %q", mediaType)
+	}
+
+	params := url.Values{}
+	if page > 0 {
+		params.Set("page", strconv.Itoa(page))
+	}
+	// TMDB's /discover/tv has no region parameter.
+	if f.Region != "" && mediaType == "movie" {
+		params.Set("region", f.Region)
+	}
+
+	today := f.Now.UTC().Format("2006-01-02")
+	if f.Upcoming {
+		params.Set(upcomingField+".gte", today)
+	} else if f.YearGTE > 0 {
+		params.Set(releaseField+".gte", fmt.Sprintf("%d-01-01", f.YearGTE))
+	}
+
+	if len(f.GenreIDs) > 0 {
+		ids := make([]string, len(f.GenreIDs))
+		for i, id := range f.GenreIDs {
+			ids[i] = strconv.Itoa(id)
+		}
+		params.Set("with_genres", strings.Join(ids, ","))
+	}
+
+	sortBy := "popularity.desc"
+	switch f.Sort {
+	case "rating":
+		sortBy = "vote_average.desc"
+	case "newest":
+		sortBy = releaseField + ".desc"
+		// Without a ceiling, date-descending returns titles announced for years
+		// out ahead of anything actually released. Upcoming pages want exactly
+		// those, so they keep the open upper bound.
+		if !f.Upcoming {
+			params.Set(releaseField+".lte", today)
+		}
+	}
+	params.Set("sort_by", sortBy)
+
+	if f.RatingGTE > 0 {
+		params.Set("vote_average.gte", strconv.FormatFloat(f.RatingGTE, 'f', -1, 64))
+	}
+	if f.Sort == "rating" || f.RatingGTE > 0 {
+		params.Set("vote_count.gte", strconv.Itoa(discoverMinVoteCount))
+	}
+
+	// Encode sorts by key, so the key is stable for a given filter set and
+	// automatically covers every parameter above.
+	cacheKey := "discover:" + mediaType + ":" + params.Encode()
+	return c.cached(ctx, cacheKey, "/discover/"+mediaType, params)
+}
+
+func (c *Client) GetMovieGenres(ctx context.Context) (json.RawMessage, error) {
+	return c.cached(ctx, "genres:movie", "/genre/movie/list", nil)
 }
 
 func (c *Client) FetchTVStatuses(ctx context.Context, tmdbIDs []string) map[string]string {
