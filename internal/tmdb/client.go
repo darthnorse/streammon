@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -178,8 +181,9 @@ func (c *Client) GetCollection(ctx context.Context, id int) (json.RawMessage, er
 	return c.cached(ctx, fmt.Sprintf("collection:%d", id), fmt.Sprintf("/collection/%d", id), nil)
 }
 
-func (c *Client) GetTVGenres(ctx context.Context) (json.RawMessage, error) {
-	return c.cached(ctx, "genres:tv", "/genre/tv/list", nil)
+// GetGenres returns the genre list for mediaType ("movie" or "tv").
+func (c *Client) GetGenres(ctx context.Context, mediaType string) (json.RawMessage, error) {
+	return c.cached(ctx, "genres:"+mediaType, "/genre/"+mediaType+"/list", nil)
 }
 
 const discoverMinVoteCount = 100
@@ -229,8 +233,16 @@ func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilte
 	}
 
 	if len(f.GenreIDs) > 0 {
-		ids := make([]string, len(f.GenreIDs))
-		for i, id := range f.GenreIDs {
+		// AND filter, so order and duplicates are not semantically meaningful but
+		// would otherwise fork the cache key; canonicalise before formatting.
+		// Copy first — this must not mutate the caller's slice.
+		genreIDs := make([]int, len(f.GenreIDs))
+		copy(genreIDs, f.GenreIDs)
+		sort.Ints(genreIDs)
+		genreIDs = slices.Compact(genreIDs)
+
+		ids := make([]string, len(genreIDs))
+		for i, id := range genreIDs {
 			ids[i] = strconv.Itoa(id)
 		}
 		params.Set("with_genres", strings.Join(ids, ","))
@@ -252,7 +264,10 @@ func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilte
 	params.Set("sort_by", sortBy)
 
 	if f.RatingGTE > 0 {
-		params.Set("vote_average.gte", strconv.FormatFloat(f.RatingGTE, 'f', -1, 64))
+		// Quantise to one decimal so near-identical client-supplied floats (7,
+		// 7.0000001, ...) collapse to the same cache key instead of forking it.
+		rating := math.Round(f.RatingGTE*10) / 10
+		params.Set("vote_average.gte", strconv.FormatFloat(rating, 'f', -1, 64))
 	}
 	if f.Sort == "rating" || f.RatingGTE > 0 {
 		params.Set("vote_count.gte", strconv.Itoa(discoverMinVoteCount))
@@ -262,10 +277,6 @@ func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilte
 	// automatically covers every parameter above.
 	cacheKey := "discover:" + mediaType + ":" + params.Encode()
 	return c.cached(ctx, cacheKey, "/discover/"+mediaType, params)
-}
-
-func (c *Client) GetMovieGenres(ctx context.Context) (json.RawMessage, error) {
-	return c.cached(ctx, "genres:movie", "/genre/movie/list", nil)
 }
 
 func (c *Client) FetchTVStatuses(ctx context.Context, tmdbIDs []string) map[string]string {

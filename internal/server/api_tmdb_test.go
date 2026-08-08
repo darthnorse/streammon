@@ -325,8 +325,8 @@ func TestDiscoverFilteredSwitchesToDiscoverEndpoint(t *testing.T) {
 	if q.Get("first_air_date.gte") != "2024-01-01" {
 		t.Fatalf("year: got %q", q.Get("first_air_date.gte"))
 	}
-	if q.Get("with_genres") != "80,18" {
-		t.Fatalf("genres: got %q", q.Get("with_genres"))
+	if q.Get("with_genres") != "18,80" {
+		t.Fatalf("genres: got %q, want sorted 18,80", q.Get("with_genres"))
 	}
 	if q.Get("sort_by") != "vote_average.desc" {
 		t.Fatalf("sort: got %q", q.Get("sort_by"))
@@ -442,6 +442,20 @@ func TestDiscoverExplicitPopularitySortStaysCurated(t *testing.T) {
 	path, _ := captured()
 	if path != "/tv/popular" {
 		t.Fatalf("got upstream path %s, want /tv/popular", path)
+	}
+}
+
+// TMDB itself rejects pages above 500; without an upper clamp, page is an
+// unbounded, client-controlled input into the cache key.
+func TestDiscoverPageIsClampedTo500(t *testing.T) {
+	srv, captured := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/tv?year=2024&page=9999")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	_, q := captured()
+	if got := q.Get("page"); got != "500" {
+		t.Fatalf("page: got %q, want 500", got)
 	}
 }
 

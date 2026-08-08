@@ -327,8 +327,73 @@ func TestDiscoverYearFloor(t *testing.T) {
 
 func TestDiscoverGenresAreAnded(t *testing.T) {
 	_, q := discoverQueryFor(t, "movie", DiscoverFilters{GenreIDs: []int{80, 18}, Now: testNow}, 1)
-	if got := q.Get("with_genres"); got != "80,18" {
-		t.Fatalf("with_genres: got %q, want 80,18", got)
+	if got := q.Get("with_genres"); got != "18,80" {
+		t.Fatalf("with_genres: got %q, want 18,80 (sorted ascending)", got)
+	}
+}
+
+// Genre order is caller-controlled but semantically irrelevant to an AND
+// filter, so it must not fork the cache key or the upstream query.
+func TestDiscoverGenreOrderIsCanonicalised(t *testing.T) {
+	s := newTestStore(t)
+	var calls int
+	var gotQueries []url.Values
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		gotQueries = append(gotQueries, r.URL.Query())
+		w.Write([]byte(`{"page":1,"results":[]}`))
+	}), s)
+
+	orig := []int{80, 18}
+	if _, err := c.Discover(context.Background(), "movie", DiscoverFilters{GenreIDs: orig, Now: testNow}, 1); err != nil {
+		t.Fatalf("Discover([80,18]): %v", err)
+	}
+	if got := []int{80, 18}; orig[0] != got[0] || orig[1] != got[1] {
+		t.Fatalf("Discover must not mutate the caller's GenreIDs slice, got %v", orig)
+	}
+	if _, err := c.Discover(context.Background(), "movie", DiscoverFilters{GenreIDs: []int{18, 80}, Now: testNow}, 1); err != nil {
+		t.Fatalf("Discover([18,80]): %v", err)
+	}
+
+	if calls != 1 {
+		t.Fatalf("expected 1 upstream call for equivalent genre sets, got %d", calls)
+	}
+	for _, q := range gotQueries {
+		if got := q.Get("with_genres"); got != "18,80" {
+			t.Fatalf("with_genres: got %q, want stable sorted order 18,80", got)
+		}
+	}
+}
+
+// Duplicate genre IDs are semantically a single filter and must not create a
+// distinct cache key or upstream query from the single-ID case.
+func TestDiscoverGenreDuplicatesAreDeduped(t *testing.T) {
+	_, q := discoverQueryFor(t, "movie", DiscoverFilters{GenreIDs: []int{18, 18}, Now: testNow}, 1)
+	if got := q.Get("with_genres"); got != "18" {
+		t.Fatalf("with_genres: got %q, want 18 (deduped)", got)
+	}
+}
+
+// A rating filter is client-supplied with arbitrary float precision; without
+// quantisation each fractional variation would be a distinct, permanently
+// cached upstream call.
+func TestDiscoverRatingIsQuantised(t *testing.T) {
+	s := newTestStore(t)
+	var calls int
+	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`{"page":1,"results":[]}`))
+	}), s)
+
+	if _, err := c.Discover(context.Background(), "movie", DiscoverFilters{RatingGTE: 7, Now: testNow}, 1); err != nil {
+		t.Fatalf("Discover(rating=7): %v", err)
+	}
+	if _, err := c.Discover(context.Background(), "movie", DiscoverFilters{RatingGTE: 7.0000001, Now: testNow}, 1); err != nil {
+		t.Fatalf("Discover(rating=7.0000001): %v", err)
+	}
+
+	if calls != 1 {
+		t.Fatalf("expected 1 upstream call for equivalent ratings, got %d", calls)
 	}
 }
 
@@ -479,21 +544,29 @@ func TestDiscoverCacheKeyVariesByEveryInput(t *testing.T) {
 	}
 }
 
-func TestGetMovieGenres(t *testing.T) {
-	var gotPath string
-	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
-		w.Write([]byte(`{"genres":[{"id":80,"name":"Crime"}]}`))
-	}), newTestStore(t))
+func TestGetGenres(t *testing.T) {
+	cases := []struct {
+		mediaType, wantPath string
+	}{
+		{"movie", "/genre/movie/list"},
+		{"tv", "/genre/tv/list"},
+	}
+	for _, tc := range cases {
+		var gotPath string
+		c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			w.Write([]byte(`{"genres":[{"id":80,"name":"Crime"}]}`))
+		}), newTestStore(t))
 
-	data, err := c.GetMovieGenres(context.Background())
-	if err != nil {
-		t.Fatalf("GetMovieGenres: %v", err)
-	}
-	if gotPath != "/genre/movie/list" {
-		t.Fatalf("path: got %s", gotPath)
-	}
-	if !strings.Contains(string(data), "Crime") {
-		t.Fatalf("body: got %s", data)
+		data, err := c.GetGenres(context.Background(), tc.mediaType)
+		if err != nil {
+			t.Fatalf("GetGenres(%s): %v", tc.mediaType, err)
+		}
+		if gotPath != tc.wantPath {
+			t.Fatalf("%s: path: got %s, want %s", tc.mediaType, gotPath, tc.wantPath)
+		}
+		if !strings.Contains(string(data), "Crime") {
+			t.Fatalf("%s: body: got %s", tc.mediaType, data)
+		}
 	}
 }

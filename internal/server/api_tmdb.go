@@ -55,10 +55,18 @@ func (s *Server) tmdbRequired(next http.Handler) http.Handler {
 	})
 }
 
+// maxDiscoverPage mirrors TMDB's own ceiling: it rejects requests for pages
+// beyond 500. Without a clamp here, page is an unbounded, client-controlled
+// input into the cache key.
+const maxDiscoverPage = 500
+
 func parsePage(r *http.Request) int {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	if page < 1 {
 		page = 1
+	}
+	if page > maxDiscoverPage {
+		page = maxDiscoverPage
 	}
 	return page
 }
@@ -232,11 +240,13 @@ func (s *Server) handleTMDBDiscover(w http.ResponseWriter, r *http.Request) {
 	writeRawJSON(w, http.StatusOK, data)
 }
 
-func (s *Server) handleTMDBMovieGenres(w http.ResponseWriter, r *http.Request) {
+// serveTMDBRaw runs a no-arg TMDB client call under the standard timeout and
+// passes its result straight through, mapping any error to a 502.
+func (s *Server) serveTMDBRaw(w http.ResponseWriter, r *http.Request, fetch func(context.Context) (json.RawMessage, error)) {
 	ctx, cancel := context.WithTimeout(r.Context(), tmdbTimeout)
 	defer cancel()
 
-	data, err := s.tmdbClient.GetMovieGenres(ctx)
+	data, err := fetch(ctx)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
@@ -245,17 +255,14 @@ func (s *Server) handleTMDBMovieGenres(w http.ResponseWriter, r *http.Request) {
 	writeRawJSON(w, http.StatusOK, data)
 }
 
+func (s *Server) handleTMDBMovieGenres(w http.ResponseWriter, r *http.Request) {
+	s.serveTMDBRaw(w, r, func(ctx context.Context) (json.RawMessage, error) {
+		return s.tmdbClient.GetGenres(ctx, "movie")
+	})
+}
+
 func (s *Server) handleTMDBRegions(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), tmdbTimeout)
-	defer cancel()
-
-	data, err := s.tmdbClient.Regions(ctx)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "upstream service error")
-		return
-	}
-
-	writeRawJSON(w, http.StatusOK, data)
+	s.serveTMDBRaw(w, r, s.tmdbClient.Regions)
 }
 
 func injectMediaType(raw json.RawMessage, mediaType string) json.RawMessage {
@@ -439,16 +446,9 @@ func (s *Server) handleTMDBTVStatuses(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTMDBTVGenres(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), tmdbTimeout)
-	defer cancel()
-
-	data, err := s.tmdbClient.GetTVGenres(ctx)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "upstream service error")
-		return
-	}
-
-	writeRawJSON(w, http.StatusOK, data)
+	s.serveTMDBRaw(w, r, func(ctx context.Context) (json.RawMessage, error) {
+		return s.tmdbClient.GetGenres(ctx, "tv")
+	})
 }
 
 func (s *Server) handleLibraryTMDBIDs(w http.ResponseWriter, r *http.Request) {
