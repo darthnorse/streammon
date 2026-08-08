@@ -64,11 +64,15 @@ function parseType(raw: string | null): DiscoverMediaType | null {
   return raw === 'movie' || raw === 'tv' ? raw : null
 }
 
+const CANONICAL_DIGITS = /^[1-9]\d*$/
+
 function parseGenres(raw: string | null): number[] {
   if (!raw) return []
-  const ids = raw.split(',').map(part => Number(part))
-  if (ids.length > MAX_GENRES) return []
-  if (ids.some(id => !Number.isSafeInteger(id) || id <= 0 || id > MAX_GENRE_ID)) return []
+  const parts = raw.split(',')
+  if (parts.length > MAX_GENRES) return []
+  if (parts.some(part => !CANONICAL_DIGITS.test(part))) return []
+  const ids = parts.map(part => Number(part))
+  if (ids.some(id => !Number.isSafeInteger(id) || id > MAX_GENRE_ID)) return []
   return ids
 }
 

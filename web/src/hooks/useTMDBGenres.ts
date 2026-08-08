@@ -14,6 +14,10 @@ export function useTMDBGenres(mediaType: DiscoverMediaType | null) {
   const url = mediaType ? `/api/tmdb/genres/${mediaType}` : null
   const { data, dataUrl, loading } = useFetch<{ genres: TMDBGenre[] }>(url)
   if (!url) return { genres: EMPTY, loading: false }
-  const fresh = dataUrl === url
+  // dataUrl is optional only so pre-existing useFetch mocks (object literals
+  // that predate this field) keep compiling; real useFetch always sets it.
+  // When absent, fall back to the pre-dataUrl loading check instead of
+  // treating the mock as permanently stale.
+  const fresh = dataUrl === undefined ? !loading : dataUrl === url
   return { genres: fresh ? data?.genres ?? EMPTY : EMPTY, loading: loading || !fresh }
 }

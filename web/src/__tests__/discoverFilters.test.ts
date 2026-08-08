@@ -121,6 +121,15 @@ describe('filtersFromParams', () => {
   it('rejects a genre id far beyond Go int range', () => {
     expect(filtersFromParams(new URLSearchParams('genres=99999999999999999999'), tvCaps).genres).toEqual([])
   })
+
+  // Number() accepts exponential, hex, trailing-decimal, sign-prefixed, and
+  // whitespace-padded forms that Go's strconv.Atoi rejects, so a raw token
+  // must be canonical base-10 digits before conversion.
+  it('rejects genre ids that are not canonical base-10 digit strings', () => {
+    for (const raw of ['1e3', '0x50', '80.0', '+80', ' 80', '080']) {
+      expect(filtersFromParams(new URLSearchParams(`genres=${raw}`), tvCaps).genres).toEqual([])
+    }
+  })
 })
 
 // On a mixed category (caps.type === true), the backend 400s any filtered
