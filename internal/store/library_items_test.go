@@ -1454,6 +1454,44 @@ func TestGetLibraryTMDBIDs(t *testing.T) {
 	}
 }
 
+// TMDB numbers movies and TV independently, so the same numeric ID can be a
+// real movie and a real (unrelated) TV show. FindLibraryItemsByTMDBID must
+// only surface the match for the requested media type.
+func TestFindLibraryItemsByTMDBID_NamespacedByMediaType(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Movie 1399", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show1", MediaType: models.MediaTypeTV, Title: "Show 1399", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+
+	movieMatches, err := s.FindLibraryItemsByTMDBID(ctx, "1399", "movie")
+	if err != nil {
+		t.Fatalf("FindLibraryItemsByTMDBID movie: %v", err)
+	}
+	if len(movieMatches) != 1 || movieMatches[0].ItemID != "movie1" {
+		t.Fatalf("movie namespace: got %v, want exactly the movie1 match", movieMatches)
+	}
+
+	tvMatches, err := s.FindLibraryItemsByTMDBID(ctx, "1399", "tv")
+	if err != nil {
+		t.Fatalf("FindLibraryItemsByTMDBID tv: %v", err)
+	}
+	if len(tvMatches) != 1 || tvMatches[0].ItemID != "show1" {
+		t.Fatalf("tv namespace: got %v, want exactly the show1 match", tvMatches)
+	}
+}
+
 func TestUpsertLibraryItem_PersistsVideoDimensions(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

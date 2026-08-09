@@ -46,7 +46,10 @@ function getButtonLabel<T extends string>(props: DropdownProps<T>): string {
   if (props.label) return props.label
   if (props.options.length === 0) return ''
   const match = props.options.find(o => o.value === props.value)
-  return match ? match.label : ''
+  // An out-of-range value (a stale shared link, or an option list that has
+  // since aged out — see yearOptions) still falls back to the raw value
+  // rather than collapsing the trigger to a bare, unlabelled arrow.
+  return match ? match.label : String(props.value)
 }
 
 function MultiOption<T extends string>({ opt, checked, disabled, onToggle }: { opt: DropdownOption<T>; checked: boolean; disabled?: boolean; onToggle: (v: T) => void }) {

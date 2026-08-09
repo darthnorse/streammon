@@ -98,6 +98,16 @@ describe('filtersFromParams', () => {
     expect(filtersFromParams(params, trendingCaps)).toEqual(EMPTY_FILTERS)
   })
 
+  // The case above uses trendingCaps (caps.type === true), where type=person
+  // fails parseType and the mixed-category early return fires before parseYear,
+  // parseSort or parseRating ever run — so it doesn't actually exercise them.
+  // tvCaps has caps.type === false, so that early return cannot fire and every
+  // parser genuinely runs on the malformed input.
+  it('discards malformed values on a category with no type param to short-circuit on', () => {
+    const params = new URLSearchParams('year=abc&genres=drama,18&sort=sideways&rating=99&type=person')
+    expect(filtersFromParams(params, tvCaps)).toEqual(EMPTY_FILTERS)
+  })
+
   it('rejects rather than truncates an over-long genre list', () => {
     const tooMany = Array.from({ length: MAX_GENRES + 1 }, (_, i) => i + 1).join(',')
     expect(filtersFromParams(new URLSearchParams(`genres=${tooMany}`), tvCaps).genres).toEqual([])
@@ -247,6 +257,20 @@ describe('activeFilterCount', () => {
     const filters = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: false, type: null }
     expect(activeFilterCount(filters, trendingCaps)).toBe(0)
     expect(activeFilterCount({ ...filters, hideOwned: true }, trendingCaps)).toBe(1)
+  })
+
+  // URLSearchParams.prototype.size shipped in 2023 (Chrome 113 / Safari 17 /
+  // Firefox 112), newer than this project's Vite build target; Node always
+  // has it, so this simulates a browser without it to pin that the counting
+  // implementation never depends on it.
+  it('counts correctly even when the runtime has no URLSearchParams.size', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(URLSearchParams.prototype, 'size')
+    Object.defineProperty(URLSearchParams.prototype, 'size', { value: undefined, configurable: true })
+    try {
+      expect(activeFilterCount({ ...EMPTY_FILTERS, year: 2024, genres: [80, 18], hideOwned: true }, tvCaps)).toBe(3)
+    } finally {
+      Object.defineProperty(URLSearchParams.prototype, 'size', descriptor!)
+    }
   })
 })
 

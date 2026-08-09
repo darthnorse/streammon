@@ -128,6 +128,71 @@ func TestTMDBMovie(t *testing.T) {
 	})
 }
 
+// TMDB numbers movies and TV independently, so a movie and an unrelated TV
+// show can legitimately share the same numeric TMDB ID. The Discover card
+// already qualifies ownership by media type; the detail envelope's
+// library_items must agree, not surface the other namespace's match.
+func TestTMDBEnvelope_NamespacedByMediaType(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	mockSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/tv/") {
+			w.Write([]byte(`{"id":1399,"name":"Show 1399"}`))
+			return
+		}
+		w.Write([]byte(`{"id":1399,"title":"Movie 1399"}`))
+	}))
+	t.Cleanup(mockSrv.Close)
+	srv.tmdbClient = tmdb.NewWithBaseURL("test-key", st, mockSrv.URL)
+
+	if err := st.CreateServer(&models.Server{
+		Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	if _, err := st.UpsertLibraryItems(context.Background(), []models.LibraryItemCache{
+		{ServerID: 1, LibraryID: "1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Movie 1399", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+		{ServerID: 1, LibraryID: "2", ItemID: "show1", MediaType: models.MediaTypeTV, Title: "Show 1399", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("movie envelope only matches the movie item", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/tmdb/movie/1399", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var envelope tmdbEnvelope
+		if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(envelope.LibraryItems) != 1 || envelope.LibraryItems[0].ItemID != "movie1" {
+			t.Fatalf("got %v, want exactly the movie1 match", envelope.LibraryItems)
+		}
+	})
+
+	t.Run("tv envelope only matches the tv item", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/tmdb/tv/1399", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var envelope tmdbEnvelope
+		if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(envelope.LibraryItems) != 1 || envelope.LibraryItems[0].ItemID != "show1" {
+			t.Fatalf("got %v, want exactly the show1 match", envelope.LibraryItems)
+		}
+	})
+}
+
 func TestTMDBPerson(t *testing.T) {
 	expected := `{"id":6789,"name":"Actor"}`
 	srv, _ := newTestServerWithTMDB(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -626,12 +626,18 @@ type LibraryMatch struct {
 	ItemID     string `json:"item_id"`
 }
 
-func (s *Store) FindLibraryItemsByTMDBID(ctx context.Context, tmdbID string) ([]LibraryMatch, error) {
+// FindLibraryItemsByTMDBID returns owned library items whose TMDB ID matches
+// tmdbID AND whose media type falls in the same TMDB namespace ("movie" or
+// "tv") as mediaType. TMDB numbers movies and TV independently, so without
+// this filter a movie and an unrelated TV show that happen to share a
+// numeric ID would both match. Uses the same tmdbNamespace mapping as
+// GetLibraryTMDBIDs rather than a second, divergent one.
+func (s *Store) FindLibraryItemsByTMDBID(ctx context.Context, tmdbID string, mediaType string) ([]LibraryMatch, error) {
 	if tmdbID == "" {
 		return []LibraryMatch{}, nil
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT li.server_id, srv.name, li.item_id FROM library_items li
+		`SELECT li.server_id, srv.name, li.item_id, li.media_type FROM library_items li
 		JOIN servers srv ON li.server_id = srv.id
 		WHERE li.tmdb_id = ? AND srv.deleted_at IS NULL`, tmdbID)
 	if err != nil {
@@ -642,8 +648,12 @@ func (s *Store) FindLibraryItemsByTMDBID(ctx context.Context, tmdbID string) ([]
 	var matches []LibraryMatch
 	for rows.Next() {
 		var m LibraryMatch
-		if err := rows.Scan(&m.ServerID, &m.ServerName, &m.ItemID); err != nil {
+		var itemMediaType string
+		if err := rows.Scan(&m.ServerID, &m.ServerName, &m.ItemID, &itemMediaType); err != nil {
 			return nil, fmt.Errorf("scan library match: %w", err)
+		}
+		if tmdbNamespace(itemMediaType) != mediaType {
+			continue
 		}
 		matches = append(matches, m)
 	}

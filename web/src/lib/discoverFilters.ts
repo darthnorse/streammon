@@ -141,8 +141,11 @@ export function filtersToQuery(filters: DiscoverFilters, caps: DiscoverCategoryC
 // to apiParams alone cannot silently under-count the badge. This intentionally
 // undercounts genres beyond MAX_GENRES and any server-side filter on a mixed
 // category with no type set, matching what apiParams actually sends.
+// Array.from(...).length rather than URLSearchParams.size: .size shipped in
+// 2023 (Chrome 113 / Safari 17 / Firefox 112), newer than this project's Vite
+// build target, and Safari 16 and below would resolve it to undefined.
 export function activeFilterCount(filters: DiscoverFilters, caps: DiscoverCategoryCaps): number {
-  return filtersToParams(filters, caps).size
+  return Array.from(filtersToParams(filters, caps).keys()).length
 }
 
 // Genre IDs differ between movie and TV, and the backend rejects server-side

@@ -233,6 +233,35 @@ describe('Dropdown', () => {
       )
       expect(screen.getByRole('button', { name: 'Genres' })).toBeDefined()
     })
+
+    // A hand-edited or shared link, or an option list that has since aged out
+    // (e.g. discoverFilters.yearOptions rolling forward a year), can carry a
+    // value with no matching option. The trigger must still show and
+    // announce that raw value rather than collapsing to a bare arrow.
+    it('shows the raw value for a year not present in the option list', () => {
+      const yearOptions = [
+        { value: '2026', label: '2026 or newer' },
+        { value: '2025', label: '2025 or newer' },
+        { value: '2020', label: '2020 or newer' },
+      ]
+      renderWithRouter(
+        <Dropdown options={yearOptions} value="2022" onChange={() => {}} aria-label="Release year" />
+      )
+      expect(screen.getByRole('button', { name: 'Release year: 2022' })).toBeDefined()
+    })
+
+    it('shows the raw value for a rating not present in the option list', () => {
+      const ratingOptions = [
+        { value: '6', label: '6+ rating' },
+        { value: '7', label: '7+ rating' },
+        { value: '8', label: '8+ rating' },
+        { value: '9', label: '9+ rating' },
+      ]
+      renderWithRouter(
+        <Dropdown options={ratingOptions} value="7.5" onChange={() => {}} aria-label="Minimum rating" />
+      )
+      expect(screen.getByRole('button', { name: 'Minimum rating: 7.5' })).toBeDefined()
+    })
   })
 
   describe('disabled', () => {

@@ -322,7 +322,7 @@ func (s *Server) handleTMDBMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeTMDBEnvelope(w, r, data, strconv.Itoa(id))
+	s.writeTMDBEnvelope(w, r, data, strconv.Itoa(id), "movie")
 }
 
 func (s *Server) handleTMDBTV(w http.ResponseWriter, r *http.Request) {
@@ -341,11 +341,14 @@ func (s *Server) handleTMDBTV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.writeTMDBEnvelope(w, r, data, strconv.Itoa(id))
+	s.writeTMDBEnvelope(w, r, data, strconv.Itoa(id), "tv")
 }
 
-func (s *Server) writeTMDBEnvelope(w http.ResponseWriter, r *http.Request, tmdbData json.RawMessage, tmdbID string) {
-	matches, err := s.store.FindLibraryItemsByTMDBID(r.Context(), tmdbID)
+// mediaType is the TMDB namespace ("movie" or "tv") the caller already knows
+// this ID belongs to, so the library lookup cannot cross-match the other
+// namespace's item with the same numeric ID.
+func (s *Server) writeTMDBEnvelope(w http.ResponseWriter, r *http.Request, tmdbData json.RawMessage, tmdbID string, mediaType string) {
+	matches, err := s.store.FindLibraryItemsByTMDBID(r.Context(), tmdbID, mediaType)
 	if err != nil {
 		log.Printf("WARN: FindLibraryItemsByTMDBID tmdb=%s: %v", tmdbID, err)
 		matches = nil
