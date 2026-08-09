@@ -101,7 +101,14 @@ func (s *Server) handleGetItemDetails(w http.ResponseWriter, r *http.Request) {
 
 	var history []models.WatchHistoryEntry
 	if tmdbID != "" {
-		matches, mErr := s.store.FindLibraryItemsByTMDBID(r.Context(), tmdbID)
+		// level is "movie" or one of "show"/"season"/"episode" (all TV) by this
+		// point, so the TMDB namespace is known — pass it so a movie and an
+		// unrelated TV show sharing this numeric TMDB ID cannot cross-match.
+		matchMediaType := "tv"
+		if level == "movie" {
+			matchMediaType = "movie"
+		}
+		matches, mErr := s.store.FindLibraryItemsByTMDBID(r.Context(), tmdbID, matchMediaType)
 		if mErr != nil {
 			log.Printf("WARN: FindLibraryItemsByTMDBID tmdb=%s: %v", tmdbID, mErr)
 		} else if len(matches) > 0 {

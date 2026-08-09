@@ -1,13 +1,18 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"streammon/internal/models"
 	"streammon/internal/tmdb"
 )
 
@@ -119,6 +124,71 @@ func TestTMDBMovie(t *testing.T) {
 
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400, got %d", w.Code)
+		}
+	})
+}
+
+// TMDB numbers movies and TV independently, so a movie and an unrelated TV
+// show can legitimately share the same numeric TMDB ID. The Discover card
+// already qualifies ownership by media type; the detail envelope's
+// library_items must agree, not surface the other namespace's match.
+func TestTMDBEnvelope_NamespacedByMediaType(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	mockSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/tv/") {
+			w.Write([]byte(`{"id":1399,"name":"Show 1399"}`))
+			return
+		}
+		w.Write([]byte(`{"id":1399,"title":"Movie 1399"}`))
+	}))
+	t.Cleanup(mockSrv.Close)
+	srv.tmdbClient = tmdb.NewWithBaseURL("test-key", st, mockSrv.URL)
+
+	if err := st.CreateServer(&models.Server{
+		Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	if _, err := st.UpsertLibraryItems(context.Background(), []models.LibraryItemCache{
+		{ServerID: 1, LibraryID: "1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Movie 1399", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+		{ServerID: 1, LibraryID: "2", ItemID: "show1", MediaType: models.MediaTypeTV, Title: "Show 1399", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("movie envelope only matches the movie item", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/tmdb/movie/1399", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var envelope tmdbEnvelope
+		if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(envelope.LibraryItems) != 1 || envelope.LibraryItems[0].ItemID != "movie1" {
+			t.Fatalf("got %v, want exactly the movie1 match", envelope.LibraryItems)
+		}
+	})
+
+	t.Run("tv envelope only matches the tv item", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/api/tmdb/tv/1399", nil)
+		w := httptest.NewRecorder()
+		srv.ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+		var envelope tmdbEnvelope
+		if err := json.NewDecoder(w.Body).Decode(&envelope); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if len(envelope.LibraryItems) != 1 || envelope.LibraryItems[0].ItemID != "show1" {
+			t.Fatalf("got %v, want exactly the show1 match", envelope.LibraryItems)
 		}
 	})
 }
@@ -242,6 +312,268 @@ func TestTMDBTVStatuses(t *testing.T) {
 	})
 }
 
+// captureDiscoverQuery serves any TMDB request with the given body and records
+// the last path+query the handler produced.
+func captureDiscoverQuery(t *testing.T, body string) (*testServer, func() (string, url.Values)) {
+	t.Helper()
+	var mu sync.Mutex
+	var path string
+	var query url.Values
+	srv, _ := newTestServerWithTMDB(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		path = r.URL.Path
+		query = r.URL.Query()
+		mu.Unlock()
+		w.Write([]byte(body))
+	}))
+	return srv, func() (string, url.Values) {
+		mu.Lock()
+		defer mu.Unlock()
+		return path, query
+	}
+}
+
+const discoverStubBody = `{"page":1,"results":[{"id":1,"title":"X"}],"total_pages":1}`
+
+func getDiscover(t *testing.T, srv *testServer, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	return w
+}
+
+func TestDiscoverUnfilteredUsesCuratedEndpoints(t *testing.T) {
+	cases := map[string]string{
+		"trending":        "/trending/all/week",
+		"movies":          "/movie/popular",
+		"movies/upcoming": "/movie/upcoming",
+		"tv":              "/tv/popular",
+		"tv/upcoming":     "/tv/on_the_air",
+	}
+	for category, wantPath := range cases {
+		srv, captured := captureDiscoverQuery(t, discoverStubBody)
+		w := getDiscover(t, srv, "/api/tmdb/discover/"+category+"?page=1")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d: %s", category, w.Code, w.Body.String())
+		}
+		path, _ := captured()
+		if path != wantPath {
+			t.Fatalf("%s: got upstream path %s, want %s", category, path, wantPath)
+		}
+	}
+}
+
+// Trending is the one category whose body is passed through untouched. Odd
+// spacing and key order prove no re-marshalling happens.
+func TestDiscoverTrendingUnfilteredIsByteIdentical(t *testing.T) {
+	body := `{"results":[ {"media_type":"movie","id":1} ],  "page":1}`
+	srv, _ := captureDiscoverQuery(t, body)
+
+	w := getDiscover(t, srv, "/api/tmdb/discover/trending?page=1")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if w.Body.String() != body {
+		t.Fatalf("body was rewritten:\n got %s\nwant %s", w.Body.String(), body)
+	}
+}
+
+func TestDiscoverFilteredSwitchesToDiscoverEndpoint(t *testing.T) {
+	srv, captured := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/tv?year=2024&genres=80,18&sort=rating&rating=7")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	path, q := captured()
+	if path != "/discover/tv" {
+		t.Fatalf("got upstream path %s, want /discover/tv", path)
+	}
+	if q.Get("first_air_date.gte") != "2024-01-01" {
+		t.Fatalf("year: got %q", q.Get("first_air_date.gte"))
+	}
+	if q.Get("with_genres") != "18,80" {
+		t.Fatalf("genres: got %q, want sorted 18,80", q.Get("with_genres"))
+	}
+	if q.Get("sort_by") != "vote_average.desc" {
+		t.Fatalf("sort: got %q", q.Get("sort_by"))
+	}
+	if q.Get("vote_average.gte") != "7" {
+		t.Fatalf("rating: got %q", q.Get("vote_average.gte"))
+	}
+}
+
+func TestDiscoverFilteredInjectsMediaType(t *testing.T) {
+	srv, _ := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/trending?type=movie&year=2024")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"media_type":"movie"`) {
+		t.Fatalf("expected media_type injected, got %s", w.Body.String())
+	}
+}
+
+func TestDiscoverTrendingTypeAlonePreservesTrending(t *testing.T) {
+	cases := map[string]string{
+		"movie": "/trending/movie/week",
+		"tv":    "/trending/tv/week",
+	}
+	for typeParam, wantPath := range cases {
+		srv, captured := captureDiscoverQuery(t, discoverStubBody)
+		w := getDiscover(t, srv, "/api/tmdb/discover/trending?type="+typeParam)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d: %s", typeParam, w.Code, w.Body.String())
+		}
+		path, _ := captured()
+		if path != wantPath {
+			t.Fatalf("%s: type alone must preserve trending: got upstream path %s, want %s", typeParam, path, wantPath)
+		}
+		if !strings.Contains(w.Body.String(), `"media_type":"`+typeParam+`"`) {
+			t.Fatalf("%s: expected media_type injected, got %s", typeParam, w.Body.String())
+		}
+	}
+}
+
+func TestDiscoverTrendingTypeWithFilterUsesDiscover(t *testing.T) {
+	srv, captured := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/trending?type=movie&year=2024")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	path, _ := captured()
+	if path != "/discover/movie" {
+		t.Fatalf("type+filter must use discover: got upstream path %s", path)
+	}
+}
+
+func TestDiscoverTrendingFiltersRequireType(t *testing.T) {
+	srv, _ := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/trending?year=2024")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDiscoverTypeRejectedOnNonTrending(t *testing.T) {
+	srv, _ := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/tv?type=movie")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestDiscoverUpcomingRejectsYear(t *testing.T) {
+	for _, category := range []string{"movies/upcoming", "tv/upcoming"} {
+		srv, _ := captureDiscoverQuery(t, discoverStubBody)
+		w := getDiscover(t, srv, "/api/tmdb/discover/"+category+"?year=2024")
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("%s: expected 400, got %d", category, w.Code)
+		}
+	}
+}
+
+func TestDiscoverUpcomingFilteredKeepsFutureFloor(t *testing.T) {
+	cases := []struct{ category, path, field string }{
+		{"movies/upcoming", "/discover/movie", "primary_release_date.gte"},
+		{"tv/upcoming", "/discover/tv", "air_date.gte"},
+	}
+	for _, tc := range cases {
+		srv, captured := captureDiscoverQuery(t, discoverStubBody)
+		w := getDiscover(t, srv, "/api/tmdb/discover/"+tc.category+"?genres=28")
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d: %s", tc.category, w.Code, w.Body.String())
+		}
+		path, q := captured()
+		if path != tc.path {
+			t.Fatalf("%s: got upstream path %s, want %s", tc.category, path, tc.path)
+		}
+		if q.Get(tc.field) == "" {
+			t.Fatalf("%s: expected a %s floor, query was %v", tc.category, tc.field, q)
+		}
+	}
+}
+
+func TestDiscoverRejectsInvalidFilters(t *testing.T) {
+	cases := []string{
+		"/api/tmdb/discover/tv?sort=alphabetical",
+		"/api/tmdb/discover/tv?genres=drama",
+		"/api/tmdb/discover/tv?genres=80,,18",
+		"/api/tmdb/discover/tv?genres=80,18,35,28,12,99",
+		"/api/tmdb/discover/tv?rating=11",
+		"/api/tmdb/discover/tv?rating=0",
+		"/api/tmdb/discover/tv?rating=abc",
+		// ParseFloat accepts NaN, and NaN fails every ordinary bounds comparison.
+		"/api/tmdb/discover/tv?rating=NaN",
+		"/api/tmdb/discover/tv?year=1500",
+		"/api/tmdb/discover/tv?year=abc",
+		// A future floor is unsatisfiable and, with sort=newest, self-contradictory.
+		"/api/tmdb/discover/tv?year=2999",
+		"/api/tmdb/discover/trending?type=person&year=2024",
+	}
+	for _, target := range cases {
+		srv, _ := captureDiscoverQuery(t, discoverStubBody)
+		w := getDiscover(t, srv, target)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("%s: expected 400, got %d", target, w.Code)
+		}
+	}
+}
+
+// popularity is the default, so naming it explicitly narrows nothing.
+func TestDiscoverExplicitPopularitySortStaysCurated(t *testing.T) {
+	srv, captured := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/tv?sort=popularity")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	path, _ := captured()
+	if path != "/tv/popular" {
+		t.Fatalf("got upstream path %s, want /tv/popular", path)
+	}
+}
+
+// TMDB itself rejects pages above 500; without an upper clamp, page is an
+// unbounded, client-controlled input into the cache key.
+func TestDiscoverPageIsClampedTo500(t *testing.T) {
+	srv, captured := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/tv?year=2024&page=9999")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	_, q := captured()
+	if got := q.Get("page"); got != "500" {
+		t.Fatalf("page: got %q, want 500", got)
+	}
+}
+
+func TestDiscoverUnknownCategoryStill404(t *testing.T) {
+	srv, _ := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/nope?year=2024")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+}
+
+func TestMovieGenresEndpoint(t *testing.T) {
+	expected := `{"genres":[{"id":80,"name":"Crime"}]}`
+	srv, _ := newTestServerWithTMDB(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/genre/movie/list" {
+			t.Errorf("got path %s", r.URL.Path)
+		}
+		w.Write([]byte(expected))
+	}))
+
+	w := getDiscover(t, srv, "/api/tmdb/genres/movie")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if w.Body.String() != expected {
+		t.Fatalf("got %s", w.Body.String())
+	}
+}
+
 func TestTMDBNoClient(t *testing.T) {
 	srv, _ := newTestServerWrapped(t)
 
@@ -251,5 +583,62 @@ func TestTMDBNoClient(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 when no TMDB client, got %d", w.Code)
+	}
+}
+
+func TestLibraryTMDBIDsAPI(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	ctx := context.Background()
+
+	if err := st.CreateServer(&models.Server{
+		Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	if _, err := st.UpsertLibraryItems(ctx, []models.LibraryItemCache{
+		{ServerID: 1, LibraryID: "1", ItemID: "m1", MediaType: models.MediaTypeMovie, Title: "Movie", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+		{ServerID: 1, LibraryID: "2", ItemID: "s1", MediaType: models.MediaTypeTV, Title: "Show", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/library/tmdb-ids", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := map[string]bool{"movie:1399": true, "tv:1399": true}
+	if len(got.IDs) != len(want) {
+		t.Fatalf("got %v, want %d media-type-qualified keys", got.IDs, len(want))
+	}
+	for _, id := range got.IDs {
+		if !want[id] {
+			t.Errorf("unexpected key %q in %v", id, got.IDs)
+		}
+	}
+}
+
+func TestLibraryTMDBIDsAPI_EmptyIsArray(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/library/tmdb-ids", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.TrimSpace(w.Body.String()) != `{"ids":[]}` {
+		t.Fatalf("got %s, want {\"ids\":[]}", w.Body.String())
 	}
 }

@@ -211,4 +211,89 @@ describe('Dropdown', () => {
       expect(screen.queryByLabelText('Alpha')).toBeNull()
     })
   })
+
+  describe('accessible name', () => {
+    it('names the trigger with the field and its current value', () => {
+      renderWithRouter(
+        <Dropdown options={options} value="b" onChange={() => {}} aria-label="Sort by" />
+      )
+      expect(screen.getByRole('button', { name: 'Sort by: Beta' })).toBeDefined()
+    })
+
+    it('names a multi trigger with its selection summary', () => {
+      renderWithRouter(
+        <Dropdown multi options={options} selected={['a', 'b']} onChange={() => {}} aria-label="Genres" />
+      )
+      expect(screen.getByRole('button', { name: 'Genres: 2 selected' })).toBeDefined()
+    })
+
+    it('falls back to the field alone when there is no value to announce', () => {
+      renderWithRouter(
+        <Dropdown options={[]} value="" onChange={() => {}} aria-label="Genres" />
+      )
+      expect(screen.getByRole('button', { name: 'Genres' })).toBeDefined()
+    })
+
+    // A hand-edited or shared link, or an option list that has since aged out
+    // (e.g. discoverFilters.yearOptions rolling forward a year), can carry a
+    // value with no matching option. The trigger must still show and
+    // announce that raw value rather than collapsing to a bare arrow.
+    it('shows the raw value for a year not present in the option list', () => {
+      const yearOptions = [
+        { value: '2026', label: '2026 or newer' },
+        { value: '2025', label: '2025 or newer' },
+        { value: '2020', label: '2020 or newer' },
+      ]
+      renderWithRouter(
+        <Dropdown options={yearOptions} value="2022" onChange={() => {}} aria-label="Release year" />
+      )
+      expect(screen.getByRole('button', { name: 'Release year: 2022' })).toBeDefined()
+    })
+
+    it('shows the raw value for a rating not present in the option list', () => {
+      const ratingOptions = [
+        { value: '6', label: '6+ rating' },
+        { value: '7', label: '7+ rating' },
+        { value: '8', label: '8+ rating' },
+        { value: '9', label: '9+ rating' },
+      ]
+      renderWithRouter(
+        <Dropdown options={ratingOptions} value="7.5" onChange={() => {}} aria-label="Minimum rating" />
+      )
+      expect(screen.getByRole('button', { name: 'Minimum rating: 7.5' })).toBeDefined()
+    })
+  })
+
+  describe('disabled', () => {
+    const view = (disabled: boolean) => (
+      <Dropdown options={options} value="a" onChange={() => {}} aria-label="Kind" disabled={disabled} />
+    )
+    const trigger = () => screen.getAllByRole('button')[0]
+
+    it('collapses when it becomes disabled and stays closed when re-enabled', () => {
+      const { rerender } = renderWithRouter(view(false))
+
+      fireEvent.click(trigger())
+      expect(trigger().getAttribute('aria-expanded')).toBe('true')
+      expect(screen.getByText('Gamma')).toBeDefined()
+
+      rerender(view(true))
+      expect(trigger().getAttribute('aria-expanded')).toBe('false')
+      expect(screen.queryByText('Gamma')).toBeNull()
+
+      rerender(view(false))
+      expect(trigger().getAttribute('aria-expanded')).toBe('false')
+      expect(screen.queryByText('Gamma')).toBeNull()
+    })
+
+    it('reopens on a click after being re-enabled', () => {
+      const { rerender } = renderWithRouter(view(false))
+      fireEvent.click(trigger())
+      rerender(view(true))
+      rerender(view(false))
+
+      fireEvent.click(trigger())
+      expect(screen.getByText('Gamma')).toBeDefined()
+    })
+  })
 })
