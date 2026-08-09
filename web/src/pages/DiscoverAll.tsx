@@ -7,6 +7,9 @@ import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
 import { ModalStackRenderer } from '../components/ModalStackRenderer'
 import { EmptyState } from '../components/EmptyState'
+import { DiscoverFilterBar } from '../components/DiscoverFilterBar'
+import { useDiscoverFilters } from '../hooks/useDiscoverFilters'
+import { categoryCaps, type DiscoverCategoryCaps } from '../lib/discoverFilters'
 import type { TMDBMediaResult } from '../types'
 
 function ErrorBanner({ message }: { message: string }) {
@@ -33,24 +36,34 @@ function findCategory(path: string) {
   return DISCOVER_CATEGORIES.find(c => c.path === path)
 }
 
+// caps is null only for an unknown category, which returns early; a module-level
+// fallback keeps the hook call unconditional without churning its memo identity.
+const EMPTY_CAPS: DiscoverCategoryCaps = { year: false, type: false, mediaType: null }
+
 export function DiscoverAll() {
   const { '*': splat } = useParams()
   const category = splat ?? ''
   const cat = findCategory(category)
-  const valid = !!cat
+  const caps = categoryCaps(category)
   const title = cat?.title ?? category
 
   const { stack, push: pushModal, pop: popModal } = useModalStack()
 
   const { overseerrConfigured, libraryIds, mediaStatuses } = useDiscoverData()
+  const { filters, setFilters, clear, apiQuery, activeCount } = useDiscoverFilters(caps ?? EMPTY_CAPS)
 
-  const url = valid ? `/api/tmdb/discover/${category}` : null
+  const url = cat && caps ? `/api/tmdb/discover/${category}${apiQuery ? `?${apiQuery}` : ''}` : null
   const { items, loading, loadingMore, hasMore, error, sentinelRef, capped, loadMore } =
     useInfiniteFetch<TMDBMediaResult>(url, 20, 'page')
 
-  const filtered = items.filter(isSelectableMedia)
+  const filtered = items.filter(
+    item => isSelectableMedia(item) && !(filters.hideOwned && libraryIds.has(String(item.id))),
+  )
+  // Hide-owned can empty a page entirely, so "no results" is only true once
+  // there is nothing left to fetch or auto-fill has been capped.
+  const exhausted = !hasMore || capped
 
-  if (!valid) {
+  if (!cat || !caps) {
     return (
       <div>
         <div className="flex items-center gap-3 mb-6">
@@ -69,40 +82,63 @@ export function DiscoverAll() {
         <h1 className="text-2xl font-semibold">{title}</h1>
       </div>
 
+      <DiscoverFilterBar
+        caps={caps}
+        filters={filters}
+        onChange={setFilters}
+        onClear={clear}
+        activeCount={activeCount}
+      />
+
       {loading && <EmptyState icon="&#8635;" title="Loading..." />}
 
       {!loading && error && filtered.length === 0 && <ErrorBanner message={error} />}
 
-      {!loading && !error && filtered.length === 0 && (
-        <EmptyState icon="&#128270;" title="No results" description="Nothing found in this category." />
+      {!loading && !error && filtered.length === 0 && exhausted && (
+        activeCount > 0 ? (
+          <EmptyState
+            icon="&#128270;"
+            title="No results match your filters"
+            description="Try widening the year range or removing a genre."
+          >
+            <button type="button" onClick={clear} className={loadMoreBtnClass}>
+              Clear all filters
+            </button>
+          </EmptyState>
+        ) : (
+          <EmptyState icon="&#128270;" title="No results" description="Nothing found in this category." />
+        )
       )}
 
       {filtered.length > 0 && (
+        <div className={MEDIA_GRID_CLASS}>
+          {filtered.map(item => (
+            <MediaCard
+              key={`${item.media_type}-${item.id}`}
+              item={item}
+              onClick={() => pushModal({ type: 'tmdb', mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
+              available={libraryIds.has(String(item.id))}
+              fallbackMediaStatus={mediaStatuses.get(`${item.media_type}:${item.id}`)}
+            />
+          ))}
+        </div>
+      )}
+
+      {!loading && (
         <>
-          <div className={MEDIA_GRID_CLASS}>
-            {filtered.map(item => (
-              <MediaCard
-                key={`${item.media_type}-${item.id}`}
-                item={item}
-                onClick={() => pushModal({ type: 'tmdb', mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
-                available={libraryIds.has(String(item.id))}
-                fallbackMediaStatus={mediaStatuses.get(`${item.media_type}:${item.id}`)}
-              />
-            ))}
-          </div>
           <div ref={sentinelRef} />
           {loadingMore && (
             <div className="flex justify-center py-6">
               <div className="h-6 w-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
             </div>
           )}
-          {error && <ErrorBanner message={error} />}
+          {error && filtered.length > 0 && <ErrorBanner message={error} />}
           {capped && hasMore && !loadingMore && !error && (
             <div className="flex justify-center py-4">
               <button onClick={loadMore} className={loadMoreBtnClass}>Load more</button>
             </div>
           )}
-          {!hasMore && !error && (
+          {!hasMore && !error && filtered.length > 0 && (
             <p className="text-center text-sm text-muted dark:text-muted-dark py-4">No more results</p>
           )}
         </>

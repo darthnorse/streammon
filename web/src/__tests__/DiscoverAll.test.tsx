@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { DiscoverAll } from '../pages/DiscoverAll'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupIntersectionObserver } from './helpers/mockIntersectionObserver'
@@ -41,6 +42,7 @@ function renderAtRoute(path: string) {
 function mockGetHandler(handler: (url: string) => unknown) {
   mockApi.get.mockImplementation(((url: string) => {
     if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: [] })
+    if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
     const result = handler(url)
     return result instanceof Error ? Promise.reject(result) : Promise.resolve(result)
   }) as typeof api.get)
@@ -217,5 +219,121 @@ describe('DiscoverAll', () => {
       expect(screen.getByText('Trending Movie')).toBeDefined()
     })
     expect(screen.queryByText('Famous Person')).toBeNull()
+  })
+
+  it('sends filter params to the API', async () => {
+    mockGetHandler(url => (url.startsWith('/api/tmdb/discover/tv') ? page1Response : null))
+
+    renderAtRoute('/discover/tv?year=2024&genres=80,18')
+
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith(
+        '/api/tmdb/discover/tv?year=2024&genres=80%2C18&page=1',
+        expect.any(AbortSignal),
+      )
+    })
+  })
+
+  it('omits filter params when no filter is set', async () => {
+    mockGetHandler(url => (url.startsWith('/api/tmdb/discover/tv') ? page1Response : null))
+
+    renderAtRoute('/discover/tv')
+
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith('/api/tmdb/discover/tv?page=1', expect.any(AbortSignal))
+    })
+  })
+
+  // Guards the whole bar -> hook -> URL -> request chain, which the component
+  // and hook tests each only cover one link of.
+  it('refetches page 1 when a filter is changed in the UI', async () => {
+    const user = userEvent.setup()
+    mockApi.get.mockImplementation(((url: string) => {
+      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: [] })
+      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [{ id: 80, name: 'Crime' }] })
+      return Promise.resolve(page1Response)
+    }) as typeof api.get)
+
+    renderAtRoute('/discover/tv')
+    await waitFor(() => expect(screen.getByText('Trending Movie')).toBeDefined())
+
+    await user.click(screen.getByLabelText('Release year'))
+    await user.click(screen.getByText('2024 or newer'))
+
+    await waitFor(() => {
+      expect(mockApi.get).toHaveBeenCalledWith(
+        '/api/tmdb/discover/tv?year=2024&page=1',
+        expect.any(AbortSignal),
+      )
+    })
+  })
+
+  it('does not send hide_owned to the API', async () => {
+    mockGetHandler(url => (url.startsWith('/api/tmdb/discover/tv') ? page1Response : null))
+
+    renderAtRoute('/discover/tv?hide_owned=1')
+
+    await waitFor(() => expect(screen.getByText('Trending Show')).toBeDefined())
+
+    const discoverCalls = mockApi.get.mock.calls.filter(
+      ([url]) => typeof url === 'string' && url.includes('/api/tmdb/discover/'),
+    )
+    expect(discoverCalls.every(([url]) => !String(url).includes('hide_owned'))).toBe(true)
+  })
+
+  it('hides owned items when hide_owned is set', async () => {
+    mockApi.get.mockImplementation(((url: string) => {
+      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['1'] })
+      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
+      return Promise.resolve(page1Response)
+    }) as typeof api.get)
+
+    renderAtRoute('/discover/tv?hide_owned=1')
+
+    await waitFor(() => expect(screen.getByText('Trending Show')).toBeDefined())
+    expect(screen.queryByText('Trending Movie')).toBeNull()
+  })
+
+  // An entirely-owned first page must keep paginating rather than report "no results".
+  it('keeps loading when hide_owned empties the first page', async () => {
+    let discoverCalls = 0
+    mockApi.get.mockImplementation(((url: string) => {
+      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['1', '2'] })
+      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
+      discoverCalls++
+      return Promise.resolve(discoverCalls === 1 ? page1Response : page2Response)
+    }) as typeof api.get)
+
+    renderAtRoute('/discover/tv?hide_owned=1')
+
+    await waitFor(() => expect(discoverCalls).toBeGreaterThan(0))
+    expect(screen.queryByText('No results match your filters')).toBeNull()
+
+    act(() => triggerIntersection())
+
+    await waitFor(() => expect(screen.getByText('Another Movie')).toBeDefined())
+  })
+
+  it('shows the filtered empty state with a clear action', async () => {
+    mockGetHandler(url =>
+      url.startsWith('/api/tmdb/discover/tv') ? { results: [], total_pages: 0 } : null,
+    )
+
+    renderAtRoute('/discover/tv?year=2024')
+
+    await waitFor(() => expect(screen.getByText('No results match your filters')).toBeDefined())
+    expect(screen.getByRole('button', { name: 'Clear all filters' })).toBeDefined()
+  })
+
+  it('does not render the filter bar for an unknown category', () => {
+    mockGetHandler(() => ({ configured: false }))
+
+    renderAtRoute('/discover/nonexistent')
+
+    expect(screen.getByText('Category not found')).toBeDefined()
+    expect(screen.queryByLabelText('Genres')).toBeNull()
   })
 })
