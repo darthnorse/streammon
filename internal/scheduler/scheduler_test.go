@@ -110,6 +110,29 @@ func seedServer(t *testing.T, s *store.Store, name string) *models.Server {
 	return srv
 }
 
+func TestPruneTMDBCacheDeletesExpiredEntries(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	p := poller.New(s, 5*time.Second)
+	sch := New(s, p, nil)
+
+	if err := s.SetCachedTMDB("movie:1", json.RawMessage(`{"id":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BackdateTMDBCache("movie:1", time.Now().UTC().Add(-25*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	sch.pruneTMDBCache()
+
+	got, err := s.GetCachedTMDB("movie:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatal("expected expired tmdb cache entry to be pruned")
+	}
+}
+
 func TestDurationUntil3AM(t *testing.T) {
 	tests := []struct {
 		name string
