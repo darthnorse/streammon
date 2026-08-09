@@ -13,6 +13,7 @@ import { api } from '../lib/api'
 const mockApi = vi.mocked(api)
 
 let triggerIntersection: () => void
+let setIntersecting: (value: boolean) => void
 
 const page1Response = {
   results: [
@@ -53,6 +54,7 @@ describe('DiscoverAll', () => {
     vi.clearAllMocks()
     const observer = setupIntersectionObserver()
     triggerIntersection = observer.triggerIntersection
+    setIntersecting = observer.setIntersecting
   })
 
   afterEach(() => {
@@ -317,6 +319,31 @@ describe('DiscoverAll', () => {
     await waitFor(() => expect(screen.getByText('Another Movie')).toBeDefined())
   })
 
+  // The `capped` disjunct of `exhausted`. A sentinel that stays in view (nothing
+  // is ever visible to scroll past) must give up after MAX_AUTO_FILL pages and
+  // hand over a Load more button, not keep fetching or sit blank forever.
+  it('stops auto-filling and offers Load more when every page is owned', async () => {
+    let discoverCalls = 0
+    mockApi.get.mockImplementation(((url: string) => {
+      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['1', '2'] })
+      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
+      discoverCalls++
+      return Promise.resolve({ ...page1Response, total_pages: 50 })
+    }) as typeof api.get)
+
+    renderAtRoute('/discover/tv?hide_owned=1')
+
+    await waitFor(() => expect(discoverCalls).toBe(1))
+
+    act(() => setIntersecting(true))
+
+    await waitFor(() => expect(screen.getByText('No results match your filters')).toBeDefined())
+    expect(screen.getByRole('button', { name: 'Load more' })).toBeDefined()
+    // 1 initial page + MAX_AUTO_FILL (10) auto-filled pages, then auto-fill gives up.
+    expect(discoverCalls).toBe(11)
+  })
+
   it('shows the filtered empty state with a clear action', async () => {
     mockGetHandler(url =>
       url.startsWith('/api/tmdb/discover/tv') ? { results: [], total_pages: 0 } : null,
@@ -328,12 +355,15 @@ describe('DiscoverAll', () => {
     expect(screen.getByRole('button', { name: 'Clear all filters' })).toBeDefined()
   })
 
-  it('does not render the filter bar for an unknown category', () => {
+  it('does not render the filter bar for an unknown category', async () => {
     mockGetHandler(() => ({ configured: false }))
 
     renderAtRoute('/discover/nonexistent')
 
     expect(screen.getByText('Category not found')).toBeDefined()
     expect(screen.queryByLabelText('Genres')).toBeNull()
+    // Flush useDiscoverData's in-flight fetches inside act, so their state
+    // updates do not land after the test ends.
+    await act(async () => {})
   })
 })
