@@ -23,6 +23,15 @@ const page1Response = {
   total_pages: 3,
 }
 
+// A movie and a show that share TMDB id 1 across TMDB's two ID spaces.
+const collisionPage = {
+  results: [
+    { id: 1, media_type: 'movie', title: 'Owned Movie', poster_path: '/p1.jpg', release_date: '2024-01-01' },
+    { id: 1, media_type: 'tv', name: 'Unowned Show', poster_path: '/p2.jpg', first_air_date: '2024-06-01' },
+  ],
+  total_pages: 1,
+}
+
 const page2Response = {
   results: [
     { id: 3, media_type: 'movie', title: 'Another Movie', poster_path: '/p3.jpg', vote_average: 6.5, release_date: '2024-03-01' },
@@ -287,7 +296,7 @@ describe('DiscoverAll', () => {
   it('hides owned items when hide_owned is set', async () => {
     mockApi.get.mockImplementation(((url: string) => {
       if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['1'] })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1'] })
       if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
       return Promise.resolve(page1Response)
     }) as typeof api.get)
@@ -298,12 +307,45 @@ describe('DiscoverAll', () => {
     expect(screen.queryByText('Trending Movie')).toBeNull()
   })
 
+  // TMDB numbers movies and TV in separate ID spaces, so owning movie #1 says
+  // nothing about show #1. Matching on the bare number both hid the show and
+  // badged it Available.
+  it('does not hide a TV show that shares an owned movie id', async () => {
+    mockApi.get.mockImplementation(((url: string) => {
+      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1'] })
+      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
+      return Promise.resolve(collisionPage)
+    }) as typeof api.get)
+
+    renderAtRoute('/discover/tv?hide_owned=1')
+
+    await waitFor(() => expect(screen.getByText('Unowned Show')).toBeDefined())
+    expect(screen.queryByText('Owned Movie')).toBeNull()
+    expect(screen.queryByText('Available')).toBeNull()
+  })
+
+  it('badges only the owned media type as available', async () => {
+    mockApi.get.mockImplementation(((url: string) => {
+      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1'] })
+      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
+      return Promise.resolve(collisionPage)
+    }) as typeof api.get)
+
+    renderAtRoute('/discover/tv')
+
+    await waitFor(() => expect(screen.getByText('Owned Movie')).toBeDefined())
+    expect(screen.getByText('Owned Movie').closest('button')?.textContent).toContain('Available')
+    expect(screen.getByText('Unowned Show').closest('button')?.textContent).not.toContain('Available')
+  })
+
   // An entirely-owned first page must keep paginating rather than report "no results".
   it('keeps loading when hide_owned empties the first page', async () => {
     let discoverCalls = 0
     mockApi.get.mockImplementation(((url: string) => {
       if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['1', '2'] })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1', 'tv:2'] })
       if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
       discoverCalls++
       return Promise.resolve(discoverCalls === 1 ? page1Response : page2Response)
@@ -326,7 +368,7 @@ describe('DiscoverAll', () => {
     let discoverCalls = 0
     mockApi.get.mockImplementation(((url: string) => {
       if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['1', '2'] })
+      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1', 'tv:2'] })
       if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
       discoverCalls++
       return Promise.resolve({ ...page1Response, total_pages: 50 })

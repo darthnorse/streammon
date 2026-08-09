@@ -10,6 +10,7 @@ import { EmptyState } from '../components/EmptyState'
 import { DiscoverFilterBar } from '../components/DiscoverFilterBar'
 import { useDiscoverFilters } from '../hooks/useDiscoverFilters'
 import { categoryCaps, type DiscoverCategoryCaps } from '../lib/discoverFilters'
+import { ownedKey } from '../lib/tmdb'
 import type { TMDBMediaResult } from '../types'
 
 function ErrorBanner({ message }: { message: string }) {
@@ -57,7 +58,7 @@ export function DiscoverAll() {
     useInfiniteFetch<TMDBMediaResult>(url, 20, 'page')
 
   const filtered = items.filter(
-    item => isSelectableMedia(item) && !(filters.hideOwned && libraryIds.has(String(item.id))),
+    item => isSelectableMedia(item) && !(filters.hideOwned && libraryIds.has(ownedKey(item))),
   )
   // Hide-owned can empty a page entirely, so "no results" is only true once
   // there is nothing left to fetch or auto-fill has been capped.
@@ -117,7 +118,7 @@ export function DiscoverAll() {
               key={`${item.media_type}-${item.id}`}
               item={item}
               onClick={() => pushModal({ type: 'tmdb', mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
-              available={libraryIds.has(String(item.id))}
+              available={libraryIds.has(ownedKey(item))}
               fallbackMediaStatus={mediaStatuses.get(`${item.media_type}:${item.id}`)}
             />
           ))}

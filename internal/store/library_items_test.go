@@ -1385,6 +1385,72 @@ func TestListTVTMDBIDs(t *testing.T) {
 	}
 }
 
+func TestGetLibraryTMDBIDs(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+
+	srv := &models.Server{Name: "Test", Type: models.ServerTypePlex, URL: "http://test", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(srv); err != nil {
+		t.Fatal(err)
+	}
+	other := &models.Server{Name: "Other", Type: models.ServerTypePlex, URL: "http://other", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(other); err != nil {
+		t.Fatal(err)
+	}
+	gone := &models.Server{Name: "Gone", Type: models.ServerTypePlex, URL: "http://gone", APIKey: "key", Enabled: true}
+	if err := s.CreateServer(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	items := []models.LibraryItemCache{
+		// Same numeric TMDB ID in both of TMDB's separate ID spaces.
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Movie 1399", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show1", MediaType: models.MediaTypeTV, Title: "Show 1399", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+		// Duplicated across servers: must collapse to one key.
+		{ServerID: other.ID, LibraryID: "lib1", ItemID: "movie1", MediaType: models.MediaTypeMovie, Title: "Movie 1399 copy", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+		// No TMDB ID: excluded.
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "movie2", MediaType: models.MediaTypeMovie, Title: "No IDs", TMDBID: "", AddedAt: now, SyncedAt: now},
+		// Legacy / raw media types the column can still hold.
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "series1", MediaType: "series", Title: "Legacy Series", TMDBID: "500", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show2", MediaType: "show", Title: "Raw Show", TMDBID: "501", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "season1", MediaType: "season", Title: "Raw Season", TMDBID: "502", AddedAt: now, SyncedAt: now},
+		// Types with no TMDB movie/tv equivalent: excluded rather than guessed.
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "track1", MediaType: models.MediaTypeMusic, Title: "Track", TMDBID: "600", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "live1", MediaType: models.MediaTypeLiveTV, Title: "Channel", TMDBID: "601", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "book1", MediaType: models.MediaTypeBook, Title: "Book", TMDBID: "602", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "ab1", MediaType: models.MediaTypeAudiobook, Title: "Audiobook", TMDBID: "603", AddedAt: now, SyncedAt: now},
+		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "weird1", MediaType: "photo", Title: "Unknown Type", TMDBID: "604", AddedAt: now, SyncedAt: now},
+		// Soft-deleted server: excluded.
+		{ServerID: gone.ID, LibraryID: "lib1", ItemID: "movie3", MediaType: models.MediaTypeMovie, Title: "Deleted Server Movie", TMDBID: "700", AddedAt: now, SyncedAt: now},
+	}
+	if _, err := s.UpsertLibraryItems(ctx, items); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SoftDeleteServer(gone.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	ids, err := s.GetLibraryTMDBIDs(ctx)
+	if err != nil {
+		t.Fatalf("GetLibraryTMDBIDs: %v", err)
+	}
+
+	got := map[string]int{}
+	for _, id := range ids {
+		got[id]++
+	}
+	want := []string{"movie:1399", "tv:1399", "tv:500", "tv:501", "tv:502"}
+	for _, key := range want {
+		if got[key] != 1 {
+			t.Errorf("key %q: got %d occurrences, want 1 (all: %v)", key, got[key], ids)
+		}
+	}
+	if len(ids) != len(want) {
+		t.Errorf("got %d keys %v, want exactly %d", len(ids), ids, len(want))
+	}
+}
+
 func TestUpsertLibraryItem_PersistsVideoDimensions(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	ctx := context.Background()

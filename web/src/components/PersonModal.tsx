@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { lockBodyScroll, unlockBodyScroll } from '../lib/bodyScroll'
 import { api } from '../lib/api'
-import { TMDB_IMG } from '../lib/tmdb'
+import { TMDB_IMG, ownedKey } from '../lib/tmdb'
 import { compactEpisodeTitle } from '../lib/format'
 import { MediaCard } from './MediaCard'
 import { MEDIA_GRID_CLASS } from '../lib/constants'
@@ -211,7 +211,7 @@ export function PersonModal({ personId, onClose, onMediaClick, libraryIds, media
                         vote_average: credit.vote_average,
                       }}
                       onClick={() => onMediaClick?.(credit.media_type, credit.id)}
-                      available={libraryIds?.has(String(credit.id))}
+                      available={libraryIds?.has(ownedKey(credit))}
                       fallbackMediaStatus={mediaStatuses?.get(`${credit.media_type}:${credit.id}`)}
                     />
                   ))}

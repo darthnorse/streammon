@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,7 +10,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"streammon/internal/models"
 	"streammon/internal/tmdb"
 )
 
@@ -515,5 +518,62 @@ func TestTMDBNoClient(t *testing.T) {
 
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected 503 when no TMDB client, got %d", w.Code)
+	}
+}
+
+func TestLibraryTMDBIDsAPI(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	ctx := context.Background()
+
+	if err := st.CreateServer(&models.Server{
+		Name: "Plex", Type: models.ServerTypePlex, URL: "http://plex", APIKey: "k", Enabled: true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().UTC()
+	if _, err := st.UpsertLibraryItems(ctx, []models.LibraryItemCache{
+		{ServerID: 1, LibraryID: "1", ItemID: "m1", MediaType: models.MediaTypeMovie, Title: "Movie", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+		{ServerID: 1, LibraryID: "2", ItemID: "s1", MediaType: models.MediaTypeTV, Title: "Show", TMDBID: "1399", AddedAt: now, SyncedAt: now},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/library/tmdb-ids", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var got struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := map[string]bool{"movie:1399": true, "tv:1399": true}
+	if len(got.IDs) != len(want) {
+		t.Fatalf("got %v, want %d media-type-qualified keys", got.IDs, len(want))
+	}
+	for _, id := range got.IDs {
+		if !want[id] {
+			t.Errorf("unexpected key %q in %v", id, got.IDs)
+		}
+	}
+}
+
+func TestLibraryTMDBIDsAPI_EmptyIsArray(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/library/tmdb-ids", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if strings.TrimSpace(w.Body.String()) != `{"ids":[]}` {
+		t.Fatalf("got %s, want {\"ids\":[]}", w.Body.String())
 	}
 }

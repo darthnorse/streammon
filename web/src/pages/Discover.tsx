@@ -9,6 +9,7 @@ import { useHorizontalScroll } from '../hooks/useHorizontalScroll'
 import { useAuth } from '../context/AuthContext'
 import { useModalStack } from '../hooks/useModalStack'
 import { DISCOVER_CATEGORIES, MEDIA_GRID_CLASS, isSelectableMedia, loadMoreBtnClass } from '../lib/constants'
+import { ownedKey } from '../lib/tmdb'
 import { EmptyState } from '../components/EmptyState'
 import { MediaCard } from '../components/MediaCard'
 import { ChevronIcon } from '../components/ChevronIcon'
@@ -97,7 +98,7 @@ function DiscoverSection({ path, title, data, loading, onSelect, libraryIds, med
               item={item}
               onClick={() => onSelect({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
               className="shrink-0 w-24 sm:w-[150px]"
-              available={libraryIds.has(String(item.id))}
+              available={libraryIds.has(ownedKey(item))}
               fallbackMediaStatus={mediaStatuses.get(`${item.media_type}:${item.id}`)}
             />
           ))}
@@ -283,7 +284,7 @@ export function Discover() {
                       key={`${item.media_type}-${item.id}`}
                       item={item}
                       onClick={() => handleSelectMedia({ mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
-                      available={libraryIds.has(String(item.id))}
+                      available={libraryIds.has(ownedKey(item))}
                       fallbackMediaStatus={mediaStatuses.get(`${item.media_type}:${item.id}`)}
                     />
                   ))}

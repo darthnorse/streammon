@@ -66,6 +66,16 @@ describe('PersonModal', () => {
     expect(screen.getByText('Available')).toBeInTheDocument()
   })
 
+  // Credit 100 is a movie; owning TV #100 is a different title entirely.
+  it('badges owned credits only when the media type matches', async () => {
+    render(<PersonModal personId={1} onClose={() => {}} libraryIds={new Set(['movie:100', 'tv:200'])} />)
+    await waitFor(() => {
+      expect(screen.getByText('Oppenheimer')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Oppenheimer').closest('button')?.textContent).toContain('Available')
+    expect(screen.getByText('Inception').closest('button')?.textContent).not.toContain('Available')
+  })
+
   it('does not show status badges when mediaStatuses not provided', async () => {
     render(<PersonModal personId={1} onClose={() => {}} />)
     await waitFor(() => {

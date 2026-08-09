@@ -558,10 +558,33 @@ func externalIDsContradict(a, b *models.LibraryItemCache) bool {
 	return false
 }
 
-// LibraryMatch is a lightweight struct for TMDB-to-library matching.
+// tmdbNamespace maps a stored library_items.media_type onto one of TMDB's two
+// ID spaces ("movie" / "tv"). TMDB numbers movies and TV independently, so an
+// owned-item key is only meaningful when it carries the namespace. Types with
+// no TMDB equivalent (music, books, live TV, unrecognised raw server types)
+// return "" and are excluded rather than guessed into the wrong space.
+func tmdbNamespace(mediaType string) string {
+	switch models.MediaType(mediaType) {
+	case models.MediaTypeMovie:
+		return "movie"
+	case models.MediaTypeTV:
+		return "tv"
+	}
+	// Raw server types that predate normalisation (see migration 046) or that
+	// an adapter passed through verbatim for an unknown item type.
+	switch mediaType {
+	case "series", "show", "season", "tv":
+		return "tv"
+	}
+	return ""
+}
+
+// GetLibraryTMDBIDs returns the owned TMDB IDs as media-type-qualified keys
+// ("movie:550", "tv:1399") so callers cannot match a movie against a show that
+// happens to share its number.
 func (s *Store) GetLibraryTMDBIDs(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT DISTINCT li.tmdb_id FROM library_items li
+		`SELECT DISTINCT li.media_type, li.tmdb_id FROM library_items li
 		JOIN servers srv ON li.server_id = srv.id
 		WHERE li.tmdb_id != '' AND srv.deleted_at IS NULL`)
 	if err != nil {
@@ -570,16 +593,29 @@ func (s *Store) GetLibraryTMDBIDs(ctx context.Context) ([]string, error) {
 	defer rows.Close()
 
 	var ids []string
+	seen := map[string]struct{}{}
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var mediaType, id string
+		if err := rows.Scan(&mediaType, &id); err != nil {
 			return nil, fmt.Errorf("scan tmdb id: %w", err)
 		}
-		ids = append(ids, id)
+		ns := tmdbNamespace(mediaType)
+		if ns == "" {
+			continue
+		}
+		// Distinct media types can normalise onto the same namespace, so the
+		// query's DISTINCT is not enough.
+		key := ns + ":" + id
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		ids = append(ids, key)
 	}
 	return ids, rows.Err()
 }
 
+// LibraryMatch is a lightweight struct for TMDB-to-library matching.
 type LibraryMatch struct {
 	ServerID   int64  `json:"server_id"`
 	ServerName string `json:"server_name"`
