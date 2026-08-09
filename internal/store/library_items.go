@@ -573,9 +573,13 @@ func tmdbNamespace(mediaType string) string {
 	// Raw server types that predate normalisation (see migration 046) or that
 	// an adapter passed through verbatim for an unknown item type.
 	switch mediaType {
-	case "series", "show", "season", "tv":
+	case "series", "show", "tv":
 		return "tv"
 	}
+	// "season" is deliberately excluded: a season's own TMDB ID is a season
+	// object ID, a different ID space from the series ID Discover results
+	// carry. Namespacing it as "tv" would let a season badge or hide an
+	// unrelated series that happens to share that number.
 	return ""
 }
 

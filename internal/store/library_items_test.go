@@ -1414,6 +1414,9 @@ func TestGetLibraryTMDBIDs(t *testing.T) {
 		// Legacy / raw media types the column can still hold.
 		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "series1", MediaType: "series", Title: "Legacy Series", TMDBID: "500", AddedAt: now, SyncedAt: now},
 		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "show2", MediaType: "show", Title: "Raw Show", TMDBID: "501", AddedAt: now, SyncedAt: now},
+		// A season's own TMDB ID is a season object ID, not a series ID: it
+		// must not be namespaced as "tv" even though its raw type resembles
+		// series/show/tv.
 		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "season1", MediaType: "season", Title: "Raw Season", TMDBID: "502", AddedAt: now, SyncedAt: now},
 		// Types with no TMDB movie/tv equivalent: excluded rather than guessed.
 		{ServerID: srv.ID, LibraryID: "lib1", ItemID: "track1", MediaType: models.MediaTypeMusic, Title: "Track", TMDBID: "600", AddedAt: now, SyncedAt: now},
@@ -1440,7 +1443,7 @@ func TestGetLibraryTMDBIDs(t *testing.T) {
 	for _, id := range ids {
 		got[id]++
 	}
-	want := []string{"movie:1399", "tv:1399", "tv:500", "tv:501", "tv:502"}
+	want := []string{"movie:1399", "tv:1399", "tv:500", "tv:501"}
 	for _, key := range want {
 		if got[key] != 1 {
 			t.Errorf("key %q: got %d occurrences, want 1 (all: %v)", key, got[key], ids)
