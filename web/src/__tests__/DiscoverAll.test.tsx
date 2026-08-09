@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { DiscoverAll } from '../pages/DiscoverAll'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { setupIntersectionObserver } from './helpers/mockIntersectionObserver'
+import type { TMDBGenre } from '../types'
 
 vi.mock('../lib/api', () => ({
   api: { get: vi.fn() },
@@ -49,10 +50,13 @@ function renderAtRoute(path: string) {
   )
 }
 
-function mockGetHandler(handler: (url: string) => unknown) {
+function mockGetHandler(
+  handler: (url: string) => unknown,
+  { ids = [], genres = [] }: { ids?: string[]; genres?: TMDBGenre[] } = {},
+) {
   mockApi.get.mockImplementation(((url: string) => {
-    if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: [] })
-    if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
+    if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids })
+    if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres })
     const result = handler(url)
     return result instanceof Error ? Promise.reject(result) : Promise.resolve(result)
   }) as typeof api.get)
@@ -132,21 +136,24 @@ describe('DiscoverAll', () => {
     renderAtRoute('/discover/nonexistent')
 
     expect(screen.getByText('Category not found')).toBeDefined()
+    expect(screen.queryByRole('button', { name: /^Genres: / })).toBeNull()
     // Only overseerr/configured should be fetched, not any discover endpoint
     const discoverCalls = mockApi.get.mock.calls.filter(
       ([url]) => typeof url === 'string' && url.includes('/api/tmdb/discover/')
     )
     expect(discoverCalls).toHaveLength(0)
+    // Flush useDiscoverData's in-flight fetches inside act, so their state
+    // updates do not land after the test ends.
+    await act(async () => {})
   })
 
   it('accumulates items across pages on scroll', async () => {
     let discoverCallCount = 0
-    mockApi.get.mockImplementation(((url: string) => {
-      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: [] })
+    mockGetHandler(url => {
+      if (!url.startsWith('/api/tmdb/discover/')) return null
       discoverCallCount++
-      return Promise.resolve(discoverCallCount === 1 ? page1Response : page2Response)
-    }) as typeof api.get)
+      return discoverCallCount === 1 ? page1Response : page2Response
+    })
 
     renderAtRoute('/discover/trending')
 
@@ -259,17 +266,12 @@ describe('DiscoverAll', () => {
   // and hook tests each only cover one link of.
   it('refetches page 1 when a filter is changed in the UI', async () => {
     const user = userEvent.setup()
-    mockApi.get.mockImplementation(((url: string) => {
-      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: [] })
-      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [{ id: 80, name: 'Crime' }] })
-      return Promise.resolve(page1Response)
-    }) as typeof api.get)
+    mockGetHandler(() => page1Response, { genres: [{ id: 80, name: 'Crime' }] })
 
     renderAtRoute('/discover/tv')
     await waitFor(() => expect(screen.getByText('Trending Movie')).toBeDefined())
 
-    await user.click(screen.getByLabelText('Release year'))
+    await user.click(screen.getByRole('button', { name: /^Release year: / }))
     await user.click(screen.getByText('2024 or newer'))
 
     await waitFor(() => {
@@ -294,12 +296,7 @@ describe('DiscoverAll', () => {
   })
 
   it('hides owned items when hide_owned is set', async () => {
-    mockApi.get.mockImplementation(((url: string) => {
-      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1'] })
-      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
-      return Promise.resolve(page1Response)
-    }) as typeof api.get)
+    mockGetHandler(() => page1Response, { ids: ['movie:1'] })
 
     renderAtRoute('/discover/tv?hide_owned=1')
 
@@ -311,12 +308,7 @@ describe('DiscoverAll', () => {
   // nothing about show #1. Matching on the bare number both hid the show and
   // badged it Available.
   it('does not hide a TV show that shares an owned movie id', async () => {
-    mockApi.get.mockImplementation(((url: string) => {
-      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1'] })
-      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
-      return Promise.resolve(collisionPage)
-    }) as typeof api.get)
+    mockGetHandler(() => collisionPage, { ids: ['movie:1'] })
 
     renderAtRoute('/discover/tv?hide_owned=1')
 
@@ -326,12 +318,7 @@ describe('DiscoverAll', () => {
   })
 
   it('badges only the owned media type as available', async () => {
-    mockApi.get.mockImplementation(((url: string) => {
-      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1'] })
-      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
-      return Promise.resolve(collisionPage)
-    }) as typeof api.get)
+    mockGetHandler(() => collisionPage, { ids: ['movie:1'] })
 
     renderAtRoute('/discover/tv')
 
@@ -343,13 +330,11 @@ describe('DiscoverAll', () => {
   // An entirely-owned first page must keep paginating rather than report "no results".
   it('keeps loading when hide_owned empties the first page', async () => {
     let discoverCalls = 0
-    mockApi.get.mockImplementation(((url: string) => {
-      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1', 'tv:2'] })
-      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
+    mockGetHandler(url => {
+      if (!url.startsWith('/api/tmdb/discover/')) return null
       discoverCalls++
-      return Promise.resolve(discoverCalls === 1 ? page1Response : page2Response)
-    }) as typeof api.get)
+      return discoverCalls === 1 ? page1Response : page2Response
+    }, { ids: ['movie:1', 'tv:2'] })
 
     renderAtRoute('/discover/tv?hide_owned=1')
 
@@ -361,18 +346,17 @@ describe('DiscoverAll', () => {
     await waitFor(() => expect(screen.getByText('Another Movie')).toBeDefined())
   })
 
-  // The `capped` disjunct of `exhausted`. A sentinel that stays in view (nothing
-  // is ever visible to scroll past) must give up after MAX_AUTO_FILL pages and
-  // hand over a Load more button, not keep fetching or sit blank forever.
+  // The `capped` disjunct. A sentinel that stays in view (nothing is ever visible
+  // to scroll past) must give up after MAX_AUTO_FILL pages and hand over a Load
+  // more button, not keep fetching or sit blank forever. The copy must say the
+  // search stopped early, not that the filters matched nothing.
   it('stops auto-filling and offers Load more when every page is owned', async () => {
     let discoverCalls = 0
-    mockApi.get.mockImplementation(((url: string) => {
-      if (url.includes('/api/overseerr/configured')) return Promise.resolve({ configured: false })
-      if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids: ['movie:1', 'tv:2'] })
-      if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres: [] })
+    mockGetHandler(url => {
+      if (!url.startsWith('/api/tmdb/discover/')) return null
       discoverCalls++
-      return Promise.resolve({ ...page1Response, total_pages: 50 })
-    }) as typeof api.get)
+      return { ...page1Response, total_pages: 50 }
+    }, { ids: ['movie:1', 'tv:2'] })
 
     renderAtRoute('/discover/tv?hide_owned=1')
 
@@ -380,7 +364,9 @@ describe('DiscoverAll', () => {
 
     act(() => setIntersecting(true))
 
-    await waitFor(() => expect(screen.getByText('No results match your filters')).toBeDefined())
+    await waitFor(() => expect(screen.getByText('Nothing new in the first pages')).toBeDefined())
+    expect(screen.getByText('Everything loaded so far is already in your library.')).toBeDefined()
+    expect(screen.queryByText('No results match your filters')).toBeNull()
     expect(screen.getByRole('button', { name: 'Load more' })).toBeDefined()
     // 1 initial page + MAX_AUTO_FILL (10) auto-filled pages, then auto-fill gives up.
     expect(discoverCalls).toBe(11)
@@ -397,15 +383,47 @@ describe('DiscoverAll', () => {
     expect(screen.getByRole('button', { name: 'Clear all filters' })).toBeDefined()
   })
 
-  it('does not render the filter bar for an unknown category', async () => {
-    mockGetHandler(() => ({ configured: false }))
+  it('recovers from a first-page failure through Try again', async () => {
+    const user = userEvent.setup()
+    let discoverCalls = 0
+    mockGetHandler(url => {
+      if (!url.startsWith('/api/tmdb/discover/tv')) return null
+      discoverCalls++
+      return discoverCalls === 1 ? new Error('Server error') : page1Response
+    })
 
-    renderAtRoute('/discover/nonexistent')
+    renderAtRoute('/discover/tv')
 
-    expect(screen.getByText('Category not found')).toBeDefined()
-    expect(screen.queryByLabelText('Genres')).toBeNull()
-    // Flush useDiscoverData's in-flight fetches inside act, so their state
-    // updates do not land after the test ends.
-    await act(async () => {})
+    await waitFor(() => expect(screen.getByText('Server error')).toBeDefined())
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(screen.getByText('Trending Movie')).toBeDefined())
+    expect(screen.queryByText('Server error')).toBeNull()
+  })
+
+  // A failed page kills hasMore, and with it the observer, so without a retry
+  // affordance the list is stuck for good.
+  it('recovers from a mid-list page failure through Try again', async () => {
+    const user = userEvent.setup()
+    let discoverCalls = 0
+    mockGetHandler(url => {
+      if (!url.startsWith('/api/tmdb/discover/tv')) return null
+      discoverCalls++
+      if (discoverCalls === 1) return page1Response
+      return discoverCalls === 2 ? new Error('Page 2 failed') : page2Response
+    })
+
+    renderAtRoute('/discover/tv')
+    await waitFor(() => expect(screen.getByText('Trending Movie')).toBeDefined())
+
+    act(() => triggerIntersection())
+    await waitFor(() => expect(screen.getByText('Page 2 failed')).toBeDefined())
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(screen.getByText('Another Movie')).toBeDefined())
+    expect(screen.queryByText('Page 2 failed')).toBeNull()
+    expect(screen.getByText('Trending Movie')).toBeDefined()
   })
 })

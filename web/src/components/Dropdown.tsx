@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useClickOutside } from '../hooks/useClickOutside'
 
 export interface DropdownOption<T extends string = string> {
@@ -84,7 +84,17 @@ export function Dropdown<T extends string = string>(props: DropdownProps<T>) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const close = useCallback(() => setOpen(false), [])
-  useClickOutside(ref, open, close)
+  // A control that becomes disabled while open must not keep advertising an
+  // expanded listbox, nor pop back open the moment it is re-enabled.
+  const isOpen = open && !disabled
+  useEffect(() => {
+    if (disabled) setOpen(false)
+  }, [disabled])
+  useClickOutside(ref, isOpen, close)
+
+  const label = getButtonLabel(props)
+  const field = props['aria-label']
+  const ariaLabel = field && label ? `${field}: ${label}` : field
 
   function handleOptionClick(value: T) {
     if (isMulti(props)) {
@@ -104,16 +114,16 @@ export function Dropdown<T extends string = string>(props: DropdownProps<T>) {
       <button
         type="button"
         disabled={disabled}
-        aria-label={props['aria-label']}
-        onClick={() => !disabled && options.length > 0 && setOpen(!open)}
-        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => options.length > 0 && setOpen(!open)}
+        aria-expanded={isOpen}
         aria-haspopup="listbox"
         className="bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded px-3 py-1.5 text-sm font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        <span>{getButtonLabel(props)}</span>
+        <span>{label}</span>
         <span className="text-lg">▾</span>
       </button>
-      {open && !disabled && (
+      {isOpen && (
         <div className="absolute z-50 top-full mt-1 left-0 min-w-full bg-panel dark:bg-panel-dark border border-border dark:border-border-dark rounded shadow-lg py-1">
           {options.map(opt => (
             isMulti(props)

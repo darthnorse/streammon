@@ -13,10 +13,13 @@ import { categoryCaps, type DiscoverCategoryCaps } from '../lib/discoverFilters'
 import { ownedKey } from '../lib/tmdb'
 import type { TMDBMediaResult } from '../types'
 
-function ErrorBanner({ message }: { message: string }) {
+function ErrorBanner({ message, onRetry, className }: { message: string; onRetry: () => void; className?: string }) {
   return (
-    <div className="card p-4 mb-4 text-center text-red-500 dark:text-red-400">
-      {message}
+    <div className={`card p-4 text-center ${className ?? ''}`}>
+      <p className="text-red-500 dark:text-red-400 mb-2">{message}</p>
+      <button onClick={onRetry} className="text-sm hover:text-accent hover:underline">
+        Try again
+      </button>
     </div>
   )
 }
@@ -54,15 +57,15 @@ export function DiscoverAll() {
   const { filters, setFilters, clear, apiQuery, activeCount } = useDiscoverFilters(caps ?? EMPTY_CAPS)
 
   const url = cat && caps ? `/api/tmdb/discover/${category}${apiQuery ? `?${apiQuery}` : ''}` : null
-  const { items, loading, loadingMore, hasMore, error, sentinelRef, capped, loadMore } =
+  const { items, loading, loadingMore, hasMore, error, sentinelRef, retry, capped, loadMore } =
     useInfiniteFetch<TMDBMediaResult>(url, 20, 'page')
 
   const filtered = items.filter(
     item => isSelectableMedia(item) && !(filters.hideOwned && libraryIds.has(ownedKey(item))),
   )
-  // Hide-owned can empty a page entirely, so "no results" is only true once
-  // there is nothing left to fetch or auto-fill has been capped.
-  const exhausted = !hasMore || capped
+  // Auto-fill gave up with pages still to come: the filters are not what emptied
+  // the list, so the empty state must not blame them.
+  const cappedEarly = capped && hasMore
 
   if (!cat || !caps) {
     return (
@@ -93,9 +96,19 @@ export function DiscoverAll() {
 
       {loading && <EmptyState icon="&#8635;" title="Loading..." />}
 
-      {!loading && error && filtered.length === 0 && <ErrorBanner message={error} />}
+      {!loading && error && filtered.length === 0 && (
+        <ErrorBanner message={error} onRetry={retry} className="mb-4" />
+      )}
 
-      {!loading && !error && filtered.length === 0 && exhausted && (
+      {!loading && !error && filtered.length === 0 && cappedEarly && (
+        <EmptyState
+          icon="&#128270;"
+          title="Nothing new in the first pages"
+          description="Everything loaded so far is already in your library."
+        />
+      )}
+
+      {!loading && !error && filtered.length === 0 && !hasMore && (
         activeCount > 0 ? (
           <EmptyState
             icon="&#128270;"
@@ -133,8 +146,8 @@ export function DiscoverAll() {
               <div className="h-6 w-6 border-2 border-accent border-t-transparent rounded-full animate-spin" />
             </div>
           )}
-          {error && filtered.length > 0 && <ErrorBanner message={error} />}
-          {capped && hasMore && !loadingMore && !error && (
+          {error && filtered.length > 0 && <ErrorBanner message={error} onRetry={retry} />}
+          {cappedEarly && !loadingMore && !error && (
             <div className="flex justify-center py-4">
               <button onClick={loadMore} className={loadMoreBtnClass}>Load more</button>
             </div>

@@ -24,6 +24,12 @@ const GENRES = [
   { id: 99, name: 'Documentary' },
 ]
 
+// Triggers are named "<field>: <current value>"; the exact pairing is pinned by
+// the naming test, so the rest match on the field alone.
+function trigger(field: string) {
+  return screen.getByRole('button', { name: new RegExp(`^${field}: `) })
+}
+
 function renderBar(caps = tvCaps, filters: DiscoverFilters = EMPTY_FILTERS, activeCount = 0) {
   const onChange = vi.fn()
   const onClear = vi.fn()
@@ -41,13 +47,13 @@ describe('DiscoverFilterBar', () => {
 
   it('renders the year control on categories that support it', async () => {
     renderBar(tvCaps)
-    await waitFor(() => expect(screen.getByLabelText('Release year')).toBeDefined())
+    await waitFor(() => expect(trigger('Release year')).toBeDefined())
   })
 
   it('omits the year control on upcoming categories', async () => {
     renderBar(upcomingCaps)
-    await waitFor(() => expect(screen.getByLabelText('Genres')).toBeDefined())
-    expect(screen.queryByLabelText('Release year')).toBeNull()
+    await waitFor(() => expect(trigger('Genres')).toBeDefined())
+    expect(screen.queryByRole('button', { name: /^Release year: / })).toBeNull()
   })
 
   it('emits a year change', async () => {
@@ -56,7 +62,7 @@ describe('DiscoverFilterBar', () => {
 
     const year = yearOptions(new Date())[2]
 
-    await user.click(screen.getByLabelText('Release year'))
+    await user.click(trigger('Release year'))
     await user.click(screen.getByText(`${year} or newer`))
 
     expect(onChange).toHaveBeenCalledWith({ ...EMPTY_FILTERS, year })
@@ -66,7 +72,7 @@ describe('DiscoverFilterBar', () => {
     const user = userEvent.setup()
     const { onChange } = renderBar(tvCaps, { ...EMPTY_FILTERS, genres: [80] })
 
-    await user.click(screen.getByLabelText('Genres'))
+    await user.click(trigger('Genres'))
     await waitFor(() => expect(screen.getByText('Drama')).toBeDefined())
     await user.click(screen.getByText('Drama'))
 
@@ -88,7 +94,7 @@ describe('DiscoverFilterBar', () => {
     const atCap = GENRES.slice(0, MAX_GENRES).map(g => g.id)
     renderBar(tvCaps, { ...EMPTY_FILTERS, genres: atCap })
 
-    await user.click(screen.getByLabelText('Genres'))
+    await user.click(trigger('Genres'))
     const unselected = await screen.findByRole('checkbox', { name: 'Documentary' })
     expect((unselected as HTMLInputElement).disabled).toBe(true)
 
@@ -103,23 +109,36 @@ describe('DiscoverFilterBar', () => {
     expect(screen.getByRole('radio', { name: 'TV' })).toBeDefined()
   })
 
-  it('disables every filter on trending until a media type is chosen', async () => {
+  it('disables the server-side filters on trending until a media type is chosen', async () => {
     renderBar(trendingCaps)
-    await waitFor(() => expect(screen.getByLabelText('Genres')).toBeDefined())
+    await waitFor(() => expect(trigger('Genres')).toBeDefined())
 
-    expect(screen.getByLabelText('Genres').hasAttribute('disabled')).toBe(true)
-    expect(screen.getByLabelText('Release year').hasAttribute('disabled')).toBe(true)
-    expect(screen.getByLabelText('Sort by').hasAttribute('disabled')).toBe(true)
-    expect(screen.getByLabelText('Minimum rating').hasAttribute('disabled')).toBe(true)
-    expect(screen.getByRole('switch').hasAttribute('disabled')).toBe(true)
+    expect(trigger('Genres').hasAttribute('disabled')).toBe(true)
+    expect(trigger('Release year').hasAttribute('disabled')).toBe(true)
+    expect(trigger('Sort by').hasAttribute('disabled')).toBe(true)
+    expect(trigger('Minimum rating').hasAttribute('disabled')).toBe(true)
     expect(screen.getByText('Choose Movies or TV to filter')).toBeDefined()
+  })
+
+  // hide-owned is applied client-side and never reaches the backend, so it stays
+  // usable on a mixed category with no media type.
+  it('keeps hide-owned live on trending without a media type', async () => {
+    const user = userEvent.setup()
+    const { onChange } = renderBar(trendingCaps)
+    await waitFor(() => expect(trigger('Genres')).toBeDefined())
+
+    const toggle = screen.getByRole('switch')
+    expect(toggle.hasAttribute('disabled')).toBe(false)
+
+    await user.click(toggle)
+    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_FILTERS, hideOwned: true })
   })
 
   it('enables filters on trending once a media type is chosen', async () => {
     renderBar(trendingCaps, { ...EMPTY_FILTERS, type: 'movie' })
-    await waitFor(() => expect(screen.getByLabelText('Genres')).toBeDefined())
+    await waitFor(() => expect(trigger('Genres')).toBeDefined())
 
-    expect(screen.getByLabelText('Genres').hasAttribute('disabled')).toBe(false)
+    expect(trigger('Genres').hasAttribute('disabled')).toBe(false)
     expect(screen.queryByText('Choose Movies or TV to filter')).toBeNull()
   })
 
@@ -148,6 +167,59 @@ describe('DiscoverFilterBar', () => {
     expect(onChange).toHaveBeenCalledWith(EMPTY_FILTERS)
   })
 
+  it('keeps only the selected type segment in the tab order', async () => {
+    renderBar(trendingCaps, { ...EMPTY_FILTERS, type: 'tv' })
+
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'TV' })).toBeDefined())
+    expect(screen.getByRole('radio', { name: 'TV' }).getAttribute('tabindex')).toBe('0')
+    expect(screen.getByRole('radio', { name: 'All' }).getAttribute('tabindex')).toBe('-1')
+    expect(screen.getByRole('radio', { name: 'Movies' }).getAttribute('tabindex')).toBe('-1')
+  })
+
+  it('moves the type selection and focus with the arrow keys', async () => {
+    const { onChange } = renderBar(trendingCaps, { ...EMPTY_FILTERS, type: 'movie', genres: [878] })
+
+    const movies = screen.getByRole('radio', { name: 'Movies' })
+    movies.focus()
+    fireEvent.keyDown(movies, { key: 'ArrowRight' })
+
+    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_FILTERS, type: 'tv', genres: [] })
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'TV' }))
+  })
+
+  it('moves the type selection backwards with ArrowUp', async () => {
+    const { onChange } = renderBar(trendingCaps, { ...EMPTY_FILTERS, type: 'movie' })
+
+    const movies = screen.getByRole('radio', { name: 'Movies' })
+    movies.focus()
+    fireEvent.keyDown(movies, { key: 'ArrowUp' })
+
+    expect(onChange).toHaveBeenCalledWith(EMPTY_FILTERS)
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'All' }))
+  })
+
+  it('wraps arrow navigation at the ends of the type segments', async () => {
+    const { onChange } = renderBar(trendingCaps)
+
+    const all = screen.getByRole('radio', { name: 'All' })
+    all.focus()
+    fireEvent.keyDown(all, { key: 'ArrowLeft' })
+
+    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_FILTERS, type: 'tv', genres: [] })
+    expect(document.activeElement).toBe(screen.getByRole('radio', { name: 'TV' }))
+  })
+
+  it('gives the clickable filter text the shared hover treatment', async () => {
+    renderBar(trendingCaps, { ...EMPTY_FILTERS, type: 'movie' }, 1)
+
+    const collapse = screen.getByRole('button', { name: 'Filters (1)' })
+    expect(collapse).toHaveClass('hover:text-accent', 'hover:underline')
+
+    const unselected = screen.getByRole('radio', { name: 'TV' })
+    expect(unselected).toHaveClass('hover:text-accent', 'hover:underline')
+    expect(screen.getByRole('radio', { name: 'Movies' })).toHaveClass('hover:underline')
+  })
+
   it('collapses behind a Filters button that reports the active count', async () => {
     const user = userEvent.setup()
     renderBar(tvCaps, { ...EMPTY_FILTERS, year: 2024 }, 1)
@@ -163,15 +235,24 @@ describe('DiscoverFilterBar', () => {
     const user = userEvent.setup()
     const { container } = renderBar(tvCaps)
 
-    await user.click(screen.getByLabelText('Genres'))
+    await user.click(trigger('Genres'))
     await screen.findByRole('checkbox', { name: 'Drama' })
 
     expect(container.querySelectorAll('label label')).toHaveLength(0)
-    expect(screen.getByRole('button', { name: 'Genres' })).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Release year' })).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Sort by' })).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Minimum rating' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Genres: Any genre' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Release year: Any year' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Sort by: Popularity' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Minimum rating: Any rating' })).toBeDefined()
     expect(screen.getByRole('switch', { name: 'Hide items in my library' })).toBeDefined()
+  })
+
+  it('announces the current value of a control that has one set', async () => {
+    renderBar(tvCaps, { ...EMPTY_FILTERS, year: 2024, sort: 'rating', rating: 7, genres: [80, 18] })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Genres: 2 selected' })).toBeDefined())
+    expect(screen.getByRole('button', { name: 'Release year: 2024 or newer' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Sort by: Rating' })).toBeDefined()
+    expect(screen.getByRole('button', { name: 'Minimum rating: 7+ rating' })).toBeDefined()
   })
 
   it('refreshes the year options when the calendar year rolls over', () => {
@@ -185,14 +266,14 @@ describe('DiscoverFilterBar', () => {
       )
       const { rerender } = render(bar())
 
-      fireEvent.click(screen.getByLabelText('Release year'))
+      fireEvent.click(trigger('Release year'))
       expect(screen.queryByText('2027 or newer')).toBeNull()
-      fireEvent.click(screen.getByLabelText('Release year'))
+      fireEvent.click(trigger('Release year'))
 
       vi.setSystemTime(new Date('2027-06-01T00:00:00Z'))
       rerender(bar())
 
-      fireEvent.click(screen.getByLabelText('Release year'))
+      fireEvent.click(trigger('Release year'))
       expect(screen.getByText('2027 or newer')).toBeDefined()
     } finally {
       vi.useRealTimers()
