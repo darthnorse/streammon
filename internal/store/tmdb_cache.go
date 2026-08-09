@@ -57,3 +57,15 @@ func (s *Store) BackdateTMDBCache(cacheKey string, t time.Time) error {
 	_, err := s.db.Exec(`UPDATE tmdb_cache SET cached_at = ? WHERE cache_key = ?`, t, cacheKey)
 	return err
 }
+
+// CountTMDBCacheRows returns the total row count in tmdb_cache, ignoring TTL
+// (test helper). Unlike GetCachedTMDB, this proves whether a row was actually
+// deleted rather than merely being past its read-time TTL cutoff.
+func (s *Store) CountTMDBCacheRows() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM tmdb_cache`).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("counting tmdb cache rows: %w", err)
+	}
+	return n, nil
+}
