@@ -37,22 +37,34 @@ const mockApi = vi.mocked(api)
 const mockUseAuth = vi.mocked(useAuth)
 const mockApiGet = makeMockApiGet(mockApi)
 
+// Calendar groups episodes by LOCAL calendar day (its toDateKey uses
+// getFullYear/getMonth/getDate), so a fixture built from toISOString() lands on
+// the UTC day instead. West of UTC after ~18:00 those differ, and on a Saturday
+// evening the UTC day is already Sunday — the start of the NEXT week window — so
+// the episode fell outside the rendered range and no card appeared.
+function localDateKey(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${d.getFullYear()}-${m}-${day}`
+}
+
 function makeEpisode(overrides: Partial<SonarrEpisode> = {}): SonarrEpisode {
+  const now = new Date()
   return {
     id: 1,
     seriesId: 10,
     seasonNumber: 1,
     episodeNumber: 5,
     title: 'Test Episode',
-    airDateUtc: new Date().toISOString(),
-    airDate: new Date().toISOString().slice(0, 10),
+    airDateUtc: now.toISOString(),
+    airDate: localDateKey(now),
     hasFile: false,
     monitored: true,
     series: {
       id: 10,
       title: 'Test Series',
       tmdbId: 42,
-      year: new Date().getFullYear(),
+      year: now.getFullYear(),
       network: 'HBO',
     },
     ...overrides,
