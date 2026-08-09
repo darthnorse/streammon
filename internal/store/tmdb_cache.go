@@ -38,8 +38,34 @@ func (s *Store) SetCachedTMDB(cacheKey string, data json.RawMessage) error {
 	return nil
 }
 
+// PruneTMDBCache deletes cache rows past tmdbCacheTTL, using the same cutoff
+// GetCachedTMDB reads against so a row is never unreadable without also being
+// eligible for deletion.
+func (s *Store) PruneTMDBCache() (int64, error) {
+	result, err := s.db.Exec(
+		`DELETE FROM tmdb_cache WHERE cached_at <= ?`,
+		time.Now().UTC().Add(-tmdbCacheTTL),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("pruning tmdb cache: %w", err)
+	}
+	return result.RowsAffected()
+}
+
 // BackdateTMDBCache sets the cached_at timestamp for a given key (test helper).
 func (s *Store) BackdateTMDBCache(cacheKey string, t time.Time) error {
 	_, err := s.db.Exec(`UPDATE tmdb_cache SET cached_at = ? WHERE cache_key = ?`, t, cacheKey)
 	return err
+}
+
+// CountTMDBCacheRows returns the total row count in tmdb_cache, ignoring TTL
+// (test helper). Unlike GetCachedTMDB, this proves whether a row was actually
+// deleted rather than merely being past its read-time TTL cutoff.
+func (s *Store) CountTMDBCacheRows() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM tmdb_cache`).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("counting tmdb cache rows: %w", err)
+	}
+	return n, nil
 }

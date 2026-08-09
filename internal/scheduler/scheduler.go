@@ -72,6 +72,7 @@ func (sch *Scheduler) run(ctx context.Context) {
 	}
 
 	sch.cleanupSessions()
+	sch.pruneTMDBCache()
 
 	// The next daily sync fires once at a variable delay (time until 3 AM,
 	// which shifts across DST transitions) rather than on a fixed period, so
@@ -95,6 +96,7 @@ func (sch *Scheduler) run(ctx context.Context) {
 			syncTimer.Reset(durationUntil3AM(time.Now()))
 		case <-sessionTicker.C:
 			sch.cleanupSessions()
+			sch.pruneTMDBCache()
 		}
 	}
 }
@@ -107,6 +109,17 @@ func (sch *Scheduler) cleanupSessions() {
 	}
 	if deleted > 0 {
 		log.Printf("scheduler: cleaned up %d expired sessions", deleted)
+	}
+}
+
+func (sch *Scheduler) pruneTMDBCache() {
+	deleted, err := sch.store.PruneTMDBCache()
+	if err != nil {
+		log.Printf("scheduler: tmdb cache prune failed: %v", err)
+		return
+	}
+	if deleted > 0 {
+		log.Printf("scheduler: pruned %d expired tmdb cache entries", deleted)
 	}
 }
 

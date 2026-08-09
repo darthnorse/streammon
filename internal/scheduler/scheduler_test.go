@@ -110,6 +110,64 @@ func seedServer(t *testing.T, s *store.Store, name string) *models.Server {
 	return srv
 }
 
+func TestPruneTMDBCacheDeletesExpiredEntries(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	p := poller.New(s, 5*time.Second)
+	sch := New(s, p, nil)
+
+	if err := s.SetCachedTMDB("movie:1", json.RawMessage(`{"id":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BackdateTMDBCache("movie:1", time.Now().UTC().Add(-25*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	sch.pruneTMDBCache()
+
+	got, err := s.GetCachedTMDB("movie:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatal("expected expired tmdb cache entry to be pruned")
+	}
+}
+
+// TestSchedulerStartupPrunesTMDBCache exercises the real startup path
+// (Start/Stop -> run) rather than calling pruneTMDBCache directly, so it
+// fails if the call site in run() is ever removed. It asserts on the row
+// actually being deleted (CountTMDBCacheRows), not on GetCachedTMDB, since
+// GetCachedTMDB's own read-time TTL already hides an expired row whether or
+// not it was pruned -- asserting through GetCachedTMDB would pass even with
+// the call site removed. With no servers configured, SyncAll's library sync,
+// TV-status fetch (nil tmdb client), and rule evaluation are all no-ops, so
+// run() reaches the cleanup calls and then blocks in its select loop until
+// Stop() cancels the context -- it never waits on the hourly ticker or the
+// 3AM timer.
+func TestSchedulerStartupPrunesTMDBCache(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	p := poller.New(s, 5*time.Second)
+	sch := New(s, p, nil, WithSyncTimeout(1*time.Minute))
+
+	if err := s.SetCachedTMDB("movie:1", json.RawMessage(`{"id":1}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.BackdateTMDBCache("movie:1", time.Now().UTC().Add(-25*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	sch.Start(context.Background())
+	sch.Stop()
+
+	n, err := s.CountTMDBCacheRows()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("expected expired tmdb cache row to be deleted by scheduler startup, %d rows remain", n)
+	}
+}
+
 func TestDurationUntil3AM(t *testing.T) {
 	tests := []struct {
 		name string
