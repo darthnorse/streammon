@@ -12,6 +12,20 @@ export const MEDIA_STATUS = {
   DELETED: 7,
 } as const
 
+/**
+ * The status a media card actually displays. The item's own mediaInfo wins,
+ * then Overseerr's status map, then StreamMon's own library scan. Callers that
+ * decide whether an item counts as "in my library" MUST use this rather than
+ * the library set alone, or the badge and the filter disagree.
+ */
+export function resolveMediaStatus(
+  itemStatus: number | undefined,
+  fallbackStatus: number | undefined,
+  owned: boolean,
+): number | undefined {
+  return itemStatus ?? fallbackStatus ?? (owned ? MEDIA_STATUS.AVAILABLE : undefined)
+}
+
 export const OVERSEERR_MEDIA_STATUS: Record<number, { label: string; color: string }> = {
   1: { label: 'Unknown', color: 'bg-gray-500/80 text-white' },
   2: { label: 'Pending', color: 'bg-yellow-500/90 text-gray-900' },

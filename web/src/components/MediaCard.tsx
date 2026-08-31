@@ -1,5 +1,5 @@
 import { TMDB_IMG } from '../lib/tmdb'
-import { MEDIA_STATUS, mediaStatusBadge } from '../lib/overseerr'
+import { mediaStatusBadge, resolveMediaStatus } from '../lib/overseerr'
 import type { OverseerrMediaResult, TMDBMediaResult } from '../types'
 
 type MediaItem = OverseerrMediaResult | TMDBMediaResult
@@ -39,7 +39,7 @@ interface MediaCardProps {
 
 export function MediaCard({ item, onClick, className, available, fallbackMediaStatus }: MediaCardProps) {
   const { title, year, posterPath, mediaType, voteAverage, mediaStatus: itemMediaStatus } = normalize(item)
-  const effectiveStatus = itemMediaStatus ?? fallbackMediaStatus ?? (available ? MEDIA_STATUS.AVAILABLE : undefined)
+  const effectiveStatus = resolveMediaStatus(itemMediaStatus, fallbackMediaStatus, !!available)
   const badge = mediaStatusBadge(effectiveStatus)
 
   return (

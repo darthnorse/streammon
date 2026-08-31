@@ -52,10 +52,22 @@ function renderAtRoute(path: string) {
 
 function mockGetHandler(
   handler: (url: string) => unknown,
-  { ids = [], genres = [] }: { ids?: string[]; genres?: TMDBGenre[] } = {},
+  {
+    ids = [],
+    genres = [],
+    overseerrConfigured = false,
+    mediaStatuses = {},
+  }: {
+    ids?: string[]
+    genres?: TMDBGenre[]
+    overseerrConfigured?: boolean
+    mediaStatuses?: Record<string, number>
+  } = {},
 ) {
   mockApi.get.mockImplementation(((url: string) => {
     if (url === '/api/library/tmdb-ids') return Promise.resolve({ ids })
+    if (url === '/api/overseerr/configured') return Promise.resolve({ configured: overseerrConfigured })
+    if (url === '/api/overseerr/media-statuses') return Promise.resolve({ statuses: mediaStatuses })
     if (url.startsWith('/api/tmdb/genres/')) return Promise.resolve({ genres })
     const result = handler(url)
     return result instanceof Error ? Promise.reject(result) : Promise.resolve(result)
@@ -279,6 +291,44 @@ describe('DiscoverAll', () => {
         '/api/tmdb/discover/tv?year=2024&page=1',
         expect.any(AbortSignal),
       )
+    })
+  })
+
+  // The card badges an item Available from the Overseerr status map even when
+  // StreamMon's own library scan never matched it, so filtering on the local
+  // library alone left "Available" cards on screen with hide_owned on.
+  it('hides items Overseerr reports as available even when absent from the library', async () => {
+    mockGetHandler(
+      url => (url.startsWith('/api/tmdb/discover/tv') ? page1Response : null),
+      { ids: [], overseerrConfigured: true, mediaStatuses: { 'movie:1': 5 } },
+    )
+
+    renderAtRoute('/discover/tv?hide_owned=1')
+
+    await waitFor(() => expect(screen.getByText('Trending Show')).toBeDefined())
+    expect(screen.queryByText('Trending Movie')).toBeNull()
+  })
+
+  // TMDB reshuffles its trending ranking between page requests, so the same
+  // title comes back on more than one page. Appending blindly rendered it twice.
+  it('does not render an item twice when it repeats across pages', async () => {
+    mockGetHandler(url => {
+      if (!url.startsWith('/api/tmdb/discover/trending')) return null
+      return url.includes('page=2')
+        ? { results: [page1Response.results[0]], total_pages: 3 }
+        : page1Response
+    })
+
+    renderAtRoute('/discover/trending')
+
+    await waitFor(() => expect(screen.getByText('Trending Movie')).toBeDefined())
+    await act(async () => { triggerIntersection() })
+    await waitFor(() => {
+      expect(mockApi.get.mock.calls.some(([u]) => String(u).includes('page=2'))).toBe(true)
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Trending Movie')).toHaveLength(1)
     })
   })
 
