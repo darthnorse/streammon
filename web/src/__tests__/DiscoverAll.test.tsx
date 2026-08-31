@@ -309,6 +309,32 @@ describe('DiscoverAll', () => {
     expect(screen.queryByText('Trending Movie')).toBeNull()
   })
 
+  // Overseerr marks any series missing a season PARTIALLY_AVAILABLE, so letting
+  // its status win over the local library set unhid a big slice of the user's
+  // own library under hide_owned.
+  it('still hides a locally-owned item Overseerr reports as only partially available', async () => {
+    mockGetHandler(
+      url => (url.startsWith('/api/tmdb/discover/tv') ? page1Response : null),
+      {
+        ids: ['movie:1', 'tv:2'],
+        overseerrConfigured: true,
+        mediaStatuses: { 'movie:1': 4, 'tv:2': 3 },
+      },
+    )
+
+    renderAtRoute('/discover/tv?hide_owned=1')
+
+    // Both are in the library set, so both stay hidden regardless of the
+    // non-available Overseerr status attached to them.
+    await waitFor(() => {
+      expect(mockApi.get.mock.calls.some(([u]) => String(u).includes('/api/tmdb/discover/tv'))).toBe(true)
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Trending Movie')).toBeNull()
+    })
+    expect(screen.queryByText('Trending Show')).toBeNull()
+  })
+
   // TMDB reshuffles its trending ranking between page requests, so the same
   // title comes back on more than one page. Appending blindly rendered it twice.
   it('does not render an item twice when it repeats across pages', async () => {

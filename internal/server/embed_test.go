@@ -9,20 +9,21 @@ import (
 )
 
 // realAsset returns a content-hashed asset actually present in the embedded
-// build, so the test does not pin a hash that changes every build.
-func realAsset(t *testing.T) string {
-	t.Helper()
+// build, so the test does not pin a hash that changes every build. It reports
+// ok=false rather than skipping: web/dist is gitignored and `make test` has no
+// frontend-build step, so skipping here would abort the whole parent test and
+// silently drop the cases that need no built asset.
+func realAsset() (string, bool) {
 	entries, err := fs.ReadDir(webFS, "web/dist/assets")
 	if err != nil {
-		t.Skipf("no embedded assets dir (frontend not built): %v", err)
+		return "", false
 	}
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".js") {
-			return "/assets/" + e.Name()
+			return "/assets/" + e.Name(), true
 		}
 	}
-	t.Skip("no embedded .js asset found")
-	return ""
+	return "", false
 }
 
 // The SPA shell must revalidate on every load: it names the content-hashed
@@ -38,18 +39,32 @@ func TestServeSPACacheHeaders(t *testing.T) {
 	}{
 		{"index shell", "/", "no-cache"},
 		{"spa deep link falls back to the shell", "/discover/trending", "no-cache"},
-		{"content-hashed asset", realAsset(t), "public, max-age=31536000, immutable"},
+		{"content-hashed asset", "", "public, max-age=31536000, immutable"}, // path resolved per-subtest
 		{"missing asset falls back to the shell", "/assets/does-not-exist-abc123.js", "no-cache"},
+		{"favicon is cacheable art", "/favicon.ico", "public, max-age=86400"},
+		{"media flag sprite is cacheable art", "/media-flags/audio_codec/aac.png", "public, max-age=86400"},
+		// Unhashed but release-coupled: caching these re-creates the stale-bundle bug.
+		{"theme bootstrap must revalidate", "/theme-init.js", "no-cache"},
+		{"webmanifest must revalidate", "/site.webmanifest", "no-cache"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			path := tt.path
+			if path == "" {
+				asset, ok := realAsset()
+				if !ok {
+					t.Skip("frontend not built; no embedded asset to request")
+				}
+				path = asset
+			}
+
+			req := httptest.NewRequest(http.MethodGet, path, nil)
 			w := httptest.NewRecorder()
 			srv.ServeHTTP(w, req)
 
 			if got := w.Header().Get("Cache-Control"); got != tt.want {
-				t.Errorf("Cache-Control for %s = %q, want %q", tt.path, got, tt.want)
+				t.Errorf("Cache-Control for %s = %q, want %q", path, got, tt.want)
 			}
 		})
 	}

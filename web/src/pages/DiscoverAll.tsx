@@ -11,7 +11,7 @@ import { DiscoverFilterBar } from '../components/DiscoverFilterBar'
 import { useDiscoverFilters } from '../hooks/useDiscoverFilters'
 import { categoryCaps, type DiscoverCategoryCaps } from '../lib/discoverFilters'
 import { ownedKey } from '../lib/tmdb'
-import { MEDIA_STATUS, resolveMediaStatus } from '../lib/overseerr'
+import { MEDIA_STATUS } from '../lib/overseerr'
 import type { TMDBMediaResult } from '../types'
 
 function ErrorBanner({ message, onRetry, className }: { message: string; onRetry: () => void; className?: string }) {
@@ -61,14 +61,15 @@ export function DiscoverAll() {
   const { items, loading, loadingMore, hasMore, error, sentinelRef, retry, capped, loadMore } =
     useInfiniteFetch<TMDBMediaResult>(url, 20, 'page', ownedKey)
 
-  // Must mirror MediaCard's badge exactly: an item Overseerr reports as
-  // available is "in my library" even when the local scan never matched it.
-  const inLibrary = (item: TMDBMediaResult) =>
-    resolveMediaStatus(
-      (item as { mediaInfo?: { status?: number } }).mediaInfo?.status,
-      mediaStatuses.get(`${item.media_type}:${item.id}`),
-      libraryIds.has(ownedKey(item)),
-    ) === MEDIA_STATUS.AVAILABLE
+  // Mirrors the two signals MediaCard is given, but ORs them rather than
+  // letting either mask the other: an item Overseerr reports available counts
+  // as owned even when the local scan never matched it, AND a local library
+  // match counts whatever Overseerr says. Resolving through the badge's
+  // precedence instead would unhide owned items sitting at Partial/Processing.
+  const inLibrary = (item: TMDBMediaResult) => {
+    const key = ownedKey(item)
+    return libraryIds.has(key) || mediaStatuses.get(key) === MEDIA_STATUS.AVAILABLE
+  }
 
   const filtered = items.filter(
     item => isSelectableMedia(item) && !(filters.hideOwned && inLibrary(item)),
@@ -142,7 +143,7 @@ export function DiscoverAll() {
               item={item}
               onClick={() => pushModal({ type: 'tmdb', mediaType: item.media_type as 'movie' | 'tv', mediaId: item.id })}
               available={libraryIds.has(ownedKey(item))}
-              fallbackMediaStatus={mediaStatuses.get(`${item.media_type}:${item.id}`)}
+              fallbackMediaStatus={mediaStatuses.get(ownedKey(item))}
             />
           ))}
         </div>
