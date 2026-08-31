@@ -195,6 +195,16 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
         {disabled && (
           <span className="text-xs text-muted dark:text-muted-dark">Choose Movies or TV to filter</span>
         )}
+
+        {activeCount > 0 && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="ml-auto text-xs hover:text-accent hover:underline transition-colors"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {selectedGenres.length > 0 && (
@@ -210,18 +220,6 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
               {genre.name} &times;
             </button>
           ))}
-        </div>
-      )}
-
-      {activeCount > 0 && (
-        <div className="flex justify-end mt-3">
-          <button
-            type="button"
-            onClick={onClear}
-            className="text-xs hover:text-accent hover:underline transition-colors"
-          >
-            Clear filters
-          </button>
         </div>
       )}
     </div>

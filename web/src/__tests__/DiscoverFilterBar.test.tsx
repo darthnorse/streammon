@@ -294,4 +294,16 @@ describe('DiscoverFilterBar', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Clear filters' }))
     expect(onClear).toHaveBeenCalled()
   })
+
+  // The clear button used to sit in its own `mt-3` sibling row, so activating any
+  // filter grew the card by a full row. It belongs on the controls row itself.
+  it('keeps the clear button on the controls row rather than adding a row', async () => {
+    renderBar(tvCaps, { ...EMPTY_FILTERS, year: 2024 }, 1)
+
+    const clear = await screen.findByRole('button', { name: 'Clear filters' })
+    const controls = document.getElementById('discover-filter-controls')
+
+    expect(controls).not.toBeNull()
+    expect(controls!.contains(clear)).toBe(true)
+  })
 })
