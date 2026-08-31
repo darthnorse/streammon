@@ -31,11 +31,25 @@ interface UseInfiniteFetchReturn<T> {
   loadMore: () => void
 }
 
+function dedupe<T>(list: T[], getKey?: (item: T) => string): T[] {
+  if (!getKey) return list
+  const seen = new Set<string>()
+  return list.filter(item => {
+    const key = getKey(item)
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 export function useInfiniteFetch<T>(
   baseUrl: string | null,
   pageSize: number,
   mode: 'offset' | 'page' = 'offset',
+  getKey?: (item: T) => string,
 ): UseInfiniteFetchReturn<T> {
+  const getKeyRef = useRef(getKey)
+  getKeyRef.current = getKey
   const [items, setItems] = useState<T[]>([])
   const [hasMore, setHasMore] = useState(true)
   const [loading, setLoading] = useState(true)
@@ -79,8 +93,11 @@ export function useInfiniteFetch<T>(
     )
       .then(data => {
         if (controller.signal.aborted) return
-        if (isFirst) setItems(data.results)
-        else setItems(prev => [...prev, ...data.results])
+        // Ranked feeds (TMDB trending especially) reshuffle between page
+        // requests, so the same item comes back on more than one page. Without
+        // a key we cannot tell those apart and fall back to plain appending.
+        if (isFirst) setItems(dedupe(data.results, getKeyRef.current))
+        else setItems(prev => dedupe([...prev, ...data.results], getKeyRef.current))
         const pageData = data as PageResponse<T>
         const totalPages = mode === 'page'
           ? (pageData.totalPages ?? pageData.total_pages ?? 0)

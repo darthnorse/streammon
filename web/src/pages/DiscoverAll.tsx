@@ -11,6 +11,7 @@ import { DiscoverFilterBar } from '../components/DiscoverFilterBar'
 import { useDiscoverFilters } from '../hooks/useDiscoverFilters'
 import { categoryCaps, type DiscoverCategoryCaps } from '../lib/discoverFilters'
 import { ownedKey } from '../lib/tmdb'
+import { MEDIA_STATUS, resolveMediaStatus } from '../lib/overseerr'
 import type { TMDBMediaResult } from '../types'
 
 function ErrorBanner({ message, onRetry, className }: { message: string; onRetry: () => void; className?: string }) {
@@ -58,10 +59,19 @@ export function DiscoverAll() {
 
   const url = cat && caps ? `/api/tmdb/discover/${category}${apiQuery ? `?${apiQuery}` : ''}` : null
   const { items, loading, loadingMore, hasMore, error, sentinelRef, retry, capped, loadMore } =
-    useInfiniteFetch<TMDBMediaResult>(url, 20, 'page')
+    useInfiniteFetch<TMDBMediaResult>(url, 20, 'page', ownedKey)
+
+  // Must mirror MediaCard's badge exactly: an item Overseerr reports as
+  // available is "in my library" even when the local scan never matched it.
+  const inLibrary = (item: TMDBMediaResult) =>
+    resolveMediaStatus(
+      (item as { mediaInfo?: { status?: number } }).mediaInfo?.status,
+      mediaStatuses.get(`${item.media_type}:${item.id}`),
+      libraryIds.has(ownedKey(item)),
+    ) === MEDIA_STATUS.AVAILABLE
 
   const filtered = items.filter(
-    item => isSelectableMedia(item) && !(filters.hideOwned && libraryIds.has(ownedKey(item))),
+    item => isSelectableMedia(item) && !(filters.hideOwned && inLibrary(item)),
   )
   // Auto-fill gave up with pages still to come: the filters are not what emptied
   // the list, so the empty state must not blame them.
