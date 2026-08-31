@@ -7,7 +7,7 @@ RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.5-bookworm AS backend
+FROM --platform=$BUILDPLATFORM golang:1.26.6-bookworm AS backend
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
@@ -18,7 +18,8 @@ ARG TARGETOS TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -ldflags "-X main.Version=${VERSION}" -o streammon ./cmd/streammon
 
 FROM alpine:3.22
-RUN apk add --no-cache ca-certificates shadow && \
+RUN apk upgrade --no-cache && \
+    apk add --no-cache ca-certificates shadow && \
     addgroup -g 10000 -S streammon && adduser -u 10000 -S streammon -G streammon
 RUN mkdir -p /app/data /app/geoip && chown streammon:streammon /app /app/data /app/geoip
 WORKDIR /app
