@@ -196,7 +196,7 @@ func (s *Store) topMedia(ctx context.Context, limit int, filter StatsFilter, cfg
 
 	metaQuery := fmt.Sprintf(`SELECT thumb_url, server_id, %s
 		FROM watch_history
-		WHERE media_type = ? AND %s AND thumb_url != ''
+		WHERE media_type = ? AND %s AND thumb_url != '' AND extra_type = ''
 		ORDER BY started_at DESC LIMIT 1`,
 		itemIDCol, cfg.metaWhere)
 

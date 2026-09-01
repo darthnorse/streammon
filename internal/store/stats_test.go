@@ -1653,3 +1653,78 @@ func TestMinPlayDurationBoundary(t *testing.T) {
 		t.Errorf("TotalPlays = %d, want 1 (boundary included, just-under excluded)", lib.TotalPlays)
 	}
 }
+
+func TestTopMoviesSkipsExtrasForThumb(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+
+	// Main feature, watched earlier
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeMovie,
+		Title: "Movie A", Year: 2020, WatchedMs: 7200000,
+		StartedAt: now.Add(-2 * time.Hour), StoppedAt: now.Add(-1 * time.Hour),
+		ItemID: "100", ThumbURL: "library/metadata/100/thumb",
+	})
+
+	// Trailer for the same movie, watched more recently. Its thumb is a video
+	// still, not a poster, so it must not win the artwork.
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Movie A", Year: 2020, WatchedMs: 60000,
+		StartedAt: now, StoppedAt: now.Add(1 * time.Minute),
+		ItemID: "101", ThumbURL: "library/metadata/101/thumb",
+		ExtraType: models.ExtraTypeTrailer,
+	})
+
+	ctx := context.Background()
+	stats, err := s.TopMovies(ctx, 10, StatsFilter{})
+	if err != nil {
+		t.Fatalf("TopMovies: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 movie, got %d", len(stats))
+	}
+	if stats[0].ThumbURL != "library/metadata/100/thumb" {
+		t.Errorf("thumb_url = %q, want library/metadata/100/thumb", stats[0].ThumbURL)
+	}
+	if stats[0].ItemID != "100" {
+		t.Errorf("item_id = %q, want 100", stats[0].ItemID)
+	}
+}
+
+func TestTopTVShowsSkipsExtrasForThumb(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	now := time.Now().UTC()
+
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "alice", MediaType: models.MediaTypeTV,
+		Title: "Ozymandias", GrandparentTitle: "Breaking Bad", WatchedMs: 3600000,
+		StartedAt: now.Add(-2 * time.Hour), StoppedAt: now.Add(-1 * time.Hour),
+		ItemID: "200", GrandparentItemID: "10", ThumbURL: "library/metadata/200/thumb",
+	})
+
+	s.InsertHistory(&models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeTV,
+		Title: "Behind the Scenes", GrandparentTitle: "Breaking Bad", WatchedMs: 60000,
+		StartedAt: now, StoppedAt: now.Add(1 * time.Minute),
+		ItemID: "201", GrandparentItemID: "11", ThumbURL: "library/metadata/201/thumb",
+		ExtraType: models.ExtraTypeBehindTheScenes,
+	})
+
+	ctx := context.Background()
+	stats, err := s.TopTVShows(ctx, 10, StatsFilter{})
+	if err != nil {
+		t.Fatalf("TopTVShows: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 show, got %d", len(stats))
+	}
+	if stats[0].ThumbURL != "library/metadata/200/thumb" {
+		t.Errorf("thumb_url = %q, want library/metadata/200/thumb", stats[0].ThumbURL)
+	}
+	if stats[0].ItemID != "10" {
+		t.Errorf("item_id = %q, want 10", stats[0].ItemID)
+	}
+}
