@@ -154,12 +154,6 @@ func (s *Store) UnlinkUserProvider(userID int64) error {
 		return fmt.Errorf("user %d: %w", userID, models.ErrNotFound)
 	}
 
-	if provider != "" {
-		if _, err := tx.Exec(`DELETE FROM provider_tokens WHERE user_id = ? AND provider = ?`, userID, provider); err != nil {
-			return fmt.Errorf("deleting provider token: %w", err)
-		}
-	}
-
 	return tx.Commit()
 }
 

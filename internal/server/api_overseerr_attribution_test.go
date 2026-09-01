@@ -14,11 +14,12 @@ import (
 	"streammon/internal/models"
 )
 
-// Regression: a user whose stored Plex token Overseerr rejected used to
-// dead-end on "upstream service error". Attribution no longer touches Plex
-// tokens, so the stored token is irrelevant. The shared mock 404s any path it
-// does not know, /auth/plex included, so a return to Plex sign-in fails here.
-func TestOverseerrCreateRequest_StalePlexTokenIsIrrelevant(t *testing.T) {
+// Regression: requests used to be created by signing in to Overseerr with the
+// user's stored Plex token, which dead-ended on "upstream service error" for
+// anyone whose token Overseerr rejected. Attribution is now purely the
+// X-API-User header. The shared mock 404s any path it does not know,
+// /auth/plex included, so a return to Plex sign-in fails here.
+func TestOverseerrCreateRequest_AttributesWithoutPlexSignIn(t *testing.T) {
 	var received createCapture
 	mock := newMockOverseerr(t, mockOverseerrOpts{
 		users: []map[string]any{{"id": 42, "email": "stale@test.local"}},
@@ -32,13 +33,9 @@ func TestOverseerrCreateRequest_StalePlexTokenIsIrrelevant(t *testing.T) {
 
 	srv, st := newTestServerWithEncryptor(t)
 	configureOverseerr(t, st, mock.URL)
-	st.SetStorePlexTokens(true)
 
 	user, err := st.CreateLocalUser("stale-token", "stale@test.local", "", models.RoleViewer)
 	if err != nil {
-		t.Fatal(err)
-	}
-	if err := st.StoreProviderToken(user.ID, "plex", "revoked-token"); err != nil {
 		t.Fatal(err)
 	}
 	token, err := st.CreateSession(user.ID, time.Now().UTC().Add(24*time.Hour))

@@ -999,8 +999,7 @@ func TestGuestSettingsDefaults(t *testing.T) {
 	}
 
 	optInKeys := map[string]bool{
-		"access_enabled":    true,
-		"store_plex_tokens": true,
+		"access_enabled": true,
 	}
 
 	for key, val := range gs {
@@ -1015,7 +1014,7 @@ func TestGuestSettingsDefaults(t *testing.T) {
 		}
 	}
 	expected := []string{
-		"access_enabled", "store_plex_tokens", "show_discover", "show_calendar",
+		"access_enabled", "show_discover", "show_calendar",
 		"visible_profile",
 		"visible_trust_score", "visible_violations", "visible_watch_history",
 		"visible_household", "visible_devices", "visible_isps",
@@ -1082,7 +1081,7 @@ func TestGuestSettingSingle(t *testing.T) {
 func TestGuestSettingSingleFalseDefaults(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 
-	for _, key := range []string{"access_enabled", "store_plex_tokens"} {
+	for _, key := range []string{"access_enabled"} {
 		val, err := s.GetGuestSetting(key)
 		if err != nil {
 			t.Fatalf("GetGuestSetting(%s): %v", key, err)

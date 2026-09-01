@@ -11,7 +11,7 @@ vi.mock('../hooks/useFetch', () => ({
   useFetch: vi.fn((url: string | null) => {
     if (url === '/api/sonarr/configured') return { data: { configured: false }, loading: false, error: null, refetch: vi.fn() }
     if (url === '/api/overseerr/configured') return { data: { configured: false }, loading: false, error: null, refetch: vi.fn() }
-    if (url === '/api/settings/guest') return { data: { settings: {}, plex_tokens_available: false }, loading: false, error: null, refetch: vi.fn() }
+    if (url === '/api/settings/guest') return { data: { settings: {} }, loading: false, error: null, refetch: vi.fn() }
     return { data: null, loading: false, error: null, refetch: vi.fn() }
   }),
 }))
@@ -97,7 +97,7 @@ describe('Layout', () => {
     mockUseFetch.mockImplementation((url: string | null) => {
       if (url === '/api/sonarr/configured') return { data: { configured: false }, loading: false, error: null, refetch: vi.fn() }
       if (url === '/api/overseerr/configured') return { data: { configured: true }, loading: false, error: null, refetch: vi.fn() }
-      if (url === '/api/settings/guest') return { data: { settings: {}, plex_tokens_available: false }, loading: false, error: null, refetch: vi.fn() }
+      if (url === '/api/settings/guest') return { data: { settings: {} }, loading: false, error: null, refetch: vi.fn() }
       return { data: null, loading: false, error: null, refetch: vi.fn() }
     })
     mockUseRequestCount.mockReturnValue({

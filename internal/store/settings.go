@@ -454,15 +454,14 @@ func (s *Store) SetWatchedThreshold(pct int) error {
 }
 
 var guestSettingKeys = []string{
-	"access_enabled", "store_plex_tokens", "show_discover", "show_calendar",
+	"access_enabled", "show_discover", "show_calendar",
 	"visible_profile",
 	"visible_trust_score", "visible_violations", "visible_watch_history",
 	"visible_household", "visible_devices", "visible_isps",
 }
 
 var guestSettingDefaults = map[string]bool{
-	"access_enabled":    false,
-	"store_plex_tokens": false,
+	"access_enabled": false,
 }
 
 func guestSettingDefault(key string) bool {

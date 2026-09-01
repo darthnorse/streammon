@@ -42,8 +42,8 @@ func TestGuestSettingsAPI(t *testing.T) {
 		if !resp.Settings["show_calendar"] {
 			t.Error("expected show_calendar default true")
 		}
-		if resp.Settings["store_plex_tokens"] {
-			t.Error("expected store_plex_tokens default false")
+		if _, ok := resp.Settings["store_plex_tokens"]; ok {
+			t.Error("store_plex_tokens was retired; it must not appear in guest settings")
 		}
 		if !resp.Settings["visible_profile"] {
 			t.Error("expected visible_profile default true")
@@ -139,7 +139,7 @@ func TestGuestSettingsAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("store_plex_tokens rejected without encryption key", func(t *testing.T) {
+	t.Run("retired store_plex_tokens key is rejected", func(t *testing.T) {
 		srv, _ := newTestServerWrapped(t)
 
 		body := `{"store_plex_tokens":true}`
@@ -148,7 +148,10 @@ func TestGuestSettingsAPI(t *testing.T) {
 		srv.ServeHTTP(w, req)
 
 		if w.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			t.Fatalf("expected 400 for a retired key, got %d: %s", w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), "unknown setting key") {
+			t.Fatalf("expected an unknown-key error, got %s", w.Body.String())
 		}
 	})
 

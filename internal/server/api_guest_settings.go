@@ -6,13 +6,11 @@ import (
 	"log"
 	"net/http"
 
-	"streammon/internal/models"
 	"streammon/internal/store"
 )
 
 type guestSettingsResponse struct {
-	Settings            map[string]bool `json:"settings"`
-	PlexTokensAvailable bool            `json:"plex_tokens_available"`
+	Settings map[string]bool `json:"settings"`
 }
 
 func (s *Server) handleGetGuestSettings(w http.ResponseWriter, r *http.Request) {
@@ -21,12 +19,7 @@ func (s *Server) handleGetGuestSettings(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
 	}
-	resp := guestSettingsResponse{Settings: gs}
-	user := UserFromContext(r.Context())
-	if user != nil && user.Role == models.RoleAdmin {
-		resp.PlexTokensAvailable = s.store.HasEncryptor()
-	}
-	writeJSON(w, http.StatusOK, resp)
+	writeJSON(w, http.StatusOK, guestSettingsResponse{Settings: gs})
 }
 
 func (s *Server) handleUpdateGuestSettings(w http.ResponseWriter, r *http.Request) {
@@ -45,19 +38,10 @@ func (s *Server) handleUpdateGuestSettings(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	if enabled, ok := updates["store_plex_tokens"]; ok && enabled && !s.store.HasEncryptor() {
-		writeError(w, http.StatusBadRequest, "TOKEN_ENCRYPTION_KEY must be set to enable Plex token storage")
-		return
-	}
 	if err := s.store.SetGuestSettings(updates); err != nil {
 		log.Printf("SetGuestSettings error: %v", err)
 		writeError(w, http.StatusInternalServerError, "internal")
 		return
-	}
-	if enabled, ok := updates["store_plex_tokens"]; ok && !enabled {
-		if err := s.store.DeleteProviderTokensByProvider(store.ProviderPlex); err != nil {
-			log.Printf("DeleteProviderTokensByProvider error: %v", err)
-		}
 	}
 	log.Printf("Guest settings updated: %v", updates)
 	s.handleGetGuestSettings(w, r)

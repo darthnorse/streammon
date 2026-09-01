@@ -7,7 +7,6 @@ import { ToggleSwitch } from './ToggleSwitch'
 
 interface GuestSettingsResponse {
   settings: Record<string, boolean>
-  plex_tokens_available: boolean
 }
 
 type SettingKey = string
@@ -107,17 +106,6 @@ export function GuestAccessSettings() {
             enabled={get('access_enabled')}
             saving={saving === 'access_enabled'}
             onToggle={toggle}
-          />
-          <ToggleRow
-            settingKey="store_plex_tokens"
-            title="Store Plex Tokens"
-            description={data?.plex_tokens_available
-              ? 'Store encrypted Plex tokens to attribute Overseerr / Seerr requests to the correct user.'
-              : 'Requires TOKEN_ENCRYPTION_KEY to be set before this can be enabled.'}
-            enabled={get('store_plex_tokens')}
-            saving={saving === 'store_plex_tokens'}
-            onToggle={toggle}
-            disabled={!data?.plex_tokens_available}
           />
           <ToggleRow
             settingKey="show_discover"
