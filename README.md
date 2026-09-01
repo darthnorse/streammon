@@ -31,7 +31,7 @@ services:
 
 ### 2. Generate an encryption key
 
-This key is used to encrypt stored Plex tokens for Overseerr / Seerr user attribution. Run this command and copy the output:
+This key is used to encrypt secrets stored in the database, such as integration API keys. Run this command and copy the output:
 
 ```bash
 openssl rand -base64 32
@@ -80,7 +80,7 @@ Full documentation is available in the [Wiki](https://github.com/darthnorse/stre
 - [Configuration](https://github.com/darthnorse/streammon/wiki/Configuration) -- Environment variables and data directories
 - [Media Server Setup](https://github.com/darthnorse/streammon/wiki/Media-Server-Setup) -- Adding Plex, Emby, and Jellyfin servers
 - [Authentication](https://github.com/darthnorse/streammon/wiki/Authentication) -- Provider setup and account linking
-- [Overseerr / Seerr Integration](https://github.com/darthnorse/streammon/wiki/Overseerr-and-Seerr-Integration) -- Media requests and Plex token attribution
+- [Overseerr / Seerr Integration](https://github.com/darthnorse/streammon/wiki/Overseerr-and-Seerr-Integration) -- Media requests and per-user request attribution
 - [GeoIP Geolocation](https://github.com/darthnorse/streammon/wiki/GeoIP-Geolocation) -- Stream maps and location tracking
 - [Sharing Detection Rules](https://github.com/darthnorse/streammon/wiki/Sharing-Detection-Rules) -- Rule types, trust scores, and household locations
 - [Notifications](https://github.com/darthnorse/streammon/wiki/Notifications) -- Discord, webhooks, Pushover, and Ntfy

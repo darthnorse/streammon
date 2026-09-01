@@ -112,8 +112,7 @@ func safeDialControl(_, address string, _ syscall.RawConn) error {
 // connections whose resolved remote IP is loopback, link-local, or
 // unspecified — even if the URL's hostname looked public at
 // config-validation time — and refuses to auto-follow redirects so a
-// redirect to an internal host is never dialed (mirrors the pattern in
-// overseerr.CreateRequestAsUser). Private (RFC1918) and unique-local (ULA)
+// redirect to an internal host is never dialed. Private (RFC1918) and unique-local (ULA)
 // addresses are allowed, since this is a self-hosted app where LAN-hosted
 // notification receivers are a legitimate, common setup.
 func NewSafeClient(timeout time.Duration) *http.Client {

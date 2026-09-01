@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
-	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,7 +15,6 @@ import (
 
 	"streammon/internal/models"
 	"streammon/internal/overseerr"
-	"streammon/internal/store"
 )
 
 type overseerrCreateRequestBody struct {
@@ -25,11 +22,6 @@ type overseerrCreateRequestBody struct {
 	MediaID   int             `json:"mediaId"`
 	Seasons   json.RawMessage `json:"seasons,omitempty"`
 	Is4K      bool            `json:"is4k,omitempty"`
-}
-
-type overseerrCreateRequestPayload struct {
-	overseerrCreateRequestBody
-	UserID *int `json:"userId,omitempty"`
 }
 
 var allowedRequestFilters = map[string]bool{
@@ -48,9 +40,21 @@ var emptyRequestList = json.RawMessage(`{"pageInfo":{"pages":1,"page":1,"results
 
 type overseerrUserCache struct {
 	mu        sync.RWMutex
+	fetchOnce sync.Once
+	fetching  chan struct{}  // capacity-1 semaphore: one refresh at a time, cancellable
 	emailToID map[string]int // lowercase email → Overseerr user ID
 	expiresAt time.Time
+	retryAt   time.Time // suppresses refresh attempts after a failed fetch
 }
+
+// sem returns the refresh semaphore, creating it on first use. Lazy init keeps
+// a zero-value cache usable: a nil channel would block every sender forever.
+func (c *overseerrUserCache) sem() chan struct{} {
+	c.fetchOnce.Do(func() { c.fetching = make(chan struct{}, 1) })
+	return c.fetching
+}
+
+const overseerrUserRetryDelay = 30 * time.Second
 
 const overseerrUserCacheTTL = 15 * time.Minute
 
@@ -318,7 +322,11 @@ func (s *Server) handleOverseerrListRequests(w http.ResponseWriter, r *http.Requ
 			writeRawJSON(w, http.StatusOK, emptyRequestList)
 			return
 		}
-		id, ok := s.resolveOverseerrUserID(r.Context(), user.Email)
+		id, ok, err := s.resolveOverseerrUserID(r.Context(), user.Email)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "upstream service error")
+			return
+		}
 		if !ok {
 			writeRawJSON(w, http.StatusOK, emptyRequestList)
 			return
@@ -357,43 +365,116 @@ func (s *Server) handleOverseerrRequestCount(w http.ResponseWriter, r *http.Requ
 	writeRawJSON(w, http.StatusOK, data)
 }
 
-func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int, bool) {
+// writeUpstreamError translates an Overseerr failure into a response the user
+// can act on. Impersonated requests are evaluated against the requester's own
+// permissions and quota, so a 4xx is usually about their account rather than a
+// broken integration — reporting those as 502 sends people chasing the wrong
+// problem. The upstream body is never echoed back; only the status is trusted.
+func writeUpstreamError(w http.ResponseWriter, err error) {
+	var statusErr *overseerr.StatusError
+	if !errors.As(err, &statusErr) || statusErr.Code < 400 || statusErr.Code >= 500 {
+		writeError(w, http.StatusBadGateway, "upstream service error")
+		return
+	}
+
+	switch statusErr.Code {
+	case http.StatusConflict:
+		writeError(w, http.StatusConflict, "this title has already been requested")
+	case http.StatusForbidden:
+		writeError(w, http.StatusForbidden, "Overseerr / Seerr declined this request — check your request permissions and remaining quota")
+	default:
+		writeError(w, http.StatusUnprocessableEntity, "Overseerr / Seerr rejected this request")
+	}
+}
+
+// errOverseerrUnavailable reports that the Overseerr user list could not be
+// fetched, as distinct from a successful fetch that held no match. Callers must
+// keep the two apart: the first is an upstream failure, the second is a real
+// "your account is not linked" answer.
+var errOverseerrUnavailable = errors.New("overseerr user list unavailable")
+
+// cachedOverseerrUserID returns a cached answer when the map is populated and
+// unexpired. The third result reports whether the cache could answer at all —
+// distinct from a populated cache that simply holds no match for the email.
+func (s *Server) cachedOverseerrUserID(email string) (int, bool, bool) {
+	s.overseerrUsers.mu.RLock()
+	defer s.overseerrUsers.mu.RUnlock()
+
+	if s.overseerrUsers.emailToID == nil || !time.Now().UTC().Before(s.overseerrUsers.expiresAt) {
+		return 0, false, false
+	}
+	id, ok := s.overseerrUsers.emailToID[email]
+	return id, ok, true
+}
+
+// resolveOverseerrUserID maps a StreamMon email to an Overseerr user ID.
+// Refreshes are serialized: concurrent callers wait for the single in-flight
+// fetch rather than each reporting "no match" against a cache that has not been
+// populated yet. A non-nil error means the list could not be fetched at all.
+func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int, bool, error) {
 	email = strings.ToLower(email)
 
-	s.overseerrUsers.mu.RLock()
-	if time.Now().UTC().Before(s.overseerrUsers.expiresAt) {
-		id, ok := s.overseerrUsers.emailToID[email]
-		s.overseerrUsers.mu.RUnlock()
-		return id, ok
+	if id, ok, cached := s.cachedOverseerrUserID(email); cached {
+		return id, ok, nil
 	}
-	s.overseerrUsers.mu.RUnlock()
 
-	// Acquire write lock, re-check, and claim the refresh with a short expiry
-	// so concurrent goroutines use stale data instead of all fetching simultaneously
-	s.overseerrUsers.mu.Lock()
-	if time.Now().UTC().Before(s.overseerrUsers.expiresAt) {
-		id, ok := s.overseerrUsers.emailToID[email]
-		s.overseerrUsers.mu.Unlock()
-		return id, ok
+	// Wait for the in-flight refresh, but stay responsive to our own
+	// cancellation rather than blocking for the upstream timeout.
+	sem := s.overseerrUsers.sem()
+	select {
+	case sem <- struct{}{}:
+		defer func() { <-sem }()
+	case <-ctx.Done():
+		return 0, false, ctx.Err()
 	}
-	s.overseerrUsers.expiresAt = time.Now().UTC().Add(30 * time.Second)
-	s.overseerrUsers.mu.Unlock()
+
+	// A concurrent refresh may have completed while we queued here.
+	if id, ok, cached := s.cachedOverseerrUserID(email); cached {
+		return id, ok, nil
+	}
+
+	s.overseerrUsers.mu.RLock()
+	backoff := time.Now().UTC().Before(s.overseerrUsers.retryAt)
+	s.overseerrUsers.mu.RUnlock()
+	if backoff {
+		return 0, false, errOverseerrUnavailable
+	}
+
+	if err := s.refreshOverseerrUsers(ctx); err != nil {
+		return 0, false, err
+	}
+
+	id, ok, _ := s.cachedOverseerrUserID(email)
+	return id, ok, nil
+}
+
+// refreshOverseerrUsers fetches the Overseerr user list and replaces the cache.
+// Callers must hold the fetching semaphore.
+func (s *Server) refreshOverseerrUsers(ctx context.Context) error {
+	fail := func(err error) error {
+		s.invalidateOverseerrCaches()
+		s.overseerrUsers.mu.Lock()
+		s.overseerrUsers.retryAt = time.Now().UTC().Add(overseerrUserRetryDelay)
+		s.overseerrUsers.mu.Unlock()
+		return err
+	}
 
 	client, err := s.newOverseerrClient()
 	if err != nil {
 		log.Printf("overseerr user resolve: %v", err)
-		s.invalidateOverseerrCaches()
-		return 0, false
+		return fail(errOverseerrUnavailable)
 	}
 
-	resolveCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	// The cache is shared, so the fetch must outlive the request that happened
+	// to trigger it: a client disconnecting mid-refresh would otherwise arm the
+	// failure backoff and starve every other user of a healthy Overseerr.
+	resolveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 	defer cancel()
 
 	users, err := client.ListUsers(resolveCtx)
 	if err != nil {
 		log.Printf("overseerr list users: %v", err)
-		s.invalidateOverseerrCaches()
-		return 0, false
+		return fail(errOverseerrUnavailable)
 	}
 
 	emailToID := make(map[string]int, len(users))
@@ -406,32 +487,10 @@ func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int,
 	s.overseerrUsers.mu.Lock()
 	s.overseerrUsers.emailToID = emailToID
 	s.overseerrUsers.expiresAt = time.Now().UTC().Add(overseerrUserCacheTTL)
+	s.overseerrUsers.retryAt = time.Time{}
 	s.overseerrUsers.mu.Unlock()
 
-	id, ok := emailToID[email]
-	return id, ok
-}
-
-func (s *Server) isOverseerrURLSafeForTokens() bool {
-	cfg, err := s.store.GetOverseerrConfig()
-	if err != nil || cfg.URL == "" {
-		return false
-	}
-	u, err := url.Parse(cfg.URL)
-	if err != nil {
-		return false
-	}
-	if u.Scheme == "https" {
-		return true
-	}
-	host := u.Hostname()
-	ip := net.ParseIP(host)
-	if ip != nil {
-		return ip.IsLoopback() || ip.IsPrivate()
-	}
-	// Non-IP hostnames (e.g. Docker service names like "overseerr") are
-	// considered safe — they resolve within the private network.
-	return !strings.Contains(host, ".")
+	return nil
 }
 
 func (s *Server) invalidateOverseerrMediaCache() {
@@ -446,6 +505,7 @@ func (s *Server) invalidateOverseerrCaches() {
 	s.overseerrUsers.mu.Lock()
 	s.overseerrUsers.emailToID = nil
 	s.overseerrUsers.expiresAt = time.Time{}
+	s.overseerrUsers.retryAt = time.Time{}
 	s.overseerrUsers.mu.Unlock()
 
 	s.invalidateOverseerrMediaCache()
@@ -530,64 +590,45 @@ func (s *Server) handleOverseerrCreateRequest(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Try to create the request as the actual user via their Plex token.
-	// This ensures Overseerr applies the user's auto-approval settings
-	// rather than auto-approving everything as admin.
+	// Attribute the request to the requesting user so Overseerr applies their
+	// own request permission, approval rules and quota rather than the API
+	// key owner's. Non-admins must resolve to an Overseerr account, otherwise
+	// the request would be silently filed as the admin and auto-approved.
 	user := UserFromContext(r.Context())
-	if user != nil {
-		enabled, err := s.store.GetStorePlexTokens()
-		if err != nil {
-			log.Printf("overseerr: get store_plex_tokens setting: %v", err)
-		}
-		if enabled && s.isOverseerrURLSafeForTokens() {
-			plexToken, tokenErr := s.store.GetProviderToken(user.ID, store.ProviderPlex)
-			if tokenErr == nil && plexToken != "" {
-				data, createErr := client.CreateRequestAsUser(ctx, plexToken, reqBody)
-				if createErr != nil {
-					log.Printf("overseerr: create request as user %d failed: %v", user.ID, createErr)
-					writeError(w, http.StatusBadGateway, "upstream service error")
-					return
-				}
-				s.invalidateOverseerrMediaCache()
-				writeRawJSON(w, http.StatusCreated, data)
-				return
-			}
-		}
-	}
-
-	// Fallback: use admin API key with userId attribution.
-	// Non-admin users must be resolvable to an Overseerr account to
-	// prevent requests from being silently attributed to the admin.
 	isAdmin := user != nil && user.Role == models.RoleAdmin
-	if !isAdmin {
-		if user == nil || user.Email == "" {
-			writeError(w, http.StatusUnprocessableEntity, "cannot determine your Overseerr identity; ask an admin to link your account")
-			return
-		}
-		if _, ok := s.resolveOverseerrUserID(r.Context(), user.Email); !ok {
-			writeError(w, http.StatusUnprocessableEntity, "no matching Overseerr account found for your email")
+	hasEmail := user != nil && user.Email != ""
+
+	var (
+		overseerrID int
+		resolved    bool
+	)
+	if hasEmail {
+		var resolveErr error
+		overseerrID, resolved, resolveErr = s.resolveOverseerrUserID(r.Context(), user.Email)
+		if resolveErr != nil {
+			writeError(w, http.StatusBadGateway, "upstream service error")
 			return
 		}
 	}
 
-	payload := overseerrCreateRequestPayload{
-		overseerrCreateRequestBody: req,
-	}
-	if user != nil && user.Email != "" {
-		if overseerrID, ok := s.resolveOverseerrUserID(r.Context(), user.Email); ok {
-			payload.UserID = &overseerrID
+	if !isAdmin && !resolved {
+		msg := "no matching Overseerr account found for your email"
+		if !hasEmail {
+			msg = "cannot determine your Overseerr identity; ask an admin to link your account"
 		}
-	}
-
-	sanitized, err := json.Marshal(payload)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "internal")
+		writeError(w, http.StatusUnprocessableEntity, msg)
 		return
 	}
 
-	data, err := client.CreateRequest(ctx, sanitized)
+	var data json.RawMessage
+	if resolved {
+		data, err = client.CreateRequestAsUser(ctx, overseerrID, reqBody)
+	} else {
+		data, err = client.CreateRequest(ctx, reqBody)
+	}
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "upstream service error")
+		log.Printf("overseerr: create request for user %d failed: %v", user.ID, err)
+		writeUpstreamError(w, err)
 		return
 	}
 
@@ -652,7 +693,11 @@ func (s *Server) handleOverseerrDeleteRequest(w http.ResponseWriter, r *http.Req
 			writeError(w, http.StatusForbidden, "forbidden")
 			return
 		}
-		overseerrID, ok := s.resolveOverseerrUserID(ctx, user.Email)
+		overseerrID, ok, err := s.resolveOverseerrUserID(ctx, user.Email)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "upstream service error")
+			return
+		}
 		if !ok || overseerrID == 0 {
 			writeError(w, http.StatusForbidden, "forbidden")
 			return

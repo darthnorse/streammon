@@ -24,9 +24,14 @@ function renderOverseerrWarnings(url: string) {
     <>
       {showHTTPWarning && (
         <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
-          Plex token attribution requires HTTPS (or localhost). With a plain HTTP URL, Overseerr / Seerr requests will fall back to email matching to avoid sending tokens over an unencrypted connection. We strongly recommend using Overseerr / Seerr&rsquo;s &ldquo;Import Plex Users&rdquo; feature (Users &rarr; Import Plex Users) to ensure email matching works for all users. If no email match is found, requests will fall back to the Overseerr / Seerr admin account.
+          This is a plain HTTP URL, so the API key is sent unencrypted. Use HTTPS if Overseerr / Seerr is not on your local network.
         </p>
       )}
+      <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
+        Requests are attributed by matching your users&rsquo; email addresses against Overseerr / Seerr accounts, so each request uses that
+        user&rsquo;s own approval rules and quota. We strongly recommend Overseerr / Seerr&rsquo;s &ldquo;Import Plex Users&rdquo; feature
+        (Users &rarr; Import Plex Users) so every user has a matching account &mdash; non-admins with no match cannot submit requests.
+      </p>
       <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
         If you use per-user tagging in Radarr/Sonarr, disable &ldquo;Tag Requests&rdquo; in Overseerr / Seerr Settings &rarr; Services &rarr; Radarr/Sonarr.
         A <a href="https://github.com/sct/overseerr/issues/4306" target="_blank" rel="noopener noreferrer" className="underline hover:text-amber-800 dark:hover:text-amber-300">known Overseerr bug</a> causes

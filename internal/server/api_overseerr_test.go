@@ -104,7 +104,7 @@ func newMockOverseerr(t *testing.T, opts mockOverseerrOpts) *httptest.Server {
 				var body map[string]any
 				json.NewDecoder(r.Body).Decode(&body)
 				resp := map[string]any{"id": 10, "status": 2, "mediaType": body["mediaType"]}
-				if uid, ok := body["userId"]; ok {
+				if uid := r.Header.Get("X-API-User"); uid != "" {
 					resp["requestedBy"] = map[string]any{"id": uid}
 				}
 				w.WriteHeader(http.StatusCreated)
@@ -141,11 +141,18 @@ func mockOverseerrWithUsers(t *testing.T, users []map[string]any) *httptest.Serv
 	return newMockOverseerr(t, mockOverseerrOpts{users: users})
 }
 
-func mockOverseerrCaptureRequest(t *testing.T, users []map[string]any, captured *map[string]any) *httptest.Server {
+// createCapture records what the mock Overseerr saw on POST /request.
+type createCapture struct {
+	Body    map[string]any
+	APIUser string // X-API-User impersonation header
+}
+
+func mockOverseerrCaptureRequest(t *testing.T, users []map[string]any, captured *createCapture) *httptest.Server {
 	return newMockOverseerr(t, mockOverseerrOpts{
 		users: users,
 		onCreateRequest: func(w http.ResponseWriter, r *http.Request) {
-			json.NewDecoder(r.Body).Decode(captured)
+			captured.APIUser = r.Header.Get("X-API-User")
+			json.NewDecoder(r.Body).Decode(&captured.Body)
 			w.WriteHeader(http.StatusCreated)
 			json.NewEncoder(w).Encode(map[string]any{"id": 10, "status": 2})
 		},
@@ -747,8 +754,8 @@ func TestOverseerrCreateRequest_InvalidJSON(t *testing.T) {
 }
 
 func TestOverseerrCreateRequest_ExtraFieldsStripped(t *testing.T) {
-	var receivedBody map[string]any
-	mock := mockOverseerrCaptureRequest(t, defaultOverseerrUsers, &receivedBody)
+	var received createCapture
+	mock := mockOverseerrCaptureRequest(t, defaultOverseerrUsers, &received)
 
 	srv, st := newTestServerWrapped(t)
 	configureOverseerr(t, st, mock.URL)
@@ -762,18 +769,18 @@ func TestOverseerrCreateRequest_ExtraFieldsStripped(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	// Client-supplied userId=999 must be replaced by server-resolved userId=1.
-	userID, ok := receivedBody["userId"]
-	if !ok {
-		t.Fatal("expected server-resolved userId in request body")
+	// Client-supplied userId=999 must be dropped and the requester carried by
+	// the impersonation header instead.
+	if received.APIUser != "1" {
+		t.Fatalf("expected X-API-User=1, got %q", received.APIUser)
 	}
-	if int(userID.(float64)) != 1 {
-		t.Fatalf("expected server-resolved userId=1, got %v", userID)
+	if _, ok := received.Body["userId"]; ok {
+		t.Fatal("expected userId to be stripped from forwarded body")
 	}
-	if _, ok := receivedBody["rootFolder"]; ok {
+	if _, ok := received.Body["rootFolder"]; ok {
 		t.Fatal("expected rootFolder to be stripped from forwarded body")
 	}
-	if _, ok := receivedBody["serverId"]; ok {
+	if _, ok := received.Body["serverId"]; ok {
 		t.Fatal("expected serverId to be stripped from forwarded body")
 	}
 }
@@ -815,11 +822,11 @@ func TestOverseerrDeleteRequest(t *testing.T) {
 }
 
 func TestOverseerrCreateRequest_InjectsUserID(t *testing.T) {
-	var receivedBody map[string]any
+	var received createCapture
 	mock := mockOverseerrCaptureRequest(t, []map[string]any{
 		{"id": 42, "email": "viewer@test.local"},
 		{"id": 99, "email": "other@example.com"},
-	}, &receivedBody)
+	}, &received)
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
@@ -835,12 +842,8 @@ func TestOverseerrCreateRequest_InjectsUserID(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	userID, ok := receivedBody["userId"]
-	if !ok {
-		t.Fatal("expected userId in request body")
-	}
-	if int(userID.(float64)) != 42 {
-		t.Fatalf("expected userId=42, got %v", userID)
+	if received.APIUser != "42" {
+		t.Fatalf("expected X-API-User=42, got %q", received.APIUser)
 	}
 }
 
@@ -883,10 +886,10 @@ func TestOverseerrCreateRequest_NoEmailRejects(t *testing.T) {
 }
 
 func TestOverseerrCreateRequest_ClientUserIdStripped(t *testing.T) {
-	var receivedBody map[string]any
+	var received createCapture
 	mock := mockOverseerrCaptureRequest(t, []map[string]any{
 		{"id": 42, "email": "viewer-strip@test.local"},
-	}, &receivedBody)
+	}, &received)
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
@@ -902,20 +905,16 @@ func TestOverseerrCreateRequest_ClientUserIdStripped(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	userID, ok := receivedBody["userId"]
-	if !ok {
-		t.Fatal("expected userId in request body (server-resolved, not client-supplied)")
-	}
-	if int(userID.(float64)) != 42 {
-		t.Fatalf("expected userId=42 (server-resolved), got %v", userID)
+	if received.APIUser != "42" {
+		t.Fatalf("expected server-resolved X-API-User=42, got %q", received.APIUser)
 	}
 }
 
 func TestOverseerrCreateRequest_CaseInsensitiveEmail(t *testing.T) {
-	var receivedBody map[string]any
+	var received createCapture
 	mock := mockOverseerrCaptureRequest(t, []map[string]any{
 		{"id": 7, "email": "Alice@Example.COM"},
-	}, &receivedBody)
+	}, &received)
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
@@ -931,20 +930,16 @@ func TestOverseerrCreateRequest_CaseInsensitiveEmail(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	userID, ok := receivedBody["userId"]
-	if !ok {
-		t.Fatal("expected userId in request body for case-insensitive email match")
-	}
-	if int(userID.(float64)) != 7 {
-		t.Fatalf("expected userId=7, got %v", userID)
+	if received.APIUser != "7" {
+		t.Fatalf("expected X-API-User=7 from case-insensitive email match, got %q", received.APIUser)
 	}
 }
 
 func TestOverseerrCreateRequest_AdminEmailResolved(t *testing.T) {
-	var receivedBody map[string]any
+	var received createCapture
 	mock := mockOverseerrCaptureRequest(t, []map[string]any{
 		{"id": 5, "email": "admin@test.local"},
-	}, &receivedBody)
+	}, &received)
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
@@ -959,18 +954,14 @@ func TestOverseerrCreateRequest_AdminEmailResolved(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 
-	userID, ok := receivedBody["userId"]
-	if !ok {
-		t.Fatal("expected userId in request body for admin user")
-	}
-	if int(userID.(float64)) != 5 {
-		t.Fatalf("expected userId=5, got %v", userID)
+	if received.APIUser != "5" {
+		t.Fatalf("expected X-API-User=5 for admin user, got %q", received.APIUser)
 	}
 }
 
 func TestOverseerrCreateRequest_AdminNoEmailAllowed(t *testing.T) {
-	var receivedBody map[string]any
-	mock := mockOverseerrCaptureRequest(t, nil, &receivedBody)
+	var received createCapture
+	mock := mockOverseerrCaptureRequest(t, nil, &received)
 
 	srv, st := newTestServer(t)
 	configureOverseerr(t, st, mock.URL)
@@ -995,8 +986,8 @@ func TestOverseerrCreateRequest_AdminNoEmailAllowed(t *testing.T) {
 		t.Fatalf("expected 201 for admin without email, got %d: %s", w.Code, w.Body.String())
 	}
 
-	if _, ok := receivedBody["userId"]; ok {
-		t.Fatal("expected no userId when admin has no Overseerr match")
+	if received.APIUser != "" {
+		t.Fatalf("expected no impersonation header when admin has no Overseerr match, got %q", received.APIUser)
 	}
 }
 

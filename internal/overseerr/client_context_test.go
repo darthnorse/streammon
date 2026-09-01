@@ -39,7 +39,7 @@ func TestClientRespectsContextCancellation(t *testing.T) {
 			return err
 		}},
 		{"CreateRequestAsUser", func(ctx context.Context) error {
-			_, err := c.CreateRequestAsUser(ctx, "fake-plex-token", []byte(`{"mediaType":"movie","mediaId":1}`))
+			_, err := c.CreateRequestAsUser(ctx, 42, []byte(`{"mediaType":"movie","mediaId":1}`))
 			return err
 		}},
 		{"DeleteRequest", func(ctx context.Context) error {

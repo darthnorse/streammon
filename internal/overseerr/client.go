@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"strconv"
 	"strings"
@@ -37,10 +36,13 @@ func NewClient(baseURL, apiKey string) (*Client, error) {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, body io.Reader) (json.RawMessage, error) {
-	return c.doWithOpts(ctx, method, path, query, body, true)
+	return c.doAs(ctx, method, path, query, body, 0)
 }
 
-func (c *Client) doWithOpts(ctx context.Context, method, path string, query url.Values, body io.Reader, includeAPIKey bool) (json.RawMessage, error) {
+// doAs sends a request to Overseerr. A non-zero asUserID sets the X-API-User
+// impersonation header, which makes Overseerr resolve the acting user to that
+// account instead of the API key's owner.
+func (c *Client) doAs(ctx context.Context, method, path string, query url.Values, body io.Reader, asUserID int) (json.RawMessage, error) {
 	u := c.baseURL + "/api/v1" + path
 	if len(query) > 0 {
 		// url.Values.Encode() uses + for spaces per x-www-form-urlencoded;
@@ -52,8 +54,9 @@ func (c *Client) doWithOpts(ctx context.Context, method, path string, query url.
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	if includeAPIKey {
-		req.Header.Set("X-Api-Key", c.apiKey)
+	req.Header.Set("X-Api-Key", c.apiKey)
+	if asUserID > 0 {
+		req.Header.Set("X-API-User", strconv.Itoa(asUserID))
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -68,6 +71,18 @@ func (c *Client) doWithOpts(ctx context.Context, method, path string, query url.
 	return readResponse(resp)
 }
 
+// StatusError reports a non-2xx response from Overseerr. It carries the status
+// so callers can separate a rejection the user can act on (quota, permission,
+// duplicate) from an integration that is actually broken.
+type StatusError struct {
+	Code int
+	Body string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("overseerr returned status %d: %s", e.Code, e.Body)
+}
+
 // readResponse reads the body from an HTTP response, checks for non-2xx status,
 // and returns the raw JSON. The caller must still drain/close the response body.
 func readResponse(resp *http.Response) (json.RawMessage, error) {
@@ -77,7 +92,7 @@ func readResponse(resp *http.Response) (json.RawMessage, error) {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("overseerr returned status %d: %s", resp.StatusCode, httputil.Truncate(body, 200))
+		return nil, &StatusError{Code: resp.StatusCode, Body: httputil.Truncate(body, 200)}
 	}
 
 	return json.RawMessage(body), nil
@@ -219,57 +234,20 @@ func (c *Client) CreateRequest(ctx context.Context, reqBody json.RawMessage) (js
 	return c.doPost(ctx, "/request", reqBody)
 }
 
-// CreateRequestAsUser authenticates to Overseerr as the given Plex user,
-// then creates the request using that session. This ensures Overseerr
-// applies the user's auto-approval settings rather than the admin's.
-func (c *Client) CreateRequestAsUser(ctx context.Context, plexToken string, reqBody json.RawMessage) (json.RawMessage, error) {
-	jar, err := cookiejar.New(nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating cookie jar: %w", err)
+// CreateRequestAsUser creates the request as the given Overseerr user via the
+// X-API-User impersonation header. Overseerr then evaluates that user's own
+// request permission, approval rules and quota, and records them as the
+// requester — identical to them submitting it in Overseerr directly.
+//
+// The request body must not carry a userId: Overseerr only honours that field
+// for callers holding MANAGE_USERS/MANAGE_REQUESTS, which the impersonated
+// user generally does not, and it leaves approval evaluated against the API
+// key's owner rather than the requester.
+func (c *Client) CreateRequestAsUser(ctx context.Context, userID int, reqBody json.RawMessage) (json.RawMessage, error) {
+	if userID <= 0 {
+		return nil, fmt.Errorf("invalid overseerr user id %d", userID)
 	}
-	userClient := &http.Client{
-		Timeout: httputil.IntegrationTimeout,
-		Jar:     jar,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	authPayload, err := json.Marshal(map[string]string{"authToken": plexToken})
-	if err != nil {
-		return nil, fmt.Errorf("marshalling auth payload: %w", err)
-	}
-
-	authReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/auth/plex", bytes.NewReader(authPayload))
-	if err != nil {
-		return nil, fmt.Errorf("creating auth request: %w", err)
-	}
-	authReq.Header.Set("Content-Type", "application/json")
-
-	authResp, err := userClient.Do(authReq)
-	if err != nil {
-		return nil, fmt.Errorf("plex auth failed: %w", err)
-	}
-
-	httputil.DrainBody(authResp) // free connection for the subsequent POST
-
-	if authResp.StatusCode < 200 || authResp.StatusCode >= 300 {
-		return nil, fmt.Errorf("plex auth returned status %d", authResp.StatusCode)
-	}
-
-	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/v1/request", bytes.NewReader(reqBody))
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	createReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := userClient.Do(createReq)
-	if err != nil {
-		return nil, fmt.Errorf("create request failed: %w", err)
-	}
-	defer httputil.DrainBody(resp)
-
-	return readResponse(resp)
+	return c.doAs(ctx, http.MethodPost, "/request", nil, bytes.NewReader(reqBody), userID)
 }
 
 func (c *Client) UpdateRequestStatus(ctx context.Context, requestID int, status string) (json.RawMessage, error) {
@@ -381,4 +359,3 @@ func (c *Client) ListMedia(ctx context.Context) (map[string]int, error) {
 func (c *Client) DeleteMedia(ctx context.Context, mediaID int) error {
 	return c.doDelete(ctx, fmt.Sprintf("/media/%d", mediaID))
 }
-
