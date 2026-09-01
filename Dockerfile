@@ -1,6 +1,6 @@
 ARG VERSION=dev
 
-FROM node:22-slim AS frontend
+FROM --platform=$BUILDPLATFORM node:22-slim AS frontend
 WORKDIR /app/web
 COPY web/package.json web/package-lock.json* ./
 RUN npm ci
