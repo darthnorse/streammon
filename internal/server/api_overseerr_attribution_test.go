@@ -110,6 +110,9 @@ func TestOverseerrCreateRequest_UpstreamStatusMapping(t *testing.T) {
 		{"quota or permission denied", http.StatusForbidden, http.StatusForbidden, "quota"},
 		{"already requested", http.StatusConflict, http.StatusConflict, "already been requested"},
 		{"other rejection", http.StatusBadRequest, http.StatusUnprocessableEntity, "rejected"},
+		{"rate limited", http.StatusTooManyRequests, http.StatusServiceUnavailable, "rate limiting"},
+		{"bad api key is an operator problem", http.StatusUnauthorized, http.StatusBadGateway, "upstream service error"},
+		{"missing endpoint is an operator problem", http.StatusNotFound, http.StatusBadGateway, "upstream service error"},
 		{"overseerr broken", http.StatusInternalServerError, http.StatusBadGateway, "upstream service error"},
 	}
 
@@ -176,11 +179,17 @@ func TestOverseerrCreateRequest_ResolveFailureIsNotAnIdentityError(t *testing.T)
 // A client disconnecting mid-fetch previously armed a 30s global backoff that
 // made every other user look unlinked while Overseerr was healthy.
 func TestOverseerrResolve_CallerCancellationDoesNotPoisonCache(t *testing.T) {
+	started := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/user" {
-			once.Do(func() { <-release }) // hold the first fetch until the caller is gone
+			// Hold the first fetch open until the caller that triggered it has
+			// been cancelled, so the test cannot pass by racing ahead of it.
+			once.Do(func() {
+				close(started)
+				<-release
+			})
 			json.NewEncoder(w).Encode(map[string]any{
 				"pageInfo": map[string]any{"pages": 1, "page": 1, "results": 1},
 				"results":  []map[string]any{{"id": 42, "email": "cancel@test.local"}},
@@ -201,9 +210,11 @@ func TestOverseerrResolve_CallerCancellationDoesNotPoisonCache(t *testing.T) {
 		srv.resolveOverseerrUserID(cancelCtx, "cancel@test.local")
 	}()
 
-	// Let the fetch start, then abandon it the way a disconnecting client would.
-	time.Sleep(50 * time.Millisecond)
+	// Abandon the caller the way a disconnecting client would, but only once
+	// its fetch is provably in flight upstream.
+	<-started
 	cancel()
+	<-cancelCtx.Done()
 	close(release)
 	<-done
 

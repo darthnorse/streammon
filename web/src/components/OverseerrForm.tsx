@@ -28,9 +28,10 @@ function renderOverseerrWarnings(url: string) {
         </p>
       )}
       <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
-        Requests are attributed by matching your users&rsquo; email addresses against Overseerr / Seerr accounts, so each request uses that
-        user&rsquo;s own approval rules and quota. We strongly recommend Overseerr / Seerr&rsquo;s &ldquo;Import Plex Users&rdquo; feature
-        (Users &rarr; Import Plex Users) so every user has a matching account &mdash; non-admins with no match cannot submit requests.
+        Requests are attributed by matching your users&rsquo; email addresses against Overseerr / Seerr accounts. A matched user&rsquo;s own
+        approval rules and quota apply; an admin with no match falls back to the account that owns the API key. We strongly recommend
+        Overseerr / Seerr&rsquo;s &ldquo;Import Plex Users&rdquo; feature (Users &rarr; Import Plex Users) so every user has a matching
+        account &mdash; non-admins with no match cannot submit requests.
       </p>
       <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 rounded-lg px-3 py-2">
         If you use per-user tagging in Radarr/Sonarr, disable &ldquo;Tag Requests&rdquo; in Overseerr / Seerr Settings &rarr; Services &rarr; Radarr/Sonarr.

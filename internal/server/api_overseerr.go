@@ -367,23 +367,31 @@ func (s *Server) handleOverseerrRequestCount(w http.ResponseWriter, r *http.Requ
 
 // writeUpstreamError translates an Overseerr failure into a response the user
 // can act on. Impersonated requests are evaluated against the requester's own
-// permissions and quota, so a 4xx is usually about their account rather than a
-// broken integration — reporting those as 502 sends people chasing the wrong
-// problem. The upstream body is never echoed back; only the status is trusted.
+// permissions and quota, so a rejection is often about their account rather
+// than a broken integration — reporting those as 502 sends people chasing the
+// wrong problem. Only statuses Overseerr uses to reject a *request* are passed
+// on as client errors; a bad API key or a missing endpoint is an integration
+// fault and stays a 502. The upstream body is never echoed back.
 func writeUpstreamError(w http.ResponseWriter, err error) {
 	var statusErr *overseerr.StatusError
-	if !errors.As(err, &statusErr) || statusErr.Code < 400 || statusErr.Code >= 500 {
+	if !errors.As(err, &statusErr) {
 		writeError(w, http.StatusBadGateway, "upstream service error")
 		return
 	}
 
 	switch statusErr.Code {
-	case http.StatusConflict:
-		writeError(w, http.StatusConflict, "this title has already been requested")
 	case http.StatusForbidden:
 		writeError(w, http.StatusForbidden, "Overseerr / Seerr declined this request — check your request permissions and remaining quota")
-	default:
+	case http.StatusConflict:
+		writeError(w, http.StatusConflict, "this title has already been requested")
+	case http.StatusTooManyRequests:
+		writeError(w, http.StatusServiceUnavailable, "Overseerr / Seerr is rate limiting requests; try again shortly")
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
 		writeError(w, http.StatusUnprocessableEntity, "Overseerr / Seerr rejected this request")
+	default:
+		// 401/404 and every 5xx: the integration is misconfigured or down,
+		// which is an operator problem, not something the user can fix.
+		writeError(w, http.StatusBadGateway, "upstream service error")
 	}
 }
 
