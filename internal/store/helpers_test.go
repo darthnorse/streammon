@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"streammon/internal/crypto"
 	"testing"
+
+	"streammon/internal/crypto"
 )
 
 func migrationsDir() string {

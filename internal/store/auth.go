@@ -122,10 +122,9 @@ var ErrNoPassword = errors.New("user has no password set")
 // Returns ErrNoPassword if the user has no password (would be locked out).
 func (s *Store) UnlinkUserProvider(userID int64) error {
 	var hasPassword bool
-	var provider string
 	err := s.db.QueryRow(
-		`SELECT password_hash != '' AND password_hash IS NOT NULL, COALESCE(provider, '') FROM users WHERE id = ?`, userID,
-	).Scan(&hasPassword, &provider)
+		`SELECT password_hash != '' AND password_hash IS NOT NULL FROM users WHERE id = ?`, userID,
+	).Scan(&hasPassword)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("user %d: %w", userID, models.ErrNotFound)
 	}
@@ -136,13 +135,7 @@ func (s *Store) UnlinkUserProvider(userID int64) error {
 		return ErrNoPassword
 	}
 
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback()
-
-	result, err := tx.Exec(
+	result, err := s.db.Exec(
 		`UPDATE users SET provider = '', provider_id = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		userID,
 	)
@@ -154,7 +147,7 @@ func (s *Store) UnlinkUserProvider(userID int64) error {
 		return fmt.Errorf("user %d: %w", userID, models.ErrNotFound)
 	}
 
-	return tx.Commit()
+	return nil
 }
 
 // GetUnlinkedUserByName finds a user by name (case-insensitive) that has no provider linked.

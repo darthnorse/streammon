@@ -34,6 +34,13 @@ func splitStatements(content string) []string {
 	return stmts
 }
 
+// vacuumAfter lists migrations that free pages holding secrets. SQLite leaves
+// freed pages readable, and VACUUM cannot run inside applyMigration's
+// transaction, so the reclaim happens here instead.
+var vacuumAfter = map[int]bool{
+	56: true, // drops provider_tokens (stored Plex account tokens)
+}
+
 func (s *Store) Migrate(migrationsDir string) error {
 	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
@@ -56,28 +63,52 @@ func (s *Store) Migrate(migrationsDir string) error {
 	}
 	sort.Strings(files)
 
+	needVacuum := false
 	for _, f := range files {
-		if err := s.applyMigration(migrationsDir, f); err != nil {
+		applied, version, err := s.applyMigration(migrationsDir, f)
+		if err != nil {
 			return err
+		}
+		if applied && vacuumAfter[version] {
+			needVacuum = true
+		}
+	}
+
+	if needVacuum {
+		if err := s.reclaimFreedPages(); err != nil {
+			return fmt.Errorf("reclaiming freed pages: %w", err)
 		}
 	}
 
 	return nil
 }
 
-func (s *Store) applyMigration(dir, f string) error {
+func (s *Store) reclaimFreedPages() error {
+	start := time.Now()
+	if _, err := s.db.Exec("VACUUM"); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec("PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+		return err
+	}
+	log.Printf("reclaimed freed database pages (took %s)", time.Since(start).Round(time.Millisecond))
+	return nil
+}
+
+// applyMigration reports whether it applied the file, plus its version.
+func (s *Store) applyMigration(dir, f string) (bool, int, error) {
 	parts := strings.SplitN(f, "_", 2)
 	version, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return fmt.Errorf("invalid migration filename %q: expected numeric prefix", f)
+		return false, 0, fmt.Errorf("invalid migration filename %q: expected numeric prefix", f)
 	}
 
 	var count int
 	if err := s.db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = ?", version).Scan(&count); err != nil {
-		return err
+		return false, version, err
 	}
 	if count > 0 {
-		return nil
+		return false, version, nil
 	}
 
 	log.Printf("applying migration %s", f)
@@ -85,12 +116,12 @@ func (s *Store) applyMigration(dir, f string) error {
 
 	content, err := os.ReadFile(filepath.Join(dir, f))
 	if err != nil {
-		return fmt.Errorf("reading migration %s: %w", f, err)
+		return false, version, fmt.Errorf("reading migration %s: %w", f, err)
 	}
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return false, version, err
 	}
 	defer tx.Rollback()
 
@@ -99,17 +130,17 @@ func (s *Store) applyMigration(dir, f string) error {
 			if isIgnorableAlterError(stmt, err) {
 				continue
 			}
-			return fmt.Errorf("executing migration %s: %w", f, err)
+			return false, version, fmt.Errorf("executing migration %s: %w", f, err)
 		}
 	}
 
 	if _, err := tx.Exec("INSERT INTO schema_migrations (version) VALUES (?)", version); err != nil {
-		return err
+		return false, version, err
 	}
 
 	if err := tx.Commit(); err != nil {
-		return err
+		return false, version, err
 	}
 	log.Printf("applied migration %s (took %s)", f, time.Since(start).Round(time.Millisecond))
-	return nil
+	return true, version, nil
 }

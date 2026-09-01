@@ -14,15 +14,13 @@ import (
 	"streammon/internal/models"
 )
 
-// Regression: requests used to be created by signing in to Overseerr with the
-// user's stored Plex token, which dead-ended on "upstream service error" for
-// anyone whose token Overseerr rejected. Attribution is now purely the
-// X-API-User header. The shared mock 404s any path it does not know,
-// /auth/plex included, so a return to Plex sign-in fails here.
+// Regression: signing in with the user's Plex token dead-ended on "upstream
+// service error" whenever Overseerr rejected it. The mock 404s /auth/plex, so
+// a return to that flow fails here.
 func TestOverseerrCreateRequest_AttributesWithoutPlexSignIn(t *testing.T) {
 	var received createCapture
 	mock := newMockOverseerr(t, mockOverseerrOpts{
-		users: []map[string]any{{"id": 42, "email": "stale@test.local"}},
+		users: []map[string]any{{"id": 42, "email": "attributed@test.local"}},
 		onCreateRequest: func(w http.ResponseWriter, r *http.Request) {
 			received.APIUser = r.Header.Get("X-API-User")
 			json.NewDecoder(r.Body).Decode(&received.Body)
@@ -34,7 +32,7 @@ func TestOverseerrCreateRequest_AttributesWithoutPlexSignIn(t *testing.T) {
 	srv, st := newTestServerWithEncryptor(t)
 	configureOverseerr(t, st, mock.URL)
 
-	user, err := st.CreateLocalUser("stale-token", "stale@test.local", "", models.RoleViewer)
+	user, err := st.CreateLocalUser("attributed", "attributed@test.local", "", models.RoleViewer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,8 +58,7 @@ func TestOverseerrCreateRequest_AttributesWithoutPlexSignIn(t *testing.T) {
 	}
 }
 
-// An admin with no Overseerr counterpart still gets through on the bare API
-// key — only non-admins are required to be resolvable.
+// Only non-admins are required to resolve to an Overseerr account.
 func TestOverseerrCreateRequest_AdminWithoutOverseerrAccount(t *testing.T) {
 	var received createCapture
 	mock := mockOverseerrCaptureRequest(t, []map[string]any{
@@ -94,9 +91,8 @@ func TestOverseerrCreateRequest_AdminWithoutOverseerrAccount(t *testing.T) {
 	}
 }
 
-// Overseerr evaluates the impersonated user's own permissions and quota, so a
-// 4xx is about their account — reporting it as 502 sends them chasing a broken
-// integration instead of their quota.
+// A 4xx is about the impersonated user's own quota or permissions, not a
+// broken integration.
 func TestOverseerrCreateRequest_UpstreamStatusMapping(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -146,8 +142,7 @@ func TestOverseerrCreateRequest_UpstreamStatusMapping(t *testing.T) {
 	}
 }
 
-// A failed user-list fetch must not read as "your account is not linked" —
-// that sends users to fix an email that was never the problem.
+// An outage must not read as "your account is not linked".
 func TestOverseerrCreateRequest_ResolveFailureIsNotAnIdentityError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -172,17 +167,16 @@ func TestOverseerrCreateRequest_ResolveFailureIsNotAnIdentityError(t *testing.T)
 	}
 }
 
-// Regression: the shared refresh must outlive the request that triggered it.
-// A client disconnecting mid-fetch previously armed a 30s global backoff that
-// made every other user look unlinked while Overseerr was healthy.
+// Regression: a client disconnecting mid-fetch used to arm a 30s global backoff
+// that made every other user look unlinked while Overseerr was healthy.
 func TestOverseerrResolve_CallerCancellationDoesNotPoisonCache(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/user" {
-			// Hold the first fetch open until the caller that triggered it has
-			// been cancelled, so the test cannot pass by racing ahead of it.
+			// Hold the first fetch until its caller is cancelled, so the test
+			// cannot pass by racing ahead of it.
 			once.Do(func() {
 				close(started)
 				<-release
@@ -207,8 +201,7 @@ func TestOverseerrResolve_CallerCancellationDoesNotPoisonCache(t *testing.T) {
 		srv.resolveOverseerrUserID(cancelCtx, "cancel@test.local")
 	}()
 
-	// Abandon the caller the way a disconnecting client would, but only once
-	// its fetch is provably in flight upstream.
+	// Abandon the caller only once its fetch is provably in flight.
 	<-started
 	cancel()
 	<-cancelCtx.Done()

@@ -426,8 +426,6 @@ func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int,
 		return id, ok, nil
 	}
 
-	// Wait for the in-flight refresh, but stay responsive to our own
-	// cancellation rather than blocking for the upstream timeout.
 	sem := s.overseerrUsers.sem()
 	select {
 	case sem <- struct{}{}:
@@ -436,7 +434,7 @@ func (s *Server) resolveOverseerrUserID(ctx context.Context, email string) (int,
 		return 0, false, ctx.Err()
 	}
 
-	// A concurrent refresh may have completed while we queued here.
+	// A concurrent refresh may have landed while we queued.
 	if id, ok, cached := s.cachedOverseerrUserID(email); cached {
 		return id, ok, nil
 	}

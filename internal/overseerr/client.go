@@ -39,9 +39,8 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 	return c.doAs(ctx, method, path, query, body, 0)
 }
 
-// doAs sends a request to Overseerr. A non-zero asUserID sets the X-API-User
-// impersonation header, which makes Overseerr resolve the acting user to that
-// account instead of the API key's owner.
+// doAs sets the X-API-User impersonation header when asUserID is non-zero, so
+// Overseerr acts as that account rather than the API key's owner.
 func (c *Client) doAs(ctx context.Context, method, path string, query url.Values, body io.Reader, asUserID int) (json.RawMessage, error) {
 	u := c.baseURL + "/api/v1" + path
 	if len(query) > 0 {
@@ -71,9 +70,8 @@ func (c *Client) doAs(ctx context.Context, method, path string, query url.Values
 	return readResponse(resp)
 }
 
-// StatusError reports a non-2xx response from Overseerr. It carries the status
-// so callers can separate a rejection the user can act on (quota, permission,
-// duplicate) from an integration that is actually broken.
+// StatusError carries the status so callers can tell a rejection the user can
+// act on (quota, permission, duplicate) from a broken integration.
 type StatusError struct {
 	Code int
 	Body string
@@ -234,15 +232,12 @@ func (c *Client) CreateRequest(ctx context.Context, reqBody json.RawMessage) (js
 	return c.doPost(ctx, "/request", reqBody)
 }
 
-// CreateRequestAsUser creates the request as the given Overseerr user via the
-// X-API-User impersonation header. Overseerr then evaluates that user's own
-// request permission, approval rules and quota, and records them as the
-// requester — identical to them submitting it in Overseerr directly.
+// CreateRequestAsUser submits as the given Overseerr user, so their own
+// permissions, approval rules and quota apply.
 //
-// The request body must not carry a userId: Overseerr only honours that field
-// for callers holding MANAGE_USERS/MANAGE_REQUESTS, which the impersonated
-// user generally does not, and it leaves approval evaluated against the API
-// key's owner rather than the requester.
+// reqBody must not carry a userId. Overseerr honours that field only for
+// callers holding MANAGE_USERS/MANAGE_REQUESTS, and it leaves approval judged
+// against the API key's owner rather than the requester.
 func (c *Client) CreateRequestAsUser(ctx context.Context, userID int, reqBody json.RawMessage) (json.RawMessage, error) {
 	if userID <= 0 {
 		return nil, fmt.Errorf("invalid overseerr user id %d", userID)
