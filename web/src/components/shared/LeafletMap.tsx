@@ -3,16 +3,10 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaf
 import { HeatmapLayerFactory } from '@pauloak_/react-leaflet-heatmap-layer'
 import type { LatLngBoundsExpression, LeafletEvent } from 'leaflet'
 import { useIsDark } from '../../hooks/useIsDark'
+import { useMapSettings } from '../../hooks/useMapSettings'
 import { formatLocation } from '../../lib/format'
-import { COLOR_DEFAULT } from '../../lib/mapUtils'
+import { COLOR_DEFAULT, DARK_TILE_FILTER, tileAttributionHtml } from '../../lib/mapUtils'
 import type { GeoResult, ViewMode } from '../../types'
-
-const TILE_URLS = {
-  dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-  light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-}
-
-const TILE_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
 
 const HEATMAP_CONFIG = {
   radius: 30,
@@ -133,6 +127,23 @@ function MapBoundsUpdater({ locations }: { locations: GeoResult[] }) {
   return null
 }
 
+// Scoped to this map's tile pane rather than the whole container: markers and
+// the heatmap live in the overlay pane and must keep their own colours.
+function TilePaneFilter({ filter }: { filter: string }) {
+  const map = useMap()
+
+  useEffect(() => {
+    const pane = map.getPane('tilePane')
+    if (!pane) return
+    pane.style.filter = filter
+    return () => {
+      pane.style.filter = ''
+    }
+  }, [map, filter])
+
+  return null
+}
+
 function LocationPopup({ location }: { location: GeoResult }) {
   return (
     <div className="text-xs min-w-[150px]">
@@ -184,7 +195,8 @@ function LeafletMapInner({
   markerColor = COLOR_DEFAULT,
 }: LeafletMapProps) {
   const isDark = useIsDark()
-  const tileUrl = isDark ? TILE_URLS.dark : TILE_URLS.light
+  const { tileUrl, attribution, darkFilter } = useMapSettings()
+  const tileFilter = isDark && darkFilter ? DARK_TILE_FILTER : ''
 
   const heatmapGradient = useMemo(() => ({
     0.2: isDark ? '#1e40af' : '#93c5fd',
@@ -208,7 +220,8 @@ function LeafletMapInner({
       style={{ height, width: '100%' }}
       scrollWheelZoom={true}
     >
-      <TileLayer url={tileUrl} attribution={TILE_ATTRIBUTION} />
+      <TileLayer url={tileUrl} attribution={tileAttributionHtml(attribution)} />
+      <TilePaneFilter filter={tileFilter} />
       <MapBoundsUpdater locations={locations} />
 
       {viewMode === 'heatmap' && locations.length > 0 && (

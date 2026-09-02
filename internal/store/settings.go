@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -588,4 +589,99 @@ func (s *Store) SetMaintenanceResolutionWidthAware(enabled bool) error {
 		val = "true"
 	}
 	return s.SetSetting(maintenanceResolutionWidthAwareKey, val)
+}
+
+const (
+	mapTileURLKey         = "map.tile_url"
+	mapTileAttributionKey = "map.tile_attribution"
+	mapDarkFilterKey      = "map.dark_filter"
+)
+
+// DefaultMapTileURL is the OpenStreetMap standard raster basemap. The plain
+// host (no {s} subdomain sharding) is what the OSM tile usage policy asks for.
+const DefaultMapTileURL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+
+const maxMapSettingLen = 500
+
+// IsValidTileURL reports whether u is a usable XYZ raster tile template.
+// Exported so HTTP handlers can distinguish bad input (400) from a storage
+// failure (500). https only: the CSP img-src allows https and same-origin,
+// so an http tile host would be blocked by the browser anyway.
+func IsValidTileURL(u string) bool {
+	if u == "" || len(u) > maxMapSettingLen {
+		return false
+	}
+	// {s} sits in the host for providers that shard across subdomains, and
+	// braces are not legal host characters — substitute before parsing.
+	parsed, err := url.Parse(strings.ReplaceAll(u, "{s}", "a"))
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+		return false
+	}
+	for _, placeholder := range []string{"{z}", "{x}", "{y}"} {
+		if !strings.Contains(u, placeholder) {
+			return false
+		}
+	}
+	return true
+}
+
+// IsValidTileAttribution reports whether a is acceptable as attribution text.
+// Attribution is rendered into the DOM by Leaflet, so markup is refused here
+// as well as escaped on the client — an admin must not be able to plant a
+// script that runs in every other user's session.
+func IsValidTileAttribution(a string) bool {
+	return len(a) <= maxMapSettingLen && !strings.ContainsAny(a, "<>")
+}
+
+// GetMapTileURL returns the configured basemap tile template, falling back to
+// DefaultMapTileURL when unset.
+func (s *Store) GetMapTileURL() (string, error) {
+	val, err := s.GetSetting(mapTileURLKey)
+	if err != nil {
+		return "", err
+	}
+	if val == "" {
+		return DefaultMapTileURL, nil
+	}
+	return val, nil
+}
+
+// SetMapTileURL stores a custom tile template. An empty value clears the
+// override, restoring DefaultMapTileURL.
+func (s *Store) SetMapTileURL(u string) error {
+	if u != "" && !IsValidTileURL(u) {
+		return fmt.Errorf("invalid tile URL: %s", u)
+	}
+	return s.SetSetting(mapTileURLKey, u)
+}
+
+// GetMapTileAttribution returns the attribution override, or "" when unset.
+// Empty means "use the client's default attribution" — the markup for the
+// default basemap credit lives in the frontend, not in the database.
+func (s *Store) GetMapTileAttribution() (string, error) {
+	return s.GetSetting(mapTileAttributionKey)
+}
+
+func (s *Store) SetMapTileAttribution(a string) error {
+	if !IsValidTileAttribution(a) {
+		return fmt.Errorf("invalid tile attribution")
+	}
+	return s.SetSetting(mapTileAttributionKey, a)
+}
+
+// GetMapDarkFilter reports whether the dark-theme CSS filter is applied to the
+// basemap. Defaults to true: the default basemap is a light one.
+func (s *Store) GetMapDarkFilter() (bool, error) {
+	val, err := s.GetSetting(mapDarkFilterKey)
+	if err != nil {
+		return false, err
+	}
+	if val == "" {
+		return true, nil
+	}
+	return val == "true", nil
+}
+
+func (s *Store) SetMapDarkFilter(enabled bool) error {
+	return s.SetSetting(mapDarkFilterKey, strconv.FormatBool(enabled))
 }

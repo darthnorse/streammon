@@ -3,9 +3,11 @@ interface ToggleSwitchProps {
   onToggle: () => void
   disabled?: boolean
   className?: string
+  /** Accessible name, for switches whose adjacent text isn't wired up as a label. */
+  label?: string
 }
 
-export function ToggleSwitch({ enabled, onToggle, disabled, className }: ToggleSwitchProps) {
+export function ToggleSwitch({ enabled, onToggle, disabled, className, label }: ToggleSwitchProps) {
   return (
     <button
       type="button"
@@ -16,6 +18,7 @@ export function ToggleSwitch({ enabled, onToggle, disabled, className }: ToggleS
       } ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className ?? ''}`}
       role="switch"
       aria-checked={enabled}
+      aria-label={label}
     >
       <span
         className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform duration-200 ${

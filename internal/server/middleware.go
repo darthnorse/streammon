@@ -196,9 +196,11 @@ func corsMiddleware(allowedOrigin string) func(http.Handler) http.Handler {
 //   - img-src allows any https: host (plus data: and self) rather than an
 //     allowlist, since posters/avatars are fetched from several third
 //     parties (TMDB, Plex.tv, Overseerr/Gravatar avatars) and map tiles
-//     from *.basemaps.cartocdn.com — all already same-origin-proxied or
-//     https, so a broad https: allowance doesn't add new risk beyond what
-//     <img> tags could already load.
+//     from tile.openstreetmap.org or whatever tile host an admin configures
+//     (see store.GetMapTileURL) — all already same-origin-proxied or https,
+//     so a broad https: allowance doesn't add new risk beyond what <img>
+//     tags could already load. The configurable tile URL is the reason this
+//     stays a blanket https: rather than a host allowlist.
 //   - connect-src is 'self' plus https://plex.tv: the SPA talks to its own
 //     backend (REST + SSE) for everything except the Plex sign-in flow,
 //     which does PIN OAuth against plex.tv directly from the browser

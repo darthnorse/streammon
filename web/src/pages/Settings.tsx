@@ -5,6 +5,7 @@ import type { MaintenanceSettings } from '../lib/api'
 import { useFetch } from '../hooks/useFetch'
 import { invalidateServers } from '../hooks/useServers'
 import { useUnits } from '../hooks/useUnits'
+import { MapSettings } from '../components/MapSettings'
 import { getDiscoverRegion, setDiscoverRegion } from '../lib/units'
 import { ServerForm } from '../components/ServerForm'
 import { OIDCForm } from '../components/OIDCForm'
@@ -1062,6 +1063,8 @@ function DisplaySettings() {
           <p className="text-xs text-muted dark:text-muted-dark mt-2">Could not load regions list</p>
         )}
       </div>
+
+      <MapSettings />
     </div>
   )
 }
