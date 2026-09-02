@@ -1146,3 +1146,32 @@ func TestUserNotes_UpsertsMissingRow(t *testing.T) {
 		t.Fatalf("expected upserted note, got %q", notes)
 	}
 }
+
+// The password check lives in the UPDATE, so a passwordless user must keep
+// their provider link rather than being left with no way to sign in.
+func TestUnlinkUserProvider_NoPasswordLeavesProviderIntact(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	if _, err := s.db.Exec(
+		`INSERT INTO users (name, email, role, provider, provider_id) VALUES (?, ?, ?, ?, ?)`,
+		"oauthonly", "oauthonly@example.com", models.RoleViewer, "plex", "99999",
+	); err != nil {
+		t.Fatal(err)
+	}
+	user, err := s.GetUser("oauthonly")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.UnlinkUserProvider(user.ID); err != ErrNoPassword {
+		t.Fatalf("expected ErrNoPassword, got %v", err)
+	}
+
+	after, err := s.GetAdminUserByID(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Provider != "plex" || after.ProviderID != "99999" {
+		t.Fatalf("provider link was cleared for a passwordless user: provider=%q id=%q", after.Provider, after.ProviderID)
+	}
+}

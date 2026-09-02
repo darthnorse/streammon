@@ -8,7 +8,7 @@ import (
 )
 
 // A fresh database has no token and no guest.store_plex_tokens row, so only an
-// upgrade from the pre-056 state actually exercises migration 056.
+// upgrade from the pre-056 state actually exercises the removal.
 func TestMigration056_RemovesTokensOnUpgrade(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "upgrade.db")
 	s, err := New(dbPath)
@@ -28,7 +28,7 @@ func TestMigration056_RemovesTokensOnUpgrade(t *testing.T) {
 			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
 			PRIMARY KEY (user_id, provider))`,
 		`INSERT INTO settings (key, value) VALUES ('guest.store_plex_tokens', 'true')`,
-		`DELETE FROM schema_migrations WHERE version = 56`,
+		`DELETE FROM schema_migrations WHERE version >= 56`,
 	}
 	for _, stmt := range seed {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -84,5 +84,59 @@ func TestMigration056_RemovesTokensOnUpgrade(t *testing.T) {
 		if n := bytes.Count(raw, []byte(marker)); n != 0 {
 			t.Fatalf("%d token copies still readable in %s after migration", n, filepath.Base(dbPath+suffix))
 		}
+	}
+}
+
+// A database that applied 056 before the reclaim existed still holds the token
+// pages, so the cleanup must be driven by a marker that outlives the migration.
+func TestMigrate_PendingVacuumSurvivesAlreadyMigratedDB(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "already.db")
+	s, err := New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+
+	if err := s.Migrate(migrationsDir()); err != nil {
+		t.Fatal(err)
+	}
+
+	const marker = "MARKER-LEFTOVER-SECRET"
+	if _, err := s.db.Exec(`CREATE TABLE leftover (v TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 200; i++ {
+		if _, err := s.db.Exec(`INSERT INTO leftover (v) VALUES (?)`, marker); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.db.Exec(`DROP TABLE leftover`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Every migration is already recorded; only the marker can schedule the reclaim.
+	if _, err := s.db.Exec(
+		`INSERT OR REPLACE INTO settings (key, value) VALUES (?, '1')`, pendingVacuumKey,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Migrate(migrationsDir()); err != nil {
+		t.Fatal(err)
+	}
+
+	var pending int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM settings WHERE key = ?`, pendingVacuumKey).Scan(&pending); err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 {
+		t.Fatal("pending vacuum marker was not cleared after a successful reclaim")
+	}
+
+	raw, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := bytes.Count(raw, []byte(marker)); n != 0 {
+		t.Fatalf("%d copies still readable after the marker-driven reclaim", n)
 	}
 }

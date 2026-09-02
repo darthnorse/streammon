@@ -121,8 +121,22 @@ var ErrNoPassword = errors.New("user has no password set")
 // UnlinkUserProvider removes the provider link from a user, allowing re-linking.
 // Returns ErrNoPassword if the user has no password (would be locked out).
 func (s *Store) UnlinkUserProvider(userID int64) error {
+	// The password check is part of the UPDATE so a concurrent password removal
+	// cannot slip between them and leave the user with no way back in.
+	result, err := s.db.Exec(
+		`UPDATE users SET provider = '', provider_id = '', updated_at = CURRENT_TIMESTAMP
+		 WHERE id = ? AND password_hash IS NOT NULL AND password_hash != ''`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("unlinking provider: %w", err)
+	}
+	if n, _ := result.RowsAffected(); n > 0 {
+		return nil
+	}
+
 	var hasPassword bool
-	err := s.db.QueryRow(
+	err = s.db.QueryRow(
 		`SELECT password_hash != '' AND password_hash IS NOT NULL FROM users WHERE id = ?`, userID,
 	).Scan(&hasPassword)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -134,20 +148,7 @@ func (s *Store) UnlinkUserProvider(userID int64) error {
 	if !hasPassword {
 		return ErrNoPassword
 	}
-
-	result, err := s.db.Exec(
-		`UPDATE users SET provider = '', provider_id = '', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-		userID,
-	)
-	if err != nil {
-		return fmt.Errorf("unlinking provider: %w", err)
-	}
-	n, _ := result.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("user %d: %w", userID, models.ErrNotFound)
-	}
-
-	return nil
+	return fmt.Errorf("user %d: %w", userID, models.ErrNotFound)
 }
 
 // GetUnlinkedUserByName finds a user by name (case-insensitive) that has no provider linked.
