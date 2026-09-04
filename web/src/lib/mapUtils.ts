@@ -33,16 +33,29 @@ const HTML_ESCAPES: Record<string, string> = {
 // Leaflet writes the attribution string into the DOM as HTML. The default
 // credit is our own markup; anything an admin configures is plain text and
 // gets escaped, so a stored attribution can never run script in a viewer's
-// session (the API refuses angle brackets too).
-export function tileAttributionHtml(custom: string): string {
-  if (!custom) return DEFAULT_TILE_ATTRIBUTION
+// session (the API refuses angle brackets too). The OSM credit is only a
+// fallback for the OSM basemap — a third-party provider must never be
+// attributed to OpenStreetMap.
+export function tileAttributionHtml(custom: string, tileUrl: string): string {
+  if (!custom) return tileUrl === DEFAULT_TILE_URL ? DEFAULT_TILE_ATTRIBUTION : ''
   return custom.replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch])
 }
+
+// Mirrors store.maxMapSettingLen.
+const MAX_MAP_SETTING_LEN = 500
+
+// Mirrors Leaflet's L.Util.template: it throws on any brace token it cannot
+// substitute, which would break every tile for every viewer.
+const TILE_PLACEHOLDER_RE = /\{ *([\w_ -]+) *\}/g
+const LEAFLET_PLACEHOLDERS = ['s', 'z', 'x', 'y', 'r']
 
 // Mirrors store.IsValidTileURL so the Settings form can explain what's wrong
 // before the request, rather than surfacing a bare 400.
 export function validateTileUrl(u: string): string | null {
   if (!u) return null
+  if (u.length > MAX_MAP_SETTING_LEN) {
+    return `Tile URL must be ${MAX_MAP_SETTING_LEN} characters or fewer`
+  }
   let parsed: URL
   try {
     // {s} shards sit in the host and braces aren't legal there.
@@ -57,10 +70,18 @@ export function validateTileUrl(u: string): string | null {
   if (missing.length > 0) {
     return `Tile URL must contain ${missing.join(', ')}`
   }
+  for (const [token, name] of u.matchAll(TILE_PLACEHOLDER_RE)) {
+    if (!LEAFLET_PLACEHOLDERS.includes(name.trim())) {
+      return `${token} is not a placeholder the map understands — substitute its real value`
+    }
+  }
   return null
 }
 
 export function validateTileAttribution(a: string): string | null {
+  if (a.length > MAX_MAP_SETTING_LEN) {
+    return `Attribution must be ${MAX_MAP_SETTING_LEN} characters or fewer`
+  }
   if (/[<>]/.test(a)) return 'Attribution must be plain text — no HTML tags'
   return null
 }

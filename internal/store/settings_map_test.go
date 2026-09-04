@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestMapTileURLDefault(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
@@ -64,6 +67,8 @@ func TestMapTileURLInvalidValues(t *testing.T) {
 		"javascript scheme":     "javascript:alert({z}{x}{y})",
 		"no host":               "https:///{z}/{x}/{y}.png",
 		"not a url":             "{z}/{x}/{y}.png",
+		"unknown placeholder":   "https://tiles.example.com/{z}/{x}/{y}.png?key={apikey}",
+		"unknown token in host": "https://{region}.example.com/{z}/{x}/{y}.png",
 	}
 
 	for name, val := range cases {
@@ -91,6 +96,26 @@ func TestIsValidTileURL(t *testing.T) {
 	}
 	if IsValidTileURL("http://tiles.example.com/{z}/{x}/{y}.png") {
 		t.Fatal("expected http to be rejected")
+	}
+	// Leaflet's L.Util.template throws for any brace token it has no value
+	// for, which would break every tile for every viewer.
+	if IsValidTileURL("https://tiles.example.com/{z}/{x}/{y}.png?key={apikey}") {
+		t.Fatal("expected an unknown {placeholder} to be rejected")
+	}
+	if !IsValidTileURL("https://tiles.example.com/{z}/{x}/{y}{r}.png") {
+		t.Fatal("expected {r} to be allowed — Leaflet supplies it")
+	}
+}
+
+func TestMapSettingLengthCap(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	longURL := "https://tiles.example.com/{z}/{x}/{y}.png?pad=" + strings.Repeat("a", 500)
+	if err := s.SetMapTileURL(longURL); err == nil {
+		t.Fatal("expected an over-long tile URL to be rejected")
+	}
+	if err := s.SetMapTileAttribution(strings.Repeat("a", 501)); err == nil {
+		t.Fatal("expected an over-long attribution to be rejected")
 	}
 }
 

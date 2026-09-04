@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -603,6 +604,9 @@ const DefaultMapTileURL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 
 const maxMapSettingLen = 500
 
+// Mirrors Leaflet's own templateRe (L.Util.template).
+var tilePlaceholderRe = regexp.MustCompile(`\{ *([\w_ -]+) *\}`)
+
 // IsValidTileURL reports whether u is a usable XYZ raster tile template.
 // Exported so HTTP handlers can distinguish bad input (400) from a storage
 // failure (500). https only: the CSP img-src allows https and same-origin,
@@ -619,6 +623,15 @@ func IsValidTileURL(u string) bool {
 	}
 	for _, placeholder := range []string{"{z}", "{x}", "{y}"} {
 		if !strings.Contains(u, placeholder) {
+			return false
+		}
+	}
+	// Leaflet substitutes only these and throws on any other brace token, which
+	// would break every tile for every viewer — so refuse it at the door.
+	for _, m := range tilePlaceholderRe.FindAllStringSubmatch(u, -1) {
+		switch strings.TrimSpace(m[1]) {
+		case "s", "z", "x", "y", "r":
+		default:
 			return false
 		}
 	}

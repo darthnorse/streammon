@@ -220,7 +220,7 @@ function LeafletMapInner({
       style={{ height, width: '100%' }}
       scrollWheelZoom={true}
     >
-      <TileLayer url={tileUrl} attribution={tileAttributionHtml(attribution)} />
+      <TileLayer url={tileUrl} attribution={tileAttributionHtml(attribution, tileUrl)} />
       <TilePaneFilter filter={tileFilter} />
       <MapBoundsUpdater locations={locations} />
 

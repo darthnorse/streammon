@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import { MapSettings } from '../components/MapSettings'
 import { DEFAULT_TILE_URL } from '../lib/mapUtils'
 import { api } from '../lib/api'
@@ -115,6 +115,71 @@ describe('MapSettings', () => {
 
     expect(await screen.findByText(/no HTML tags/i)).toBeInTheDocument()
     expect(mockApi.put).not.toHaveBeenCalled()
+  })
+
+  // The hook seeds from localStorage synchronously and only receives the
+  // server's values later, as a map-settings-changed event. A form that
+  // ignores that event shows blank inputs over a configured basemap — and
+  // Save then PUTs map_tile_url:"" which the API reads as "clear the override".
+  function serverSettingsArrive(tileUrl: string, attribution: string) {
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('map-settings-changed', {
+          detail: { tileUrl, attribution, darkFilter: true },
+        })
+      )
+    })
+  }
+
+  it('adopts a tile URL that arrives from the server after mount', () => {
+    render(<MapSettings />)
+    expect(screen.getByLabelText(/tile url/i)).toHaveValue('')
+
+    serverSettingsArrive('https://tiles.example.com/{z}/{x}/{y}.png', '© Example')
+
+    expect(screen.getByLabelText(/tile url/i)).toHaveValue('https://tiles.example.com/{z}/{x}/{y}.png')
+    expect(screen.getByLabelText(/attribution/i)).toHaveValue('© Example')
+  })
+
+  it('does not wipe the stored tile URL when saving after the server values arrive', async () => {
+    render(<MapSettings />)
+    serverSettingsArrive('https://tiles.example.com/{z}/{x}/{y}.png', '© Example')
+
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+
+    await waitFor(() => {
+      expect(mockApi.put).toHaveBeenCalledWith('/api/settings/display', {
+        map_tile_url: 'https://tiles.example.com/{z}/{x}/{y}.png',
+        map_tile_attribution: '© Example',
+      })
+    })
+  })
+
+  it('keeps an in-progress edit when server values arrive late', () => {
+    render(<MapSettings />)
+
+    fireEvent.change(screen.getByLabelText(/tile url/i), {
+      target: { value: 'https://mine.example.com/{z}/{x}/{y}.png' },
+    })
+    serverSettingsArrive('https://tiles.example.com/{z}/{x}/{y}.png', '© Example')
+
+    expect(screen.getByLabelText(/tile url/i)).toHaveValue('https://mine.example.com/{z}/{x}/{y}.png')
+  })
+
+  it('clears the Saved badge once the form is edited again', async () => {
+    render(<MapSettings />)
+
+    fireEvent.change(screen.getByLabelText(/tile url/i), {
+      target: { value: 'https://tiles.example.com/{z}/{x}/{y}.png' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/tile url/i), {
+      target: { value: 'https://other.example.com/{z}/{x}/{y}.png' },
+    })
+
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
   })
 
   it('reports a failed save', async () => {

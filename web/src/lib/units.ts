@@ -67,7 +67,7 @@ export async function initDisplaySettings(): Promise<void> {
       localStorage.setItem(REGION_KEY, settings.discover_region ?? '')
       window.dispatchEvent(new CustomEvent('discover-region-changed', { detail: settings.discover_region ?? '' }))
       cacheMapSettings({
-        tileUrl: settings.map_tile_url || DEFAULT_TILE_URL,
+        tileUrl: settings.map_tile_url,
         attribution: settings.map_tile_attribution ?? '',
         darkFilter: settings.map_dark_filter ?? true,
       })
@@ -96,14 +96,22 @@ export async function setDiscoverRegion(region: string): Promise<void> {
 // Only the changed fields are sent: the endpoint treats an absent field as
 // "leave alone", so a partial update can't clobber a sibling setting.
 export async function setMapSettings(update: Partial<MapSettings>): Promise<void> {
-  cacheMapSettings({ ...getMapSettings(), ...update })
+  const previous = getMapSettings()
+  cacheMapSettings({ ...previous, ...update })
 
   const body: Record<string, string | boolean> = {}
   if (update.tileUrl !== undefined) body.map_tile_url = update.tileUrl
   if (update.attribution !== undefined) body.map_tile_attribution = update.attribution
   if (update.darkFilter !== undefined) body.map_dark_filter = update.darkFilter
 
-  await api.put('/api/settings/display', body)
+  try {
+    await api.put('/api/settings/display', body)
+  } catch (err) {
+    // The optimistic write already reached every mounted map; put the value
+    // the server actually holds back before surfacing the failure.
+    cacheMapSettings(previous)
+    throw err
+  }
 }
 
 export async function setUnitSystem(system: UnitSystem): Promise<void> {

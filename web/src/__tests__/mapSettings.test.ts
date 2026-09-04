@@ -4,6 +4,8 @@ import {
   DEFAULT_TILE_ATTRIBUTION,
   DARK_TILE_FILTER,
   tileAttributionHtml,
+  validateTileUrl,
+  validateTileAttribution,
 } from '../lib/mapUtils'
 import type * as UnitsModule from '../lib/units'
 
@@ -35,22 +37,48 @@ describe('map tile constants', () => {
   })
 })
 
+const CUSTOM_TILE_URL = 'https://tiles.example.com/{z}/{x}/{y}.png'
+
 describe('tileAttributionHtml', () => {
-  it('falls back to the OpenStreetMap credit when no override is set', () => {
-    expect(tileAttributionHtml('')).toBe(DEFAULT_TILE_ATTRIBUTION)
+  it('falls back to the OpenStreetMap credit when the default basemap is in use', () => {
+    expect(tileAttributionHtml('', DEFAULT_TILE_URL)).toBe(DEFAULT_TILE_ATTRIBUTION)
+  })
+
+  it('never credits OpenStreetMap for a third-party basemap', () => {
+    expect(tileAttributionHtml('', CUSTOM_TILE_URL)).toBe('')
   })
 
   it('escapes a custom attribution so it can never inject markup', () => {
-    expect(tileAttributionHtml('<img src=x onerror=alert(1)>')).toBe(
+    expect(tileAttributionHtml('<img src=x onerror=alert(1)>', DEFAULT_TILE_URL)).toBe(
       '&lt;img src=x onerror=alert(1)&gt;'
     )
-    expect(tileAttributionHtml('A & B "quoted"')).toBe('A &amp; B &quot;quoted&quot;')
+    expect(tileAttributionHtml('A & B "quoted"', DEFAULT_TILE_URL)).toBe('A &amp; B &quot;quoted&quot;')
   })
 
   it('leaves an ordinary provider credit readable', () => {
-    expect(tileAttributionHtml('© CARTO, © OpenStreetMap contributors')).toBe(
+    expect(tileAttributionHtml('© CARTO, © OpenStreetMap contributors', CUSTOM_TILE_URL)).toBe(
       '© CARTO, © OpenStreetMap contributors'
     )
+  })
+})
+
+describe('client validators mirror the server rules', () => {
+  it('rejects a tile URL over the server 500-character cap', () => {
+    const long = `https://tiles.example.com/{z}/{x}/{y}.png?pad=${'a'.repeat(500)}`
+    expect(validateTileUrl(long)).toMatch(/500/)
+    expect(validateTileUrl(CUSTOM_TILE_URL)).toBeNull()
+  })
+
+  it('rejects an attribution over the server 500-character cap', () => {
+    expect(validateTileAttribution('a'.repeat(501))).toMatch(/500/)
+    expect(validateTileAttribution('© Example')).toBeNull()
+  })
+
+  it('names an unknown placeholder rather than letting Leaflet throw on every tile', () => {
+    const msg = validateTileUrl('https://tiles.example.com/{z}/{x}/{y}.png?key={apikey}')
+    expect(msg).toContain('{apikey}')
+    expect(validateTileUrl('https://tiles.example.com/{z}/{x}/{y}{r}.png')).toBeNull()
+    expect(validateTileUrl('https://{s}.example.com/{z}/{x}/{y}.png')).toBeNull()
   })
 })
 
@@ -140,6 +168,24 @@ describe('map settings persistence', () => {
         body: JSON.stringify({ map_tile_url: 'https://tiles.example.com/{z}/{x}/{y}.png' }),
       })
     )
+  })
+
+  it('rolls the cache back when the server refuses the update', async () => {
+    const { getMapSettings, setMapSettings } = await freshUnits()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: 'invalid tile URL' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    )
+
+    const before = getMapSettings()
+    await expect(setMapSettings({ tileUrl: CUSTOM_TILE_URL })).rejects.toThrow()
+
+    expect(getMapSettings()).toEqual(before)
   })
 
   it('sends only the fields being changed', async () => {

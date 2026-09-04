@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ToggleSwitch } from './ToggleSwitch'
 import { useMapSettings } from '../hooks/useMapSettings'
 import { setMapSettings } from '../lib/units'
@@ -11,9 +11,26 @@ export function MapSettings() {
 
   const [tileUrl, setTileUrl] = useState(storedUrl)
   const [attribution, setAttribution] = useState(settings.attribution)
+  const [edited, setEdited] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
+
+  // The hook seeds from localStorage and only receives the server's values
+  // afterwards. Without this the inputs would keep showing a blank form over a
+  // configured basemap, and Save would PUT an empty tile URL — which the API
+  // reads as "clear the override". An in-progress edit wins over a late reply.
+  useEffect(() => {
+    if (edited) return
+    setTileUrl(storedUrl)
+    setAttribution(settings.attribution)
+  }, [storedUrl, settings.attribution, edited])
+
+  const handleEdit = (set: (value: string) => void) => (value: string) => {
+    set(value)
+    setEdited(true)
+    setSaved(false)
+  }
 
   const handleSave = async () => {
     const invalid = validateTileUrl(tileUrl) ?? validateTileAttribution(attribution)
@@ -29,6 +46,7 @@ export function MapSettings() {
       // Empty is sent as-is: it clears the override rather than pinning today's default.
       await setMapSettings({ tileUrl, attribution })
       setSaved(true)
+      setEdited(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save map settings')
       setSaved(false)
@@ -58,13 +76,15 @@ export function MapSettings() {
         id="map-tile-url"
         type="text"
         value={tileUrl}
-        onChange={(e) => setTileUrl(e.target.value)}
+        onChange={(e) => handleEdit(setTileUrl)(e.target.value)}
         placeholder={DEFAULT_TILE_URL}
         className={formInputClass}
         spellCheck={false}
       />
       <p className="text-xs text-muted dark:text-muted-dark mt-1 mb-4">
-        Leave empty for the OpenStreetMap default.
+        Leave empty for the OpenStreetMap default. This URL is visible to every signed-in user
+        and cached in their browser, so if it carries a provider key, use one restricted by
+        referrer or domain.
       </p>
 
       <label className="block text-xs font-medium text-muted dark:text-muted-dark mb-1" htmlFor="map-tile-attribution">
@@ -74,7 +94,7 @@ export function MapSettings() {
         id="map-tile-attribution"
         type="text"
         value={attribution}
-        onChange={(e) => setAttribution(e.target.value)}
+        onChange={(e) => handleEdit(setAttribution)(e.target.value)}
         placeholder="© OpenStreetMap contributors"
         className={formInputClass}
         spellCheck={false}
