@@ -97,7 +97,8 @@ export async function setDiscoverRegion(region: string): Promise<void> {
 // "leave alone", so a partial update can't clobber a sibling setting.
 export async function setMapSettings(update: Partial<MapSettings>): Promise<void> {
   const previous = getMapSettings()
-  cacheMapSettings({ ...previous, ...update })
+  const optimistic = { ...previous, ...update }
+  cacheMapSettings(optimistic)
 
   const body: Record<string, string | boolean> = {}
   if (update.tileUrl !== undefined) body.map_tile_url = update.tileUrl
@@ -107,9 +108,22 @@ export async function setMapSettings(update: Partial<MapSettings>): Promise<void
   try {
     await api.put('/api/settings/display', body)
   } catch (err) {
-    // The optimistic write already reached every mounted map; put the value
-    // the server actually holds back before surfacing the failure.
-    cacheMapSettings(previous)
+    // The optimistic write already reached every mounted map, so put back the
+    // value the server actually holds — but only for the fields this call
+    // changed, and only where nothing else has overwritten them since. A
+    // toggle that succeeded mid-flight must not be dragged back by this one.
+    const current = getMapSettings()
+    const rollback: Partial<MapSettings> = {}
+    if (update.tileUrl !== undefined && current.tileUrl === optimistic.tileUrl) {
+      rollback.tileUrl = previous.tileUrl
+    }
+    if (update.attribution !== undefined && current.attribution === optimistic.attribution) {
+      rollback.attribution = previous.attribution
+    }
+    if (update.darkFilter !== undefined && current.darkFilter === optimistic.darkFilter) {
+      rollback.darkFilter = previous.darkFilter
+    }
+    cacheMapSettings({ ...current, ...rollback })
     throw err
   }
 }

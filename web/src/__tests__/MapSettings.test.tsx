@@ -166,6 +166,35 @@ describe('MapSettings', () => {
     expect(screen.getByLabelText(/tile url/i)).toHaveValue('https://mine.example.com/{z}/{x}/{y}.png')
   })
 
+  it('still adopts the server attribution when only the tile URL was edited', () => {
+    render(<MapSettings />)
+
+    fireEvent.change(screen.getByLabelText(/tile url/i), {
+      target: { value: 'https://mine.example.com/{z}/{x}/{y}.png' },
+    })
+    serverSettingsArrive('https://tiles.example.com/{z}/{x}/{y}.png', '© Example')
+
+    expect(screen.getByLabelText(/tile url/i)).toHaveValue('https://mine.example.com/{z}/{x}/{y}.png')
+    expect(screen.getByLabelText(/attribution/i)).toHaveValue('© Example')
+  })
+
+  it('locks the inputs while a save is in flight so the reply cannot clobber typing', async () => {
+    let resolvePut: () => void = () => {}
+    mockApi.put.mockReturnValue(new Promise<void>((res) => { resolvePut = () => res() }))
+    render(<MapSettings />)
+
+    fireEvent.change(screen.getByLabelText(/tile url/i), {
+      target: { value: 'https://tiles.example.com/{z}/{x}/{y}.png' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /save/i }))
+
+    expect(screen.getByLabelText(/tile url/i)).toBeDisabled()
+    expect(screen.getByLabelText(/attribution/i)).toBeDisabled()
+
+    await act(async () => { resolvePut() })
+    expect(screen.getByLabelText(/tile url/i)).not.toBeDisabled()
+  })
+
   it('clears the Saved badge once the form is edited again', async () => {
     render(<MapSettings />)
 

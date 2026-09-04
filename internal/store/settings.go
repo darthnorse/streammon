@@ -630,7 +630,7 @@ func IsValidTileURL(u string) bool {
 	// would break every tile for every viewer — so refuse it at the door.
 	for _, m := range tilePlaceholderRe.FindAllStringSubmatch(u, -1) {
 		switch strings.TrimSpace(m[1]) {
-		case "s", "z", "x", "y", "r":
+		case "s", "z", "x", "y", "r", "-y":
 		default:
 			return false
 		}

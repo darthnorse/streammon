@@ -105,6 +105,10 @@ func TestIsValidTileURL(t *testing.T) {
 	if !IsValidTileURL("https://tiles.example.com/{z}/{x}/{y}{r}.png") {
 		t.Fatal("expected {r} to be allowed — Leaflet supplies it")
 	}
+	// Leaflet supplies -y (the inverted Y for TMS-style schemes) alongside y.
+	if !IsValidTileURL("https://tiles.example.com/{z}/{x}/{-y}.png?y={y}") {
+		t.Fatal("expected {-y} to be allowed — Leaflet supplies it")
+	}
 }
 
 func TestMapSettingLengthCap(t *testing.T) {

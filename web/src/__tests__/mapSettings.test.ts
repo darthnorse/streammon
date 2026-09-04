@@ -79,6 +79,15 @@ describe('client validators mirror the server rules', () => {
     expect(msg).toContain('{apikey}')
     expect(validateTileUrl('https://tiles.example.com/{z}/{x}/{y}{r}.png')).toBeNull()
     expect(validateTileUrl('https://{s}.example.com/{z}/{x}/{y}.png')).toBeNull()
+    expect(validateTileUrl('https://tiles.example.com/{z}/{x}/{-y}.png?y={y}')).toBeNull()
+  })
+
+  // The Go cap counts UTF-8 bytes; a JS .length check would let a multi-byte
+  // value through to a bare 400 the client validation exists to prevent.
+  it('measures the cap in bytes, as the server does', () => {
+    const multibyte = '©'.repeat(300)
+    expect(validateTileAttribution(multibyte)).toMatch(/500/)
+    expect(validateTileAttribution('©'.repeat(200))).toBeNull()
   })
 })
 
@@ -186,6 +195,27 @@ describe('map settings persistence', () => {
     await expect(setMapSettings({ tileUrl: CUSTOM_TILE_URL })).rejects.toThrow()
 
     expect(getMapSettings()).toEqual(before)
+  })
+
+  it('rolls back only the fields it changed, leaving a concurrent success alone', async () => {
+    const { getMapSettings, setMapSettings } = await freshUnits()
+    let rejectPut: (err: Error) => void = () => {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockReturnValue(new Promise((_, rej) => { rejectPut = rej }))
+    )
+
+    const failing = setMapSettings({ tileUrl: CUSTOM_TILE_URL })
+
+    // A dark-filter toggle lands while the tile-URL save is still in flight.
+    // The failed save must roll back its own field, not drag that one back.
+    localStorage.setItem('streammon:map-dark-filter', 'false')
+
+    rejectPut(new Error('nope'))
+    await expect(failing).rejects.toThrow()
+
+    expect(getMapSettings().tileUrl).toBe(DEFAULT_TILE_URL)
+    expect(getMapSettings().darkFilter).toBe(false)
   })
 
   it('sends only the fields being changed', async () => {

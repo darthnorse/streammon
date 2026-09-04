@@ -11,7 +11,8 @@ export function MapSettings() {
 
   const [tileUrl, setTileUrl] = useState(storedUrl)
   const [attribution, setAttribution] = useState(settings.attribution)
-  const [edited, setEdited] = useState(false)
+  const [urlEdited, setUrlEdited] = useState(false)
+  const [attributionEdited, setAttributionEdited] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -19,16 +20,27 @@ export function MapSettings() {
   // The hook seeds from localStorage and only receives the server's values
   // afterwards. Without this the inputs would keep showing a blank form over a
   // configured basemap, and Save would PUT an empty tile URL — which the API
-  // reads as "clear the override". An in-progress edit wins over a late reply.
+  // reads as "clear the override". Each field is tracked separately: editing
+  // one must not leave the other stranded on a stale value it would then save.
   useEffect(() => {
-    if (edited) return
+    if (urlEdited) return
     setTileUrl(storedUrl)
-    setAttribution(settings.attribution)
-  }, [storedUrl, settings.attribution, edited])
+  }, [storedUrl, urlEdited])
 
-  const handleEdit = (set: (value: string) => void) => (value: string) => {
-    set(value)
-    setEdited(true)
+  useEffect(() => {
+    if (attributionEdited) return
+    setAttribution(settings.attribution)
+  }, [settings.attribution, attributionEdited])
+
+  const handleUrlChange = (value: string) => {
+    setTileUrl(value)
+    setUrlEdited(true)
+    setSaved(false)
+  }
+
+  const handleAttributionChange = (value: string) => {
+    setAttribution(value)
+    setAttributionEdited(true)
     setSaved(false)
   }
 
@@ -46,7 +58,8 @@ export function MapSettings() {
       // Empty is sent as-is: it clears the override rather than pinning today's default.
       await setMapSettings({ tileUrl, attribution })
       setSaved(true)
-      setEdited(false)
+      setUrlEdited(false)
+      setAttributionEdited(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save map settings')
       setSaved(false)
@@ -76,10 +89,11 @@ export function MapSettings() {
         id="map-tile-url"
         type="text"
         value={tileUrl}
-        onChange={(e) => handleEdit(setTileUrl)(e.target.value)}
+        onChange={(e) => handleUrlChange(e.target.value)}
         placeholder={DEFAULT_TILE_URL}
         className={formInputClass}
         spellCheck={false}
+        disabled={saving}
       />
       <p className="text-xs text-muted dark:text-muted-dark mt-1 mb-4">
         Leave empty for the OpenStreetMap default. This URL is visible to every signed-in user
@@ -94,10 +108,11 @@ export function MapSettings() {
         id="map-tile-attribution"
         type="text"
         value={attribution}
-        onChange={(e) => handleEdit(setAttribution)(e.target.value)}
+        onChange={(e) => handleAttributionChange(e.target.value)}
         placeholder="© OpenStreetMap contributors"
         className={formInputClass}
         spellCheck={false}
+        disabled={saving}
       />
       <p className="text-xs text-muted dark:text-muted-dark mt-1 mb-4">
         Plain text credit shown on the map. Required by most tile providers.

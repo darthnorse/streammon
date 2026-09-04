@@ -41,19 +41,24 @@ export function tileAttributionHtml(custom: string, tileUrl: string): string {
   return custom.replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch])
 }
 
-// Mirrors store.maxMapSettingLen.
+// Mirrors store.maxMapSettingLen, which Go measures in UTF-8 bytes — a
+// string.length check here would pass multi-byte values the server refuses.
 const MAX_MAP_SETTING_LEN = 500
+
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length
+}
 
 // Mirrors Leaflet's L.Util.template: it throws on any brace token it cannot
 // substitute, which would break every tile for every viewer.
 const TILE_PLACEHOLDER_RE = /\{ *([\w_ -]+) *\}/g
-const LEAFLET_PLACEHOLDERS = ['s', 'z', 'x', 'y', 'r']
+const LEAFLET_PLACEHOLDERS = ['s', 'z', 'x', 'y', 'r', '-y']
 
 // Mirrors store.IsValidTileURL so the Settings form can explain what's wrong
 // before the request, rather than surfacing a bare 400.
 export function validateTileUrl(u: string): string | null {
   if (!u) return null
-  if (u.length > MAX_MAP_SETTING_LEN) {
+  if (byteLength(u) > MAX_MAP_SETTING_LEN) {
     return `Tile URL must be ${MAX_MAP_SETTING_LEN} characters or fewer`
   }
   let parsed: URL
@@ -79,7 +84,7 @@ export function validateTileUrl(u: string): string | null {
 }
 
 export function validateTileAttribution(a: string): string | null {
-  if (a.length > MAX_MAP_SETTING_LEN) {
+  if (byteLength(a) > MAX_MAP_SETTING_LEN) {
     return `Attribution must be ${MAX_MAP_SETTING_LEN} characters or fewer`
   }
   if (/[<>]/.test(a)) return 'Attribution must be plain text — no HTML tags'
