@@ -1,7 +1,7 @@
 import { Component, useEffect, useMemo, useRef } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet'
 import { HeatmapLayerFactory } from '@pauloak_/react-leaflet-heatmap-layer'
-import type { LatLngBoundsExpression, LeafletEvent } from 'leaflet'
+import type { LatLngBoundsExpression } from 'leaflet'
 import { useIsDark } from '../../hooks/useIsDark'
 import { useMapSettings } from '../../hooks/useMapSettings'
 import { formatLocation } from '../../lib/format'
@@ -25,6 +25,8 @@ const MIN_ZOOM = 2
 const MAX_ZOOM = 18
 
 const MAX_POPUP_USERS = 5
+
+const INTERACTION_EVENTS = ['mousedown', 'touchstart', 'wheel', 'dblclick', 'keydown'] as const
 
 interface LeafletMapProps {
   locations: GeoResult[]
@@ -84,18 +86,23 @@ function MapBoundsUpdater({ locations }: { locations: GeoResult[] }) {
   const lastSetKeyRef = useRef<string>('')
 
   useEffect(() => {
-    const onInteraction = (e: LeafletEvent) => {
-      // Leaflet sets originalEvent only for user-triggered events; programmatic
-      // setView/fitBounds calls fire zoomstart without an originalEvent.
-      if ('originalEvent' in e && e.originalEvent) {
-        userInteractedRef.current = true
-      }
+    // Leaflet fires zoomstart and dragstart with no event object at all, so
+    // there is no originalEvent to tell a user gesture from a programmatic
+    // move — scroll, double-click and the zoom buttons all go through
+    // setZoomAround/zoomIn. Listen for the input itself instead. Capture
+    // phase: Leaflet's controls call disableClickPropagation, so a click on
+    // the zoom buttons never bubbles up to the container.
+    const container = map.getContainer()
+    const onInteraction = () => {
+      userInteractedRef.current = true
     }
-    map.on('zoomstart', onInteraction)
-    map.on('dragstart', onInteraction)
+    for (const event of INTERACTION_EVENTS) {
+      container.addEventListener(event, onInteraction, { capture: true, passive: true })
+    }
     return () => {
-      map.off('zoomstart', onInteraction)
-      map.off('dragstart', onInteraction)
+      for (const event of INTERACTION_EVENTS) {
+        container.removeEventListener(event, onInteraction, { capture: true })
+      }
     }
   }, [map])
 

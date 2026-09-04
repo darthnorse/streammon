@@ -219,3 +219,31 @@ describe('LeafletMap basemap', () => {
     expect(tilePane(container).style.filter).toBe('')
   })
 })
+
+describe('LeafletMap viewport', () => {
+  function tileZooms(container: HTMLElement): string[] {
+    return Array.from(container.querySelectorAll<HTMLImageElement>('.leaflet-tile-pane img'))
+      .map((t) => new URL(t.src).pathname.split('/')[1])
+  }
+
+  it('keeps a zoom the user chose when the same locations arrive as a new array', () => {
+    const { container, rerender } = render(<LeafletMap locations={locations} viewMode="markers" />)
+
+    const zoomIn = container.querySelector<HTMLAnchorElement>('.leaflet-control-zoom-in')
+    if (!zoomIn) throw new Error('no zoom control')
+    // A real click always delivers mousedown first; that is the signal the map
+    // uses to tell a user gesture from a programmatic move.
+    act(() => {
+      zoomIn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }))
+      zoomIn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    })
+    const zoomed = tileZooms(container)[0]
+
+    // The poller hands down a fresh array of the same places every tick.
+    act(() => {
+      rerender(<LeafletMap locations={locations.map((l) => ({ ...l }))} viewMode="markers" />)
+    })
+
+    expect(tileZooms(container)[0]).toBe(zoomed)
+  })
+})
