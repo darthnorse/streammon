@@ -43,7 +43,6 @@ func TestRuleEvaluationDoesNotBlockPoll(t *testing.T) {
 		release: make(chan struct{}),
 	}
 	p := New(s, time.Hour, WithRulesEngine(be))
-	p.triggerPoll = make(chan struct{}, 1)
 	p.pollNotify = make(chan struct{}, 1)
 
 	ms := &mockServer{
@@ -1493,9 +1492,7 @@ func TestPersistActiveSessionsCountsInFlightCancelledWrite(t *testing.T) {
 
 func TestTriggerPollRunsPollBeforeNextTick(t *testing.T) {
 	s := newTestStore(t)
-	p := New(s, time.Hour)
-	p.pollNotify = make(chan struct{}, 1)
-
+	p := newTestPoller(t, s)
 	p.AddServer(1, &mockServer{name: "test"})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1504,11 +1501,10 @@ func TestTriggerPollRunsPollBeforeNextTick(t *testing.T) {
 	defer p.Stop()
 	waitPoll(t, p) // the initial poll on start
 
-	p.TriggerPoll()
-	waitPoll(t, p)
+	triggerAndWaitPoll(t, p)
 }
 
-func TestTriggerPollDoesNotBlockWhenPollerIsBusy(t *testing.T) {
+func TestTriggerPollNeverBlocks(t *testing.T) {
 	s := newTestStore(t)
 	p := New(s, time.Hour)
 

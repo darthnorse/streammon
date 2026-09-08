@@ -3,29 +3,22 @@ import { useEffect, useRef } from 'react'
 export function useModal(onClose: () => void) {
   const modalRef = useRef<HTMLDivElement>(null)
   // Callers pass an inline closure, so onClose changes identity on every
-  // render; reading it through a ref keeps the focus effect below mount-only.
+  // render; reading it through a ref keeps the effect below mount-only.
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
 
   useEffect(() => {
-    function handleEscape(e: KeyboardEvent) {
-      if (e.key === 'Escape') onCloseRef.current()
-    }
-    document.addEventListener('keydown', handleEscape)
-    const previouslyFocused = document.activeElement as HTMLElement | null
-    modalRef.current?.querySelector<HTMLElement>('input, select, button, textarea')?.focus()
-    return () => {
-      document.removeEventListener('keydown', handleEscape)
-      previouslyFocused?.focus()
-    }
-  }, [])
-
-  useEffect(() => {
     const modal = modalRef.current
-    if (!modal) return
-    function trapFocus(e: KeyboardEvent) {
-      if (e.key !== 'Tab') return
-      const focusable = modal!.querySelectorAll<HTMLElement>(
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    modal?.querySelector<HTMLElement>('input, select, button, textarea')?.focus()
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onCloseRef.current()
+        return
+      }
+      if (e.key !== 'Tab' || !modal) return
+      const focusable = modal.querySelectorAll<HTMLElement>(
         'input, select, button, textarea, [tabindex]:not([tabindex="-1"])'
       )
       if (focusable.length === 0) return
@@ -39,8 +32,12 @@ export function useModal(onClose: () => void) {
         first.focus()
       }
     }
-    document.addEventListener('keydown', trapFocus)
-    return () => document.removeEventListener('keydown', trapFocus)
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      previouslyFocused?.focus()
+    }
   }, [])
 
   return modalRef

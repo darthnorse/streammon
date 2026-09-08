@@ -69,8 +69,9 @@ func (s *Server) handleTerminateSession(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// The stream is gone server-side now; poll immediately so the dashboard
-	// drops it instead of waiting out the poll interval.
+	// The server accepted the stop; the client may take a moment to act on it.
+	// Poll now so the dashboard drops the stream as soon as it does clear,
+	// rather than waiting out the poll interval.
 	s.poller.TriggerPoll()
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})

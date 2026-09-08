@@ -4,9 +4,11 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useModal } from '../hooks/useModal'
 
+// Mirrors TerminateSessionDialog: an inline closure whose behaviour depends on
+// state that flips after mount, so a handler captured at mount is observable.
 function Dialog({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState('')
-  const [busy] = useState(false)
+  const [busy, setBusy] = useState(false)
   const modalRef = useModal(() => { if (!busy) onClose() })
   return (
     <div ref={modalRef}>
@@ -16,6 +18,7 @@ function Dialog({ onClose }: { onClose: () => void }) {
         value={text}
         onChange={e => setText(e.target.value)}
       />
+      <button aria-label="Start" onClick={() => setBusy(true)}>go</button>
     </div>
   )
 }
@@ -38,15 +41,34 @@ describe('useModal', () => {
     expect(screen.getByLabelText('Close')).toBe(document.activeElement)
   })
 
-  it('closes on Escape using the latest handler', async () => {
+  it('closes on Escape', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     render(<Dialog onClose={onClose} />)
 
-    await user.click(screen.getByLabelText('Message'))
-    await user.keyboard('a')
     await user.keyboard('{Escape}')
 
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('Escape sees state that changed after mount, not the handler captured then', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<Dialog onClose={onClose} />)
+
+    await user.click(screen.getByLabelText('Start'))
+    await user.keyboard('{Escape}')
+
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('traps Tab inside the modal', async () => {
+    const user = userEvent.setup()
+    render(<Dialog onClose={vi.fn()} />)
+
+    await user.click(screen.getByLabelText('Start'))
+    await user.tab()
+
+    expect(document.activeElement).toBe(screen.getByLabelText('Close'))
   })
 })
