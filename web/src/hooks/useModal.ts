@@ -2,10 +2,14 @@ import { useEffect, useRef } from 'react'
 
 export function useModal(onClose: () => void) {
   const modalRef = useRef<HTMLDivElement>(null)
+  // Callers pass an inline closure, so onClose changes identity on every
+  // render; reading it through a ref keeps the focus effect below mount-only.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
     function handleEscape(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') onCloseRef.current()
     }
     document.addEventListener('keydown', handleEscape)
     const previouslyFocused = document.activeElement as HTMLElement | null
@@ -14,7 +18,7 @@ export function useModal(onClose: () => void) {
       document.removeEventListener('keydown', handleEscape)
       previouslyFocused?.focus()
     }
-  }, [onClose])
+  }, [])
 
   useEffect(() => {
     const modal = modalRef.current
