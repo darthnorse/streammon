@@ -62,6 +62,14 @@ describe('useColumnConfig', () => {
     expect(result.current.visibleColumns).toEqual(['a', 'b'])
   })
 
+  it('does not duplicate a merged column that the stored config already has', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 'new', 'b', 'd']))
+    const { result } = renderHook(() =>
+      useColumnConfig(withNewColumn)
+    )
+    expect(result.current.visibleColumns).toEqual(['a', 'new', 'b', 'd'])
+  })
+
   it('does not re-add a merged column once the user hides it', () => {
     localStorage.setItem('history-columns', JSON.stringify(['a', 'b', 'd']))
     const first = renderHook(() => useColumnConfig(withNewColumn))

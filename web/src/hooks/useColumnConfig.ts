@@ -72,7 +72,7 @@ function mergeNewDefaultColumns<T>(
   let result = visible
   for (const col of allColumns) {
     if (!col.mergeIntoStoredConfigs || !col.defaultVisible) continue
-    if (known.has(col.id) || excludeSet.has(col.id)) continue
+    if (known.has(col.id) || excludeSet.has(col.id) || result.includes(col.id)) continue
     result = insertInColumnOrder(result, col.id, orderOf)
   }
   return result
