@@ -27,35 +27,54 @@ function loadStoredColumns(storageKey: string): string[] | null {
   const stored = safeGetItem(storageKey)
   if (stored) {
     try {
-      return JSON.parse(stored) as string[]
+      const parsed: unknown = JSON.parse(stored)
+      if (Array.isArray(parsed) && parsed.every(id => typeof id === 'string')) {
+        return parsed as string[]
+      }
     } catch {}
   }
   return null
+}
+
+// Places id after the last column it canonically follows, so a config the user
+// has reordered keeps the new column near its neighbours instead of at the head.
+function insertInColumnOrder(visible: string[], id: string, orderOf: (id: string) => number): string[] {
+  const target = orderOf(id)
+  let insertIdx = 0
+  for (let i = visible.length - 1; i >= 0; i--) {
+    if (orderOf(visible[i]) < target) {
+      insertIdx = i + 1
+      break
+    }
+  }
+  const next = [...visible]
+  next.splice(insertIdx, 0, id)
+  return next
 }
 
 function knownColumnsKey(storageKey: string): string {
   return `${storageKey}-known`
 }
 
-// Columns added since the stored config was written are invisible to the user
+// A column flagged mergeIntoStoredConfigs is invisible to existing users
 // otherwise: the config is persisted on every mount, so nearly everyone has a
-// stored list that predates any new column. Merged in once, then recorded as
-// known so a column the user later hides stays hidden.
+// stored list that predates it. Merged in once, then recorded as known so it
+// stays hidden if the user turns it off. Only flagged columns are ever merged —
+// an absent column is otherwise indistinguishable from one the user hid.
 function mergeNewDefaultColumns<T>(
   allColumns: ColumnDef<T>[],
   visible: string[],
   excludeSet: Set<string>,
   storageKey: string,
+  orderOf: (id: string) => number,
 ): string[] {
-  const known = new Set(loadStoredColumns(knownColumnsKey(storageKey)) ?? visible)
-  const result = [...visible]
-  allColumns.forEach((col, colIndex) => {
-    if (known.has(col.id) || !col.defaultVisible || excludeSet.has(col.id)) return
-    const insertIdx = result.findIndex(
-      id => allColumns.findIndex(c => c.id === id) > colIndex
-    )
-    result.splice(insertIdx === -1 ? result.length : insertIdx, 0, col.id)
-  })
+  const known = new Set(loadStoredColumns(knownColumnsKey(storageKey)) ?? [])
+  let result = visible
+  for (const col of allColumns) {
+    if (!col.mergeIntoStoredConfigs || !col.defaultVisible) continue
+    if (known.has(col.id) || excludeSet.has(col.id)) continue
+    result = insertInColumnOrder(result, col.id, orderOf)
+  }
   return result
 }
 
@@ -65,7 +84,13 @@ function loadInitialColumns<T>(allColumns: ColumnDef<T>[], excludeColumns: strin
   const stored = loadStoredColumns(storageKey)
   if (stored) {
     const valid = stored.filter(id => columnIds.has(id) && !excludeSet.has(id))
-    if (valid.length > 0) return mergeNewDefaultColumns(allColumns, valid, excludeSet, storageKey)
+    if (valid.length > 0) {
+      const orderOf = (id: string) => {
+        const idx = allColumns.findIndex(c => c.id === id)
+        return idx === -1 ? allColumns.length : idx
+      }
+      return mergeNewDefaultColumns(allColumns, valid, excludeSet, storageKey, orderOf)
+    }
   }
   return getDefaultVisibleColumns(allColumns, excludeColumns)
 }
@@ -131,8 +156,18 @@ export function useColumnConfig<T>(
     }
 
     safeSetItem(storageKey, JSON.stringify(result))
-    safeSetItem(knownColumnsKey(storageKey), JSON.stringify(allColumns.map(c => c.id)))
+
+    const known = new Set(loadStoredColumns(knownColumnsKey(storageKey)) ?? [])
+    for (const col of allColumns) {
+      if (!excludeSet.has(col.id)) known.add(col.id)
+    }
+    safeSetItem(knownColumnsKey(storageKey), JSON.stringify([...known]))
   }, [visibleColumns, excludeSet, allColumns, storageKey])
+
+  const orderOf = useCallback(
+    (id: string) => columnIndexMap.get(id) ?? allColumns.length,
+    [allColumns.length, columnIndexMap]
+  )
 
   const toggleColumn = useCallback((id: string) => {
     if (excludeSet.has(id)) return
@@ -140,17 +175,9 @@ export function useColumnConfig<T>(
       if (prev.includes(id)) {
         return prev.filter(c => c !== id)
       }
-      // Insert at position based on original column order
-      const colIndex = columnIndexMap.get(id) ?? allColumns.length
-      const insertIdx = prev.findIndex(existingId => {
-        const existingIndex = columnIndexMap.get(existingId) ?? allColumns.length
-        return existingIndex > colIndex
-      })
-      const newVisible = [...prev]
-      newVisible.splice(insertIdx === -1 ? newVisible.length : insertIdx, 0, id)
-      return newVisible
+      return insertInColumnOrder(prev, id, orderOf)
     })
-  }, [allColumns.length, columnIndexMap, excludeSet])
+  }, [excludeSet, orderOf])
 
   const moveColumn = useCallback((id: string, direction: 'up' | 'down') => {
     setVisibleColumnsState(prev => {

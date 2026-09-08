@@ -14,6 +14,8 @@ export interface ColumnDef<T> {
   sortKey?: string
   className?: string
   responsiveClassName?: string
+  // Add to column configs saved before this column existed, once.
+  mergeIntoStoredConfigs?: boolean
 }
 
 interface EntryTitleProps {
@@ -131,6 +133,7 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef<W
       id: 'server',
       label: 'Server',
       defaultVisible: true,
+      mergeIntoStoredConfigs: true,
       render: (e) => e.server_name || '—',
       sortValue: (e) => (e.server_name || '').toLowerCase(),
       sortKey: 'server',

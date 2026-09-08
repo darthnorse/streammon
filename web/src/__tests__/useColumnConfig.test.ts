@@ -10,6 +10,14 @@ const mockColumns: ColumnDef<unknown>[] = [
   { id: 'd', label: 'D', defaultVisible: true, render: () => null },
 ]
 
+const withNewColumn: ColumnDef<unknown>[] = [
+  { id: 'a', label: 'A', defaultVisible: true, render: () => null },
+  { id: 'new', label: 'New', defaultVisible: true, mergeIntoStoredConfigs: true, render: () => null },
+  { id: 'b', label: 'B', defaultVisible: true, render: () => null },
+  { id: 'c', label: 'C', defaultVisible: false, render: () => null },
+  { id: 'd', label: 'D', defaultVisible: true, render: () => null },
+]
+
 describe('useColumnConfig', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -24,46 +32,77 @@ describe('useColumnConfig', () => {
 
   it('initializes from localStorage when present', () => {
     localStorage.setItem('history-columns', JSON.stringify(['b', 'a']))
-    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c', 'd']))
     const { result } = renderHook(() =>
       useColumnConfig(mockColumns)
     )
     expect(result.current.visibleColumns).toEqual(['b', 'a'])
   })
 
-  it('adds newly introduced default columns to a stored config that predates them', () => {
+  it('merges a newly introduced column into a stored config that predates it', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 'b', 'd']))
+    const { result } = renderHook(() =>
+      useColumnConfig(withNewColumn)
+    )
+    expect(result.current.visibleColumns).toEqual(['a', 'new', 'b', 'd'])
+  })
+
+  it('does not resurrect a default column the user had hidden', () => {
     localStorage.setItem('history-columns', JSON.stringify(['a', 'b']))
-    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c']))
+    const { result } = renderHook(() =>
+      useColumnConfig(withNewColumn)
+    )
+    expect(result.current.visibleColumns).toEqual(['a', 'new', 'b'])
+  })
+
+  it('merges nothing into a stored config when no column is flagged', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 'b']))
     const { result } = renderHook(() =>
       useColumnConfig(mockColumns)
     )
-    expect(result.current.visibleColumns).toEqual(['a', 'b', 'd'])
-  })
-
-  it('inserts a new default column at its natural position', () => {
-    localStorage.setItem('history-columns', JSON.stringify(['a', 'd']))
-    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'c', 'd']))
-    const { result } = renderHook(() =>
-      useColumnConfig(mockColumns)
-    )
-    expect(result.current.visibleColumns).toEqual(['a', 'b', 'd'])
-  })
-
-  it('does not re-add a new column once it has been recorded as known', () => {
-    localStorage.setItem('history-columns', JSON.stringify(['a', 'b']))
-    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c']))
-    const first = renderHook(() => useColumnConfig(mockColumns))
-    act(() => {
-      first.result.current.toggleColumn('d')
-    })
-    first.unmount()
-
-    const { result } = renderHook(() => useColumnConfig(mockColumns))
     expect(result.current.visibleColumns).toEqual(['a', 'b'])
   })
 
-  it('does not add hidden default columns for a config with no known list', () => {
-    localStorage.setItem('history-columns', JSON.stringify(['a', 'b']))
+  it('does not re-add a merged column once the user hides it', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 'b', 'd']))
+    const first = renderHook(() => useColumnConfig(withNewColumn))
+    act(() => {
+      first.result.current.toggleColumn('new')
+    })
+    first.unmount()
+
+    const { result } = renderHook(() => useColumnConfig(withNewColumn))
+    expect(result.current.visibleColumns).toEqual(['a', 'b', 'd'])
+  })
+
+  it('keeps the migration pending when the first mount excludes the new column', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 'b', 'd']))
+    const excluded = renderHook(() => useColumnConfig(withNewColumn, ['new']))
+    expect(excluded.result.current.visibleColumns).toEqual(['a', 'b', 'd'])
+    excluded.unmount()
+
+    const { result } = renderHook(() => useColumnConfig(withNewColumn))
+    expect(result.current.visibleColumns).toEqual(['a', 'new', 'b', 'd'])
+  })
+
+  it('inserts a merged column near its neighbours in a reordered config', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['d', 'a', 'b']))
+    const { result } = renderHook(() =>
+      useColumnConfig(withNewColumn)
+    )
+    expect(result.current.visibleColumns).toEqual(['d', 'a', 'new', 'b'])
+  })
+
+  it('falls back to defaults when stored data is valid JSON of the wrong shape', () => {
+    localStorage.setItem('history-columns', JSON.stringify({ not: 'an array' }))
+    localStorage.setItem('history-columns-known', JSON.stringify({ not: 'an array' }))
+    const { result } = renderHook(() =>
+      useColumnConfig(mockColumns)
+    )
+    expect(result.current.visibleColumns).toEqual(['a', 'b', 'd'])
+  })
+
+  it('falls back to defaults when a stored entry is not a string', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 7]))
     const { result } = renderHook(() =>
       useColumnConfig(mockColumns)
     )
@@ -87,7 +126,6 @@ describe('useColumnConfig', () => {
 
   it('filters out excluded columns from stored config', () => {
     localStorage.setItem('history-columns', JSON.stringify(['a', 'b', 'c']))
-    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c', 'd']))
     const { result } = renderHook(() =>
       useColumnConfig(mockColumns, ['a'])
     )
@@ -117,7 +155,6 @@ describe('useColumnConfig', () => {
 
   it('toggleColumn adds column in correct position', () => {
     localStorage.setItem('history-columns', JSON.stringify(['a', 'd']))
-    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c', 'd']))
     const { result } = renderHook(() =>
       useColumnConfig(mockColumns)
     )
@@ -245,7 +282,6 @@ describe('useColumnConfig', () => {
 
   it('resets to defaults when all visible columns become excluded', () => {
     localStorage.setItem('history-columns', JSON.stringify(['a']))
-    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c', 'd']))
     let excludeColumns: string[] = []
     const { result, rerender } = renderHook(
       ({ exclude }) => useColumnConfig(mockColumns, exclude),
