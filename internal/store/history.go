@@ -24,7 +24,7 @@ const historyColumnsWithGeo = `h.id, h.server_id, h.item_id, h.grandparent_item_
 	h.video_resolution, h.transcode_decision,
 	h.video_codec, h.audio_codec, h.audio_channels, h.bandwidth, h.video_decision, h.audio_decision,
 	h.transcode_hw_decode, h.transcode_hw_encode, h.dynamic_range, h.paused_ms, h.watched, h.session_count,
-	COALESCE(g.city, ''), COALESCE(g.country, ''), COALESCE(g.isp, '')`
+	COALESCE(g.city, ''), COALESCE(g.country, ''), COALESCE(g.isp, ''), COALESCE(sv.name, '')`
 
 const historyInsertSQL = `INSERT INTO watch_history (server_id, item_id, grandparent_item_id, user_name, media_type, extra_type, title, parent_title, grandparent_title,
 	year, duration_ms, watched_ms, player, platform, ip_address, started_at, stopped_at,
@@ -57,7 +57,7 @@ func scanHistoryEntryWithGeo(scanner interface{ Scan(...any) error }) (models.Wa
 		&e.SeasonNumber, &e.EpisodeNumber, &e.ThumbURL, &e.VideoResolution, &e.TranscodeDecision,
 		&e.VideoCodec, &e.AudioCodec, &e.AudioChannels, &e.Bandwidth, &e.VideoDecision, &e.AudioDecision,
 		&hwDecode, &hwEncode, &e.DynamicRange, &e.PausedMs, &watched, &e.SessionCount,
-		&e.City, &e.Country, &e.ISP)
+		&e.City, &e.Country, &e.ISP, &e.ServerName)
 	e.TranscodeHWDecode = hwDecode != 0
 	e.TranscodeHWEncode = hwEncode != 0
 	e.Watched = watched != 0
@@ -268,6 +268,7 @@ var validHistorySortColumns = map[string]bool{
 	"h.player":      true,
 	"h.created_at":  true,
 	"g.city":        true,
+	"sv.name":       true,
 }
 
 func (s *Store) ListHistory(page, perPage int, userFilter, sortColumn, sortOrder string, serverIDs []int64) (*models.PaginatedResult[models.WatchHistoryEntry], error) {
@@ -325,7 +326,8 @@ func (s *Store) SearchHistory(page, perPage int, userFilter, search, sortColumn,
 	offset := (page - 1) * perPage
 	query := `SELECT ` + historyColumnsWithGeo + `
 		FROM watch_history h
-		LEFT JOIN ip_geo_cache g ON h.ip_address = g.ip` +
+		LEFT JOIN ip_geo_cache g ON h.ip_address = g.ip
+		LEFT JOIN servers sv ON h.server_id = sv.id` +
 		where + ` ORDER BY ` + orderBy + ` LIMIT ? OFFSET ?`
 	queryArgs := append(args, perPage, offset)
 

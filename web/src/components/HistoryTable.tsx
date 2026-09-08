@@ -69,6 +69,12 @@ function HistoryCard({ entry, hideUser, onTitleClick, expanded, sessions, onTogg
         <span>{formatDuration(entry.watched_ms)}</span>
         <span className="hidden sm:inline">&middot;</span>
         <span className="hidden sm:inline">{entry.player}</span>
+        {entry.server_name && (
+          <>
+            <span>&middot;</span>
+            <span>{entry.server_name}</span>
+          </>
+        )}
       </div>
       {(entry.city || entry.country) && (
         <div className="mt-1 text-xs text-muted dark:text-muted-dark">

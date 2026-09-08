@@ -128,6 +128,16 @@ export function getHistoryColumns(onTitleClick?: TitleClickHandler): ColumnDef<W
       sortKey: 'type',
     },
     {
+      id: 'server',
+      label: 'Server',
+      defaultVisible: true,
+      render: (e) => e.server_name || '—',
+      sortValue: (e) => (e.server_name || '').toLowerCase(),
+      sortKey: 'server',
+      className: 'text-muted dark:text-muted-dark',
+      responsiveClassName: 'hidden lg:table-cell',
+    },
+    {
       id: 'player',
       label: 'Player',
       defaultVisible: true,

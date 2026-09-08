@@ -24,10 +24,50 @@ describe('useColumnConfig', () => {
 
   it('initializes from localStorage when present', () => {
     localStorage.setItem('history-columns', JSON.stringify(['b', 'a']))
+    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c', 'd']))
     const { result } = renderHook(() =>
       useColumnConfig(mockColumns)
     )
     expect(result.current.visibleColumns).toEqual(['b', 'a'])
+  })
+
+  it('adds newly introduced default columns to a stored config that predates them', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 'b']))
+    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c']))
+    const { result } = renderHook(() =>
+      useColumnConfig(mockColumns)
+    )
+    expect(result.current.visibleColumns).toEqual(['a', 'b', 'd'])
+  })
+
+  it('inserts a new default column at its natural position', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 'd']))
+    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'c', 'd']))
+    const { result } = renderHook(() =>
+      useColumnConfig(mockColumns)
+    )
+    expect(result.current.visibleColumns).toEqual(['a', 'b', 'd'])
+  })
+
+  it('does not re-add a new column once it has been recorded as known', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 'b']))
+    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c']))
+    const first = renderHook(() => useColumnConfig(mockColumns))
+    act(() => {
+      first.result.current.toggleColumn('d')
+    })
+    first.unmount()
+
+    const { result } = renderHook(() => useColumnConfig(mockColumns))
+    expect(result.current.visibleColumns).toEqual(['a', 'b'])
+  })
+
+  it('does not add hidden default columns for a config with no known list', () => {
+    localStorage.setItem('history-columns', JSON.stringify(['a', 'b']))
+    const { result } = renderHook(() =>
+      useColumnConfig(mockColumns)
+    )
+    expect(result.current.visibleColumns).toEqual(['a', 'b', 'd'])
   })
 
   it('falls back to defaults when localStorage has invalid data', () => {
@@ -47,6 +87,7 @@ describe('useColumnConfig', () => {
 
   it('filters out excluded columns from stored config', () => {
     localStorage.setItem('history-columns', JSON.stringify(['a', 'b', 'c']))
+    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c', 'd']))
     const { result } = renderHook(() =>
       useColumnConfig(mockColumns, ['a'])
     )
@@ -76,6 +117,7 @@ describe('useColumnConfig', () => {
 
   it('toggleColumn adds column in correct position', () => {
     localStorage.setItem('history-columns', JSON.stringify(['a', 'd']))
+    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c', 'd']))
     const { result } = renderHook(() =>
       useColumnConfig(mockColumns)
     )
@@ -203,6 +245,7 @@ describe('useColumnConfig', () => {
 
   it('resets to defaults when all visible columns become excluded', () => {
     localStorage.setItem('history-columns', JSON.stringify(['a']))
+    localStorage.setItem('history-columns-known', JSON.stringify(['a', 'b', 'c', 'd']))
     let excludeColumns: string[] = []
     const { result, rerender } = renderHook(
       ({ exclude }) => useColumnConfig(mockColumns, exclude),

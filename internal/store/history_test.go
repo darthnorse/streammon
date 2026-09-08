@@ -2737,3 +2737,32 @@ func TestSearchHistoryEmptyReturnsAll(t *testing.T) {
 		t.Fatalf("empty search should return all, got %d", result.Total)
 	}
 }
+
+func TestListHistoryIncludesServerName(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+
+	sid1 := seedServer(t, s)
+	srv2 := &models.Server{Name: "Second", Type: models.ServerTypeEmby, URL: "http://test2", APIKey: "k2", Enabled: true}
+	if err := s.CreateServer(srv2); err != nil {
+		t.Fatalf("seed server 2: %v", err)
+	}
+
+	now := time.Now().UTC()
+	s.InsertHistory(makeHistoryEntry(sid1, "alice", "Movie A", now))
+	s.InsertHistory(makeHistoryEntry(srv2.ID, "alice", "Movie B", now.Add(time.Minute)))
+
+	result, err := s.ListHistory(1, 10, "", "sv.name", "asc", nil)
+	if err != nil {
+		t.Fatalf("ListHistory: %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("expected 2 entries, got %d", len(result.Items))
+	}
+	if got := result.Items[0].ServerName; got != "Second" {
+		t.Fatalf("first entry server name: got %q want %q", got, "Second")
+	}
+	if got := result.Items[1].ServerName; got != "Test" {
+		t.Fatalf("second entry server name: got %q want %q", got, "Test")
+	}
+}
+

@@ -17,6 +17,20 @@ describe('HistoryTable', () => {
     expect(screen.getAllByText('Inception').length).toBeGreaterThan(0)
   })
 
+  it('renders the server name column', () => {
+    renderWithRouter(
+      <HistoryTable entries={[{ ...baseHistoryEntry, server_name: 'Living Room Plex' }]} />
+    )
+    expect(screen.getAllByText('Living Room Plex').length).toBeGreaterThan(0)
+    expect(screen.getByText('Server')).toBeDefined()
+  })
+
+  it('falls back to a dash when the entry has no server name', () => {
+    renderWithRouter(<HistoryTable entries={[baseHistoryEntry]} />)
+    const rows = screen.getAllByTestId('history-row')
+    expect(rows.some(r => r.textContent?.includes('\u2014'))).toBe(true)
+  })
+
   it('shows empty state when no entries', () => {
     renderWithRouter(<HistoryTable entries={[]} />)
     expect(screen.getByText(/no history/i)).toBeDefined()

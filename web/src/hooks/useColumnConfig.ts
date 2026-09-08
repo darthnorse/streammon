@@ -33,13 +33,39 @@ function loadStoredColumns(storageKey: string): string[] | null {
   return null
 }
 
+function knownColumnsKey(storageKey: string): string {
+  return `${storageKey}-known`
+}
+
+// Columns added since the stored config was written are invisible to the user
+// otherwise: the config is persisted on every mount, so nearly everyone has a
+// stored list that predates any new column. Merged in once, then recorded as
+// known so a column the user later hides stays hidden.
+function mergeNewDefaultColumns<T>(
+  allColumns: ColumnDef<T>[],
+  visible: string[],
+  excludeSet: Set<string>,
+  storageKey: string,
+): string[] {
+  const known = new Set(loadStoredColumns(knownColumnsKey(storageKey)) ?? visible)
+  const result = [...visible]
+  allColumns.forEach((col, colIndex) => {
+    if (known.has(col.id) || !col.defaultVisible || excludeSet.has(col.id)) return
+    const insertIdx = result.findIndex(
+      id => allColumns.findIndex(c => c.id === id) > colIndex
+    )
+    result.splice(insertIdx === -1 ? result.length : insertIdx, 0, col.id)
+  })
+  return result
+}
+
 function loadInitialColumns<T>(allColumns: ColumnDef<T>[], excludeColumns: string[], storageKey: string): string[] {
   const columnIds = new Set(allColumns.map(c => c.id))
   const excludeSet = new Set(excludeColumns)
   const stored = loadStoredColumns(storageKey)
   if (stored) {
     const valid = stored.filter(id => columnIds.has(id) && !excludeSet.has(id))
-    if (valid.length > 0) return valid
+    if (valid.length > 0) return mergeNewDefaultColumns(allColumns, valid, excludeSet, storageKey)
   }
   return getDefaultVisibleColumns(allColumns, excludeColumns)
 }
@@ -105,6 +131,7 @@ export function useColumnConfig<T>(
     }
 
     safeSetItem(storageKey, JSON.stringify(result))
+    safeSetItem(knownColumnsKey(storageKey), JSON.stringify(allColumns.map(c => c.id)))
   }, [visibleColumns, excludeSet, allColumns, storageKey])
 
   const toggleColumn = useCallback((id: string) => {

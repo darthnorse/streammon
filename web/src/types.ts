@@ -53,6 +53,7 @@ export interface UserSummary {
 export interface WatchHistoryEntry {
   id: number
   server_id: number
+  server_name?: string
   item_id?: string
   grandparent_item_id?: string
   user_name: string

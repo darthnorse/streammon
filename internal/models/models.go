@@ -158,6 +158,7 @@ const MaxUserNotesLen = 5000
 type WatchHistoryEntry struct {
 	ID                  int64             `json:"id"`
 	ServerID            int64             `json:"server_id"`
+	ServerName          string            `json:"server_name,omitempty"`
 	ItemID              string            `json:"item_id,omitempty"`
 	GrandparentItemID   string            `json:"grandparent_item_id,omitempty"`
 	UserName            string            `json:"user_name"`

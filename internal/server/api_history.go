@@ -33,6 +33,7 @@ var allowedSortColumns = map[string]string{
 	"player":     "h.player",
 	"platform":   "h.platform",
 	"location":   "g.city",
+	"server":     "sv.name",
 }
 
 func (s *Server) handleListHistory(w http.ResponseWriter, r *http.Request) {
