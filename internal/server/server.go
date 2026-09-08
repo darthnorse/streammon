@@ -33,6 +33,7 @@ type pollerIface interface {
 	RemoveServer(id int64)
 	GetServer(id int64) (media.MediaServer, bool)
 	RefreshIdleTimeout()
+	TriggerPoll()
 }
 
 // Ensure *poller.Poller satisfies pollerIface at compile time.

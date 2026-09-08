@@ -13,13 +13,14 @@ import (
 // fakePoller implements pollerIface for testing.
 type fakePoller struct{ sessions []models.ActiveStream }
 
-func (f *fakePoller) CurrentSessions() []models.ActiveStream          { return f.sessions }
-func (f *fakePoller) Subscribe() chan []models.ActiveStream            { return nil }
-func (f *fakePoller) Unsubscribe(_ chan []models.ActiveStream)         {}
-func (f *fakePoller) AddServer(_ int64, _ media.MediaServer)          {}
-func (f *fakePoller) RemoveServer(_ int64)                            {}
-func (f *fakePoller) GetServer(_ int64) (media.MediaServer, bool)     { return nil, false }
-func (f *fakePoller) RefreshIdleTimeout()                             {}
+func (f *fakePoller) CurrentSessions() []models.ActiveStream      { return f.sessions }
+func (f *fakePoller) Subscribe() chan []models.ActiveStream       { return nil }
+func (f *fakePoller) Unsubscribe(_ chan []models.ActiveStream)    {}
+func (f *fakePoller) AddServer(_ int64, _ media.MediaServer)      {}
+func (f *fakePoller) RemoveServer(_ int64)                        {}
+func (f *fakePoller) GetServer(_ int64) (media.MediaServer, bool) { return nil, false }
+func (f *fakePoller) RefreshIdleTimeout()                         {}
+func (f *fakePoller) TriggerPoll()                                {}
 
 func TestDashboardSummary_NoPoller_ReturnsZeros(t *testing.T) {
 	ts, _ := newTestServerWrapped(t)

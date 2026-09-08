@@ -159,7 +159,6 @@ func newTestStoreWithServer(t *testing.T) (*store.Store, *models.Server) {
 func newTestPoller(t *testing.T, s *store.Store) *Poller {
 	t.Helper()
 	p := New(s, time.Hour) // long interval; we trigger polls manually
-	p.triggerPoll = make(chan struct{}, 1)
 	p.pollNotify = make(chan struct{}, 1)
 	return p
 }
@@ -175,7 +174,7 @@ func waitPoll(t *testing.T, p *Poller) {
 
 func triggerAndWaitPoll(t *testing.T, p *Poller) {
 	t.Helper()
-	p.triggerPoll <- struct{}{}
+	p.TriggerPoll()
 	waitPoll(t, p)
 }
 
@@ -1489,5 +1488,41 @@ func TestPersistActiveSessionsCountsInFlightCancelledWrite(t *testing.T) {
 	p.retryMu.Unlock()
 	if queued != 0 {
 		t.Fatalf("expected the cancelled in-flight write not to be silently queued for a retry that will never run, got %d queued", queued)
+	}
+}
+
+func TestTriggerPollRunsPollBeforeNextTick(t *testing.T) {
+	s := newTestStore(t)
+	p := New(s, time.Hour)
+	p.pollNotify = make(chan struct{}, 1)
+
+	p.AddServer(1, &mockServer{name: "test"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	p.Start(ctx)
+	defer p.Stop()
+	waitPoll(t, p) // the initial poll on start
+
+	p.TriggerPoll()
+	waitPoll(t, p)
+}
+
+func TestTriggerPollDoesNotBlockWhenPollerIsBusy(t *testing.T) {
+	s := newTestStore(t)
+	p := New(s, time.Hour)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 10; i++ {
+			p.TriggerPoll()
+		}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("TriggerPoll blocked with no poll loop draining the channel")
 	}
 }

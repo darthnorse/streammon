@@ -2,11 +2,14 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"streammon/internal/models"
 )
@@ -114,6 +117,22 @@ type mockTerminateServer struct {
 	terminatedID  string
 	terminatedMsg string
 	terminateErr  error
+
+	mu       sync.Mutex
+	sessionN int
+}
+
+func (m *mockTerminateServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
+	m.mu.Lock()
+	m.sessionN++
+	m.mu.Unlock()
+	return nil, nil
+}
+
+func (m *mockTerminateServer) sessionCalls() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sessionN
 }
 
 func (m *mockTerminateServer) TerminateSession(ctx context.Context, sessionID string, message string) error {
@@ -258,4 +277,73 @@ func TestTerminateSession_MessageTruncation(t *testing.T) {
 	if len(mock.terminatedMsg) != 500 {
 		t.Errorf("expected message truncated to 500, got %d", len(mock.terminatedMsg))
 	}
+}
+
+func TestTerminateSession_TriggersPoll(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	p := setupTestPoller(t, srv.Unwrap(), st)
+
+	s := &models.Server{
+		Name: "TestPlex", Type: models.ServerTypePlex,
+		URL: "http://plex", APIKey: "k", Enabled: true,
+	}
+	st.CreateServer(s)
+	mock := &mockTerminateServer{}
+	mock.srvType = models.ServerTypePlex
+	p.AddServer(s.ID, mock)
+
+	before := mock.sessionCalls()
+
+	body := fmt.Sprintf(`{"server_id":%d,"session_id":"sess"}`, s.ID)
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/terminate", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	// The poller's interval is an hour, so a further fetch can only come from
+	// the terminate triggering a poll.
+	waitForSessionCalls(t, mock, before+1)
+}
+
+func TestTerminateSession_FailureDoesNotTriggerPoll(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	p := setupTestPoller(t, srv.Unwrap(), st)
+
+	s := &models.Server{
+		Name: "TestPlex", Type: models.ServerTypePlex,
+		URL: "http://plex", APIKey: "k", Enabled: true,
+	}
+	st.CreateServer(s)
+	mock := &mockTerminateServer{terminateErr: errors.New("nope")}
+	mock.srvType = models.ServerTypePlex
+	p.AddServer(s.ID, mock)
+
+	before := mock.sessionCalls()
+
+	body := fmt.Sprintf(`{"server_id":%d,"session_id":"sess"}`, s.ID)
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions/terminate", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d", w.Code)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if got := mock.sessionCalls(); got != before {
+		t.Fatalf("failed terminate triggered a poll: %d session fetches, want %d", got, before)
+	}
+}
+
+func waitForSessionCalls(t *testing.T, m *mockTerminateServer, want int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if m.sessionCalls() >= want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d session fetches, got %d", want, m.sessionCalls())
 }

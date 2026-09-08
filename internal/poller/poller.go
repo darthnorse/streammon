@@ -43,7 +43,7 @@ type Poller struct {
 	done      chan struct{}
 
 	wsCancel    map[int64]context.CancelFunc
-	triggerPoll chan struct{} // nil unless externally triggered; nil channel blocks forever in select
+	triggerPoll chan struct{} // buffered 1; sends are coalesced and never block
 	pollNotify  chan struct{} // nil unless set by tests; guarded by nil check before send
 
 	rulesEngine RuleEvaluator
@@ -125,6 +125,7 @@ func New(s *store.Store, interval time.Duration, opts ...PollerOption) *Poller {
 		subscribers: make(map[chan []models.ActiveStream]struct{}),
 		wsCancel:    make(map[int64]context.CancelFunc),
 		pendingDLNA: make(map[string]models.ActiveStream),
+		triggerPoll: make(chan struct{}, 1),
 	}
 	p.insertHistoryFn = s.InsertHistoryContext
 	for _, opt := range opts {
@@ -132,6 +133,17 @@ func New(s *store.Store, interval time.Duration, opts ...PollerOption) *Poller {
 	}
 	p.RefreshIdleTimeout()
 	return p
+}
+
+// TriggerPoll asks the poll loop to run now instead of waiting for the next
+// tick, so an action that changes sessions server-side (terminating a stream)
+// reaches subscribers without a poll interval of lag. A pending trigger
+// absorbs further calls: one extra poll is enough to pick up every change.
+func (p *Poller) TriggerPoll() {
+	select {
+	case p.triggerPoll <- struct{}{}:
+	default:
+	}
 }
 
 // RefreshIdleTimeout re-reads the idle timeout setting from the store.
