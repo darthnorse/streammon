@@ -6,6 +6,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestParsePlaybackReportingTSV_Emby(t *testing.T) {
 			"2024-03-16T10:00:00.0000000Z\tuser2\titem456\tEpisode\tBreaking Bad - S01E01\tTranscode\tPlex Web\tChrome\t3600\t60\t10.0.0.5\tVideoCodecLevel\n",
 	)
 
-	entries := parsePlaybackReportingTSV(input, userMap, 1)
+	entries := parsePlaybackReportingTSV(input, userMap, 1, time.UTC)
 	if len(entries) != 2 {
 		t.Fatalf("expected 2 entries, got %d", len(entries))
 	}
@@ -86,7 +87,7 @@ func TestParsePlaybackReportingTSV_Jellyfin(t *testing.T) {
 		"2024-06-01 14:00:00\tjfuser1\tjfitem789\tMovie\tThe Matrix\tDirectPlay\tmpv\tLinux\t5400\n",
 	)
 
-	entries := parsePlaybackReportingTSV(input, userMap, 2)
+	entries := parsePlaybackReportingTSV(input, userMap, 2, time.UTC)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
@@ -121,7 +122,7 @@ func TestParsePlaybackReportingTSV_UnknownUser(t *testing.T) {
 		"2024-01-01T00:00:00.0000000Z\tunknownuser\titem1\tMovie\tTest\tDirectPlay\tVLC\tPC\t100\t0\t1.2.3.4\t\n",
 	)
 
-	entries := parsePlaybackReportingTSV(input, userMap, 1)
+	entries := parsePlaybackReportingTSV(input, userMap, 1, time.UTC)
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries for unknown user, got %d", len(entries))
 	}
@@ -130,12 +131,12 @@ func TestParsePlaybackReportingTSV_UnknownUser(t *testing.T) {
 func TestParsePlaybackReportingTSV_EmptyFile(t *testing.T) {
 	userMap := map[string]string{"u1": "Alice"}
 
-	entries := parsePlaybackReportingTSV([]byte(""), userMap, 1)
+	entries := parsePlaybackReportingTSV([]byte(""), userMap, 1, time.UTC)
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries, got %d", len(entries))
 	}
 
-	entries = parsePlaybackReportingTSV([]byte("\n\n\n"), userMap, 1)
+	entries = parsePlaybackReportingTSV([]byte("\n\n\n"), userMap, 1, time.UTC)
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries for blank lines, got %d", len(entries))
 	}
@@ -158,7 +159,7 @@ func TestParsePlaybackReportingTSV_MediaTypes(t *testing.T) {
 		input := []byte(
 			"2024-01-01 00:00:00\tu1\titem1\t" + tc.itemType + "\tTitle\tDirectPlay\tVLC\tPC\t100\n",
 		)
-		entries := parsePlaybackReportingTSV(input, userMap, 1)
+		entries := parsePlaybackReportingTSV(input, userMap, 1, time.UTC)
 		if len(entries) != 1 {
 			t.Fatalf("expected 1 entry for %s, got %d", tc.itemType, len(entries))
 		}
@@ -185,7 +186,7 @@ func TestParsePlaybackReportingTSV_PlaybackMethods(t *testing.T) {
 		input := []byte(
 			"2024-01-01 00:00:00\tu1\titem1\tMovie\tTitle\t" + tc.method + "\tVLC\tPC\t100\n",
 		)
-		entries := parsePlaybackReportingTSV(input, userMap, 1)
+		entries := parsePlaybackReportingTSV(input, userMap, 1, time.UTC)
 		if len(entries) != 1 {
 			t.Fatalf("expected 1 entry for %s, got %d", tc.method, len(entries))
 		}
@@ -218,7 +219,7 @@ func TestParseTimestamp(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got, err := parseTimestamp(tc.input)
+		got, err := parseTimestamp(tc.input, time.UTC)
 		if tc.wantErr {
 			if err == nil {
 				t.Errorf("parseTimestamp(%q): expected error, got %v", tc.input, got)
@@ -242,7 +243,7 @@ func TestParsePlaybackReportingTSV_WrongFieldCount(t *testing.T) {
 			"2024-01-01 00:00:00\tu1\titem1\tMovie\tTitle\tDirectPlay\tVLC\tPC\t100\textra1\textra2\textra3\textra4\textra5\n", // 14 fields
 	)
 
-	entries := parsePlaybackReportingTSV(input, userMap, 1)
+	entries := parsePlaybackReportingTSV(input, userMap, 1, time.UTC)
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries for wrong field counts, got %d", len(entries))
 	}
@@ -254,7 +255,7 @@ func TestParsePlaybackReportingTSV_BadDuration(t *testing.T) {
 		"2024-01-01 00:00:00\tu1\titem1\tMovie\tTitle\tDirectPlay\tVLC\tPC\tnot_a_number\n",
 	)
 
-	entries := parsePlaybackReportingTSV(input, userMap, 1)
+	entries := parsePlaybackReportingTSV(input, userMap, 1, time.UTC)
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries for bad duration, got %d", len(entries))
 	}
@@ -266,7 +267,7 @@ func TestParsePlaybackReportingTSV_NegativeDuration(t *testing.T) {
 		"2024-01-01 00:00:00\tu1\titem1\tMovie\tTitle\tDirectPlay\tVLC\tPC\t-100\n",
 	)
 
-	entries := parsePlaybackReportingTSV(input, userMap, 1)
+	entries := parsePlaybackReportingTSV(input, userMap, 1, time.UTC)
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 entry, got %d", len(entries))
 	}
@@ -331,5 +332,65 @@ func TestPlaybackReportingImport_RejectsOversizedUpload(t *testing.T) {
 
 	if w.Code != http.StatusRequestEntityTooLarge {
 		t.Errorf("oversized upload: status = %d, want 413", w.Code)
+	}
+}
+
+func TestParseTimestamp_NaiveUsesServerTimezone(t *testing.T) {
+	denver, err := time.LoadLocation("America/Denver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		input string
+		want  time.Time
+	}{
+		{"2026-11-19 08:08:24.5468767", time.Date(2026, 11, 19, 15, 8, 24, 546876700, time.UTC)},
+		{"2026-07-01 08:00:00", time.Date(2026, 7, 1, 14, 0, 0, 0, time.UTC)},
+		{"2026-11-19T08:08:24Z", time.Date(2026, 11, 19, 8, 8, 24, 0, time.UTC)},
+	}
+	for _, tc := range tests {
+		got, err := parseTimestamp(tc.input, denver)
+		if err != nil {
+			t.Fatalf("parseTimestamp(%q): %v", tc.input, err)
+		}
+		if !got.Equal(tc.want) || got.Location() != time.UTC {
+			t.Errorf("parseTimestamp(%q) = %v, want %v (UTC)", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestParsePlaybackReportingTSV_AppliesTimezone(t *testing.T) {
+	denver, err := time.LoadLocation("America/Denver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := []byte("2026-11-19 08:09:50\tu1\titem1\tMovie\tSome Movie\tDirectPlay\tWholphin\tTV\t1708\n")
+	entries := parsePlaybackReportingTSV(input, map[string]string{"u1": "Alice"}, 3, denver)
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if want := time.Date(2026, 11, 19, 15, 9, 50, 0, time.UTC); !entries[0].StartedAt.Equal(want) {
+		t.Errorf("StartedAt = %v, want %v", entries[0].StartedAt, want)
+	}
+}
+
+func TestPlaybackReportingImport_InvalidTimezone(t *testing.T) {
+	srv, _ := newTestServerWrapped(t)
+
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	mw.WriteField("server_id", "1")
+	mw.WriteField("timezone", "Not/AZone")
+	fw, _ := mw.CreateFormFile("file", "small.tsv")
+	fw.Write([]byte("header\n"))
+	mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/playback-reporting/import", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "timezone") {
+		t.Fatalf("expected 400 about timezone, got %d: %s", w.Code, w.Body.String())
 	}
 }

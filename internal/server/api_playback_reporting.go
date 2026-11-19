@@ -17,7 +17,7 @@ import (
 	"streammon/internal/models"
 )
 
-func parsePlaybackReportingTSV(data []byte, userMap map[string]string, serverID int64) []*models.WatchHistoryEntry {
+func parsePlaybackReportingTSV(data []byte, userMap map[string]string, serverID int64, loc *time.Location) []*models.WatchHistoryEntry {
 	lines := strings.Split(string(data), "\n")
 	var entries []*models.WatchHistoryEntry
 
@@ -40,7 +40,7 @@ func parsePlaybackReportingTSV(data []byte, userMap map[string]string, serverID 
 			continue
 		}
 
-		startedAt, err := parseTimestamp(fields[0])
+		startedAt, err := parseTimestamp(fields[0], loc)
 		if err != nil {
 			log.Printf("WARN playback-reporting: bad timestamp %q: %v", fields[0], err)
 			continue
@@ -85,15 +85,15 @@ func parsePlaybackReportingTSV(data []byte, userMap map[string]string, serverID 
 	return entries
 }
 
-func parseTimestamp(s string) (time.Time, error) {
+// parseTimestamp reads naive timestamps in loc: the Jellyfin plugin writes the
+// media server's local wall-clock time with no offset, while Emby's RFC3339
+// timestamps carry their own.
+func parseTimestamp(s string, loc *time.Location) (time.Time, error) {
 	s = strings.TrimSpace(s)
-	// Try RFC3339Nano first (Emby format: 2024-03-15T20:30:00.0000000Z)
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return t.UTC(), nil
 	}
-	// Jellyfin Playback Reporting exports timestamps without timezone info.
-	// time.Parse treats these as UTC, which matches the plugin's default behaviour.
-	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
+	if t, err := time.ParseInLocation("2006-01-02 15:04:05", s, loc); err == nil {
 		return t.UTC(), nil
 	}
 	return time.Time{}, fmt.Errorf("unsupported timestamp format: %q", s)
@@ -194,6 +194,14 @@ func (s *Server) handlePlaybackReportingImport() http.HandlerFunc {
 			return
 		}
 
+		loc := time.UTC
+		if tz := r.FormValue("timezone"); tz != "" {
+			if loc, err = time.LoadLocation(tz); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid timezone")
+				return
+			}
+		}
+
 		srv, err := s.store.GetServer(serverID)
 		if err != nil {
 			writeStoreError(w, err)
@@ -235,7 +243,7 @@ func (s *Server) handlePlaybackReportingImport() http.HandlerFunc {
 			return
 		}
 
-		entries := parsePlaybackReportingTSV(data, userMap, serverID)
+		entries := parsePlaybackReportingTSV(data, userMap, serverID, loc)
 
 		if len(entries) == 0 {
 			writeError(w, http.StatusBadRequest, "no valid records found in TSV file (check user IDs and format)")

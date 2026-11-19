@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// The alpine runtime image ships no zoneinfo; timezone-aware imports need it.
+	_ "time/tzdata"
 
 	"streammon/internal/auth"
 	"streammon/internal/clientip"

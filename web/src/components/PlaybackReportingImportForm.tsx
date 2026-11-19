@@ -7,6 +7,9 @@ import { useFetch } from '../hooks/useFetch'
 import { useSSEImport } from '../hooks/useSSEImport'
 import { ImportProgressBar, ImportResultBanner } from './ImportProgress'
 
+const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+const timeZones = [...new Set([browserTimeZone, 'UTC', ...Intl.supportedValuesOf('timeZone')])]
+
 interface PlaybackReportingImportFormProps {
   onClose: () => void
 }
@@ -20,6 +23,8 @@ export function PlaybackReportingImportForm({ onClose }: PlaybackReportingImport
 
   const [selectedServer, setSelectedServer] = useState<number>(0)
   const [file, setFile] = useState<File | null>(null)
+  const [timeZone, setTimeZone] = useState(browserTimeZone)
+  const isJellyfin = servers?.find(s => s.id === selectedServer)?.type === 'jellyfin'
   const { importing, importProgress, importResult, error, setError, clearImport, runSSEImport } = useSSEImport()
 
   const modalRef = useModal(onClose)
@@ -43,6 +48,7 @@ export function PlaybackReportingImportForm({ onClose }: PlaybackReportingImport
     const formData = new FormData()
     formData.append('file', file)
     formData.append('server_id', String(selectedServer))
+    formData.append('timezone', timeZone)
 
     try {
       const response = await api.uploadSSE(
@@ -109,6 +115,28 @@ export function PlaybackReportingImportForm({ onClose }: PlaybackReportingImport
                   ))}
                 </select>
               </div>
+
+              {isJellyfin && (
+                <div>
+                  <label htmlFor="pbr-timezone" className="block text-sm font-medium mb-1.5">
+                    Server Timezone
+                  </label>
+                  <select
+                    id="pbr-timezone"
+                    value={timeZone}
+                    onChange={e => setTimeZone(e.target.value)}
+                    disabled={importing}
+                    className={formSelectClass}
+                  >
+                    {timeZones.map(tz => (
+                      <option key={tz} value={tz}>{tz}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted dark:text-muted-dark mt-1">
+                    Jellyfin's export records times in the media server's local timezone.
+                  </p>
+                </div>
+              )}
 
               <div>
                 <label htmlFor="pbr-file" className="block text-sm font-medium mb-1.5">
