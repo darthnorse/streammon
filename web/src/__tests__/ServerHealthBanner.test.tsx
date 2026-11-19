@@ -57,7 +57,7 @@ describe('ServerHealthBanner', () => {
     expect(alert).toHaveTextContent('jellyfin returned status 401')
     expect(alert).toHaveTextContent('Emby')
     expect(alert).toHaveTextContent('connection refused')
-    expect(alert).toHaveTextContent(/not being recorded/i)
+    expect(alert).toHaveTextContent(/watch history may be incomplete/i)
     expect(screen.getByRole('link', { name: /server settings/i })).toHaveAttribute('href', '/settings')
   })
 

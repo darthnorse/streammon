@@ -482,7 +482,7 @@ func (p *Poller) poll(ctx context.Context) {
 	now := time.Now().UTC()
 	for _, entry := range servers {
 		streams, err := entry.mediaServer.GetSessions(ctx)
-		p.recordPollResult(entry.id, err, now)
+		p.recordPollResult(entry.id, entry.mediaServer, err, now)
 		if err != nil {
 			log.Printf("polling %s: %v", entry.mediaServer.Name(), err)
 			failedServers[entry.id] = struct{}{}

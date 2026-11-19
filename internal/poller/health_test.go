@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"testing"
+
+	"streammon/internal/models"
 )
 
 func (m *mockServer) setErr(err error) {
@@ -107,5 +109,42 @@ func TestFailingServers_SortedByServerID(t *testing.T) {
 	got := p.FailingServers()
 	if len(got) != 3 || got[0].ServerID != 2 || got[1].ServerID != 5 || got[2].ServerID != 9 {
 		t.Fatalf("not sorted by server ID: %+v", got)
+	}
+}
+
+type replacingServer struct {
+	*mockServer
+	onPoll func()
+}
+
+func (r *replacingServer) GetSessions(ctx context.Context) ([]models.ActiveStream, error) {
+	r.onPoll()
+	return nil, fmt.Errorf("stale client error")
+}
+
+func TestFailingServers_InFlightPollOfReplacedClientIgnored(t *testing.T) {
+	p := newTestPoller(t, newTestStore(t))
+	fresh := &mockServer{name: "Jellyfin"}
+	old := &replacingServer{mockServer: &mockServer{name: "Jellyfin"}}
+	old.onPoll = func() {
+		p.RemoveServer(3)
+		p.AddServer(3, fresh)
+	}
+	p.AddServer(3, old)
+
+	p.poll(context.Background())
+
+	p.mu.RLock()
+	_, recorded := p.failures[3]
+	p.mu.RUnlock()
+	if recorded {
+		t.Fatal("failure from the replaced client was recorded against the new one")
+	}
+}
+
+func TestFailingServers_EmptyIsNonNil(t *testing.T) {
+	p := newTestPoller(t, newTestStore(t))
+	if got := p.FailingServers(); got == nil {
+		t.Fatal("FailingServers returned nil; the API would serialize null instead of []")
 	}
 }

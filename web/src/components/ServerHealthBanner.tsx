@@ -20,7 +20,7 @@ export function ServerHealthBanner() {
   return (
     <div role="alert" className="mb-6 rounded-lg border border-warn/40 bg-warn/10 px-4 py-3 text-sm">
       <p className="font-semibold text-amber-700 dark:text-warn">
-        {failing.length === 1 ? 'A media server is' : `${failing.length} media servers are`} not responding — playback on {failing.length === 1 ? 'it' : 'them'} is not being recorded
+        StreamMon can't reach {failing.length === 1 ? 'a media server' : `${failing.length} media servers`} — watch history may be incomplete
       </p>
       <ul className="mt-2 space-y-1.5">
         {failing.map(f => (

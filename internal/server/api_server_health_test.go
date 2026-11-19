@@ -61,7 +61,7 @@ func TestServerHealth_ReturnsFailingServers(t *testing.T) {
 
 func TestServerHealth_ForbiddenForViewer(t *testing.T) {
 	ts, st := newTestServerWrapped(t)
-	ts.Server.SetPollerForTest(&fakePoller{})
+	ts.Server.SetPollerForTest(&fakePoller{failing: []models.ServerPollFailure{}})
 	token := createViewerSession(t, st, "guest")
 
 	w, _ := getServerHealth(t, ts, token)
