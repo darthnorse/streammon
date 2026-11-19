@@ -67,4 +67,20 @@ describe('PlaybackReportingImportForm timezone', () => {
     renderWith([server(1, 'emby')])
     expect(screen.queryByLabelText(/server timezone/i)).not.toBeInTheDocument()
   })
+
+  it('still renders when the browser lacks Intl.supportedValuesOf', async () => {
+    const original = Intl.supportedValuesOf
+    // @ts-expect-error simulating a browser without the API
+    delete Intl.supportedValuesOf
+    try {
+      vi.resetModules()
+      const { PlaybackReportingImportForm: Fresh } = await import('../components/PlaybackReportingImportForm')
+      const { useFetch: freshUseFetch } = await import('../hooks/useFetch')
+      vi.mocked(freshUseFetch).mockReturnValue({ data: [server(3, 'jellyfin')], loading: false, error: null, refetch: vi.fn() })
+      render(<Fresh onClose={vi.fn()} />)
+      expect(screen.getByRole('option', { name: 'UTC' })).toBeInTheDocument()
+    } finally {
+      Intl.supportedValuesOf = original
+    }
+  })
 })

@@ -8,7 +8,8 @@ import { useSSEImport } from '../hooks/useSSEImport'
 import { ImportProgressBar, ImportResultBanner } from './ImportProgress'
 
 const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
-const timeZones = [...new Set([browserTimeZone, 'UTC', ...Intl.supportedValuesOf('timeZone')])]
+const supportedTimeZones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : []
+const timeZones = [...new Set([browserTimeZone, 'UTC', ...supportedTimeZones])]
 
 interface PlaybackReportingImportFormProps {
   onClose: () => void
