@@ -14,6 +14,7 @@ import (
 // fakePoller implements pollerIface for testing.
 type fakePoller struct {
 	sessions []models.ActiveStream
+	failing  []models.ServerPollFailure
 	ms       media.MediaServer
 
 	mu       sync.Mutex
@@ -27,6 +28,7 @@ func (f *fakePoller) AddServer(_ int64, _ media.MediaServer)      {}
 func (f *fakePoller) RemoveServer(_ int64)                        {}
 func (f *fakePoller) GetServer(_ int64) (media.MediaServer, bool) { return f.ms, f.ms != nil }
 func (f *fakePoller) RefreshIdleTimeout()                         {}
+func (f *fakePoller) FailingServers() []models.ServerPollFailure  { return f.failing }
 
 func (f *fakePoller) TriggerPoll() {
 	f.mu.Lock()

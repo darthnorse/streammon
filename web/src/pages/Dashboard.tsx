@@ -6,6 +6,7 @@ import { StreamLocationMap } from '../components/StreamLocationMap'
 import { EmptyState } from '../components/EmptyState'
 import { RecentMedia } from '../components/RecentMedia'
 import { WatchStats } from '../components/WatchStats'
+import { ServerHealthBanner } from '../components/ServerHealthBanner'
 import { formatBitrate } from '../lib/format'
 
 export function Dashboard() {
@@ -18,6 +19,7 @@ export function Dashboard() {
 
   return (
     <div>
+      {isAdmin && <ServerHealthBanner />}
       <div className="flex items-center justify-end mb-6">
         <div className="flex items-center gap-4">
           {sessions.length > 0 && (

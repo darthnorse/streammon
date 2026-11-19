@@ -5,6 +5,17 @@ export type Role = 'admin' | 'viewer'
 export type TranscodeDecision = 'direct play' | 'copy' | 'transcode'
 export type ViewMode = 'heatmap' | 'markers'
 
+export interface ServerPollFailure {
+  server_id: number
+  server_name: string
+  error: string
+  failing_since: string
+}
+
+export interface ServerHealthResponse {
+  failing: ServerPollFailure[]
+}
+
 export interface Server {
   id: number
   name: string

@@ -34,6 +34,7 @@ type pollerIface interface {
 	GetServer(id int64) (media.MediaServer, bool)
 	RefreshIdleTimeout()
 	TriggerPoll()
+	FailingServers() []models.ServerPollFailure
 }
 
 // Ensure *poller.Poller satisfies pollerIface at compile time.

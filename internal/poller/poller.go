@@ -33,6 +33,7 @@ type Poller struct {
 	mu       sync.RWMutex
 	servers  map[int64]media.MediaServer
 	sessions map[string]models.ActiveStream // key: "serverID:sessionID:itemID"
+	failures map[int64]pollFailure
 
 	subMu       sync.Mutex
 	subscribers map[chan []models.ActiveStream]struct{}
@@ -122,6 +123,7 @@ func New(s *store.Store, interval time.Duration, opts ...PollerOption) *Poller {
 		interval:    interval,
 		servers:     make(map[int64]media.MediaServer),
 		sessions:    make(map[string]models.ActiveStream),
+		failures:    make(map[int64]pollFailure),
 		subscribers: make(map[chan []models.ActiveStream]struct{}),
 		wsCancel:    make(map[int64]context.CancelFunc),
 		pendingDLNA: make(map[string]models.ActiveStream),
@@ -192,6 +194,7 @@ func (p *Poller) RemoveServer(id int64) {
 		delete(p.wsCancel, id)
 	}
 	delete(p.servers, id)
+	delete(p.failures, id)
 	var ended []models.ActiveStream
 	for key, s := range p.sessions {
 		if s.ServerID == id {
@@ -479,6 +482,7 @@ func (p *Poller) poll(ctx context.Context) {
 	now := time.Now().UTC()
 	for _, entry := range servers {
 		streams, err := entry.mediaServer.GetSessions(ctx)
+		p.recordPollResult(entry.id, err, now)
 		if err != nil {
 			log.Printf("polling %s: %v", entry.mediaServer.Name(), err)
 			failedServers[entry.id] = struct{}{}

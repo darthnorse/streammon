@@ -221,6 +221,14 @@ const (
 	TranscodeDecisionTranscode  TranscodeDecision = "transcode"
 )
 
+// ServerPollFailure describes a media server that keeps failing to poll.
+type ServerPollFailure struct {
+	ServerID     int64     `json:"server_id"`
+	ServerName   string    `json:"server_name"`
+	Error        string    `json:"error"`
+	FailingSince time.Time `json:"failing_since"`
+}
+
 type ActiveStream struct {
 	SessionID          string     `json:"session_id"`
 	ServerID           int64      `json:"server_id"`

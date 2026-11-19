@@ -79,6 +79,7 @@ func (s *Server) routes() {
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
 		r.With(RequireRole(models.RoleAdmin)).Get("/dashboard/summary", s.handleDashboardSummary)
+		r.With(RequireRole(models.RoleAdmin)).Get("/dashboard/server-health", s.handleServerHealth)
 		r.Get("/dashboard/recent-media", s.handleGetRecentMedia)
 		r.With(RequireRole(models.RoleAdmin)).Post("/sessions/terminate", s.handleTerminateSession)
 
