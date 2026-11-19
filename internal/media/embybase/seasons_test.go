@@ -11,8 +11,8 @@ import (
 
 func TestGetSeasons(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Emby-Token") != "test-key" {
-			t.Error("missing X-Emby-Token header")
+		if !hasToken(r, "test-key") {
+			t.Error("missing auth token")
 		}
 		if r.URL.Path != "/Items" {
 			t.Errorf("unexpected path: %s", r.URL.Path)

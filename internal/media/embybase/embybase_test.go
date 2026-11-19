@@ -25,8 +25,8 @@ func TestGetSessions(t *testing.T) {
 	}
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Emby-Token") != "test-key" {
-			t.Error("missing X-Emby-Token header")
+		if !hasToken(r, "test-key") {
+			t.Error("missing auth token")
 		}
 		if r.URL.Path != "/Sessions" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
@@ -236,8 +236,8 @@ func TestTestConnection(t *testing.T) {
 		if r.URL.Path != "/System/Info" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		if got := r.Header.Get("X-Emby-Token"); got != "tok" {
-			t.Errorf("expected X-Emby-Token=tok, got %q", got)
+		if !hasToken(r, "tok") {
+			t.Errorf("expected auth token tok, got %q", r.Header.Get("Authorization"))
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -373,8 +373,8 @@ func TestGetRecentlyAdded(t *testing.T) {
 		case "/Library/VirtualFolders":
 			w.Write([]byte(`[{"Name":"Movies","CollectionType":"movies","ItemId":"lib1"},{"Name":"TV Shows","CollectionType":"tvshows","ItemId":"lib2"}]`))
 		case "/Items":
-			if r.Header.Get("X-Emby-Token") != "test-key" {
-				t.Error("missing X-Emby-Token header")
+			if !hasToken(r, "test-key") {
+				t.Error("missing auth token")
 			}
 			parentID := r.URL.Query().Get("ParentId")
 			if parentID != "lib1" && parentID != "lib2" {
@@ -623,8 +623,8 @@ func TestGetItemDetails_Movie(t *testing.T) {
 	wrappedData := wrapInItemsArray(data)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Emby-Token") != "test-key" {
-			t.Error("missing X-Emby-Token header")
+		if !hasToken(r, "test-key") {
+			t.Error("missing auth token")
 		}
 		if r.URL.Path != "/Items" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
@@ -918,8 +918,8 @@ func TestGetItemDetails_EmptyItems(t *testing.T) {
 
 func TestGetLibraries(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Emby-Token") != "test-key" {
-			t.Error("missing X-Emby-Token header")
+		if !hasToken(r, "test-key") {
+			t.Error("missing auth token")
 		}
 
 		switch r.URL.Path {
@@ -1148,8 +1148,8 @@ func TestGetLibraryItems(t *testing.T) {
 			w.Write([]byte(`[]`))
 			return
 		}
-		if r.Header.Get("X-Emby-Token") != "test-key" {
-			t.Error("missing X-Emby-Token header")
+		if !hasToken(r, "test-key") {
+			t.Error("missing auth token")
 		}
 		if r.URL.Path != "/Items" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
@@ -1781,7 +1781,7 @@ func TestDeleteItem(t *testing.T) {
 		if r.Method != http.MethodDelete {
 			t.Errorf("expected DELETE, got %s", r.Method)
 		}
-		if r.Header.Get("X-Emby-Token") != "test-key" {
+		if !hasToken(r, "test-key") {
 			t.Error("missing auth header")
 		}
 		if r.URL.Path != "/Items/12345" {

@@ -14,7 +14,7 @@ func TestTerminateSession_WithMessage(t *testing.T) {
 	var messageCalled, stopCalled atomic.Bool
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Emby-Token") != "test-key" {
+		if !hasToken(r, "test-key") {
 			t.Error("missing auth header")
 		}
 		switch r.URL.Path {

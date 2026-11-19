@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"streammon/internal/media/embybase"
 	"streammon/internal/models"
 )
 
@@ -103,7 +104,7 @@ func (s *Server) handleThumbProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if srv.Type == models.ServerTypeEmby || srv.Type == models.ServerTypeJellyfin {
-		req.Header.Set("X-Emby-Token", srv.APIKey)
+		embybase.SetAuth(req, srv.ID, srv.APIKey)
 	}
 
 	resp, err := s.thumbProxyHTTP.Do(req)

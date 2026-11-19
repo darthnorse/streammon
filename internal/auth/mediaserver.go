@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"streammon/internal/httputil"
+	"streammon/internal/media/embybase"
 	"streammon/internal/models"
 	"streammon/internal/store"
 )
@@ -245,8 +246,7 @@ func (p *MediaServerProvider) authenticate(r *http.Request, srv *models.Server, 
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Emby-Authorization",
-		fmt.Sprintf(`MediaBrowser Client="StreamMon", Device="StreamMon", DeviceId="streammon-%d", Version="1.0"`, srv.ID))
+	embybase.SetAuth(req, srv.ID, "")
 
 	resp, err := p.client.Do(req)
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"streammon/internal/httputil"
+	"streammon/internal/media/embybase"
 	"streammon/internal/models"
 )
 
@@ -133,13 +134,13 @@ type playbackReportingUser struct {
 	Name string `json:"Name"`
 }
 
-func fetchPlaybackReportingUsers(ctx context.Context, serverURL, apiKey string) (map[string]string, error) {
+func fetchPlaybackReportingUsers(ctx context.Context, serverID int64, serverURL, apiKey string) (map[string]string, error) {
 	url := strings.TrimRight(serverURL, "/") + "/Users"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("X-Emby-Token", apiKey)
+	embybase.SetAuth(req, serverID, apiKey)
 
 	client := httputil.NewClient()
 	resp, err := client.Do(req)
@@ -227,7 +228,7 @@ func (s *Server) handlePlaybackReportingImport() http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 		defer cancel()
 
-		userMap, err := fetchPlaybackReportingUsers(ctx, srv.URL, srv.APIKey)
+		userMap, err := fetchPlaybackReportingUsers(ctx, srv.ID, srv.URL, srv.APIKey)
 		if err != nil {
 			log.Printf("ERROR playback-reporting import: fetch users: %v", err)
 			writeError(w, http.StatusBadGateway, "failed to fetch users from media server")

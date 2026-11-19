@@ -69,7 +69,7 @@ func (c *Client) GetSessions(ctx context.Context) ([]models.ActiveStream, error)
 }
 
 func (c *Client) addAuth(req *http.Request) *http.Request {
-	req.Header.Set("X-Emby-Token", c.apiKey)
+	SetAuth(req, c.serverID, c.apiKey)
 	return req
 }
 
