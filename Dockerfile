@@ -7,7 +7,7 @@ RUN npm ci
 COPY web/ ./
 RUN npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.6-bookworm AS backend
+FROM --platform=$BUILDPLATFORM golang:1.26.11-bookworm AS backend
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
