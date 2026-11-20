@@ -317,3 +317,29 @@ func TestMergeUsers_DropsAliasMatchingKeepName(t *testing.T) {
 		t.Errorf("UserAliases = %v, want %v", got, want)
 	}
 }
+
+func TestInsertHistory_AliasLookupFailureKeepsUserName(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	if _, err := s.db.Exec(`DROP TABLE user_aliases`); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	entry := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Movie", StartedAt: start, StoppedAt: start.Add(time.Hour),
+	}
+	if err := s.InsertHistory(entry); err == nil {
+		t.Fatal("expected the alias lookup to fail")
+	}
+	if entry.UserName != "bob" {
+		t.Errorf("UserName = %q after a failed insert, want bob kept for the retry", entry.UserName)
+	}
+	if _, _, _, err := s.InsertHistoryBatch(context.Background(), []*models.WatchHistoryEntry{entry}); err == nil {
+		t.Fatal("expected the batch alias lookup to fail")
+	}
+	if entry.UserName != "bob" {
+		t.Errorf("UserName = %q after a failed batch, want bob", entry.UserName)
+	}
+}

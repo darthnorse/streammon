@@ -194,7 +194,7 @@ export function UserDetail({ userName }: UserDetailProps) {
 
       {isAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <UserNotesCard userName={decodedName} />
+          <UserNotesCard key={mergeVersion} userName={decodedName} />
           <UserLinkedAccountsCard userName={decodedName} onLinked={handleLinked} />
         </div>
       )}

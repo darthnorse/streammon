@@ -25,6 +25,17 @@ vi.mock('../components/shared/ViewModeToggle', () => ({
   ),
 }))
 
+let notesMounts = 0
+vi.mock('../components/UserNotesCard', async () => {
+  const { useEffect } = await import('react')
+  return {
+    UserNotesCard: () => {
+      useEffect(() => { notesMounts++ }, [])
+      return null
+    },
+  }
+})
+
 vi.mock('../components/UserLinkedAccountsCard', () => ({
   UserLinkedAccountsCard: ({ onLinked }: { onLinked?: () => void }) => (
     <button onClick={onLinked}>simulate link</button>
@@ -315,7 +326,9 @@ describe('UserDetail', () => {
       { ...fetchResult(testHistory), refetch: refetchHistory },
     )
     renderAtRoute('/users/alice')
+    const mountsBefore = notesMounts
     fireEvent.click(screen.getByText('simulate link'))
+    expect(notesMounts).toBe(mountsBefore + 1)
     expect(refetchStats).toHaveBeenCalled()
     expect(refetchHistory).toHaveBeenCalled()
   })

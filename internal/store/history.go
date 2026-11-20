@@ -204,9 +204,11 @@ func (s *Store) insertHistoryTx(ctx context.Context, entry *models.WatchHistoryE
 	}
 	defer tx.Rollback()
 
-	if entry.UserName, err = resolveUserNameTx(ctx, tx, entry.UserName); err != nil {
+	userName, err := resolveUserNameTx(ctx, tx, entry.UserName)
+	if err != nil {
 		return err
 	}
+	entry.UserName = userName
 
 	var exists int
 	err = tx.QueryRowContext(ctx, historyDedupSQL, historyDedupArgs(entry)...).Scan(&exists)
@@ -822,9 +824,11 @@ func (s *Store) insertHistoryChunk(ctx context.Context, entries []*models.WatchH
 		default:
 		}
 
-		if entry.UserName, err = resolveUserNameTx(ctx, tx, entry.UserName); err != nil {
-			return 0, 0, 0, err
+		userName, rErr := resolveUserNameTx(ctx, tx, entry.UserName)
+		if rErr != nil {
+			return 0, 0, 0, rErr
 		}
+		entry.UserName = userName
 
 		var exists int
 		err := existsStmt.QueryRowContext(ctx, historyDedupArgs(entry)...).Scan(&exists)
