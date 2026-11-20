@@ -480,6 +480,7 @@ func (p *Poller) poll(ctx context.Context) {
 
 	seenDLNA := make(map[string]struct{})
 	now := time.Now().UTC()
+	aliases := p.userAliases()
 	for _, entry := range servers {
 		streams, err := entry.mediaServer.GetSessions(ctx)
 		p.recordPollResult(entry.id, entry.mediaServer, err, now)
@@ -489,6 +490,9 @@ func (p *Poller) poll(ctx context.Context) {
 			continue
 		}
 		for _, s := range streams {
+			if canonical, ok := aliases[s.UserName]; ok {
+				s.UserName = canonical
+			}
 			// DLNA debounce — new DLNA sessions go to pending first
 			if isDLNA(s) {
 				dlnaKey := sessionKey(s.ServerID, s.SessionID, s.ItemID)
@@ -880,4 +884,17 @@ func isLiveTVProgramChange(prev, s models.ActiveStream) bool {
 // (i.e., Title is a program name, not the channel fallback).
 func hasLiveTVProgram(s models.ActiveStream) bool {
 	return s.Title != "" && s.Title != s.GrandparentTitle
+}
+
+// userAliases maps merged-away usernames to their user. A lookup failure
+// leaves names unmapped for this poll rather than dropping the poll.
+func (p *Poller) userAliases() map[string]string {
+	if p.store == nil {
+		return nil
+	}
+	aliases, err := p.store.UserAliases()
+	if err != nil {
+		log.Printf("loading user aliases: %v", err)
+	}
+	return aliases
 }

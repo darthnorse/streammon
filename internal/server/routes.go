@@ -76,6 +76,9 @@ func (s *Server) routes() {
 		r.Get("/users/{name}/stats", s.handleGetUserStats)
 		r.With(RequireRole(models.RoleAdmin)).Get("/users/{name}/notes", s.handleGetUserNotes)
 		r.With(RequireRole(models.RoleAdmin)).Put("/users/{name}/notes", s.handleUpdateUserNotes)
+		r.With(RequireRole(models.RoleAdmin)).Get("/users/{name}/aliases", s.handleListUserAliases)
+		r.With(RequireRole(models.RoleAdmin)).Post("/users/{name}/aliases", s.handleLinkUserAlias)
+		r.With(RequireRole(models.RoleAdmin)).Delete("/users/{name}/aliases/{alias}", s.handleUnlinkUserAlias)
 
 		r.Get("/dashboard/sessions", s.handleDashboardSessions)
 		r.With(RequireRole(models.RoleAdmin)).Get("/dashboard/summary", s.handleDashboardSummary)

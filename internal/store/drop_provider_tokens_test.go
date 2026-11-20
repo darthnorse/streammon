@@ -28,7 +28,7 @@ func TestMigration056_RemovesTokensOnUpgrade(t *testing.T) {
 			updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')),
 			PRIMARY KEY (user_id, provider))`,
 		`INSERT INTO settings (key, value) VALUES ('guest.store_plex_tokens', 'true')`,
-		`DELETE FROM schema_migrations WHERE version >= 56`,
+		`DELETE FROM schema_migrations WHERE version IN (56, 57)`,
 	}
 	for _, stmt := range seed {
 		if _, err := s.db.Exec(stmt); err != nil {

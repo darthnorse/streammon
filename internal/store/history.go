@@ -755,6 +755,14 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 
 	thresholdPct, _ := s.GetWatchedThreshold()
 
+	aliases, err := s.UserAliases()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	for _, e := range entries {
+		e.UserName = resolveAlias(aliases, e.UserName)
+	}
+
 	var firstErr error
 	for i, chunk := range chunkSlice(entries, writeChunkSize) {
 		if ctx.Err() != nil {

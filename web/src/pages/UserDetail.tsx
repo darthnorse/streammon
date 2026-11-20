@@ -15,6 +15,7 @@ import { UserISPCard } from '../components/UserISPCard'
 import { UserTrustScoreCard } from '../components/UserTrustScoreCard'
 import { UserHouseholdCard } from '../components/UserHouseholdCard'
 import { UserNotesCard } from '../components/UserNotesCard'
+import { UserLinkedAccountsCard } from '../components/UserLinkedAccountsCard'
 import { ViolationsTable } from '../components/ViolationsTable'
 import { HISTORY_COLUMNS } from '../lib/historyColumns'
 import { useAuth } from '../context/AuthContext'
@@ -176,7 +177,12 @@ export function UserDetail({ userName }: UserDetailProps) {
         </div>
       </div>
 
-      {isAdmin && <UserNotesCard userName={decodedName} />}
+      {isAdmin && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <UserNotesCard userName={decodedName} />
+          <UserLinkedAccountsCard userName={decodedName} />
+        </div>
+      )}
 
       {statsError && !statsLoading && (
         <div className="text-sm text-red-500 dark:text-red-400">

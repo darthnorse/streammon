@@ -103,7 +103,8 @@ export function UserManagement() {
     if (!window.confirm(
       `Merge "${deleteUser.name}" into "${keepUser.name}"?\n\n` +
       `• All watch history from "${deleteUser.name}" will be transferred to "${keepUser.name}"\n` +
-      `• "${deleteUser.name}" will be deleted\n\n` +
+      `• "${deleteUser.name}" will be deleted\n` +
+      `• New plays from "${deleteUser.name}" will be recorded as "${keepUser.name}" (unlink on ${keepUser.name}'s user page)\n\n` +
       `This action cannot be undone.`
     )) {
       return

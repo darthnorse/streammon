@@ -45,6 +45,11 @@ export interface AdminUser extends User {
   provider_id: string
 }
 
+export interface UserAliasesResponse {
+  aliases: string[]
+  watch_history_moved?: number
+}
+
 export interface UserSummary {
   name: string
   thumb_url: string

@@ -250,8 +250,15 @@ func (s *Store) SyncUsersFromServer(serverID int64, serverType string, users []m
 	for _, u := range existingUsers {
 		existingByName[u.Name] = existing{ThumbURL: u.ThumbURL, Email: u.Email}
 	}
+	aliases, err := s.UserAliases()
+	if err != nil {
+		return nil, err
+	}
 
 	for _, u := range users {
+		if _, merged := aliases[u.Name]; merged {
+			continue
+		}
 		thumbURL := u.ThumbURL
 		if thumbURL != "" && !isFullURL(thumbURL) {
 			thumbURL = fmt.Sprintf("/api/servers/%d/thumb/%s", serverID, u.ThumbURL)
@@ -543,6 +550,10 @@ func (s *Store) MergeUsers(keepID, deleteID int64) (*MergeUsersResult, error) {
 	// Preserve the merged-away user's private admin note before its row is
 	// deleted; append when the kept user already has one so neither is lost.
 	if err := reconcileMergedNotes(tx, keepID, deleteID); err != nil {
+		return nil, err
+	}
+
+	if err := recordMergeAlias(tx, keepID, deleteID, deleteUser.Name); err != nil {
 		return nil, err
 	}
 
