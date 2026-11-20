@@ -204,6 +204,10 @@ func (s *Store) insertHistoryTx(ctx context.Context, entry *models.WatchHistoryE
 	}
 	defer tx.Rollback()
 
+	if entry.UserName, err = resolveUserNameTx(ctx, tx, entry.UserName); err != nil {
+		return err
+	}
+
 	var exists int
 	err = tx.QueryRowContext(ctx, historyDedupSQL, historyDedupArgs(entry)...).Scan(&exists)
 	if err == nil {
@@ -755,14 +759,6 @@ func (s *Store) InsertHistoryBatch(ctx context.Context, entries []*models.WatchH
 
 	thresholdPct, _ := s.GetWatchedThreshold()
 
-	aliases, err := s.UserAliases()
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	for _, e := range entries {
-		e.UserName = resolveAlias(aliases, e.UserName)
-	}
-
 	var firstErr error
 	for i, chunk := range chunkSlice(entries, writeChunkSize) {
 		if ctx.Err() != nil {
@@ -824,6 +820,10 @@ func (s *Store) insertHistoryChunk(ctx context.Context, entries []*models.WatchH
 		case <-ctx.Done():
 			return 0, 0, 0, ctx.Err()
 		default:
+		}
+
+		if entry.UserName, err = resolveUserNameTx(ctx, tx, entry.UserName); err != nil {
+			return 0, 0, 0, err
 		}
 
 		var exists int

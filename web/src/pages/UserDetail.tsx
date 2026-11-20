@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { Fragment, useState, useMemo, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useFetch } from '../hooks/useFetch'
 import { ApiError } from '../lib/api'
@@ -105,28 +105,43 @@ export function UserDetail({ userName }: UserDetailProps) {
 
   const { data: user, loading: userLoading, error: userError } = useFetch<User>(userBaseUrl)
 
-  const { data: stats, loading: statsLoading, error: statsError } = useFetch<UserDetailStats>(
-    userBaseUrl ? `${userBaseUrl}/stats` : null
-  )
+  const statsUrl = userBaseUrl ? `${userBaseUrl}/stats` : null
+  const {
+    data: stats, dataUrl: statsDataUrl, loading: statsLoading, error: statsError, refetch: refetchStats,
+  } = useFetch<UserDetailStats>(statsUrl)
 
-  const { data: locations, loading: locationsLoading, error: locationsError } = useFetch<GeoResult[]>(
+  const {
+    data: locations, loading: locationsLoading, error: locationsError, refetch: refetchLocations,
+  } = useFetch<GeoResult[]>(
     showMap && userBaseUrl ? `${userBaseUrl}/locations` : null
   )
 
   const historyUrl = showWatchHistory && decodedName
     ? `/api/history?user=${encodedName}&page=${page}&per_page=${PER_PAGE}${sortParams}`
     : null
-  const { data: history, loading: historyLoading } = useFetch<PaginatedResult<WatchHistoryEntry>>(
+  const { data: history, loading: historyLoading, refetch: refetchHistory } = useFetch<PaginatedResult<WatchHistoryEntry>>(
     activeTab === 'history' ? historyUrl : null
   )
 
-  const { data: violations, loading: violationsLoading } = useFetch<PaginatedResult<RuleViolation>>(
+  const { data: violations, loading: violationsLoading, refetch: refetchViolations } = useFetch<PaginatedResult<RuleViolation>>(
     showViolations && activeTab === 'violations' && decodedName
       ? `/api/users/${encodedName}/violations?page=${violationsPage}&per_page=${PER_PAGE}`
       : null
   )
 
-  if (userLoading || statsLoading) {
+  // A link merges another user's plays in; refresh everything derived from
+  // them, and remount the self-fetching cards via the key.
+  const [mergeVersion, setMergeVersion] = useState(0)
+  const handleLinked = useCallback(() => {
+    refetchStats()
+    refetchLocations()
+    refetchHistory()
+    refetchViolations()
+    setMergeVersion(v => v + 1)
+  }, [refetchStats, refetchLocations, refetchHistory, refetchViolations])
+
+  // A same-url refetch keeps the page up so the linking card is not unmounted.
+  if (userLoading || (statsLoading && statsDataUrl !== statsUrl)) {
     return (
       <div className="flex items-center justify-center py-20 text-muted dark:text-muted-dark text-sm">
         Loading user...
@@ -180,7 +195,7 @@ export function UserDetail({ userName }: UserDetailProps) {
       {isAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <UserNotesCard userName={decodedName} />
-          <UserLinkedAccountsCard userName={decodedName} />
+          <UserLinkedAccountsCard userName={decodedName} onLinked={handleLinked} />
         </div>
       )}
 
@@ -191,7 +206,7 @@ export function UserDetail({ userName }: UserDetailProps) {
       )}
 
       {stats && (
-        <>
+        <Fragment key={mergeVersion}>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <UserStatsCards stats={stats} />
             {showTrustScore && (
@@ -206,7 +221,7 @@ export function UserDetail({ userName }: UserDetailProps) {
               {showDevices && <UserDevicesCard devices={stats.devices} />}
             </div>
           )}
-        </>
+        </Fragment>
       )}
 
       {locationsError && !locationsLoading && (

@@ -553,7 +553,7 @@ func (s *Store) MergeUsers(keepID, deleteID int64) (*MergeUsersResult, error) {
 		return nil, err
 	}
 
-	if err := recordMergeAlias(tx, keepID, deleteID, deleteUser.Name); err != nil {
+	if err := recordMergeAlias(tx, keepID, deleteID, keepUser.Name, deleteUser.Name); err != nil {
 		return nil, err
 	}
 

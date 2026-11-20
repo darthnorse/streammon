@@ -65,6 +65,19 @@ describe('UserLinkedAccountsCard', () => {
     expect(await screen.findByText(/moved 426 plays/i)).toBeInTheDocument()
   })
 
+  it('notifies the page after a link so it can refresh merged stats', async () => {
+    mockGet([])
+    post.mockResolvedValue({ aliases: ['patrik'], watch_history_moved: 1 })
+    const onLinked = vi.fn()
+    render(<UserLinkedAccountsCard userName="patrikr" onLinked={onLinked} />)
+
+    fireEvent.click(await screen.findByText('+ Link account'))
+    fireEvent.change(screen.getByLabelText('Username to link'), { target: { value: 'patrik' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Link' }))
+
+    await waitFor(() => expect(onLinked).toHaveBeenCalledTimes(1))
+  })
+
   it('does not link when the confirmation is cancelled', async () => {
     mockGet([])
     vi.spyOn(window, 'confirm').mockReturnValue(false)

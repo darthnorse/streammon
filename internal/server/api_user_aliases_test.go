@@ -12,17 +12,12 @@ import (
 	"streammon/internal/models"
 )
 
-type aliasesResp struct {
-	Aliases           []string `json:"aliases"`
-	WatchHistoryMoved int      `json:"watch_history_moved"`
-}
-
-func doAliasRequest(t *testing.T, srv http.Handler, method, path, body string) (*httptest.ResponseRecorder, aliasesResp) {
+func doAliasRequest(t *testing.T, srv http.Handler, method, path, body string) (*httptest.ResponseRecorder, userAliasesResponse) {
 	t.Helper()
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	w := httptest.NewRecorder()
 	srv.ServeHTTP(w, req)
-	var resp aliasesResp
+	var resp userAliasesResponse
 	if w.Body.Len() > 0 {
 		json.NewDecoder(w.Body).Decode(&resp)
 	}
@@ -75,6 +70,7 @@ func TestUserAliasesAPI_RejectsBadLinks(t *testing.T) {
 		{"blank", "/api/users/alice/aliases", `{"alias":" "}`, http.StatusBadRequest},
 		{"bad json", "/api/users/alice/aliases", `{`, http.StatusBadRequest},
 		{"current admin", "/api/users/alice/aliases", `{"alias":"test-admin"}`, http.StatusBadRequest},
+		{"current admin padded", "/api/users/alice/aliases", `{"alias":" test-admin "}`, http.StatusBadRequest},
 		{"unknown user", "/api/users/nobody/aliases", `{"alias":"bob"}`, http.StatusNotFound},
 	}
 	for _, tc := range cases {
@@ -84,6 +80,23 @@ func TestUserAliasesAPI_RejectsBadLinks(t *testing.T) {
 				t.Errorf("status %d, want %d (body %s)", w.Code, tc.want, w.Body)
 			}
 		})
+	}
+}
+
+func TestUserAliasesAPI_AliasOwnedElsewhere(t *testing.T) {
+	srv, st := newTestServerWrapped(t)
+	for _, n := range []string{"alice", "bob", "carol"} {
+		if _, err := st.GetOrCreateUser(n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if w, _ := doAliasRequest(t, srv, http.MethodPost, "/api/users/alice/aliases", `{"alias":"bob"}`); w.Code != http.StatusOK {
+		t.Fatalf("first link: status %d", w.Code)
+	}
+
+	w, _ := doAliasRequest(t, srv, http.MethodPost, "/api/users/carol/aliases", `{"alias":"bob"}`)
+	if w.Code != http.StatusConflict {
+		t.Errorf("status %d, want 409", w.Code)
 	}
 }
 

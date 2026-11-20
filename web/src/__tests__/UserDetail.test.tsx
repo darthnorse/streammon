@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import { UserDetail } from '../pages/UserDetail'
 import { ApiError } from '../lib/api'
@@ -22,6 +22,12 @@ vi.mock('../components/shared/ViewModeToggle', () => ({
       <button onClick={() => onChange('markers')}>Markers</button>
       <span data-testid="current-mode">{viewMode}</span>
     </div>
+  ),
+}))
+
+vi.mock('../components/UserLinkedAccountsCard', () => ({
+  UserLinkedAccountsCard: ({ onLinked }: { onLinked?: () => void }) => (
+    <button onClick={onLinked}>simulate link</button>
   ),
 }))
 
@@ -89,7 +95,7 @@ function renderAtRoute(path: string) {
   )
 }
 
-function mockFetchSequence(...values: ReturnType<typeof noData>[]) {
+function mockFetchSequence(...values: (ReturnType<typeof noData> & { dataUrl?: string | null })[]) {
   let chain = mockUseFetch
   for (const v of values) {
     chain = chain.mockReturnValueOnce(v) as typeof mockUseFetch
@@ -283,5 +289,34 @@ describe('UserDetail', () => {
       expect(screen.getByText(/failed to load location map/i)).toBeDefined()
       expect(screen.queryByTestId('leaflet-map')).toBeNull()
     })
+  })
+
+  it('keeps the page up while refreshing stats for the same user', () => {
+    mockFetchSequence(
+      noData(),
+      fetchResult(baseUser),
+      { data: testStats, dataUrl: '/api/users/alice/stats', loading: true, error: null, refetch: vi.fn() },
+      noData(),
+      fetchResult(testHistory),
+    )
+    renderAtRoute('/users/alice')
+    expect(screen.queryByText(/loading user/i)).toBeNull()
+    expect(screen.getByText('42')).toBeDefined()
+  })
+
+  it('refreshes stats and history after an account is linked', () => {
+    const refetchStats = vi.fn()
+    const refetchHistory = vi.fn()
+    mockFetchSequence(
+      noData(),
+      fetchResult(baseUser),
+      { ...fetchResult(testStats), refetch: refetchStats },
+      noData(),
+      { ...fetchResult(testHistory), refetch: refetchHistory },
+    )
+    renderAtRoute('/users/alice')
+    fireEvent.click(screen.getByText('simulate link'))
+    expect(refetchStats).toHaveBeenCalled()
+    expect(refetchHistory).toHaveBeenCalled()
   })
 })

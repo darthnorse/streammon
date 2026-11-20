@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -41,14 +42,19 @@ func (s *Server) handleLinkUserAlias(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
+	req.Alias = strings.TrimSpace(req.Alias)
 	if currentUser := UserFromContext(r.Context()); currentUser != nil && currentUser.Name == req.Alias {
 		writeError(w, http.StatusBadRequest, "cannot merge yourself into another user")
 		return
 	}
 
-	result, err := s.store.LinkUserAlias(name, req.Alias)
+	result, err := s.store.LinkUserAlias(r.Context(), name, req.Alias)
 	if errors.Is(err, store.ErrInvalidAlias) {
 		writeError(w, http.StatusBadRequest, "alias must be a different, non-empty username")
+		return
+	}
+	if errors.Is(err, store.ErrAliasTaken) {
+		writeError(w, http.StatusConflict, "that username is already linked to another user")
 		return
 	}
 	if err != nil {

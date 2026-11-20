@@ -72,7 +72,7 @@ func TestMergeUsers_CarriesAliasesToNewKeepUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]string{"alice": "carol", "bob": "carol"}
+	want := UserAliasMap{"alice": "carol", "bob": "carol"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("UserAliases = %v, want %v", got, want)
 	}
@@ -104,7 +104,7 @@ func TestLinkUserAlias_MergesExistingUser(t *testing.T) {
 	seedAliasUsers(t, s, "alice", "bob")
 	insertAliasHistory(t, s, serverID, "bob")
 
-	result, err := s.LinkUserAlias("alice", "bob")
+	result, err := s.LinkUserAlias(context.Background(), "alice", "bob")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestLinkUserAlias_NameWithOnlyHistory(t *testing.T) {
 	seedAliasUsers(t, s, "alice")
 	insertAliasHistory(t, s, serverID, "bob")
 
-	result, err := s.LinkUserAlias("alice", "bob")
+	result, err := s.LinkUserAlias(context.Background(), "alice", "bob")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,13 +149,13 @@ func TestLinkUserAlias_Rejects(t *testing.T) {
 	s := newTestStoreWithMigrations(t)
 	seedAliasUsers(t, s, "alice")
 
-	if _, err := s.LinkUserAlias("alice", "alice"); !errors.Is(err, ErrInvalidAlias) {
+	if _, err := s.LinkUserAlias(context.Background(), "alice", "alice"); !errors.Is(err, ErrInvalidAlias) {
 		t.Errorf("self alias: err = %v, want ErrInvalidAlias", err)
 	}
-	if _, err := s.LinkUserAlias("alice", "  "); !errors.Is(err, ErrInvalidAlias) {
+	if _, err := s.LinkUserAlias(context.Background(), "alice", "  "); !errors.Is(err, ErrInvalidAlias) {
 		t.Errorf("blank alias: err = %v, want ErrInvalidAlias", err)
 	}
-	if _, err := s.LinkUserAlias("nobody", "bob"); !errors.Is(err, models.ErrNotFound) {
+	if _, err := s.LinkUserAlias(context.Background(), "nobody", "bob"); !errors.Is(err, models.ErrNotFound) {
 		t.Errorf("unknown user: err = %v, want ErrNotFound", err)
 	}
 }
@@ -234,5 +234,86 @@ func TestSyncUsersFromServer_SkipsAliases(t *testing.T) {
 
 	if _, err := s.GetUser("bob"); err == nil {
 		t.Error("sync must not recreate a merged-away user")
+	}
+}
+
+func TestInsertHistory_ResolvesAliases(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	ids := seedAliasUsers(t, s, "alice", "bob")
+	if _, err := s.MergeUsers(ids["alice"], ids["bob"]); err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	entry := &models.WatchHistoryEntry{
+		ServerID: serverID, UserName: "bob", MediaType: models.MediaTypeMovie,
+		Title: "Movie", StartedAt: start, StoppedAt: start.Add(time.Hour),
+	}
+	if err := s.InsertHistory(entry); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := countHistoryFor(t, s, "alice"); n != 1 {
+		t.Errorf("alice history = %d, want 1", n)
+	}
+}
+
+func TestLinkUserAlias_AliasOwnedByAnotherUser(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ctx := context.Background()
+	seedAliasUsers(t, s, "alice", "bob", "carol")
+	if _, err := s.LinkUserAlias(ctx, "alice", "bob"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.LinkUserAlias(ctx, "carol", "bob"); !errors.Is(err, ErrAliasTaken) {
+		t.Errorf("err = %v, want ErrAliasTaken", err)
+	}
+	if _, err := s.LinkUserAlias(ctx, "alice", "bob"); err != nil {
+		t.Errorf("relinking to the same user should be a no-op, got %v", err)
+	}
+	if _, err := s.GetUser("bob"); err == nil {
+		t.Error("a rejected or repeated link must not recreate bob")
+	}
+	got, _ := s.UserAliases()
+	if got["bob"] != "alice" {
+		t.Errorf("bob maps to %q, want alice", got["bob"])
+	}
+}
+
+func TestLinkUserAlias_KeepUserWithOnlyHistory(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	serverID := seedServer(t, s)
+	insertAliasHistory(t, s, serverID, "alice")
+	insertAliasHistory(t, s, serverID, "bob")
+
+	if _, err := s.LinkUserAlias(context.Background(), "alice", "bob"); err != nil {
+		t.Fatal(err)
+	}
+	if n := countHistoryFor(t, s, "alice"); n != 2 {
+		t.Errorf("alice history = %d, want 2", n)
+	}
+	if _, err := s.LinkUserAlias(context.Background(), "nobody", "bob2"); !errors.Is(err, models.ErrNotFound) {
+		t.Errorf("unknown user without history: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestMergeUsers_DropsAliasMatchingKeepName(t *testing.T) {
+	s := newTestStoreWithMigrations(t)
+	ids := seedAliasUsers(t, s, "alice", "bob")
+	if _, err := s.MergeUsers(ids["alice"], ids["bob"]); err != nil {
+		t.Fatal(err)
+	}
+	recreated := seedAliasUsers(t, s, "bob", "carol")
+
+	if _, err := s.MergeUsers(recreated["bob"], recreated["carol"]); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _ := s.UserAliases()
+	want := UserAliasMap{"carol": "bob"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("UserAliases = %v, want %v", got, want)
 	}
 }

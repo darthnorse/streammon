@@ -5,9 +5,10 @@ import type { UserAliasesResponse, UserSummary } from '../types'
 
 interface UserLinkedAccountsCardProps {
   userName: string
+  onLinked?: () => void
 }
 
-export function UserLinkedAccountsCard({ userName }: UserLinkedAccountsCardProps) {
+export function UserLinkedAccountsCard({ userName, onLinked }: UserLinkedAccountsCardProps) {
   const base = `/api/users/${encodeURIComponent(userName)}/aliases`
   const { data, error, refetch } = useFetch<UserAliasesResponse>(base)
   const aliases = useMemo(() => data?.aliases ?? [], [data])
@@ -50,6 +51,7 @@ export function UserLinkedAccountsCard({ userName }: UserLinkedAccountsCardProps
       const res = await api.post<UserAliasesResponse>(base, { alias })
       setAdding(false)
       setDraft('')
+      onLinked?.()
       const moved = res.watch_history_moved ?? 0
       return `Linked "${alias}" — moved ${moved} ${moved === 1 ? 'play' : 'plays'}.`
     })
