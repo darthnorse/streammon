@@ -511,6 +511,15 @@ func TestDiscoverRejectsInvalidFilters(t *testing.T) {
 		// A future floor is unsatisfiable and, with sort=newest, self-contradictory.
 		"/api/tmdb/discover/tv?year=2999",
 		"/api/tmdb/discover/trending?type=person&year=2024",
+		"/api/tmdb/discover/tv?countries=us",
+		"/api/tmdb/discover/tv?countries=USA",
+		"/api/tmdb/discover/tv?countries=US,,GB",
+		"/api/tmdb/discover/tv?countries=US,GB,FR,DE,JP,KR",
+		"/api/tmdb/discover/tv?languages=EN",
+		"/api/tmdb/discover/tv?languages=eng",
+		"/api/tmdb/discover/tv?languages=en|fr",
+		"/api/tmdb/discover/tv?languages=en,fr,de,ja,ko,es",
+		"/api/tmdb/discover/trending?countries=US",
 	}
 	for _, target := range cases {
 		srv, _ := captureDiscoverQuery(t, discoverStubBody)
@@ -518,6 +527,24 @@ func TestDiscoverRejectsInvalidFilters(t *testing.T) {
 		if w.Code != http.StatusBadRequest {
 			t.Fatalf("%s: expected 400, got %d", target, w.Code)
 		}
+	}
+}
+
+func TestDiscoverCountryAndLanguageFilters(t *testing.T) {
+	srv, captured := captureDiscoverQuery(t, discoverStubBody)
+	w := getDiscover(t, srv, "/api/tmdb/discover/movies?countries=US,GB&languages=en")
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	path, q := captured()
+	if path != "/discover/movie" {
+		t.Fatalf("got upstream path %s, want /discover/movie", path)
+	}
+	if got := q.Get("with_origin_country"); got != "GB|US" {
+		t.Fatalf("countries: got %q, want GB|US", got)
+	}
+	if got := q.Get("with_original_language"); got != "en" {
+		t.Fatalf("languages: got %q, want en", got)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -99,7 +100,29 @@ type discoverCategory struct {
 const (
 	minDiscoverYear = 1900
 	maxGenreFilters = 5
+	maxCodeFilters  = 5
 )
+
+var (
+	countryCodePattern  = regexp.MustCompile(`^[A-Z]{2}$`)
+	languageCodePattern = regexp.MustCompile(`^[a-z]{2}$`)
+)
+
+// parseCodeList reads a comma-separated list of ISO codes (3166-1 countries or
+// 639-1 languages), rejecting anything that is not exactly the code shape so
+// no separator TMDB treats specially can be smuggled upstream.
+func parseCodeList(raw, name string, pattern *regexp.Regexp) ([]string, error) {
+	parts := strings.Split(raw, ",")
+	if len(parts) > maxCodeFilters {
+		return nil, fmt.Errorf("too many %s (max %d)", name, maxCodeFilters)
+	}
+	for _, part := range parts {
+		if !pattern.MatchString(part) {
+			return nil, fmt.Errorf("invalid %s", name)
+		}
+	}
+	return parts, nil
+}
 
 func (s *Server) discoverCategories() map[string]discoverCategory {
 	return map[string]discoverCategory{
@@ -142,6 +165,22 @@ func parseDiscoverFilters(r *http.Request, cat discoverCategory) (filters tmdb.D
 				return filters, false, fmt.Errorf("invalid genre id")
 			}
 			filters.GenreIDs = append(filters.GenreIDs, id)
+		}
+		active = true
+	}
+
+	if raw := q.Get("countries"); raw != "" {
+		filters.OriginCountries, err = parseCodeList(raw, "countries", countryCodePattern)
+		if err != nil {
+			return filters, false, err
+		}
+		active = true
+	}
+
+	if raw := q.Get("languages"); raw != "" {
+		filters.OriginalLanguages, err = parseCodeList(raw, "languages", languageCodePattern)
+		if err != nil {
+			return filters, false, err
 		}
 		active = true
 	}

@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest'
 import {
   EMPTY_FILTERS,
   MAX_GENRES,
+  MAX_CODES,
+  COUNTRY_OPTIONS,
+  LANGUAGE_OPTIONS,
   categoryCaps,
   filtersFromParams,
   filtersToParams,
@@ -60,6 +63,8 @@ describe('EMPTY_FILTERS', () => {
       rating: null,
       hideOwned: true,
       type: null,
+      countries: [],
+      languages: [],
     })
   })
 })
@@ -78,6 +83,8 @@ describe('filtersFromParams', () => {
       rating: 7,
       hideOwned: true,
       type: null,
+      countries: [],
+      languages: [],
     })
   })
 
@@ -159,6 +166,8 @@ describe('filtersFromParams on mixed categories', () => {
       rating: 7,
       hideOwned: false,
       type: 'movie',
+      countries: [],
+      languages: [],
     })
   })
 
@@ -185,13 +194,15 @@ describe('filtersFromParams on mixed categories', () => {
       rating: 7,
       hideOwned: false,
       type: null,
+      countries: [],
+      languages: [],
     })
   })
 })
 
 describe('filtersToParams', () => {
   it('round-trips through filtersFromParams', () => {
-    const filters = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: true, type: null }
+    const filters = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: true, type: null, countries: [], languages: [] }
     expect(filtersFromParams(filtersToParams(filters, tvCaps), tvCaps)).toEqual(filters)
   })
 
@@ -203,7 +214,7 @@ describe('filtersToParams', () => {
   // invariants filtersFromParams does, or the write and read sides disagree
   // and state silently reverts on the next render.
   it('round-trips to the normalised form on a mixed category with no type set', () => {
-    const filters = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: true, type: null }
+    const filters = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: true, type: null, countries: [], languages: [] }
     const normalised = { ...EMPTY_FILTERS, hideOwned: true }
     expect(filtersFromParams(filtersToParams(filters, trendingCaps), trendingCaps)).toEqual(normalised)
   })
@@ -254,7 +265,7 @@ describe('activeFilterCount', () => {
   // On a mixed category with no type set, apiParams (via filtersToParams) emits
   // nothing but hideOwned, so the badge must agree: 0 filters, or 1 with hideOwned.
   it('counts nothing but hideOwned on a mixed category with no type set', () => {
-    const filters = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: false, type: null }
+    const filters = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: false, type: null, countries: [], languages: [] }
     expect(activeFilterCount(filters, trendingCaps)).toBe(0)
     expect(activeFilterCount({ ...filters, hideOwned: true }, trendingCaps)).toBe(1)
   })
@@ -277,7 +288,7 @@ describe('activeFilterCount', () => {
 // Genre IDs are not portable between movie and TV, and a request carrying
 // filters without a type is a 400 from the backend.
 describe('setMediaType', () => {
-  const filled = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: true, type: 'movie' as const }
+  const filled = { year: 2024, genres: [80, 18], sort: 'rating' as const, rating: 7, hideOwned: true, type: 'movie' as const, countries: ['US'], languages: ['en'] }
 
   it('clears genres when switching between types', () => {
     const next = setMediaType(filled, 'tv')
@@ -304,5 +315,55 @@ describe('yearOptions', () => {
 
   it('drops older options that overlap the recent run', () => {
     expect(yearOptions(new Date(Date.UTC(2023, 0, 1)))).toEqual([2023, 2022, 2021, 2020, 2019, 2015, 2010, 2000])
+  })
+})
+
+describe('country and language filters', () => {
+  it('reads countries and languages from the URL', () => {
+    const filters = filtersFromParams(new URLSearchParams('countries=US,GB&languages=en'), tvCaps)
+    expect(filters.countries).toEqual(['US', 'GB'])
+    expect(filters.languages).toEqual(['en'])
+  })
+
+  it('drops a list containing an unknown, malformed, or excess code', () => {
+    const tooMany = COUNTRY_OPTIONS.slice(0, MAX_CODES + 1).map(o => o.value).join(',')
+    for (const raw of ['us', 'USA', 'US,,GB', 'XX', tooMany]) {
+      expect(filtersFromParams(new URLSearchParams(`countries=${raw}`), tvCaps).countries).toEqual([])
+    }
+    for (const raw of ['EN', 'eng', 'en|fr', 'xx']) {
+      expect(filtersFromParams(new URLSearchParams(`languages=${raw}`), tvCaps).languages).toEqual([])
+    }
+  })
+
+  it('serialises both lists comma-separated into the API query', () => {
+    const query = new URLSearchParams(
+      filtersToQuery({ ...EMPTY_FILTERS, countries: ['US', 'GB'], languages: ['en', 'fr'] }, tvCaps),
+    )
+    expect(query.get('countries')).toBe('US,GB')
+    expect(query.get('languages')).toBe('en,fr')
+  })
+
+  it('emits neither on a mixed category until a type is chosen', () => {
+    const filters = { ...EMPTY_FILTERS, countries: ['US'], languages: ['en'] }
+    expect(filtersToQuery(filters, trendingCaps)).toBe('')
+    expect(filtersFromParams(new URLSearchParams('countries=US&languages=en'), trendingCaps).countries).toEqual([])
+  })
+
+  it('counts each list once in the active badge', () => {
+    expect(activeFilterCount({ ...EMPTY_FILTERS, countries: ['US', 'GB'], languages: ['en'] }, tvCaps)).toBe(2)
+  })
+
+  it('keeps countries and languages across a media type switch, unlike genres', () => {
+    const filters = { ...EMPTY_FILTERS, type: 'movie' as const, genres: [28], countries: ['US'], languages: ['en'] }
+    expect(setMediaType(filters, 'tv')).toEqual({ ...filters, type: 'tv', genres: [] })
+  })
+
+  it('offers unique, well-formed option codes', () => {
+    const countries = COUNTRY_OPTIONS.map(o => o.value)
+    const languages = LANGUAGE_OPTIONS.map(o => o.value)
+    expect(new Set(countries).size).toBe(countries.length)
+    expect(new Set(languages).size).toBe(languages.length)
+    expect(countries.every(c => /^[A-Z]{2}$/.test(c))).toBe(true)
+    expect(languages.every(l => /^[a-z]{2}$/.test(l))).toBe(true)
   })
 })

@@ -679,3 +679,30 @@ func TestGetGenres(t *testing.T) {
 		}
 	}
 }
+
+// Countries and languages are OR'd upstream (pipe-joined) and, like genres,
+// canonicalised so equivalent selections share a cache key.
+func TestDiscoverCountriesAndLanguagesAreOredAndCanonical(t *testing.T) {
+	orig := []string{"GB", "US", "GB"}
+	_, q := discoverQueryFor(t, "movie", DiscoverFilters{
+		OriginCountries:   orig,
+		OriginalLanguages: []string{"fr", "en"},
+		Now:               testNow,
+	}, 1)
+	if got := q.Get("with_origin_country"); got != "GB|US" {
+		t.Fatalf("with_origin_country: got %q, want GB|US", got)
+	}
+	if got := q.Get("with_original_language"); got != "en|fr" {
+		t.Fatalf("with_original_language: got %q, want en|fr", got)
+	}
+	if orig[0] != "GB" || orig[1] != "US" || orig[2] != "GB" {
+		t.Fatalf("Discover must not mutate the caller's slice, got %v", orig)
+	}
+}
+
+func TestDiscoverOmitsEmptyCountriesAndLanguages(t *testing.T) {
+	_, q := discoverQueryFor(t, "tv", DiscoverFilters{Now: testNow}, 1)
+	if q.Has("with_origin_country") || q.Has("with_original_language") {
+		t.Fatalf("unexpected country/language params: %v", q)
+	}
+}

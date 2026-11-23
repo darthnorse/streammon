@@ -210,13 +210,24 @@ const (
 // injected rather than read from the clock so date-dependent behaviour is
 // deterministic under test; callers must pass a UTC time.
 type DiscoverFilters struct {
-	YearGTE   int
-	GenreIDs  []int
-	Sort      string
-	RatingGTE float64
-	Upcoming  bool
-	Region    string
-	Now       time.Time
+	YearGTE           int
+	GenreIDs          []int
+	OriginCountries   []string
+	OriginalLanguages []string
+	Sort              string
+	RatingGTE         float64
+	Upcoming          bool
+	Region            string
+	Now               time.Time
+}
+
+// joinCanonicalOr formats codes as a TMDB OR filter. Sorted and deduplicated
+// so equivalent selections share a cache key; copied so the caller's slice is
+// left alone.
+func joinCanonicalOr(codes []string) string {
+	sorted := slices.Clone(codes)
+	slices.Sort(sorted)
+	return strings.Join(slices.Compact(sorted), "|")
 }
 
 func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilters, page int) (json.RawMessage, error) {
@@ -271,6 +282,13 @@ func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilte
 			ids[i] = strconv.Itoa(id)
 		}
 		params.Set("with_genres", strings.Join(ids, ","))
+	}
+
+	if len(f.OriginCountries) > 0 {
+		params.Set("with_origin_country", joinCanonicalOr(f.OriginCountries))
+	}
+	if len(f.OriginalLanguages) > 0 {
+		params.Set("with_original_language", joinCanonicalOr(f.OriginalLanguages))
 	}
 
 	sortBy := "popularity.desc"

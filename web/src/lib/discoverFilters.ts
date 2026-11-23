@@ -1,4 +1,5 @@
 import { DISCOVER_CATEGORIES } from './constants'
+import type { DropdownOption } from '../components/Dropdown'
 
 export type DiscoverSort = 'popularity' | 'rating' | 'newest'
 export type DiscoverMediaType = 'movie' | 'tv'
@@ -10,6 +11,8 @@ export interface DiscoverFilters {
   rating: number | null
   hideOwned: boolean
   type: DiscoverMediaType | null
+  countries: readonly string[]
+  languages: readonly string[]
 }
 
 export interface DiscoverCategoryCaps {
@@ -19,6 +22,7 @@ export interface DiscoverCategoryCaps {
 }
 
 const FROZEN_EMPTY_GENRES: readonly number[] = Object.freeze([])
+const FROZEN_EMPTY_CODES: readonly string[] = Object.freeze([])
 
 export const EMPTY_FILTERS: DiscoverFilters = Object.freeze({
   year: null,
@@ -27,9 +31,76 @@ export const EMPTY_FILTERS: DiscoverFilters = Object.freeze({
   rating: null,
   hideOwned: false,
   type: null,
+  countries: FROZEN_EMPTY_CODES,
+  languages: FROZEN_EMPTY_CODES,
 })
 
 export const MAX_GENRES = 5
+export const MAX_CODES = 5
+
+// Curated rather than TMDB's full lists (~250 countries, ~190 languages), which
+// would bury the common picks in an unsearchable dropdown.
+export const COUNTRY_OPTIONS: readonly DropdownOption[] = [
+  { value: 'US', label: 'United States' },
+  { value: 'GB', label: 'United Kingdom' },
+  { value: 'CA', label: 'Canada' },
+  { value: 'AU', label: 'Australia' },
+  { value: 'IE', label: 'Ireland' },
+  { value: 'NZ', label: 'New Zealand' },
+  { value: 'FR', label: 'France' },
+  { value: 'DE', label: 'Germany' },
+  { value: 'ES', label: 'Spain' },
+  { value: 'IT', label: 'Italy' },
+  { value: 'NL', label: 'Netherlands' },
+  { value: 'BE', label: 'Belgium' },
+  { value: 'SE', label: 'Sweden' },
+  { value: 'NO', label: 'Norway' },
+  { value: 'DK', label: 'Denmark' },
+  { value: 'FI', label: 'Finland' },
+  { value: 'IS', label: 'Iceland' },
+  { value: 'PL', label: 'Poland' },
+  { value: 'JP', label: 'Japan' },
+  { value: 'KR', label: 'South Korea' },
+  { value: 'CN', label: 'China' },
+  { value: 'HK', label: 'Hong Kong' },
+  { value: 'TW', label: 'Taiwan' },
+  { value: 'IN', label: 'India' },
+  { value: 'TH', label: 'Thailand' },
+  { value: 'TR', label: 'Turkey' },
+  { value: 'MX', label: 'Mexico' },
+  { value: 'BR', label: 'Brazil' },
+  { value: 'AR', label: 'Argentina' },
+  { value: 'CO', label: 'Colombia' },
+  { value: 'ZA', label: 'South Africa' },
+]
+
+export const LANGUAGE_OPTIONS: readonly DropdownOption[] = [
+  { value: 'en', label: 'English' },
+  { value: 'es', label: 'Spanish' },
+  { value: 'fr', label: 'French' },
+  { value: 'de', label: 'German' },
+  { value: 'it', label: 'Italian' },
+  { value: 'pt', label: 'Portuguese' },
+  { value: 'nl', label: 'Dutch' },
+  { value: 'sv', label: 'Swedish' },
+  { value: 'no', label: 'Norwegian' },
+  { value: 'da', label: 'Danish' },
+  { value: 'fi', label: 'Finnish' },
+  { value: 'is', label: 'Icelandic' },
+  { value: 'pl', label: 'Polish' },
+  { value: 'ru', label: 'Russian' },
+  { value: 'tr', label: 'Turkish' },
+  { value: 'ar', label: 'Arabic' },
+  { value: 'he', label: 'Hebrew' },
+  { value: 'hi', label: 'Hindi' },
+  { value: 'ta', label: 'Tamil' },
+  { value: 'te', label: 'Telugu' },
+  { value: 'th', label: 'Thai' },
+  { value: 'ja', label: 'Japanese' },
+  { value: 'ko', label: 'Korean' },
+  { value: 'zh', label: 'Mandarin' },
+  { value: 'cn', label: 'Cantonese' },
+]
 
 // TMDB genre ids are 5 digits; this ceiling is generous and, more importantly,
 // keeps every accepted value inside both JS's safe-integer range and Go's int.
@@ -76,6 +147,16 @@ function parseGenres(raw: string | null): number[] {
   return ids
 }
 
+// All-or-nothing like parseGenres: one bad code drops the list rather than
+// silently narrowing to a different selection than the link described.
+function parseCodes(raw: string | null, options: readonly DropdownOption[]): string[] {
+  if (!raw) return []
+  const parts = raw.split(',')
+  if (parts.length > MAX_CODES) return []
+  if (parts.some(part => !options.some(o => o.value === part))) return []
+  return parts
+}
+
 // The ceiling matches the backend: a future floor is unsatisfiable on a
 // non-upcoming category and contradicts the newest sort's today ceiling.
 function parseYear(raw: string | null, now: Date): number | null {
@@ -108,13 +189,15 @@ export function filtersFromParams(params: URLSearchParams, caps: DiscoverCategor
     rating: parseRating(params.get('rating')),
     hideOwned,
     type,
+    countries: parseCodes(params.get('countries'), COUNTRY_OPTIONS),
+    languages: parseCodes(params.get('languages'), LANGUAGE_OPTIONS),
   }
 }
 
 // apiParams holds everything the backend understands; hideOwned is client-side
 // only. Mirrors the invariants filtersFromParams enforces on the read side: a
 // mixed category with no type emits nothing (the backend 400s otherwise), and
-// an over-long genre list is clamped rather than sent whole and rejected.
+// an over-long genre, country, or language list is clamped rather than sent whole and rejected.
 function apiParams(filters: DiscoverFilters, caps: DiscoverCategoryCaps): URLSearchParams {
   const params = new URLSearchParams()
   if (caps.type && filters.type === null) return params
@@ -123,6 +206,10 @@ function apiParams(filters: DiscoverFilters, caps: DiscoverCategoryCaps): URLSea
   if (genres.length > 0) params.set('genres', genres.join(','))
   if (filters.sort !== 'popularity') params.set('sort', filters.sort)
   if (filters.rating !== null) params.set('rating', String(filters.rating))
+  const countries = filters.countries.slice(0, MAX_CODES)
+  if (countries.length > 0) params.set('countries', countries.join(','))
+  const languages = filters.languages.slice(0, MAX_CODES)
+  if (languages.length > 0) params.set('languages', languages.join(','))
   if (caps.type && filters.type !== null) params.set('type', filters.type)
   return params
 }

@@ -3,6 +3,9 @@ import { Dropdown, type DropdownOption } from './Dropdown'
 import { ToggleSwitch } from './ToggleSwitch'
 import { useTMDBGenres } from '../hooks/useTMDBGenres'
 import {
+  COUNTRY_OPTIONS,
+  LANGUAGE_OPTIONS,
+  MAX_CODES,
   MAX_GENRES,
   setMediaType,
   yearOptions,
@@ -11,7 +14,6 @@ import {
   type DiscoverMediaType,
   type DiscoverSort,
 } from '../lib/discoverFilters'
-import type { TMDBGenre } from '../types'
 
 interface DiscoverFilterBarProps {
   caps: DiscoverCategoryCaps
@@ -42,6 +44,25 @@ const TYPE_SEGMENTS: { value: DiscoverMediaType | null; label: string }[] = [
 ]
 
 const labelClass = 'text-xs font-medium text-muted dark:text-muted-dark'
+
+const COUNTRY_OPTS = [...COUNTRY_OPTIONS]
+const LANGUAGE_OPTS = [...LANGUAGE_OPTIONS]
+
+// Once a multi-select reaches its cap, every unselected option is disabled.
+function optionsBeyondCap(options: DropdownOption[], selected: readonly string[], cap: number): string[] {
+  if (selected.length < cap) return []
+  return options.map(o => o.value).filter(v => !selected.includes(v))
+}
+
+function selectedOptions(options: DropdownOption[], selected: readonly string[]): DropdownOption[] {
+  return selected.flatMap(value => options.find(o => o.value === value) ?? [])
+}
+
+interface Chip {
+  key: string
+  label: string
+  remove: () => void
+}
 
 // The selected segment sits on an accent background, so only the unselected ones
 // take the accent hover colour; underlining is shared by all three.
@@ -76,16 +97,25 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
     [genres],
   )
 
-  const atGenreCap = filters.genres.length >= MAX_GENRES
-  const disabledGenres = useMemo(
-    () => (atGenreCap ? genreOpts.map(o => o.value).filter(v => !filters.genres.includes(Number(v))) : []),
-    [atGenreCap, genreOpts, filters.genres],
-  )
+  const selectedGenreValues = useMemo(() => filters.genres.map(String), [filters.genres])
 
-  const selectedGenres = useMemo(
-    () => filters.genres.map(id => genres.find(g => g.id === id)).filter((g): g is TMDBGenre => !!g),
-    [filters.genres, genres],
-  )
+  const chips: Chip[] = [
+    ...selectedOptions(genreOpts, selectedGenreValues).map(o => ({
+      key: `genre-${o.value}`,
+      label: o.label,
+      remove: () => onChange({ ...filters, genres: filters.genres.filter(id => String(id) !== o.value) }),
+    })),
+    ...selectedOptions(COUNTRY_OPTS, filters.countries).map(o => ({
+      key: `country-${o.value}`,
+      label: o.label,
+      remove: () => onChange({ ...filters, countries: filters.countries.filter(c => c !== o.value) }),
+    })),
+    ...selectedOptions(LANGUAGE_OPTS, filters.languages).map(o => ({
+      key: `language-${o.value}`,
+      label: o.label,
+      remove: () => onChange({ ...filters, languages: filters.languages.filter(l => l !== o.value) }),
+    })),
+  ]
 
   function handleSegmentKey(e: KeyboardEvent<HTMLButtonElement>, index: number) {
     const delta = ARROW_DELTA[e.key]
@@ -153,12 +183,40 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
             multi
             aria-label="Genres"
             disabled={disabled}
-            disabledOptions={disabledGenres}
+            disabledOptions={optionsBeyondCap(genreOpts, selectedGenreValues, MAX_GENRES)}
             noneLabel="Any genre"
             allLabel="All genres"
             options={genreOpts}
-            selected={filters.genres.map(String)}
+            selected={selectedGenreValues}
             onChange={values => onChange({ ...filters, genres: values.map(Number) })}
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className={labelClass}>Country</span>
+          <Dropdown
+            multi
+            aria-label="Countries"
+            disabled={disabled}
+            disabledOptions={optionsBeyondCap(COUNTRY_OPTS, filters.countries, MAX_CODES)}
+            noneLabel="Any country"
+            options={COUNTRY_OPTS}
+            selected={[...filters.countries]}
+            onChange={countries => onChange({ ...filters, countries })}
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className={labelClass}>Language</span>
+          <Dropdown
+            multi
+            aria-label="Original languages"
+            disabled={disabled}
+            disabledOptions={optionsBeyondCap(LANGUAGE_OPTS, filters.languages, MAX_CODES)}
+            noneLabel="Any language"
+            options={LANGUAGE_OPTS}
+            selected={[...filters.languages]}
+            onChange={languages => onChange({ ...filters, languages })}
           />
         </div>
 
@@ -207,17 +265,17 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
         )}
       </div>
 
-      {selectedGenres.length > 0 && (
+      {chips.length > 0 && (
         <div className="flex flex-wrap gap-2 mt-3">
-          {selectedGenres.map(genre => (
+          {chips.map(chip => (
             <button
-              key={genre.id}
+              key={chip.key}
               type="button"
-              aria-label={`Remove ${genre.name}`}
-              onClick={() => onChange({ ...filters, genres: filters.genres.filter(id => id !== genre.id) })}
+              aria-label={`Remove ${chip.label}`}
+              onClick={chip.remove}
               className="px-2 py-1 text-xs rounded-full border border-border dark:border-border-dark hover:text-accent hover:border-accent/30 transition-colors"
             >
-              {genre.name} &times;
+              {chip.label} &times;
             </button>
           ))}
         </div>

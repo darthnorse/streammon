@@ -102,6 +102,52 @@ describe('DiscoverFilterBar', () => {
     expect((selected as HTMLInputElement).disabled).toBe(false)
   })
 
+  it('emits a country selection', async () => {
+    const user = userEvent.setup()
+    const { onChange } = renderBar(tvCaps, { ...EMPTY_FILTERS, countries: ['US'] })
+
+    await user.click(trigger('Countries'))
+    await user.click(screen.getByRole('checkbox', { name: 'United Kingdom' }))
+
+    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_FILTERS, countries: ['US', 'GB'] })
+  })
+
+  it('emits a language selection', async () => {
+    const user = userEvent.setup()
+    const { onChange } = renderBar(tvCaps)
+
+    await user.click(trigger('Original languages'))
+    await user.click(screen.getByRole('checkbox', { name: 'English' }))
+
+    expect(onChange).toHaveBeenCalledWith({ ...EMPTY_FILTERS, languages: ['en'] })
+  })
+
+  it('renders selected countries and languages as removable chips', async () => {
+    const user = userEvent.setup()
+    const { onChange } = renderBar(tvCaps, { ...EMPTY_FILTERS, countries: ['US', 'GB'], languages: ['en'] })
+
+    await user.click(screen.getByRole('button', { name: 'Remove United Kingdom' }))
+    expect(onChange).toHaveBeenLastCalledWith({ ...EMPTY_FILTERS, countries: ['US'], languages: ['en'] })
+
+    await user.click(screen.getByRole('button', { name: 'Remove English' }))
+    expect(onChange).toHaveBeenLastCalledWith({ ...EMPTY_FILTERS, countries: ['US', 'GB'], languages: [] })
+  })
+
+  it('stops further country selection at the cap', async () => {
+    const user = userEvent.setup()
+    renderBar(tvCaps, { ...EMPTY_FILTERS, countries: ['US', 'GB', 'CA', 'AU', 'IE'] })
+
+    await user.click(trigger('Countries'))
+    expect((screen.getByRole('checkbox', { name: 'France' }) as HTMLInputElement).disabled).toBe(true)
+    expect((screen.getByRole('checkbox', { name: 'Canada' }) as HTMLInputElement).disabled).toBe(false)
+  })
+
+  it('disables country and language on trending until a media type is chosen', () => {
+    renderBar(trendingCaps)
+    expect((trigger('Countries') as HTMLButtonElement).disabled).toBe(true)
+    expect((trigger('Original languages') as HTMLButtonElement).disabled).toBe(true)
+  })
+
   it('renders trending type as a segmented control', async () => {
     renderBar(trendingCaps)
     await waitFor(() => expect(screen.getByRole('radio', { name: 'All' })).toBeDefined())
