@@ -249,6 +249,43 @@ export function setMediaType(filters: DiscoverFilters, type: DiscoverMediaType |
   return { ...filters, type, genres: [] }
 }
 
+export const DISCOVER_DEFAULT_KEY = 'streammon:discover_default'
+
+// Genre ids are only meaningful for the media type they were picked on, so the
+// default remembers it; the trending type itself is not saved because a default
+// should not force every visit to Trending into one type.
+export interface StoredDiscoverDefault {
+  query: string
+  genreType: DiscoverMediaType | null
+}
+
+export function defaultFromFilters(filters: DiscoverFilters, caps: DiscoverCategoryCaps): StoredDiscoverDefault {
+  const params = filtersToParams(filters, caps)
+  params.delete('type')
+  return { query: params.toString(), genreType: caps.mediaType ?? filters.type }
+}
+
+export function defaultParamsFor(stored: StoredDiscoverDefault, caps: DiscoverCategoryCaps): URLSearchParams {
+  const params = new URLSearchParams(stored.query)
+  if (stored.genreType !== caps.mediaType) params.delete('genres')
+  return filtersToParams(filtersFromParams(params, caps), caps)
+}
+
+export function parseStoredDefault(raw: string | null): StoredDiscoverDefault | null {
+  if (!raw) return null
+  let value: unknown
+  try {
+    value = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (typeof value !== 'object' || value === null) return null
+  const { query, genreType } = value as Record<string, unknown>
+  if (typeof query !== 'string') return null
+  if (genreType !== null && genreType !== 'movie' && genreType !== 'tv') return null
+  return { query, genreType }
+}
+
 const OLDER_YEARS = [2020, 2015, 2010, 2000]
 
 export function yearOptions(now: Date): number[] {

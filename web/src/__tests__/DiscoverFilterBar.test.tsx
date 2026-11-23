@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { DiscoverFilterBar } from '../components/DiscoverFilterBar'
+import { DiscoverFilterBar, type SavedDefaultControls } from '../components/DiscoverFilterBar'
 import { EMPTY_FILTERS, MAX_GENRES, categoryCaps, yearOptions, type DiscoverFilters } from '../lib/discoverFilters'
 
 vi.mock('../lib/api', () => ({
@@ -30,11 +30,18 @@ function trigger(field: string) {
   return screen.getByRole('button', { name: new RegExp(`^${field}: `) })
 }
 
-function renderBar(caps = tvCaps, filters: DiscoverFilters = EMPTY_FILTERS, activeCount = 0) {
+const NO_DEFAULT: SavedDefaultControls = { hasDefault: false, isDefault: false, onSave: () => {}, onRemove: () => {} }
+
+function renderBar(
+  caps = tvCaps,
+  filters: DiscoverFilters = EMPTY_FILTERS,
+  activeCount = 0,
+  savedDefault: SavedDefaultControls = NO_DEFAULT,
+) {
   const onChange = vi.fn()
   const onClear = vi.fn()
   const view = render(
-    <DiscoverFilterBar caps={caps} filters={filters} onChange={onChange} onClear={onClear} activeCount={activeCount} />,
+    <DiscoverFilterBar caps={caps} filters={filters} onChange={onChange} onClear={onClear} activeCount={activeCount} savedDefault={savedDefault} />,
   )
   return { onChange, onClear, ...view }
 }
@@ -308,7 +315,7 @@ describe('DiscoverFilterBar', () => {
       // A fresh element each time: React bails out of re-rendering a component
       // whose element is referentially identical to the previous one.
       const bar = () => (
-        <DiscoverFilterBar caps={tvCaps} filters={EMPTY_FILTERS} onChange={() => {}} onClear={() => {}} activeCount={0} />
+        <DiscoverFilterBar caps={tvCaps} filters={EMPTY_FILTERS} onChange={() => {}} onClear={() => {}} activeCount={0} savedDefault={NO_DEFAULT} />
       )
       const { rerender } = render(bar())
 
@@ -330,12 +337,12 @@ describe('DiscoverFilterBar', () => {
     const onChange = vi.fn()
     const onClear = vi.fn()
     const { rerender } = render(
-      <DiscoverFilterBar caps={tvCaps} filters={EMPTY_FILTERS} onChange={onChange} onClear={onClear} activeCount={0} />,
+      <DiscoverFilterBar caps={tvCaps} filters={EMPTY_FILTERS} onChange={onChange} onClear={onClear} activeCount={0} savedDefault={NO_DEFAULT} />,
     )
     expect(screen.queryByRole('button', { name: 'Clear filters' })).toBeNull()
 
     rerender(
-      <DiscoverFilterBar caps={tvCaps} filters={{ ...EMPTY_FILTERS, year: 2024 }} onChange={onChange} onClear={onClear} activeCount={1} />,
+      <DiscoverFilterBar caps={tvCaps} filters={{ ...EMPTY_FILTERS, year: 2024 }} onChange={onChange} onClear={onClear} activeCount={1} savedDefault={NO_DEFAULT} />,
     )
     await userEvent.click(await screen.findByRole('button', { name: 'Clear filters' }))
     expect(onClear).toHaveBeenCalled()
@@ -351,5 +358,30 @@ describe('DiscoverFilterBar', () => {
 
     expect(controls).not.toBeNull()
     expect(controls!.contains(clear)).toBe(true)
+  })
+
+  it('offers to save active filters as the default', async () => {
+    const onSave = vi.fn()
+    renderBar(tvCaps, { ...EMPTY_FILTERS, countries: ['US'] }, 1, { ...NO_DEFAULT, onSave })
+    await userEvent.click(screen.getByRole('button', { name: 'Save as default' }))
+    expect(onSave).toHaveBeenCalled()
+  })
+
+  it('does not offer to save when nothing is filtered', () => {
+    renderBar(tvCaps)
+    expect(screen.queryByRole('button', { name: 'Save as default' })).toBeNull()
+  })
+
+  it('marks filters that already match the default instead of offering to save', () => {
+    renderBar(tvCaps, { ...EMPTY_FILTERS, countries: ['US'] }, 1, { ...NO_DEFAULT, hasDefault: true, isDefault: true })
+    expect(screen.queryByRole('button', { name: 'Save as default' })).toBeNull()
+    expect(screen.getByText('Default filters')).toBeDefined()
+  })
+
+  it('offers to remove a saved default even when no filters are active', async () => {
+    const onRemove = vi.fn()
+    renderBar(tvCaps, EMPTY_FILTERS, 0, { ...NO_DEFAULT, hasDefault: true, onRemove })
+    await userEvent.click(screen.getByRole('button', { name: 'Remove default' }))
+    expect(onRemove).toHaveBeenCalled()
   })
 })

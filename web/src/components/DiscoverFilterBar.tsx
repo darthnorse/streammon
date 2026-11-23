@@ -15,12 +15,20 @@ import {
   type DiscoverSort,
 } from '../lib/discoverFilters'
 
+export interface SavedDefaultControls {
+  hasDefault: boolean
+  isDefault: boolean
+  onSave: () => void
+  onRemove: () => void
+}
+
 interface DiscoverFilterBarProps {
   caps: DiscoverCategoryCaps
   filters: DiscoverFilters
   onChange: (next: DiscoverFilters) => void
   onClear: () => void
   activeCount: number
+  savedDefault: SavedDefaultControls
 }
 
 const SORT_OPTIONS: DropdownOption<DiscoverSort>[] = [
@@ -44,6 +52,7 @@ const TYPE_SEGMENTS: { value: DiscoverMediaType | null; label: string }[] = [
 ]
 
 const labelClass = 'text-xs font-medium text-muted dark:text-muted-dark'
+const textButtonClass = 'text-xs hover:text-accent hover:underline transition-colors'
 
 type CodeField = 'countries' | 'languages'
 
@@ -91,7 +100,7 @@ const ARROW_DELTA: Record<string, number> = {
   ArrowUp: -1,
 }
 
-export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCount }: DiscoverFilterBarProps) {
+export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCount, savedDefault }: DiscoverFilterBarProps) {
   const [expanded, setExpanded] = useState(false)
   const mediaType = caps.mediaType ?? filters.type
   const { genres } = useTMDBGenres(mediaType)
@@ -243,14 +252,27 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
           <span className="text-xs text-muted dark:text-muted-dark">Choose Movies or TV to filter</span>
         )}
 
-        {activeCount > 0 && (
-          <button
-            type="button"
-            onClick={onClear}
-            className="ml-auto text-xs hover:text-accent hover:underline transition-colors"
-          >
-            Clear filters
-          </button>
+        {(activeCount > 0 || savedDefault.hasDefault) && (
+          <div className="ml-auto flex items-center gap-3">
+            {savedDefault.isDefault && (
+              <span className="text-xs text-muted dark:text-muted-dark">Default filters</span>
+            )}
+            {activeCount > 0 && !savedDefault.isDefault && (
+              <button type="button" onClick={savedDefault.onSave} className={textButtonClass}>
+                Save as default
+              </button>
+            )}
+            {savedDefault.hasDefault && (
+              <button type="button" onClick={savedDefault.onRemove} className={textButtonClass}>
+                Remove default
+              </button>
+            )}
+            {activeCount > 0 && (
+              <button type="button" onClick={onClear} className={textButtonClass}>
+                Clear filters
+              </button>
+            )}
+          </div>
         )}
       </div>
 

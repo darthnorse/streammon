@@ -55,7 +55,8 @@ export function DiscoverAll() {
   const { stack, push: pushModal, pop: popModal } = useModalStack()
 
   const { overseerrConfigured, libraryIds, mediaStatuses } = useDiscoverData()
-  const { filters, setFilters, clear, apiQuery, activeCount } = useDiscoverFilters(caps ?? EMPTY_CAPS)
+  const { filters, setFilters, clear, apiQuery, activeCount, hasDefault, isDefault, saveDefault, removeDefault } =
+    useDiscoverFilters(caps ?? EMPTY_CAPS)
 
   const url = cat && caps ? `/api/tmdb/discover/${category}${apiQuery ? `?${apiQuery}` : ''}` : null
   const { items, loading, loadingMore, hasMore, error, sentinelRef, retry, capped, loadMore } =
@@ -103,6 +104,7 @@ export function DiscoverAll() {
         onChange={setFilters}
         onClear={clear}
         activeCount={activeCount}
+        savedDefault={{ hasDefault, isDefault, onSave: saveDefault, onRemove: removeDefault }}
       />
 
       {loading && <EmptyState icon="&#8635;" title="Loading..." />}

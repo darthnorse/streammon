@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useDiscoverFilters } from '../hooks/useDiscoverFilters'
 import { useTMDBGenres } from '../hooks/useTMDBGenres'
-import { categoryCaps } from '../lib/discoverFilters'
+import { categoryCaps, defaultFromFilters, EMPTY_FILTERS, DISCOVER_DEFAULT_KEY } from '../lib/discoverFilters'
 
 vi.mock('../lib/api', () => ({
   api: { get: vi.fn() },
@@ -71,6 +71,84 @@ describe('useDiscoverFilters', () => {
     const first = result.current.apiQuery
     rerender()
     expect(result.current.apiQuery).toBe(first)
+  })
+})
+
+describe('useDiscoverFilters saved default', () => {
+  const movieCaps = categoryCaps('movies')!
+
+  beforeEach(() => localStorage.clear())
+
+  function store(filters = { ...EMPTY_FILTERS, countries: ['US', 'GB'], rating: 7 }) {
+    localStorage.setItem(DISCOVER_DEFAULT_KEY, JSON.stringify(defaultFromFilters(filters, movieCaps)))
+  }
+
+  it('applies the saved default when the URL carries no filters', async () => {
+    store()
+    const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv') })
+    await waitFor(() => expect(result.current.filters.countries).toEqual(['US', 'GB']))
+    expect(result.current.filters.rating).toBe(7)
+    expect(result.current.isDefault).toBe(true)
+  })
+
+  it('uses the default from the first render, so nothing is fetched unfiltered', () => {
+    store()
+    const queries: string[] = []
+    renderHook(() => {
+      const value = useDiscoverFilters(tvCaps)
+      queries.push(value.apiQuery)
+      return value
+    }, { wrapper: wrapperAt('/discover/tv') })
+    expect(queries[0]).toContain('countries=US%2CGB')
+  })
+
+  it('leaves an explicit URL alone', () => {
+    store()
+    const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv?year=2024') })
+    expect(result.current.filters.countries).toEqual([])
+    expect(result.current.filters.year).toBe(2024)
+  })
+
+  it('does not re-apply the default after the filters are cleared', async () => {
+    store()
+    const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv') })
+    await waitFor(() => expect(result.current.activeCount).toBe(2))
+    act(() => result.current.clear())
+    expect(result.current.activeCount).toBe(0)
+    expect(result.current.hasDefault).toBe(true)
+  })
+
+  it('saves and removes the default in localStorage', () => {
+    const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv?languages=en') })
+    expect(result.current.hasDefault).toBe(false)
+    expect(result.current.isDefault).toBe(false)
+
+    act(() => result.current.saveDefault())
+    expect(result.current.hasDefault).toBe(true)
+    expect(result.current.isDefault).toBe(true)
+    expect(localStorage.getItem(DISCOVER_DEFAULT_KEY)).toContain('languages=en')
+
+    act(() => result.current.removeDefault())
+    expect(result.current.hasDefault).toBe(false)
+    expect(localStorage.getItem(DISCOVER_DEFAULT_KEY)).toBeNull()
+  })
+
+  it('ignores a corrupt stored default', () => {
+    localStorage.setItem(DISCOVER_DEFAULT_KEY, '{oops')
+    const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv') })
+    expect(result.current.hasDefault).toBe(false)
+    expect(result.current.activeCount).toBe(0)
+  })
+
+  it('keeps working when localStorage throws', () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked') })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv?languages=en') })
+    expect(result.current.hasDefault).toBe(false)
+    act(() => result.current.saveDefault())
+    expect(result.current.filters.languages).toEqual(['en'])
+    spy.mockRestore()
+    vi.restoreAllMocks()
   })
 })
 

@@ -11,6 +11,9 @@ import {
   filtersToQuery,
   activeFilterCount,
   setMediaType,
+  defaultFromFilters,
+  defaultParamsFor,
+  parseStoredDefault,
   yearOptions,
 } from '../lib/discoverFilters'
 
@@ -371,5 +374,47 @@ describe('country and language filters', () => {
     expect(new Set(languages).size).toBe(languages.length)
     expect(countries.every(c => /^[A-Z]{2}$/.test(c))).toBe(true)
     expect(languages.every(l => /^[a-z]{2}$/.test(l))).toBe(true)
+  })
+})
+
+describe('saved default', () => {
+  const movieCaps = categoryCaps('movies')!
+  const tvUpcomingCaps = categoryCaps('tv/upcoming')!
+  const saved = defaultFromFilters(
+    { ...EMPTY_FILTERS, year: 2020, genres: [28], rating: 7, countries: ['US', 'GB'], languages: ['en'], hideOwned: true },
+    movieCaps,
+  )
+
+  it('records the genre media type and never the trending type', () => {
+    expect(saved.genreType).toBe('movie')
+    expect(new URLSearchParams(saved.query).has('type')).toBe(false)
+    const fromTrending = defaultFromFilters({ ...EMPTY_FILTERS, type: 'tv', genres: [18] }, trendingCaps)
+    expect(fromTrending.genreType).toBe('tv')
+    expect(new URLSearchParams(fromTrending.query).has('type')).toBe(false)
+  })
+
+  it('restores every filter on the page it was saved from', () => {
+    expect(filtersFromParams(defaultParamsFor(saved, movieCaps), movieCaps)).toEqual({
+      ...EMPTY_FILTERS, year: 2020, genres: [28], rating: 7, countries: ['US', 'GB'], languages: ['en'], hideOwned: true,
+    })
+  })
+
+  it('drops genres on a page of the other media type, and year where unsupported', () => {
+    const params = defaultParamsFor(saved, tvUpcomingCaps)
+    expect(params.has('genres')).toBe(false)
+    expect(params.has('year')).toBe(false)
+    expect(params.get('countries')).toBe('US,GB')
+    expect(params.get('rating')).toBe('7')
+  })
+
+  it('applies only hide-owned on trending until a type is chosen', () => {
+    expect(defaultParamsFor(saved, trendingCaps).toString()).toBe('hide_owned=1')
+  })
+
+  it('round-trips through storage and rejects malformed values', () => {
+    expect(parseStoredDefault(JSON.stringify(saved))).toEqual(saved)
+    for (const raw of [null, '', 'not json', '42', '{"query":1}', '{"query":"a=1","genreType":"person"}']) {
+      expect(parseStoredDefault(raw)).toBeNull()
+    }
   })
 })
