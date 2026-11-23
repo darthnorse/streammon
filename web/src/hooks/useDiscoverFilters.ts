@@ -29,7 +29,7 @@ function readStoredDefault(): StoredDiscoverDefault | null {
   return parseStoredDefault(safeGetItem(DISCOVER_DEFAULT_KEY))
 }
 
-// caps is null for an unknown category: filters still parse, but no saved
+// knownCaps is null for an unknown category: filters still parse, but no saved
 // default is applied or offered there.
 export function useDiscoverFilters(knownCaps: DiscoverCategoryCaps | null) {
   const caps = knownCaps ?? NO_CAPS
@@ -41,7 +41,9 @@ export function useDiscoverFilters(knownCaps: DiscoverCategoryCaps | null) {
     (type: DiscoverFilters['type']) => {
       if (!activeDefault) return null
       const params = defaultParamsFor(activeDefault, caps, type)
-      return params.toString() ? params : null
+      const saved = new URLSearchParams(params)
+      saved.delete('type')
+      return saved.toString() ? params : null
     },
     [activeDefault, caps],
   )
@@ -68,11 +70,15 @@ export function useDiscoverFilters(knownCaps: DiscoverCategoryCaps | null) {
   // replace, not push: a dropdown row would otherwise add a history entry per
   // interaction and Back would take many presses to leave the page.
   // Picking a type on a mixed category is what lets the default's server-side
-  // filters apply there, so that transition brings the default in.
+  // filters apply there, so that transition brings them in. hideOwned already
+  // applied before the type was picked, so the user's current choice wins.
   const setFilters = useCallback(
     (next: DiscoverFilters) => {
       const typed = caps.type && filters.type === null && next.type !== null ? defaultFor(next.type) : null
-      setSearchParams(typed ?? filtersToParams(next, caps), { replace: true })
+      const params = typed
+        ? filtersToParams({ ...filtersFromParams(typed, caps), hideOwned: next.hideOwned }, caps)
+        : filtersToParams(next, caps)
+      setSearchParams(params, { replace: true })
     },
     [setSearchParams, caps, filters.type, defaultFor],
   )

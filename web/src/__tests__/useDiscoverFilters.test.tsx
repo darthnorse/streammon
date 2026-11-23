@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { useDiscoverFilters } from '../hooks/useDiscoverFilters'
 import { useTMDBGenres } from '../hooks/useTMDBGenres'
-import { categoryCaps, defaultFromFilters, EMPTY_FILTERS, DISCOVER_DEFAULT_KEY } from '../lib/discoverFilters'
+import { categoryCaps, defaultFromFilters, EMPTY_FILTERS, DISCOVER_DEFAULT_KEY, type DiscoverFilters } from '../lib/discoverFilters'
 
 vi.mock('../lib/api', () => ({
   api: { get: vi.fn() },
@@ -79,7 +79,7 @@ describe('useDiscoverFilters saved default', () => {
 
   beforeEach(() => localStorage.clear())
 
-  function store(filters = { ...EMPTY_FILTERS, countries: ['US', 'GB'], rating: 7 }) {
+  function store(filters: DiscoverFilters = { ...EMPTY_FILTERS, countries: ['US', 'GB'], rating: 7 }) {
     localStorage.setItem(DISCOVER_DEFAULT_KEY, JSON.stringify(defaultFromFilters(filters, movieCaps)))
   }
 
@@ -140,6 +140,24 @@ describe('useDiscoverFilters saved default', () => {
     act(() => result.current.setFilters({ ...result.current.filters, type: 'tv' }))
     expect(result.current.filters).toEqual({ ...EMPTY_FILTERS, type: 'tv', countries: ['US'], rating: 7 })
     expect(result.current.savedDefault.isDefault).toBe(true)
+  })
+
+  it('keeps the current hide-owned choice when a trending type brings the default in', () => {
+    store({ ...EMPTY_FILTERS, rating: 7 })
+    const { result } = renderHook(() => useDiscoverFilters(trendingCaps), { wrapper: wrapperAt('/discover/trending?hide_owned=1') })
+    act(() => result.current.setFilters({ ...result.current.filters, type: 'tv' }))
+    expect(result.current.filters).toEqual({ ...EMPTY_FILTERS, type: 'tv', rating: 7, hideOwned: true })
+
+    store({ ...EMPTY_FILTERS, rating: 7, hideOwned: true })
+    const second = renderHook(() => useDiscoverFilters(trendingCaps), { wrapper: wrapperAt('/discover/trending') })
+    act(() => second.result.current.setFilters({ ...second.result.current.filters, hideOwned: false, type: 'movie' }))
+    expect(second.result.current.filters.hideOwned).toBe(false)
+  })
+
+  it('does not call a bare type selection the default when nothing saved applies to it', () => {
+    store({ ...EMPTY_FILTERS, genres: [28] })
+    const { result } = renderHook(() => useDiscoverFilters(trendingCaps), { wrapper: wrapperAt('/discover/trending?type=tv') })
+    expect(result.current.savedDefault.isDefault).toBe(false)
   })
 
   it('cannot save a trending selection that only picks a type', () => {
