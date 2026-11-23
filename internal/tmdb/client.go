@@ -1,6 +1,7 @@
 package tmdb
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -221,13 +221,12 @@ type DiscoverFilters struct {
 	Now               time.Time
 }
 
-// joinCanonicalOr formats codes as a TMDB OR filter. Sorted and deduplicated
-// so equivalent selections share a cache key; copied so the caller's slice is
-// left alone.
-func joinCanonicalOr(codes []string) string {
-	sorted := slices.Clone(codes)
+// canonical returns a sorted, deduplicated copy so equivalent filter
+// selections share a cache key without mutating the caller's slice.
+func canonical[T cmp.Ordered](values []T) []T {
+	sorted := slices.Clone(values)
 	slices.Sort(sorted)
-	return strings.Join(slices.Compact(sorted), "|")
+	return slices.Compact(sorted)
 }
 
 func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilters, page int) (json.RawMessage, error) {
@@ -269,14 +268,7 @@ func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilte
 	}
 
 	if len(f.GenreIDs) > 0 {
-		// AND filter, so order and duplicates are not semantically meaningful but
-		// would otherwise fork the cache key; canonicalise before formatting.
-		// Copy first — this must not mutate the caller's slice.
-		genreIDs := make([]int, len(f.GenreIDs))
-		copy(genreIDs, f.GenreIDs)
-		sort.Ints(genreIDs)
-		genreIDs = slices.Compact(genreIDs)
-
+		genreIDs := canonical(f.GenreIDs)
 		ids := make([]string, len(genreIDs))
 		for i, id := range genreIDs {
 			ids[i] = strconv.Itoa(id)
@@ -285,10 +277,10 @@ func (c *Client) Discover(ctx context.Context, mediaType string, f DiscoverFilte
 	}
 
 	if len(f.OriginCountries) > 0 {
-		params.Set("with_origin_country", joinCanonicalOr(f.OriginCountries))
+		params.Set("with_origin_country", strings.Join(canonical(f.OriginCountries), "|"))
 	}
 	if len(f.OriginalLanguages) > 0 {
-		params.Set("with_original_language", joinCanonicalOr(f.OriginalLanguages))
+		params.Set("with_original_language", strings.Join(canonical(f.OriginalLanguages), "|"))
 	}
 
 	sortBy := "popularity.desc"

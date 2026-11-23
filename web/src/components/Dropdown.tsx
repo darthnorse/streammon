@@ -7,7 +7,7 @@ export interface DropdownOption<T extends string = string> {
 }
 
 interface SingleDropdownProps<T extends string = string> {
-  options: DropdownOption<T>[]
+  options: readonly DropdownOption<T>[]
   value: T
   onChange: (value: T) => void
   label?: string
@@ -18,14 +18,14 @@ interface SingleDropdownProps<T extends string = string> {
 }
 
 interface MultiDropdownProps<T extends string = string> {
-  options: DropdownOption<T>[]
-  selected: T[]
+  options: readonly DropdownOption<T>[]
+  selected: readonly T[]
   onChange: (selected: T[]) => void
   allLabel?: string
   noneLabel?: string
   className?: string
   disabled?: boolean
-  disabledOptions?: T[]
+  disabledOptions?: readonly T[]
   'aria-label'?: string
   multi: true
 }

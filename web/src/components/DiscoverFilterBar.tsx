@@ -45,23 +45,36 @@ const TYPE_SEGMENTS: { value: DiscoverMediaType | null; label: string }[] = [
 
 const labelClass = 'text-xs font-medium text-muted dark:text-muted-dark'
 
-const COUNTRY_OPTS = [...COUNTRY_OPTIONS]
-const LANGUAGE_OPTS = [...LANGUAGE_OPTIONS]
+type CodeField = 'countries' | 'languages'
+
+const CODE_FILTERS: { field: CodeField; label: string; ariaLabel: string; noneLabel: string; options: readonly DropdownOption[] }[] = [
+  { field: 'countries', label: 'Country', ariaLabel: 'Countries', noneLabel: 'Any country', options: COUNTRY_OPTIONS },
+  { field: 'languages', label: 'Language', ariaLabel: 'Original languages', noneLabel: 'Any language', options: LANGUAGE_OPTIONS },
+]
 
 // Once a multi-select reaches its cap, every unselected option is disabled.
-function optionsBeyondCap(options: DropdownOption[], selected: readonly string[], cap: number): string[] {
+function optionsBeyondCap(options: readonly DropdownOption[], selected: readonly string[], cap: number): string[] {
   if (selected.length < cap) return []
   return options.map(o => o.value).filter(v => !selected.includes(v))
-}
-
-function selectedOptions(options: DropdownOption[], selected: readonly string[]): DropdownOption[] {
-  return selected.flatMap(value => options.find(o => o.value === value) ?? [])
 }
 
 interface Chip {
   key: string
   label: string
   remove: () => void
+}
+
+function chipsFor(
+  prefix: string,
+  options: readonly DropdownOption[],
+  selected: readonly string[],
+  onRemove: (remaining: string[]) => void,
+): Chip[] {
+  return selected.flatMap(value => {
+    const option = options.find(o => o.value === value)
+    if (!option) return []
+    return [{ key: `${prefix}-${value}`, label: option.label, remove: () => onRemove(selected.filter(v => v !== value)) }]
+  })
 }
 
 // The selected segment sits on an accent background, so only the unselected ones
@@ -100,21 +113,10 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
   const selectedGenreValues = useMemo(() => filters.genres.map(String), [filters.genres])
 
   const chips: Chip[] = [
-    ...selectedOptions(genreOpts, selectedGenreValues).map(o => ({
-      key: `genre-${o.value}`,
-      label: o.label,
-      remove: () => onChange({ ...filters, genres: filters.genres.filter(id => String(id) !== o.value) }),
-    })),
-    ...selectedOptions(COUNTRY_OPTS, filters.countries).map(o => ({
-      key: `country-${o.value}`,
-      label: o.label,
-      remove: () => onChange({ ...filters, countries: filters.countries.filter(c => c !== o.value) }),
-    })),
-    ...selectedOptions(LANGUAGE_OPTS, filters.languages).map(o => ({
-      key: `language-${o.value}`,
-      label: o.label,
-      remove: () => onChange({ ...filters, languages: filters.languages.filter(l => l !== o.value) }),
-    })),
+    ...chipsFor('genres', genreOpts, selectedGenreValues, rest => onChange({ ...filters, genres: rest.map(Number) })),
+    ...CODE_FILTERS.flatMap(({ field, options }) =>
+      chipsFor(field, options, filters[field], rest => onChange({ ...filters, [field]: rest })),
+    ),
   ]
 
   function handleSegmentKey(e: KeyboardEvent<HTMLButtonElement>, index: number) {
@@ -192,33 +194,21 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className={labelClass}>Country</span>
-          <Dropdown
-            multi
-            aria-label="Countries"
-            disabled={disabled}
-            disabledOptions={optionsBeyondCap(COUNTRY_OPTS, filters.countries, MAX_CODES)}
-            noneLabel="Any country"
-            options={COUNTRY_OPTS}
-            selected={[...filters.countries]}
-            onChange={countries => onChange({ ...filters, countries })}
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <span className={labelClass}>Language</span>
-          <Dropdown
-            multi
-            aria-label="Original languages"
-            disabled={disabled}
-            disabledOptions={optionsBeyondCap(LANGUAGE_OPTS, filters.languages, MAX_CODES)}
-            noneLabel="Any language"
-            options={LANGUAGE_OPTS}
-            selected={[...filters.languages]}
-            onChange={languages => onChange({ ...filters, languages })}
-          />
-        </div>
+        {CODE_FILTERS.map(({ field, label, ariaLabel, noneLabel, options }) => (
+          <div key={field} className="flex items-center gap-2">
+            <span className={labelClass}>{label}</span>
+            <Dropdown
+              multi
+              aria-label={ariaLabel}
+              disabled={disabled}
+              disabledOptions={optionsBeyondCap(options, filters[field], MAX_CODES)}
+              noneLabel={noneLabel}
+              options={options}
+              selected={filters[field]}
+              onChange={values => onChange({ ...filters, [field]: values })}
+            />
+          </div>
+        ))}
 
         <div className="flex items-center gap-2">
           <span className={labelClass}>Sort</span>

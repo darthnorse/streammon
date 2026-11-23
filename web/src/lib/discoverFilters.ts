@@ -137,10 +137,14 @@ function parseType(raw: string | null): DiscoverMediaType | null {
 
 const CANONICAL_DIGITS = /^[1-9]\d*$/
 
+function hasDuplicates(parts: string[]): boolean {
+  return new Set(parts).size !== parts.length
+}
+
 function parseGenres(raw: string | null): number[] {
   if (!raw) return []
   const parts = raw.split(',')
-  if (parts.length > MAX_GENRES) return []
+  if (parts.length > MAX_GENRES || hasDuplicates(parts)) return []
   if (parts.some(part => !CANONICAL_DIGITS.test(part))) return []
   const ids = parts.map(part => Number(part))
   if (ids.some(id => !Number.isSafeInteger(id) || id > MAX_GENRE_ID)) return []
@@ -152,7 +156,7 @@ function parseGenres(raw: string | null): number[] {
 function parseCodes(raw: string | null, options: readonly DropdownOption[]): string[] {
   if (!raw) return []
   const parts = raw.split(',')
-  if (parts.length > MAX_CODES) return []
+  if (parts.length > MAX_CODES || hasDuplicates(parts)) return []
   if (parts.some(part => !options.some(o => o.value === part))) return []
   return parts
 }
