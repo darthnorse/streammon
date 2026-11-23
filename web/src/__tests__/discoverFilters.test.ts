@@ -335,10 +335,10 @@ describe('country and language filters', () => {
     }
   })
 
-  it('drops a list that repeats a code, so one code cannot fill the cap', () => {
-    expect(filtersFromParams(new URLSearchParams('countries=US,US'), tvCaps).countries).toEqual([])
-    expect(filtersFromParams(new URLSearchParams('languages=en,en'), tvCaps).languages).toEqual([])
-    expect(filtersFromParams(new URLSearchParams('genres=80,80'), tvCaps).genres).toEqual([])
+  it('collapses repeated codes so one code cannot fill the cap', () => {
+    expect(filtersFromParams(new URLSearchParams('countries=US,GB,US'), tvCaps).countries).toEqual(['US', 'GB'])
+    expect(filtersFromParams(new URLSearchParams('languages=en,en,en,en,en,fr'), tvCaps).languages).toEqual(['en', 'fr'])
+    expect(filtersFromParams(new URLSearchParams('genres=80,18,80'), tvCaps).genres).toEqual([80, 18])
   })
 
   it('serialises both lists comma-separated into the API query', () => {

@@ -137,14 +137,17 @@ function parseType(raw: string | null): DiscoverMediaType | null {
 
 const CANONICAL_DIGITS = /^[1-9]\d*$/
 
-function hasDuplicates(parts: string[]): boolean {
-  return new Set(parts).size !== parts.length
+// Repeats collapse rather than count against the cap, so a hand-edited link
+// cannot fill every slot with one value.
+function splitDistinct(raw: string | null, max: number): string[] | null {
+  if (!raw) return null
+  const parts = [...new Set(raw.split(','))]
+  return parts.length > max ? null : parts
 }
 
 function parseGenres(raw: string | null): number[] {
-  if (!raw) return []
-  const parts = raw.split(',')
-  if (parts.length > MAX_GENRES || hasDuplicates(parts)) return []
+  const parts = splitDistinct(raw, MAX_GENRES)
+  if (!parts) return []
   if (parts.some(part => !CANONICAL_DIGITS.test(part))) return []
   const ids = parts.map(part => Number(part))
   if (ids.some(id => !Number.isSafeInteger(id) || id > MAX_GENRE_ID)) return []
@@ -154,9 +157,8 @@ function parseGenres(raw: string | null): number[] {
 // All-or-nothing like parseGenres: one bad code drops the list rather than
 // silently narrowing to a different selection than the link described.
 function parseCodes(raw: string | null, options: readonly DropdownOption[]): string[] {
-  if (!raw) return []
-  const parts = raw.split(',')
-  if (parts.length > MAX_CODES || hasDuplicates(parts)) return []
+  const parts = splitDistinct(raw, MAX_CODES)
+  if (!parts) return []
   if (parts.some(part => !options.some(o => o.value === part))) return []
   return parts
 }
