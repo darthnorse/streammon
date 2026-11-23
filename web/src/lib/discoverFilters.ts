@@ -265,9 +265,16 @@ export function defaultFromFilters(filters: DiscoverFilters, caps: DiscoverCateg
   return { query: params.toString(), genreType: caps.mediaType ?? filters.type }
 }
 
-export function defaultParamsFor(stored: StoredDiscoverDefault, caps: DiscoverCategoryCaps): URLSearchParams {
+// type is the media type chosen on a mixed category; without one there, only
+// the client-side filters can apply.
+export function defaultParamsFor(
+  stored: StoredDiscoverDefault,
+  caps: DiscoverCategoryCaps,
+  type: DiscoverMediaType | null,
+): URLSearchParams {
   const params = new URLSearchParams(stored.query)
-  if (stored.genreType !== caps.mediaType) params.delete('genres')
+  if (stored.genreType !== (caps.mediaType ?? type)) params.delete('genres')
+  if (caps.type && type) params.set('type', type)
   return filtersToParams(filtersFromParams(params, caps), caps)
 }
 

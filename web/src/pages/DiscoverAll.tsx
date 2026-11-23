@@ -9,7 +9,7 @@ import { ModalStackRenderer } from '../components/ModalStackRenderer'
 import { EmptyState } from '../components/EmptyState'
 import { DiscoverFilterBar } from '../components/DiscoverFilterBar'
 import { useDiscoverFilters } from '../hooks/useDiscoverFilters'
-import { categoryCaps, type DiscoverCategoryCaps } from '../lib/discoverFilters'
+import { categoryCaps } from '../lib/discoverFilters'
 import { ownedKey } from '../lib/tmdb'
 import { MEDIA_STATUS } from '../lib/overseerr'
 import type { TMDBMediaResult } from '../types'
@@ -41,10 +41,6 @@ function findCategory(path: string) {
   return DISCOVER_CATEGORIES.find(c => c.path === path)
 }
 
-// caps is null only for an unknown category, which returns early; a module-level
-// fallback keeps the hook call unconditional without churning its memo identity.
-const EMPTY_CAPS: DiscoverCategoryCaps = { year: false, type: false, mediaType: null }
-
 export function DiscoverAll() {
   const { '*': splat } = useParams()
   const category = splat ?? ''
@@ -55,8 +51,7 @@ export function DiscoverAll() {
   const { stack, push: pushModal, pop: popModal } = useModalStack()
 
   const { overseerrConfigured, libraryIds, mediaStatuses } = useDiscoverData()
-  const { filters, setFilters, clear, apiQuery, activeCount, hasDefault, isDefault, saveDefault, removeDefault } =
-    useDiscoverFilters(caps ?? EMPTY_CAPS)
+  const { filters, setFilters, clear, apiQuery, activeCount, savedDefault } = useDiscoverFilters(caps)
 
   const url = cat && caps ? `/api/tmdb/discover/${category}${apiQuery ? `?${apiQuery}` : ''}` : null
   const { items, loading, loadingMore, hasMore, error, sentinelRef, retry, capped, loadMore } =
@@ -104,7 +99,7 @@ export function DiscoverAll() {
         onChange={setFilters}
         onClear={clear}
         activeCount={activeCount}
-        savedDefault={{ hasDefault, isDefault, onSave: saveDefault, onRemove: removeDefault }}
+        savedDefault={savedDefault}
       />
 
       {loading && <EmptyState icon="&#8635;" title="Loading..." />}

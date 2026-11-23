@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { DiscoverFilterBar, type SavedDefaultControls } from '../components/DiscoverFilterBar'
+import { DiscoverFilterBar } from '../components/DiscoverFilterBar'
+import type { SavedDefaultControls } from '../hooks/useDiscoverFilters'
 import { EMPTY_FILTERS, MAX_GENRES, categoryCaps, yearOptions, type DiscoverFilters } from '../lib/discoverFilters'
 
 vi.mock('../lib/api', () => ({
@@ -30,7 +31,7 @@ function trigger(field: string) {
   return screen.getByRole('button', { name: new RegExp(`^${field}: `) })
 }
 
-const NO_DEFAULT: SavedDefaultControls = { hasDefault: false, isDefault: false, onSave: () => {}, onRemove: () => {} }
+const NO_DEFAULT: SavedDefaultControls = { hasDefault: false, isDefault: false, canSave: false, onSave: () => {}, onRemove: () => {} }
 
 function renderBar(
   caps = tvCaps,
@@ -362,18 +363,18 @@ describe('DiscoverFilterBar', () => {
 
   it('offers to save active filters as the default', async () => {
     const onSave = vi.fn()
-    renderBar(tvCaps, { ...EMPTY_FILTERS, countries: ['US'] }, 1, { ...NO_DEFAULT, onSave })
+    renderBar(tvCaps, { ...EMPTY_FILTERS, countries: ['US'] }, 1, { ...NO_DEFAULT, canSave: true, onSave })
     await userEvent.click(screen.getByRole('button', { name: 'Save as default' }))
     expect(onSave).toHaveBeenCalled()
   })
 
-  it('does not offer to save when nothing is filtered', () => {
-    renderBar(tvCaps)
+  it('does not offer to save when there is nothing savable', () => {
+    renderBar(trendingCaps, { ...EMPTY_FILTERS, type: 'tv' }, 1)
     expect(screen.queryByRole('button', { name: 'Save as default' })).toBeNull()
   })
 
   it('marks filters that already match the default instead of offering to save', () => {
-    renderBar(tvCaps, { ...EMPTY_FILTERS, countries: ['US'] }, 1, { ...NO_DEFAULT, hasDefault: true, isDefault: true })
+    renderBar(tvCaps, { ...EMPTY_FILTERS, countries: ['US'] }, 1, { ...NO_DEFAULT, hasDefault: true, isDefault: true, canSave: true })
     expect(screen.queryByRole('button', { name: 'Save as default' })).toBeNull()
     expect(screen.getByText('Default filters')).toBeDefined()
   })

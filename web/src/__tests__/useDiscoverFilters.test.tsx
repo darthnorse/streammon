@@ -88,7 +88,7 @@ describe('useDiscoverFilters saved default', () => {
     const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv') })
     await waitFor(() => expect(result.current.filters.countries).toEqual(['US', 'GB']))
     expect(result.current.filters.rating).toBe(7)
-    expect(result.current.isDefault).toBe(true)
+    expect(result.current.savedDefault.isDefault).toBe(true)
   })
 
   it('uses the default from the first render, so nothing is fetched unfiltered', () => {
@@ -115,28 +115,49 @@ describe('useDiscoverFilters saved default', () => {
     await waitFor(() => expect(result.current.activeCount).toBe(2))
     act(() => result.current.clear())
     expect(result.current.activeCount).toBe(0)
-    expect(result.current.hasDefault).toBe(true)
+    expect(result.current.savedDefault.hasDefault).toBe(true)
   })
 
   it('saves and removes the default in localStorage', () => {
     const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv?languages=en') })
-    expect(result.current.hasDefault).toBe(false)
-    expect(result.current.isDefault).toBe(false)
+    expect(result.current.savedDefault.hasDefault).toBe(false)
+    expect(result.current.savedDefault.isDefault).toBe(false)
 
-    act(() => result.current.saveDefault())
-    expect(result.current.hasDefault).toBe(true)
-    expect(result.current.isDefault).toBe(true)
+    act(() => result.current.savedDefault.onSave())
+    expect(result.current.savedDefault.hasDefault).toBe(true)
+    expect(result.current.savedDefault.isDefault).toBe(true)
     expect(localStorage.getItem(DISCOVER_DEFAULT_KEY)).toContain('languages=en')
 
-    act(() => result.current.removeDefault())
-    expect(result.current.hasDefault).toBe(false)
+    act(() => result.current.savedDefault.onRemove())
+    expect(result.current.savedDefault.hasDefault).toBe(false)
     expect(localStorage.getItem(DISCOVER_DEFAULT_KEY)).toBeNull()
+  })
+
+  it('applies the default on trending when a type is picked, and reports it as the default', () => {
+    store({ ...EMPTY_FILTERS, countries: ['US'], rating: 7 })
+    const { result } = renderHook(() => useDiscoverFilters(trendingCaps), { wrapper: wrapperAt('/discover/trending') })
+    expect(result.current.savedDefault.isDefault).toBe(false)
+    act(() => result.current.setFilters({ ...result.current.filters, type: 'tv' }))
+    expect(result.current.filters).toEqual({ ...EMPTY_FILTERS, type: 'tv', countries: ['US'], rating: 7 })
+    expect(result.current.savedDefault.isDefault).toBe(true)
+  })
+
+  it('cannot save a trending selection that only picks a type', () => {
+    const { result } = renderHook(() => useDiscoverFilters(trendingCaps), { wrapper: wrapperAt('/discover/trending?type=tv') })
+    expect(result.current.savedDefault.canSave).toBe(false)
+  })
+
+  it('applies no default for an unknown category', () => {
+    store()
+    const { result } = renderHook(() => useDiscoverFilters(null), { wrapper: wrapperAt('/discover/bogus') })
+    expect(result.current.activeCount).toBe(0)
+    expect(result.current.savedDefault.hasDefault).toBe(false)
   })
 
   it('ignores a corrupt stored default', () => {
     localStorage.setItem(DISCOVER_DEFAULT_KEY, '{oops')
     const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv') })
-    expect(result.current.hasDefault).toBe(false)
+    expect(result.current.savedDefault.hasDefault).toBe(false)
     expect(result.current.activeCount).toBe(0)
   })
 
@@ -144,9 +165,10 @@ describe('useDiscoverFilters saved default', () => {
     const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked') })
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
     const { result } = renderHook(() => useDiscoverFilters(tvCaps), { wrapper: wrapperAt('/discover/tv?languages=en') })
-    expect(result.current.hasDefault).toBe(false)
-    act(() => result.current.saveDefault())
+    expect(result.current.savedDefault.hasDefault).toBe(false)
+    act(() => result.current.savedDefault.onSave())
     expect(result.current.filters.languages).toEqual(['en'])
+    expect(result.current.savedDefault.hasDefault).toBe(false)
     spy.mockRestore()
     vi.restoreAllMocks()
   })

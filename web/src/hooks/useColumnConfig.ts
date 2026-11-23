@@ -1,26 +1,13 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import type { ColumnDef } from '../lib/historyColumns'
 import { getDefaultVisibleColumns } from '../lib/historyColumns'
+import { safeGetItem, safeSetItem } from '../lib/storage'
 
 export interface ColumnConfig {
   visibleColumns: string[]
   toggleColumn: (id: string) => void
   moveColumn: (id: string, direction: 'up' | 'down') => void
   resetToDefaults: () => void
-}
-
-function safeGetItem(key: string): string | null {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null
-  }
-}
-
-function safeSetItem(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value)
-  } catch {}
 }
 
 function loadStoredColumns(storageKey: string): string[] | null {

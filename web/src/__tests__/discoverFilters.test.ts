@@ -394,13 +394,13 @@ describe('saved default', () => {
   })
 
   it('restores every filter on the page it was saved from', () => {
-    expect(filtersFromParams(defaultParamsFor(saved, movieCaps), movieCaps)).toEqual({
+    expect(filtersFromParams(defaultParamsFor(saved, movieCaps, null), movieCaps)).toEqual({
       ...EMPTY_FILTERS, year: 2020, genres: [28], rating: 7, countries: ['US', 'GB'], languages: ['en'], hideOwned: true,
     })
   })
 
   it('drops genres on a page of the other media type, and year where unsupported', () => {
-    const params = defaultParamsFor(saved, tvUpcomingCaps)
+    const params = defaultParamsFor(saved, tvUpcomingCaps, null)
     expect(params.has('genres')).toBe(false)
     expect(params.has('year')).toBe(false)
     expect(params.get('countries')).toBe('US,GB')
@@ -408,7 +408,21 @@ describe('saved default', () => {
   })
 
   it('applies only hide-owned on trending until a type is chosen', () => {
-    expect(defaultParamsFor(saved, trendingCaps).toString()).toBe('hide_owned=1')
+    expect(defaultParamsFor(saved, trendingCaps, null).toString()).toBe('hide_owned=1')
+  })
+
+  it('applies the full default on trending once a type is chosen', () => {
+    const movie = filtersFromParams(defaultParamsFor(saved, trendingCaps, 'movie'), trendingCaps)
+    expect(movie).toEqual({
+      ...EMPTY_FILTERS, type: 'movie', year: 2020, genres: [28], rating: 7, countries: ['US', 'GB'], languages: ['en'], hideOwned: true,
+    })
+    const tv = filtersFromParams(defaultParamsFor(saved, trendingCaps, 'tv'), trendingCaps)
+    expect(tv.genres).toEqual([])
+    expect(tv.countries).toEqual(['US', 'GB'])
+  })
+
+  it('treats a type-only trending selection as nothing to save', () => {
+    expect(defaultFromFilters({ ...EMPTY_FILTERS, type: 'movie' }, trendingCaps).query).toBe('')
   })
 
   it('round-trips through storage and rejects malformed values', () => {

@@ -13,31 +13,37 @@ import {
   type DiscoverFilters,
   type StoredDiscoverDefault,
 } from '../lib/discoverFilters'
+import { safeGetItem, safeRemoveItem, safeSetItem } from '../lib/storage'
+
+export interface SavedDefaultControls {
+  hasDefault: boolean
+  isDefault: boolean
+  canSave: boolean
+  onSave: () => void
+  onRemove: () => void
+}
+
+const NO_CAPS: DiscoverCategoryCaps = { year: false, type: false, mediaType: null }
 
 function readStoredDefault(): StoredDiscoverDefault | null {
-  try {
-    return parseStoredDefault(localStorage.getItem(DISCOVER_DEFAULT_KEY))
-  } catch {
-    return null
-  }
+  return parseStoredDefault(safeGetItem(DISCOVER_DEFAULT_KEY))
 }
 
-function writeStoredDefault(value: StoredDiscoverDefault | null) {
-  try {
-    if (value) localStorage.setItem(DISCOVER_DEFAULT_KEY, JSON.stringify(value))
-    else localStorage.removeItem(DISCOVER_DEFAULT_KEY)
-  } catch {
-    return
-  }
-}
-
-export function useDiscoverFilters(caps: DiscoverCategoryCaps) {
+// caps is null for an unknown category: filters still parse, but no saved
+// default is applied or offered there.
+export function useDiscoverFilters(knownCaps: DiscoverCategoryCaps | null) {
+  const caps = knownCaps ?? NO_CAPS
   const [searchParams, setSearchParams] = useSearchParams()
   const [storedDefault, setStoredDefault] = useState(readStoredDefault)
+  const activeDefault = knownCaps ? storedDefault : null
 
-  const defaultParams = useMemo(
-    () => (storedDefault ? defaultParamsFor(storedDefault, caps) : null),
-    [storedDefault, caps],
+  const defaultFor = useCallback(
+    (type: DiscoverFilters['type']) => {
+      if (!activeDefault) return null
+      const params = defaultParamsFor(activeDefault, caps, type)
+      return params.toString() ? params : null
+    },
+    [activeDefault, caps],
   )
 
   // The default fills an empty URL once per category visit. Until the effect
@@ -46,27 +52,29 @@ export function useDiscoverFilters(caps: DiscoverCategoryCaps) {
   // re-applying on every empty URL would put the default straight back after
   // the user clears it.
   const appliedFor = useRef<DiscoverCategoryCaps | null>(null)
-  const pendingDefault =
-    appliedFor.current !== caps && searchParams.toString() === '' && !!defaultParams && defaultParams.toString() !== ''
-  const effectiveParams = pendingDefault && defaultParams ? defaultParams : searchParams
+  const landingDefault = useMemo(() => defaultFor(null), [defaultFor])
+  const pendingDefault = appliedFor.current !== caps && searchParams.toString() === '' ? landingDefault : null
 
   useEffect(() => {
     appliedFor.current = caps
-    if (pendingDefault && defaultParams) setSearchParams(defaultParams, { replace: true })
-  }, [caps, pendingDefault, defaultParams, setSearchParams])
+    if (pendingDefault) setSearchParams(pendingDefault, { replace: true })
+  }, [caps, pendingDefault, setSearchParams])
 
-  const filters = useMemo(() => filtersFromParams(effectiveParams, caps), [effectiveParams, caps])
+  const filters = useMemo(() => filtersFromParams(pendingDefault ?? searchParams, caps), [pendingDefault, searchParams, caps])
   const apiQuery = useMemo(() => filtersToQuery(filters, caps), [filters, caps])
   const activeCount = useMemo(() => activeFilterCount(filters, caps), [filters, caps])
-  const isDefault =
-    defaultParams !== null && defaultParams.toString() !== '' &&
-    defaultParams.toString() === filtersToParams(filters, caps).toString()
+  const currentQuery = filtersToParams(filters, caps).toString()
 
   // replace, not push: a dropdown row would otherwise add a history entry per
   // interaction and Back would take many presses to leave the page.
+  // Picking a type on a mixed category is what lets the default's server-side
+  // filters apply there, so that transition brings the default in.
   const setFilters = useCallback(
-    (next: DiscoverFilters) => setSearchParams(filtersToParams(next, caps), { replace: true }),
-    [setSearchParams, caps],
+    (next: DiscoverFilters) => {
+      const typed = caps.type && filters.type === null && next.type !== null ? defaultFor(next.type) : null
+      setSearchParams(typed ?? filtersToParams(next, caps), { replace: true })
+    },
+    [setSearchParams, caps, filters.type, defaultFor],
   )
 
   const clear = useCallback(
@@ -74,26 +82,22 @@ export function useDiscoverFilters(caps: DiscoverCategoryCaps) {
     [setSearchParams],
   )
 
-  const saveDefault = useCallback(() => {
-    const value = defaultFromFilters(filters, caps)
-    writeStoredDefault(value)
-    setStoredDefault(value)
-  }, [filters, caps])
+  const toSave = useMemo(() => defaultFromFilters(filters, caps), [filters, caps])
+  const onSave = useCallback(() => {
+    if (safeSetItem(DISCOVER_DEFAULT_KEY, JSON.stringify(toSave))) setStoredDefault(toSave)
+  }, [toSave])
 
-  const removeDefault = useCallback(() => {
-    writeStoredDefault(null)
-    setStoredDefault(null)
+  const onRemove = useCallback(() => {
+    if (safeRemoveItem(DISCOVER_DEFAULT_KEY)) setStoredDefault(null)
   }, [])
 
-  return {
-    filters,
-    setFilters,
-    clear,
-    apiQuery,
-    activeCount,
-    hasDefault: storedDefault !== null,
-    isDefault,
-    saveDefault,
-    removeDefault,
+  const savedDefault: SavedDefaultControls = {
+    hasDefault: activeDefault !== null,
+    isDefault: defaultFor(filters.type)?.toString() === currentQuery,
+    canSave: knownCaps !== null && toSave.query !== '',
+    onSave,
+    onRemove,
   }
+
+  return { filters, setFilters, clear, apiQuery, activeCount, savedDefault }
 }

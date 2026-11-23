@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Dropdown, type DropdownOption } from './Dropdown'
 import { ToggleSwitch } from './ToggleSwitch'
 import { useTMDBGenres } from '../hooks/useTMDBGenres'
+import type { SavedDefaultControls } from '../hooks/useDiscoverFilters'
 import {
   COUNTRY_OPTIONS,
   LANGUAGE_OPTIONS,
@@ -14,13 +15,6 @@ import {
   type DiscoverMediaType,
   type DiscoverSort,
 } from '../lib/discoverFilters'
-
-export interface SavedDefaultControls {
-  hasDefault: boolean
-  isDefault: boolean
-  onSave: () => void
-  onRemove: () => void
-}
 
 interface DiscoverFilterBarProps {
   caps: DiscoverCategoryCaps
@@ -257,7 +251,7 @@ export function DiscoverFilterBar({ caps, filters, onChange, onClear, activeCoun
             {savedDefault.isDefault && (
               <span className="text-xs text-muted dark:text-muted-dark">Default filters</span>
             )}
-            {activeCount > 0 && !savedDefault.isDefault && (
+            {savedDefault.canSave && !savedDefault.isDefault && (
               <button type="button" onClick={savedDefault.onSave} className={textButtonClass}>
                 Save as default
               </button>
