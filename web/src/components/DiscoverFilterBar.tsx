@@ -52,7 +52,6 @@ const CODE_FILTERS: { field: CodeField; label: string; ariaLabel: string; noneLa
   { field: 'languages', label: 'Language', ariaLabel: 'Original languages', noneLabel: 'Any language', options: LANGUAGE_OPTIONS },
 ]
 
-// Once a multi-select reaches its cap, every unselected option is disabled.
 function optionsBeyondCap(options: readonly DropdownOption[], selected: readonly string[], cap: number): string[] {
   if (selected.length < cap) return []
   return options.map(o => o.value).filter(v => !selected.includes(v))
